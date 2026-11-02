@@ -301,7 +301,8 @@ async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: str
 守ること:
 - 1つのHTMLの断片だけを書く（<style> と <script> を含めてよい。<html><head><body> は書かない）
 - 外部のファイル・フォント・画像・API・CDN は一切使わない（通信はすべて遮断される）。必要なデータはコードの中に書く
-- localStorage・sessionStorage・Cookie・IndexedDB・alert・confirm・prompt・window.open は使えない（エラーになる）
+- localStorage・sessionStorage・Cookie・IndexedDB・alert・confirm・prompt・window.open は使えない（エラーになる）。別のページを開くリンクも動かない
+- 結果を画像としてダウンロードさせることと、文をクリップボードにコピーすることはできる
 - フォームは送信しない（ボタンは type="button"）。入力は端末の中だけで処理する
 - 名前・メールアドレスなど個人を特定できる情報は入力させない
 - スマホ幅（360px）でも崩れない。prefers-color-scheme でライト・ダークの両方で読めるようにする
@@ -358,7 +359,7 @@ async function buildTool(p: ProjectRow, instruction?: string, prevHtml?: string)
 // 各社に1案ずつ書かせ、伏せ字を付けて3社全員で採点する。1位を返す
 async function competeLp(p: ProjectRow): Promise<{ lp: Lp; author: string; label: string; avg: number; count: number }> {
   const authors = ideaAuthors();
-  const version = p.lp_version + 1;
+  const version = nextVersion(p.id);
   const written = await Promise.all(
     authors.map(async (author) => {
       try {
@@ -475,7 +476,7 @@ async function buildLpVersion(projectId: number, opts: { instruction?: string; n
     lp = await writeLp({ ...p, lp: JSON.stringify(lp) }, `次の問題を直すこと: ${review.issues.join(" / ")}`, opts.keepCore, author);
     review = await reviewLp(p, lp, opts.keepCore ? before : undefined);
   }
-  const version = p.lp_version + 1;
+  const version = nextVersion(p.id);
   const conn = db();
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, projectId);
   conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model) VALUES (?, ?, ?, ?, ?, ?)")
@@ -491,7 +492,7 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
   const lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? page.headline } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
-  const version = p.lp_version + 1;
+  const version = nextVersion(p.id);
   const conn = db();
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, p.id);
   conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model) VALUES (?, ?, ?, ?, ?, ?)")
@@ -501,14 +502,26 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
 }
 
 // 新しいLPを作って、公開の承認待ちにする（最初の公開は、どちらのモードでも人が承認する）
-export async function prepareLp(projectId: number, instruction?: string) {
+// 版の番号は、公開しなかった版も含めて通し番号にする（却下して前の版に戻したあとも重ならないように）
+function nextVersion(projectId: number): number {
+  const r = db().prepare("SELECT MAX(version) AS v FROM lp_versions WHERE project_id = ?").get(projectId) as { v: number | null };
+  return (r.v ?? 0) + 1;
+}
+
+export async function prepareLp(projectId: number, instruction?: string, opts: { keepCore?: boolean; byHuman?: boolean } = {}) {
   const p = getProject(projectId)!;
-  const { lp, review } = await buildLpVersion(projectId, { instruction, note: instruction ? `指示: ${instruction}` : "最初の版" });
+  const note = !instruction ? "最初の版" : opts.byHuman ? `あなたの指示: ${instruction}` : `指示: ${instruction}`;
+  const { lp, review } = await buildLpVersion(projectId, { instruction, note, keepCore: opts.keepCore });
   setStage(projectId, "lp");
+  // すでに公開中なら、承認されるまでは前の版が公開されたまま
+  const replacing = !!p.public_slug && p.public_version !== null;
   addApproval(
     projectId, "publish",
-    p.kind === "tool" ? "このツールを公開する" : "このLPを公開して集客を始める",
-    p.kind === "tool"
+    replacing ? (p.kind === "tool" ? "修正したツールに差し替える" : "修正したLPに差し替える")
+    : p.kind === "tool" ? "このツールを公開する" : "このLPを公開して集客を始める",
+    replacing
+      ? `${instruction ? `指示「${instruction}」で直しました。` : ""}承認すると公開中の第${p.public_version}版と差し替えます。却下すると第${p.public_version}版のまま集客を続けます。${p.kind === "tool" ? "差し替える前に、プレビューでツールを触って確かめてください。" : ""}`
+    : p.kind === "tool"
       ? `${p.target}に向けたツールを公開します。公開する前に、プレビューで実際にツールを触って、動くか確かめてください。`
       : `見出し「${lp.headline}」で、${p.target}に向けて事前登録を募ります。`,
     { review },
@@ -900,7 +913,7 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
     return prepareLp(pid, action === "revise" ? comment : undefined);
   }
   if (a.kind === "publish") {
-    if (action === "reject") return setStage(pid, "rejected");
+    if (action === "reject") return rejectPublish(pid);
     if (action === "revise") return prepareLp(pid, comment);
     setStage(pid, "live");
     await announcePublish(pid);
@@ -926,6 +939,33 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
   setStage(pid, d.decision === "continue" ? "continued" : "killed");
   if (d.decision === "kill") await closePublic(pid);
   await writeLesson(pid, `${DECISION_LABEL[d.decision]}。理由: ${d.reason}`);
+}
+
+// 公開の却下: 公開中の版があれば、その版に戻して集客を続ける。まだ一度も公開していなければ見送り
+function rejectPublish(pid: number) {
+  const p = getProject(pid)!;
+  if (!p.public_slug || p.public_version === null) return setStage(pid, "rejected");
+  const live = db().prepare("SELECT lp FROM lp_versions WHERE project_id = ? AND version = ?").get(pid, p.public_version) as { lp: string } | undefined;
+  if (!live) return setStage(pid, "rejected");
+  db().prepare("UPDATE lp_versions SET note = COALESCE(note, '') || '（却下・公開せず）' WHERE project_id = ? AND version = ?").run(pid, p.lp_version);
+  db().prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(live.lp, p.public_version, pid);
+  setStage(pid, "live");
+  logEvent(pid, "system", "revert", `第${p.lp_version}版は公開せず、公開中の第${p.public_version}版のまま集客を続けます`);
+}
+
+// 案件の画面から、今のLP・ツールへの修正を指示する。作った版は、承認されるまで公開しない
+export async function requestRevision(projectId: number, instruction: string, keepCore: boolean) {
+  const p = getProject(projectId);
+  if (!p?.lp) throw new Error("まだLPやツールがありません");
+  if (!["lp", "live"].includes(p.stage)) throw new Error("作成中か集客中の案件だけ修正できます");
+  const pending = db().prepare("SELECT * FROM approvals WHERE project_id = ? AND status = 'pending'").all(projectId) as ApprovalRow[];
+  if (pending.some((a) => a.kind !== "publish")) throw new Error("ほかの承認待ちがあります。先にそちらを処理してください");
+  // 公開の承認待ちがあれば、それに修正指示を出したことにする
+  for (const a of pending) {
+    db().prepare("UPDATE approvals SET status = 'revised', comment = ?, decided_at = datetime('now') WHERE id = ?").run(instruction, a.id);
+  }
+  logEvent(projectId, "human", "revise-request", `修正を指示: ${instruction}${keepCore ? "（指示した所だけ変える）" : ""}`);
+  await prepareLp(projectId, instruction, { keepCore, byHuman: true });
 }
 
 // ---- 集客データ ----

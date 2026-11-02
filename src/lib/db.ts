@@ -181,6 +181,23 @@ CREATE TABLE IF NOT EXISTS lp_candidate_scores (
   score REAL NOT NULL,
   reason TEXT
 );
+-- SNSの投稿。投稿ごとに専用のリンク（?s=code）を付けて、そこから来た訪問と成果を数える
+CREATE TABLE IF NOT EXISTS sns_posts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  platform TEXT NOT NULL DEFAULT 'x',
+  code TEXT NOT NULL UNIQUE,
+  angle TEXT, -- AIが考えた切り口
+  text TEXT NOT NULL,
+  author TEXT NOT NULL DEFAULT 'ai', -- ai = AIの下書き / human = あなたが書いた
+  status TEXT NOT NULL DEFAULT 'draft', -- draft / posted
+  posted_at TEXT,
+  post_url TEXT,
+  impressions INTEGER, -- 表示回数（Xのアナリティクスから手入力。任意）
+  visits INTEGER NOT NULL DEFAULT 0,
+  conversions INTEGER NOT NULL DEFAULT 0
+);
 -- 実験メモ: 実験で気づいたこと。AI（開発中の観察）とあなたの両方が書ける
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -261,7 +278,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["approvals", "initial_choice", "TEXT"], // 判断: AIの意見を見る前に人が選んだもの
   ["approvals", "final_choice", "TEXT"], // 判断: AIの意見と議論を見たあとに人が確定したもの
   ["projects", "kind", "TEXT NOT NULL DEFAULT 'lp'"],
-  ["lp_versions", "author_model", "TEXT"], // その版のLPを書いたAI // 出し方: lp = 事前登録LP / tool = 動くツール
+  ["lp_versions", "author_model", "TEXT"], // その版のLPを書いたAI
+  ["projects", "public_version", "INTEGER"], // 公開用サイトに今出している版 // 出し方: lp = 事前登録LP / tool = 動くツール
   ["metrics", "shares", "INTEGER NOT NULL DEFAULT 0"], // 動くツールがシェアされた数
   ["projects", "mode_confidence", "REAL"], // モードを決めたときに使った自信（毎日の実行では他社の採点の平均、手動では自己申告）
 ];
@@ -439,6 +457,7 @@ export type ProjectRow = {
   public_slug: string | null;
   mode_confidence: number | null;
   kind: ProductKind;
+  public_version: number | null;
 };
 
 // 出し方（形）。アイデアを出すときにAIが選ぶ

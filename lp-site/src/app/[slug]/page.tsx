@@ -14,7 +14,14 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const lp = await getLp(slug);
   if (!lp) return { title: SITE_NAME };
-  return { title: `${lp.title}｜${SITE_NAME}`, description: lp.content.subheadline };
+  const title = `${lp.title}｜${SITE_NAME}`;
+  // シェア画像は、同じ階層の opengraph-image.tsx が自動で付ける
+  return {
+    title,
+    description: lp.content.subheadline,
+    openGraph: { title, description: lp.content.subheadline, siteName: SITE_NAME, type: "website", locale: "ja_JP" },
+    twitter: { card: "summary_large_image", title, description: lp.content.subheadline },
+  };
 }
 
 export default async function LpPage({ params }: { params: Promise<{ slug: string }> }) {

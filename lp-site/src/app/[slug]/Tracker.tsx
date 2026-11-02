@@ -10,7 +10,8 @@ export function Tracker({ slug, version }: { slug: string; version: number }) {
     fetch("/api/track", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, version, visitorId: visitorId(), referrer: document.referrer.slice(0, 300) }),
+      // ?s=… は、SNSの投稿ごとに付けた専用リンクの目印（どの投稿から来たかを数えるため）
+      body: JSON.stringify({ slug, version, visitorId: visitorId(), referrer: document.referrer.slice(0, 300), source: new URLSearchParams(location.search).get("s") }),
       keepalive: true,
     }).catch(() => {});
 

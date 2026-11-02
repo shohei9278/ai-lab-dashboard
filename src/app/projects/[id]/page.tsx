@@ -10,6 +10,9 @@ import { pct, yen } from "@/lib/format";
 import { ApprovalCard } from "@/components/ApprovalCard";
 import { Stat } from "@/components/ui";
 import { ProjectActions } from "./ProjectActions";
+import { RevisionForm } from "./RevisionForm";
+import { SnsPosts } from "./SnsPosts";
+import { listPosts, postLink } from "@/lib/sns";
 import { publicUrl } from "@/lib/publish";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
 
@@ -137,6 +140,23 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
             </div>
           )}
         </section>
+      )}
+
+      {p.public_slug && ["live", "lp", "deciding", "continued"].includes(p.stage) && (
+        <SnsPosts
+          projectId={p.id}
+          convNoun={conv.noun}
+          ready={!!publicUrl(p.id)}
+          imageUrl={publicUrl(p.id) ? `${publicUrl(p.id)}/opengraph-image?v=${p.public_version ?? p.lp_version}` : null}
+          posts={listPosts(p.id).map((x) => ({
+            id: x.id, code: x.code, angle: x.angle, text: x.text, author: x.author, status: x.status, postedAt: x.posted_at,
+            postUrl: x.post_url, impressions: x.impressions, visits: x.visits, conversions: x.conversions, link: postLink(p.id, x.code),
+          }))}
+        />
+      )}
+
+      {lp && ["lp", "live"].includes(p.stage) && !approvals.some((a) => a.kind !== "publish") && (
+        <RevisionForm id={p.id} isTool={isTool} isPublic={!!p.public_slug} />
       )}
 
       {t.rows.length > 0 && (

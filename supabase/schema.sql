@@ -60,3 +60,7 @@ create table if not exists tool_events (
 );
 create index if not exists tool_events_slug_day on tool_events (slug, day);
 alter table tool_events enable row level security;
+
+-- ---- 追加（SNSの投稿ごとの計測用）。ここから下だけを実行すればよい ----
+-- 投稿に付けた専用のリンク（?s=…）から来た訪問を見分ける
+alter table lp_views add column if not exists source text;

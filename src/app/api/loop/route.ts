@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  addMetrics, decide, finalizeDecision, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  addMetrics, decide, finalizeDecision, requestRevision, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { clearDemo, seedDemo } from "@/lib/demo";
@@ -31,6 +31,12 @@ export async function POST(req: Request) {
       case "generate-lp":
         await prepareLp(requireProject(body).id);
         return NextResponse.json({ ok: true });
+      case "revise": {
+        const instruction = typeof body.instruction === "string" ? body.instruction.trim().slice(0, 1000) : "";
+        if (!instruction) throw new Error("修正の内容を書いてください");
+        await requestRevision(requireProject(body).id, instruction, body.keepCore !== false);
+        return NextResponse.json({ ok: true });
+      }
       case "use-candidate":
         await switchLpCandidate(Number(body.candidateId));
         return NextResponse.json({ ok: true });

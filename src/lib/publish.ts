@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { db, getSettings, type ProjectRow } from "./db";
+import { attributePosts } from "./sns";
 
 // 公開用LPサイト（Vercel）とデータ（Supabase）をつなぐ部分。
 // Supabase の設定がなければ何もしない（今までどおり手入力・シミュレーションで動く）
@@ -32,7 +33,7 @@ export async function publishLp(p: ProjectRow) {
     updated_at: new Date().toISOString(),
   });
   if (error) throw new Error(`LPの公開に失敗しました: ${error.message}`);
-  db().prepare("UPDATE projects SET public_slug = ? WHERE id = ?").run(slugOf(p.id), p.id);
+  db().prepare("UPDATE projects SET public_slug = ?, public_version = ? WHERE id = ?").run(slugOf(p.id), p.lp_version, p.id);
   return true;
 }
 
@@ -45,18 +46,20 @@ export async function closeLp(p: ProjectRow) {
 }
 
 // Supabase は1回に最大1000行しか返さないので、全部そろうまで続けて取る
-async function fetchAll(table: "lp_views" | "signups" | "tool_events", slug: string) {
-  const rows: { version: number; day: string; kind?: string }[] = [];
+type Row = { version: number; day: string; visitor_id: string; kind?: string; source?: string | null };
+const COLUMNS = { lp_views: "version, day, visitor_id, source", signups: "version, day, visitor_id", tool_events: "version, day, visitor_id, kind" } as const;
+
+async function fetchAll(table: keyof typeof COLUMNS, slug: string, columns: string = COLUMNS[table]): Promise<Row[]> {
+  const rows: Row[] = [];
   const page = 1000;
   for (let from = 0; ; from += page) {
-    const { data, error } = await sb()
-      .from(table)
-      .select(table === "tool_events" ? "version, day, kind" : "version, day")
-      .eq("slug", slug)
-      .order("id")
-      .range(from, from + page - 1);
-    if (error) throw new Error(`集計の取得に失敗しました（${table}）: ${error.message}`);
-    rows.push(...(data as unknown as typeof rows));
+    const { data, error } = await sb().from(table).select(columns).eq("slug", slug).order("id").range(from, from + page - 1);
+    if (error) {
+      // 投稿ごとの計測（source 列）を Supabase に追加する前でも、訪問は数えられるようにする
+      if (table === "lp_views" && columns.includes("source") && /source/.test(error.message)) return fetchAll(table, slug, "version, day, visitor_id");
+      throw new Error(`集計の取得に失敗しました（${table}）: ${error.message}`);
+    }
+    rows.push(...(data as unknown as Row[]));
     if (data.length < page) return rows;
   }
 }
@@ -93,6 +96,7 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
       const ins = conn.prepare("INSERT INTO metrics (project_id, day, visits, signups, shares, ad_spend_jpy, source, lp_version) VALUES (?, ?, ?, ?, ?, 0, 'real', ?)");
       for (const a of agg.values()) ins.run(p.id, a.day, a.visits, a.signups, a.shares, a.version);
     })();
+    attributePosts(p.id, views, conv);
     visits += views.length;
     signups += conv.length;
   }

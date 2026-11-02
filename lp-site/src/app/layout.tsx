@@ -7,7 +7,11 @@ import "./globals.css";
 
 const noto = Noto_Sans_JP({ variable: "--font-noto", subsets: ["latin"], weight: ["400", "500", "700"] });
 
+// シェア画像などのURLを絶対URLにするための基準（Vercel が本番のドメインを渡してくれる）
+const base = process.env.SITE_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
+
 export const metadata: Metadata = {
+  metadataBase: new URL(base),
   title: SITE_NAME,
   description: `${SITE_NAME} が準備中のサービスの、事前登録ページです。`,
 };

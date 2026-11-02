@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 // AIが作ったツールを、隔離された枠（sandbox）の中で動かす
 // - allow-same-origin を付けないので、ツールからはこのサイトの Cookie・保存領域・ページに触れない
+// - 結果の画像の保存（ダウンロード）とコピーだけは許す。別のページを開く・移動することはできない
 // - CSP で外部への通信や外部ファイルの読み込みを止める
 // - 枠の高さと「使われたか」は、こちらで差し込む小さなスクリプトが知らせる（ツールの中身に頼らない）
 const CSP = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:";
@@ -39,7 +40,8 @@ export function ToolFrame({ html, title, onUse }: { html: string; title: string;
     <iframe
       ref={ref}
       title={title}
-      sandbox="allow-scripts"
+      sandbox="allow-scripts allow-downloads"
+      allow="clipboard-write"
       srcDoc={wrapToolHtml(html)}
       style={{ width: "100%", height, border: 0, display: "block" }}
     />
