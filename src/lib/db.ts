@@ -4,6 +4,13 @@ import path from "node:path";
 
 const DB_PATH = process.env.AI_LAB_DB ?? path.join(process.cwd(), "data", "ai-lab.db");
 
+// DB と同じ場所に置くファイル（ツールの自動テストの画面の写真など）
+export function dataDir(...parts: string[]): string {
+  const dir = path.join(path.dirname(DB_PATH), ...parts);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -198,6 +205,31 @@ CREATE TABLE IF NOT EXISTS sns_posts (
   visits INTEGER NOT NULL DEFAULT 0,
   conversions INTEGER NOT NULL DEFAULT 0
 );
+-- 週ごとのレポート（AIが1週間の数字と動きをまとめ、発信用の下書きも作る）
+CREATE TABLE IF NOT EXISTS reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  period_start TEXT NOT NULL,
+  period_end TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  content TEXT NOT NULL -- JSON（Report 型）
+);
+-- 集客の作戦（フォロワー0のアカウントを、どこから伸ばすかをAIが考えたもの）
+CREATE TABLE IF NOT EXISTS growth_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  model_id TEXT NOT NULL,
+  input TEXT, -- そのときのフォロワー数や、あなたの希望
+  content TEXT NOT NULL, -- JSON（GrowthPlan 型）
+  done TEXT NOT NULL DEFAULT '[]' -- 「今週やること」のうち済んだものの番号（JSON）
+);
+-- 世の中の話題（Googleトレンドの急上昇ワード、はてなブックマークの人気エントリー）。毎日1回取って、アイデア出しに渡す
+CREATE TABLE IF NOT EXISTS trend_snapshots (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+  source TEXT NOT NULL, -- google / hatena
+  items TEXT NOT NULL -- JSON（TrendItem[]）
+);
 -- 実験メモ: 実験で気づいたこと。AI（開発中の観察）とあなたの両方が書ける
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -279,7 +311,10 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["approvals", "final_choice", "TEXT"], // 判断: AIの意見と議論を見たあとに人が確定したもの
   ["projects", "kind", "TEXT NOT NULL DEFAULT 'lp'"],
   ["lp_versions", "author_model", "TEXT"], // その版のLPを書いたAI
-  ["projects", "public_version", "INTEGER"], // 公開用サイトに今出している版 // 出し方: lp = 事前登録LP / tool = 動くツール
+  ["projects", "public_version", "INTEGER"], // 公開用サイトに今出している版
+  ["lp_versions", "test", "TEXT"],
+  ["notes", "is_public", "INTEGER NOT NULL DEFAULT 0"], // 実験の公開ページに載せる
+  ["projects", "notify_status", "TEXT"], // 撤退したときの登録者への連絡: pending = まだ / done = 連絡してメールアドレスを削除した // 動くツールの、ブラウザでの自動テストの結果（JSON） // 出し方: lp = 事前登録LP / tool = 動くツール
   ["metrics", "shares", "INTEGER NOT NULL DEFAULT 0"], // 動くツールがシェアされた数
   ["projects", "mode_confidence", "REAL"], // モードを決めたときに使った自信（毎日の実行では他社の採点の平均、手動では自己申告）
 ];
@@ -353,6 +388,14 @@ export type Settings = {
   lpBaseUrl: string; // 公開用LPサイトのURL（例: https://example.com）
   autoConfidence: number; // 「AIの自信で決める」とき、これ以上の自信なら自動モードにする（0〜1）
   targetUseRate: number; // 動くツールの利用率の目標（訪問のうち実際に使った割合）
+  trendNotes: string; // アイデア出しに渡す「いま話題のネタ」（運営者が自由に書く）
+  weeklyReport: boolean; // 毎週月曜に、1週間のレポートをAIに作らせる
+  lastWeeklyReport: string; // 最後に週のレポートを作った日（YYYY-MM-DD）
+  showcaseEnabled: boolean; // 実験の様子を見せる公開ページ（/showcase）を出す
+  showcaseShowLinks: boolean; // 公開ページに、LP・ツールへのリンクを載せる
+  operatorName: string; // 登録者に連絡するときの差出人（屋号）
+  contactEmail: string; // 登録者に連絡するときの問い合わせ先
+  snsAccount: string; // LP・ツールを紹介する X のアカウント（@なし）
 };
 
 export type ApprovalMode = "manual" | "auto" | "alternate" | "confidence";
@@ -368,6 +411,14 @@ const DEFAULTS: Settings = {
   approvalMode: "alternate",
   autoConfidence: 0.7,
   targetUseRate: 0.3,
+  trendNotes: "",
+  weeklyReport: true,
+  lastWeeklyReport: "",
+  showcaseEnabled: false,
+  showcaseShowLinks: false,
+  operatorName: "",
+  contactEmail: "",
+  snsAccount: "",
   dailyEnabled: false,
   dailyHour: 9,
   dailyIdeaCount: 2,
@@ -383,8 +434,8 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled"]);
+const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];
@@ -458,12 +509,13 @@ export type ProjectRow = {
   mode_confidence: number | null;
   kind: ProductKind;
   public_version: number | null;
+  notify_status: "pending" | "done" | null;
 };
 
 // 出し方（形）。アイデアを出すときにAIが選ぶ
 export type ProductKind = "lp" | "tool";
 
-export type LpVersionRow = { id: number; created_at: string; project_id: number; version: number; lp: string; note: string | null; review: string | null; author_model: string | null };
+export type LpVersionRow = { id: number; created_at: string; project_id: number; version: number; lp: string; note: string | null; review: string | null; author_model: string | null; test: string | null };
 export type LpCandidateRow = {
   id: number; at: string; project_id: number; version: number; label: string; author_model: string; lp: string;
   avg_score: number | null; selected: number; human_selected: number;

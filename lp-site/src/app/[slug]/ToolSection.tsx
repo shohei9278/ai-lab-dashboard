@@ -4,9 +4,10 @@ import { useCallback, useEffect, useState } from "react";
 import { gaEvent } from "@/lib/ga";
 import { ToolFrame } from "@/lp/ToolFrame";
 import { lpButtonClass, lpButtonStyle } from "@/lp/LpView";
-import { visitorId } from "./visitor";
+import { isExcluded, visitorId } from "./visitor";
 
 function record(slug: string, version: number, kind: "use" | "share") {
+  if (isExcluded()) return;
   fetch("/api/event", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

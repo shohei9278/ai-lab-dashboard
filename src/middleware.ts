@@ -3,8 +3,14 @@ import { NextResponse, type NextRequest } from "next/server";
 // サーバーに置いたときは、パスワードを知っている人だけが開けるようにする
 // （DASHBOARD_PASSWORD を設定しなければ、このPCで動かすときと同じくそのまま開ける）
 export function middleware(req: NextRequest) {
+  // 画面の外枠（メニューなど）を出し分けるために、開いているページを伝える
+  const headers = new Headers(req.headers);
+  headers.set("x-pathname", req.nextUrl.pathname);
+  const pass = () => NextResponse.next({ request: { headers } });
+  // 実験の様子を見せる公開ページは、パスワードなしで開ける（出すかどうかは設定で決める）
+  if (req.nextUrl.pathname === "/showcase") return pass();
   const password = process.env.DASHBOARD_PASSWORD;
-  if (!password) return NextResponse.next();
+  if (!password) return pass();
   const user = process.env.DASHBOARD_USER || "admin";
   const header = req.headers.get("authorization") ?? "";
   if (header.startsWith("Basic ")) {
@@ -13,7 +19,7 @@ export function middleware(req: NextRequest) {
       decoded = atob(header.slice(6));
     } catch {}
     const i = decoded.indexOf(":");
-    if (i >= 0 && same(decoded.slice(0, i), user) && same(decoded.slice(i + 1), password)) return NextResponse.next();
+    if (i >= 0 && same(decoded.slice(0, i), user) && same(decoded.slice(i + 1), password)) return pass();
   }
   return new NextResponse("ログインが必要です", {
     status: 401,

@@ -46,22 +46,3 @@ export function IdeaForm({ modelLabel }: { modelLabel: string }) {
     </div>
   );
 }
-
-export function DemoButtons({ hasDemo }: { hasDemo: boolean }) {
-  const { run, busy, error } = useLoopAction();
-  return (
-    <div className="space-y-1">
-      <ActionButton
-        disabled={!!busy}
-        onClick={() =>
-          hasDemo
-            ? confirm("デモ案件をすべて削除します。よろしいですか？") && run("削除しています…", { action: "clear-demo" })
-            : run("デモ案件を作っています…", { action: "seed-demo" })
-        }
-      >
-        {hasDemo ? "デモ案件を消す" : "デモ案件を入れる（AIを使わない）"}
-      </ActionButton>
-      <BusyNote busy={busy} error={error} />
-    </div>
-  );
-}

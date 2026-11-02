@@ -26,7 +26,7 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
 
       <section className="card p-4">
         <h2 className="mb-3 font-bold">メモを追加</h2>
-        <NoteEditor initial={{ topic: "other", certainty: "once", title: "", body: "", projectId: null }} topics={topics} certainties={certainties} projects={projects} />
+        <NoteEditor initial={{ topic: "other", certainty: "once", title: "", body: "", projectId: null, isPublic: false }} topics={topics} certainties={certainties} projects={projects} />
       </section>
 
       <nav className="flex flex-wrap gap-2 text-sm" aria-label="分類で絞り込む">
@@ -50,12 +50,13 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
                   <span aria-hidden style={{ color: CERTAINTY_STYLE[n.certainty] }}>●</span>{NOTE_CERTAINTY[n.certainty].label}
                 </span>
                 <span className="font-medium" style={{ color: n.author === "ai" ? "var(--accent)" : "var(--text-2)" }}>{n.author === "ai" ? "AIの観察" : "あなた"}</span>
+                {n.is_public ? <span className="rounded bg-surface-2 px-1.5 py-0.5">公開ページに掲載</span> : null}
                 {n.project_id && <Link href={`/projects/${n.project_id}`} className="text-accent underline">#{n.project_id} {n.project_title}</Link>}
               </div>
               <h3 className="mt-1 font-bold">{n.title}</h3>
               {n.body && <p className="mt-1 whitespace-pre-wrap text-sm text-ink-2">{n.body}</p>}
               <NoteActions
-                draft={{ id: n.id, topic: n.topic, certainty: n.certainty, title: n.title, body: n.body, projectId: n.project_id }}
+                draft={{ id: n.id, topic: n.topic, certainty: n.certainty, title: n.title, body: n.body, projectId: n.project_id, isPublic: !!n.is_public }}
                 topics={topics}
                 certainties={certainties}
                 projects={projects}

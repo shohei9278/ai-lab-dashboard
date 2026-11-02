@@ -36,9 +36,9 @@ export function listPosts(projectId: number): SnsPost[] {
 
 const newCode = () => crypto.randomBytes(4).toString("hex").slice(0, 6);
 
-export function addPost(projectId: number, text: string, author: "ai" | "human", angle: string | null = null): number {
+export function addPost(projectId: number, text: string, author: "ai" | "human", angle: string | null = null, platform = "x"): number {
   return Number(
-    db().prepare("INSERT INTO sns_posts (project_id, code, angle, text, author) VALUES (?, ?, ?, ?, ?)").run(projectId, newCode(), angle, text, author).lastInsertRowid,
+    db().prepare("INSERT INTO sns_posts (project_id, code, angle, text, author, platform) VALUES (?, ?, ?, ?, ?, ?)").run(projectId, newCode(), angle, text, author, platform).lastInsertRowid,
   );
 }
 
@@ -91,14 +91,15 @@ export function markPosted(id: number, text?: string) {
   if (p.status === "posted") return;
   if (text?.trim()) db().prepare("UPDATE sns_posts SET text = ? WHERE id = ?").run(text.trim().slice(0, 1000), id);
   db().prepare("UPDATE sns_posts SET status = 'posted', posted_at = datetime('now') WHERE id = ?").run(id);
-  logEvent(p.project_id, "human", "sns-post", `Xに投稿: ${(text ?? p.text).slice(0, 60)}…`);
+  logEvent(p.project_id, "human", "sns-post", `${p.platform === "x" ? "X" : p.platform}に投稿: ${(text ?? p.text).slice(0, 60)}…`);
 }
 
 export function setPostStats(id: number, v: { postUrl?: string; impressions?: number | null }) {
-  getPost(id);
+  const post = getPost(id);
   if (v.postUrl !== undefined) {
     const url = v.postUrl.trim();
-    if (url && !/^https:\/\/(x|twitter)\.com\/[^\s]+$/.test(url)) throw new Error("X の投稿のURL（https://x.com/…）を入れてください");
+    const ok = post.platform === "x" ? /^https:\/\/(x|twitter)\.com\/[^\s]+$/.test(url) : /^https:\/\/[^\s]+$/.test(url);
+    if (url && !ok) throw new Error(post.platform === "x" ? "X の投稿のURL（https://x.com/…）を入れてください" : "投稿のURL（https://…）を入れてください");
     db().prepare("UPDATE sns_posts SET post_url = ? WHERE id = ?").run(url || null, id);
   }
   if (v.impressions !== undefined) {

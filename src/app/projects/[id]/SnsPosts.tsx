@@ -4,8 +4,13 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ActionButton } from "@/components/LoopAction";
 
+// 投稿先（growth.ts の SNS_PLATFORMS と同じ）
+const PLATFORMS: Record<string, string> = {
+  x: "X", threads: "Threads", instagram: "Instagram", note: "note", facebook: "Facebook", line: "LINE", community: "コミュニティ・掲示板", other: "その他",
+};
+
 export type PostView = {
-  id: number; code: string; angle: string | null; text: string; author: "ai" | "human"; status: "draft" | "posted";
+  id: number; code: string; platform: string; angle: string | null; text: string; author: "ai" | "human"; status: "draft" | "posted";
   postedAt: string | null; postUrl: string | null; impressions: number | null; visits: number; conversions: number; link: string | null;
 };
 
@@ -27,12 +32,13 @@ async function call(body: Record<string, unknown>) {
 }
 
 // SNSで広める: AIの下書き → あなたが直して X に投稿 → 投稿ごとの訪問・成果
-export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl }: { projectId: number; posts: PostView[]; convNoun: string; ready: boolean; imageUrl: string | null }) {
+export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl, account }: { projectId: number; posts: PostView[]; convNoun: string; ready: boolean; imageUrl: string | null; account: string }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState("");
   const [own, setOwn] = useState("");
+  const [ownPlatform, setOwnPlatform] = useState("x");
 
   async function act(label: string, body: Record<string, unknown>) {
     setBusy(label);
@@ -54,11 +60,17 @@ export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl }: { proj
   return (
     <section className="card space-y-4 p-4">
       <div>
-        <h2 className="font-bold">SNSで広める（X）</h2>
+        <h2 className="font-bold">SNSで広める</h2>
         <p className="text-xs text-muted">
           AIが投稿の下書きを作ります。直してから「Xで投稿する」を押すと、あなたのXの投稿画面が開くので、確認して投稿してください（AIが勝手に投稿することはありません）。
           投稿ごとに専用のリンクが付くので、どの投稿から何人来て、何人が{convNoun}したかが分かります。
         </p>
+        {account && (
+          <p className="mt-1 text-sm">
+            投稿は <a href={`https://x.com/${account}`} target="_blank" rel="noreferrer" className="font-bold text-accent underline">@{account}</a> で行ってください。
+            <span className="text-xs text-muted">（「Xで投稿する」は、ブラウザでログイン中のアカウントで開きます。違うときは、Xでアカウントを切り替えてから押してください）</span>
+          </p>
+        )}
         {!ready && <p className="mt-1 text-xs" style={{ color: "var(--warning)" }}>▲ 設定で「LPサイトのURL」を入れると、リンク付きで投稿できます。</p>}
       </div>
 
@@ -88,10 +100,14 @@ export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl }: { proj
       )}
 
       <details className="text-sm">
-        <summary className="cursor-pointer text-xs text-accent">自分で書く</summary>
+        <summary className="cursor-pointer text-xs text-accent">自分で書く（X 以外の投稿先も選べます）</summary>
+        <p className="mt-1 text-xs text-muted">投稿先ごとに専用のリンクが付くので、「集客の作戦」で出た場所から何人来たかも測れます。</p>
         <div className="mt-2 flex flex-wrap items-end gap-2">
+          <select value={ownPlatform} onChange={(e) => setOwnPlatform(e.target.value)} className="rounded-lg border border-line bg-surface px-2 py-1 text-sm" aria-label="投稿先">
+            {Object.entries(PLATFORMS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
           <textarea value={own} onChange={(e) => setOwn(e.target.value)} rows={2} maxLength={1000} className="block w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm" aria-label="自分で書く投稿" />
-          <ActionButton disabled={!!busy || !own.trim()} onClick={async () => { if (await act("保存しています…", { action: "add", projectId, text: own })) setOwn(""); }}>下書きに追加</ActionButton>
+          <ActionButton disabled={!!busy || !own.trim()} onClick={async () => { if (await act("保存しています…", { action: "add", projectId, text: own, platform: ownPlatform })) setOwn(""); }}>下書きに追加</ActionButton>
         </div>
       </details>
 
@@ -128,15 +144,17 @@ export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl }: { proj
 
 function Draft({ p, busy, act }: { p: PostView; busy: boolean; act: (label: string, body: Record<string, unknown>) => Promise<boolean> }) {
   const [text, setText] = useState(p.text);
+  const isX = p.platform === "x";
   const len = weighted(text);
-  const over = len > 280;
+  const over = isX && len > 280;
   const full = `${text}\n${p.link ?? ""}`;
   return (
     <li className="space-y-2 rounded-lg border border-line p-3">
       <div className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
         <span className="rounded bg-surface-2 px-1.5 py-0.5">{p.author === "ai" ? "AIの下書き" : "あなたの下書き"}</span>
+        <span className="rounded border border-line px-1.5 py-0.5">{PLATFORMS[p.platform] ?? p.platform}</span>
         {p.angle && <span>切り口: {p.angle}</span>}
-        <span className="num ml-auto" style={{ color: over ? "var(--critical)" : undefined }}>{len} / 280{over ? "（長すぎます）" : ""}</span>
+        {isX && <span className="num ml-auto" style={{ color: over ? "var(--critical)" : undefined }}>{len} / 280{over ? "（長すぎます）" : ""}</span>}
       </div>
       <textarea
         value={text}
@@ -148,7 +166,12 @@ function Draft({ p, busy, act }: { p: PostView; busy: boolean; act: (label: stri
       />
       {p.link && <div className="truncate text-xs text-muted">付くリンク: {p.link}</div>}
       <div className="flex flex-wrap gap-2">
-        <a
+        {!isX && (
+          <button type="button" disabled={busy || !p.link} onClick={() => act("投稿済みにしています…", { action: "posted", id: p.id, text })} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink disabled:opacity-50">
+            投稿した
+          </button>
+        )}
+        {isX && <a
           href={p.link ? `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(p.link)}` : undefined}
           target="_blank"
           rel="noreferrer"
@@ -160,9 +183,9 @@ function Draft({ p, busy, act }: { p: PostView; busy: boolean; act: (label: stri
           className={`rounded-lg px-3 py-1.5 text-sm font-medium ${p.link && !over ? "bg-accent text-accent-ink" : "cursor-not-allowed bg-surface-2 text-muted"}`}
         >
           Xで投稿する ↗
-        </a>
+        </a>}
         <button type="button" disabled={!p.link} onClick={() => navigator.clipboard.writeText(full).catch(() => {})} className="rounded-lg border border-line px-3 py-1.5 text-sm">
-          コピー（ほかのSNS用）
+          {isX ? "コピー（ほかのSNS用）" : "文とリンクをコピー"}
         </button>
         <button type="button" disabled={busy} onClick={() => act("消しています…", { action: "delete", id: p.id })} className="px-2 text-sm text-ink-2 underline">消す</button>
       </div>
@@ -177,7 +200,7 @@ function PostedRow({ p, act }: { p: PostView; act: (label: string, body: Record<
   return (
     <tr className="border-b border-line align-top last:border-0">
       <td className="max-w-md px-2 py-2">
-        <div className="text-xs text-muted">{p.postedAt?.slice(5, 16)}{p.angle ? `・${p.angle}` : ""}</div>
+        <div className="text-xs text-muted">{PLATFORMS[p.platform] ?? p.platform}・{p.postedAt?.slice(5, 16)}{p.angle ? `・${p.angle}` : ""}</div>
         <div className="line-clamp-3">{p.text}</div>
       </td>
       <td className="px-2 py-2 text-right">
@@ -194,7 +217,7 @@ function PostedRow({ p, act }: { p: PostView; act: (label: string, body: Record<
         <input
           value={url} onChange={(e) => setUrl(e.target.value)}
           onBlur={() => url !== (p.postUrl ?? "") && act("保存しています…", { action: "stats", id: p.id, postUrl: url })}
-          placeholder="https://x.com/…" className="w-44 rounded border border-line bg-surface px-1 py-0.5 text-xs" aria-label="投稿のURL"
+          placeholder={p.platform === "x" ? "https://x.com/…" : "https://…"} className="w-44 rounded border border-line bg-surface px-1 py-0.5 text-xs" aria-label="投稿のURL"
         />
         {p.postUrl && <a href={p.postUrl} target="_blank" rel="noreferrer" className="ml-1 text-xs text-accent underline">開く</a>}
       </td>

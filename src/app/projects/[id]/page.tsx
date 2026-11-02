@@ -11,8 +11,11 @@ import { ApprovalCard } from "@/components/ApprovalCard";
 import { Stat } from "@/components/ui";
 import { ProjectActions } from "./ProjectActions";
 import { RevisionForm } from "./RevisionForm";
+import { ToolTestCard } from "./ToolTestCard";
+import { NotifyCard } from "./NotifyCard";
 import { SnsPosts } from "./SnsPosts";
 import { listPosts, postLink } from "@/lib/sns";
+import { projectCost } from "@/lib/cost";
 import { publicUrl } from "@/lib/publish";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
 
@@ -142,14 +145,49 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         </section>
       )}
 
+      {p.notify_status === "pending" && (
+        <NotifyCard
+          projectId={p.id}
+          count={t.signups}
+          template={{
+            subject: `【${p.title}】開発を見送ることになりました`,
+            body: [
+              `${p.title} に事前登録いただき、ありがとうございました。`,
+              "",
+              "検討の結果、このサービスは開発を見送ることになりました。ご関心をお寄せいただいたのに、申し訳ありません。",
+              "",
+              "ご登録いただいたメールアドレスは、このご連絡をもって削除します。今後、このサービスに関するメールをお送りすることはありません。",
+              "",
+              `運営: ${s.operatorName || "（設定で屋号を入れてください）"}`,
+              `お問い合わせ: ${s.contactEmail || "（設定で問い合わせ先を入れてください）"}`,
+            ].join("\n"),
+          }}
+        />
+      )}
+      {p.notify_status === "done" && (
+        <p className="card p-3 text-sm text-ink-2">✓ 事前登録してくれた人への連絡と、メールアドレスの削除は済んでいます。</p>
+      )}
+
+      {isTool && lp?.tool && (
+        <ToolTestCard
+          id={p.id}
+          version={p.lp_version}
+          test={(() => {
+            const v = versions.find((x) => x.version === p.lp_version);
+            return v?.test ? JSON.parse(v.test) : null;
+          })()}
+        />
+      )}
+
       {p.public_slug && ["live", "lp", "deciding", "continued"].includes(p.stage) && (
         <SnsPosts
           projectId={p.id}
           convNoun={conv.noun}
           ready={!!publicUrl(p.id)}
+          account={s.snsAccount}
           imageUrl={publicUrl(p.id) ? `${publicUrl(p.id)}/opengraph-image?v=${p.public_version ?? p.lp_version}` : null}
           posts={listPosts(p.id).map((x) => ({
-            id: x.id, code: x.code, angle: x.angle, text: x.text, author: x.author, status: x.status, postedAt: x.posted_at,
+            id: x.id, code: x.code, platform: x.platform, angle: x.angle, text: x.text, author: x.author, status: x.status, postedAt: x.posted_at,
             postUrl: x.post_url, impressions: x.impressions, visits: x.visits, conversions: x.conversions, link: postLink(p.id, x.code),
           }))}
         />
@@ -162,7 +200,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       {t.rows.length > 0 && (
         <section className="space-y-2">
           <h2 className="font-bold">集客の結果{t.simulated && <span className="ml-2 text-xs font-normal text-muted">シミュレーションを含む</span>}</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <Stat label="訪問" value={`${t.visits}人`} sub={`判断の目安 ${s.judgeMinVisits}人`} />
             <Stat label={isTool ? "使った人" : "事前登録"} value={`${t.signups}人`} sub={isTool ? `シェア ${shares}人` : undefined} />
             <Stat
@@ -171,6 +209,16 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
               sub={`目標 ${pct(target, 1)} ${t.rate >= target ? "✓ 達成" : "（未達）"}`}
             />
             <Stat label="広告費" value={`${t.adSpendJpy.toLocaleString("ja-JP")}円`} sub={`上限 ${s.adBudgetPerProjectJpy.toLocaleString("ja-JP")}円 の ${pct(adRatio)}`} />
+            {(() => {
+              const c = projectCost(p.id);
+              return (
+                <Stat
+                  label={`${conv.noun}1件あたりの費用`}
+                  value={c.perConversion === null ? "—" : `${Math.round(c.perConversion).toLocaleString("ja-JP")}円`}
+                  sub={`AI ${Math.round(c.aiJpy).toLocaleString("ja-JP")}円＋広告 ${c.adJpy.toLocaleString("ja-JP")}円`}
+                />
+              );
+            })()}
           </div>
           <div className="card overflow-x-auto">
             <table className="w-full text-sm">

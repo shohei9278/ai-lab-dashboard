@@ -1,6 +1,8 @@
 import { getSettings } from "./db";
 import { logEvent, runDaily, syncAndJudge } from "./loop";
 import { publishingConfigured } from "./publish";
+import { maybeWeeklyReport } from "./report";
+import { maybeRefreshTrends } from "./trends";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
 const CHECK_EVERY_MS = 15 * 60 * 1000;
@@ -23,6 +25,17 @@ async function tick() {
     if (publishingConfigured()) await syncAndJudge();
   } catch (e) {
     logEvent(null, "system", "sync-error", `集客データの取り込みでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
+  }
+  // 世の中の話題は、アイデア出しより先に取っておく
+  try {
+    await maybeRefreshTrends();
+  } catch (e) {
+    logEvent(null, "system", "trend-error", `話題の取得でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
+  }
+  try {
+    await maybeWeeklyReport();
+  } catch (e) {
+    logEvent(null, "system", "report-error", `週のレポートの作成でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
   }
   try {
     const s = getSettings();

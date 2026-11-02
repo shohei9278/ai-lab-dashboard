@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import { addPost, deletePost, draftPosts, markPosted, setPostStats, updatePostText } from "@/lib/sns";
+import { SNS_PLATFORMS } from "@/lib/growth";
 
 // SNS投稿の下書き・編集・投稿済みの記録
 export async function POST(req: Request) {
@@ -15,7 +16,9 @@ export async function POST(req: Request) {
       }
       case "add":
         if (!text.trim()) throw new Error("本文を書いてください");
-        return NextResponse.json({ id: addPost(Number(body.projectId), text.trim().slice(0, 1000), "human") });
+        return NextResponse.json({
+          id: addPost(Number(body.projectId), text.trim().slice(0, 1000), "human", null, typeof body.platform === "string" && body.platform in SNS_PLATFORMS ? body.platform : "x"),
+        });
       case "update":
         updatePostText(Number(body.id), text);
         return NextResponse.json({ ok: true });

@@ -16,7 +16,7 @@ export type WaitItem = {
   projectId: number;
   title: string;
   demo: boolean;
-  kind: ApprovalKind | "stuck";
+  kind: ApprovalKind | "stuck" | "notify";
   stage: Stage;
   since: string; // UTC の datetime
   daysWaiting: number;
@@ -57,6 +57,11 @@ export function waitingItems(): WaitItem[] {
       key: `s${p.id}`, projectId: p.id, title: p.title, demo: !!p.demo, kind: "stuck", stage: p.stage,
       since: p.updated_at, daysWaiting: daysSince(p.updated_at), daysLeft: null,
     });
+  }
+  // 撤退した案件で、事前登録してくれた人への連絡がまだのもの
+  const notify = db().prepare("SELECT * FROM projects WHERE notify_status = 'pending'").all() as ProjectRow[];
+  for (const p of notify) {
+    items.push({ key: `n${p.id}`, projectId: p.id, title: p.title, demo: !!p.demo, kind: "notify", stage: p.stage, since: p.updated_at, daysWaiting: daysSince(p.updated_at), daysLeft: null });
   }
   return items.sort((a, b) => a.since.localeCompare(b.since));
 }

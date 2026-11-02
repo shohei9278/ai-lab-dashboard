@@ -1,7 +1,10 @@
 import { callJson, isObj, isStr } from "./ai";
 import { ICONS, PREVIEW_KINDS, THEMES, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
 import { MODELS, hasKey } from "./models";
-import { closeLp, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
+import { testIssues, testTool, type ToolTest } from "./toolTest";
+import { seasonalContext } from "./season";
+import { trendsText } from "./trends";
+import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
   db, getSettings, saveSettings,
   type ApprovalRow, type LessonRow, type LpCandidateRow, type LpVersionRow, type MetricRow, type ProductKind, type ProjectRow, type Stage,
@@ -169,10 +172,11 @@ async function askIdeas(theme: string, count: number, modelId?: string): Promise
 - 医療・法律・金融など、規制が強い領域や専門資格が必要な領域は避ける（tool でも、診断の形で助言をしない）
 - 誇大な約束はしない
 - 実在の人物・団体のデータを使う tool は、正確なデータをコードに書けるものだけにする
+- 世の中の話題は、ヒントとして使う（そのまま題材にしなくてよい）。事件・事故・災害・訃報・個人の不祥事など、人の不幸や特定の個人に乗った企画はしない
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。
 形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
-    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}`,
+    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
   return out.ideas.slice(0, count);
@@ -337,21 +341,33 @@ async function reviewTool(p: ProjectRow, html: string): Promise<Review> {
 }
 
 // ツール本体を書いてチェックし、問題があれば1回だけ直す
-async function buildTool(p: ProjectRow, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review }> {
+// チェックは3つ: コードの決まりごと、AIによるコードの確認、本物のブラウザ（スマホ幅）で動かすテスト
+async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review; test: ToolTest }> {
   let html = await writeToolHtml(p, instruction, prevHtml);
-  const check = async (h: string): Promise<Review> => {
-    const found = staticToolIssues(h);
-    const ai = await reviewTool(p, h);
-    const issues = [...found, ...ai.issues];
-    return { ok: issues.length === 0 && ai.ok, issues };
+  const check = async (h: string): Promise<{ review: Review; test: ToolTest }> => {
+    const [ai, test] = await Promise.all([reviewTool(p, h), testTool(h, shotName)]);
+    const issues = [...staticToolIssues(h), ...ai.issues, ...testIssues(test)];
+    return { review: { ok: issues.length === 0 && ai.ok, issues }, test };
   };
-  let review = await check(html);
-  if (!review.ok) {
-    logEvent(p.id, "ai", "review", `ツールのチェックで問題が見つかったため書き直し: ${review.issues.join(" / ")}`);
-    html = await writeToolHtml(p, `次の問題を直すこと: ${review.issues.join(" / ")}`, html);
-    review = await check(html);
+  let r = await check(html);
+  if (!r.review.ok) {
+    logEvent(p.id, "ai", "review", `ツールのチェックで問題が見つかったため書き直し: ${r.review.issues.join(" / ")}`);
+    html = await writeToolHtml(p, `次の問題を直すこと: ${r.review.issues.join(" / ")}`, html);
+    r = await check(html);
   }
-  return { html, review };
+  return { html, ...r };
+}
+
+// 今の版のツールを、もう一度ブラウザで自動テストする（案件の画面のボタンから）
+export async function retestTool(projectId: number): Promise<ToolTest> {
+  const p = getProject(projectId);
+  const tool = p?.lp ? (JSON.parse(p.lp) as Lp).tool : undefined;
+  if (!p || !tool) throw new Error("動くツールの案件ではありません");
+  const test = await testTool(tool.html, `p${p.id}-v${p.lp_version}`);
+  db().prepare("UPDATE lp_versions SET test = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(test), p.id, p.lp_version);
+  const issues = testIssues(test);
+  logEvent(p.id, "system", "tool-test", test.skipped ? test.skipped : issues.length ? `自動テストで問題: ${issues.join(" / ")}` : `自動テストで問題なし（${test.clicked}か所を操作）`);
+  return test;
 }
 
 // ---- LPのデザイン候補を3社で競わせる ----
@@ -487,16 +503,16 @@ async function buildLpVersion(projectId: number, opts: { instruction?: string; n
 
 async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { instruction?: string; note: string; keepCore?: boolean }) {
   const { shareText, ...page } = await writeLp(p, opts.instruction, opts.keepCore);
-  const tool = await buildTool(p, opts.instruction, before?.tool?.html);
+  const version = nextVersion(p.id);
+  const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html);
   const pageReview = await reviewLp(p, page, opts.keepCore ? before : undefined);
   const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
   const lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? page.headline } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
-  const version = nextVersion(p.id);
   const conn = db();
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, p.id);
-  conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(p.id, version, JSON.stringify(lp), opts.note, JSON.stringify(review), getSettings().loopModel);
+  conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model, test) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(p.id, version, JSON.stringify(lp), opts.note, JSON.stringify(review), getSettings().loopModel, JSON.stringify(tool.test));
   logEvent(p.id, "ai", "lp", `ツールと紹介ページを作成（第${version}版・${(tool.html.length / 1000).toFixed(1)}千文字）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
   return { lp, review, version };
 }
@@ -968,6 +984,16 @@ export async function requestRevision(projectId: number, instruction: string, ke
   await prepareLp(projectId, instruction, { keepCore, byHuman: true });
 }
 
+// 撤退した案件の登録者への連絡が済んだ: メールアドレスを消して、済みにする
+export async function finishNotify(projectId: number): Promise<number> {
+  const p = getProject(projectId);
+  if (!p?.public_slug || p.notify_status !== "pending") throw new Error("連絡が必要な案件ではありません");
+  const n = await deleteSignups(p.public_slug);
+  db().prepare("UPDATE projects SET notify_status = 'done' WHERE id = ?").run(projectId);
+  logEvent(projectId, "human", "notify-done", `登録者に連絡し、メールアドレス${n}件を削除しました`);
+  return n;
+}
+
 // ---- 集客データ ----
 
 export async function addMetrics(projectId: number, rows: { day: string; visits: number; signups: number; shares?: number; adSpendJpy: number; source: "manual" | "simulated" }[]) {
@@ -1001,8 +1027,14 @@ async function announcePublish(projectId: number) {
 }
 
 async function closePublic(projectId: number) {
+  const p = getProject(projectId)!;
+  // 事前登録してくれた人がいれば、連絡してメールアドレスを消すまでを「やること」に残す
+  if (p.kind === "lp" && projectTotals(projectId).signups > 0) {
+    db().prepare("UPDATE projects SET notify_status = 'pending' WHERE id = ?").run(projectId);
+    logEvent(projectId, "system", "notify-pending", "事前登録してくれた人への連絡と、メールアドレスの削除が必要です");
+  }
   try {
-    if (await closeLp(getProject(projectId)!)) logEvent(projectId, "system", "close", "公開中のLPの受付を終了しました");
+    if (await closeLp(p)) logEvent(projectId, "system", "close", "公開中のLPの受付を終了しました");
   } catch (e) {
     logEvent(projectId, "system", "publish-error", (e instanceof Error ? e.message : String(e)).slice(0, 300));
   }

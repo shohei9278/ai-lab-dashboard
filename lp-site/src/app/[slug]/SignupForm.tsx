@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { gaEvent } from "@/lib/ga";
 import { lpButtonClass, lpButtonStyle } from "@/lp/LpView";
-import { visitorId } from "./visitor";
+import { isExcluded, visitorId } from "./visitor";
 
 export function SignupForm({ slug, version, cta }: { slug: string; version: number; cta: string }) {
   const [email, setEmail] = useState("");
@@ -21,7 +21,7 @@ export function SignupForm({ slug, version, cta }: { slug: string; version: numb
     const res = await fetch("/api/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, version, email, consent, website, visitorId: visitorId() }),
+      body: JSON.stringify({ slug, version, email, consent, website, visitorId: visitorId(), test: isExcluded() }),
     }).catch(() => null);
     const data = res ? await res.json().catch(() => ({})) : {};
     if (res?.ok) {

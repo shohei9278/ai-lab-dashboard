@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  addMetrics, decide, finalizeDecision, requestRevision, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  addMetrics, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
-import { clearDemo, seedDemo } from "@/lib/demo";
+import { signupEmails } from "@/lib/publish";
 
 // 製品ループの操作をまとめて受け付ける
 export async function POST(req: Request) {
@@ -37,6 +37,15 @@ export async function POST(req: Request) {
         await requestRevision(requireProject(body).id, instruction, body.keepCore !== false);
         return NextResponse.json({ ok: true });
       }
+      case "notify-emails": {
+        const p = requireProject(body);
+        if (!p.public_slug || p.notify_status !== "pending") throw new Error("連絡が必要な案件ではありません");
+        return NextResponse.json({ emails: await signupEmails(p.public_slug) });
+      }
+      case "notify-done":
+        return NextResponse.json({ deleted: await finishNotify(requireProject(body).id) });
+      case "test-tool":
+        return NextResponse.json(await retestTool(requireProject(body).id));
       case "use-candidate":
         await switchLpCandidate(Number(body.candidateId));
         return NextResponse.json({ ok: true });
@@ -62,12 +71,6 @@ export async function POST(req: Request) {
         const judged = await addMetrics(p.id, [{ day, visits, signups, adSpendJpy, source: "manual" }]);
         return NextResponse.json({ ok: true, judged });
       }
-      case "seed-demo":
-        seedDemo();
-        return NextResponse.json({ ok: true });
-      case "clear-demo":
-        clearDemo();
-        return NextResponse.json({ ok: true });
       default:
         throw new Error("不明な操作です");
     }

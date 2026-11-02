@@ -4,9 +4,10 @@ import { getModel } from "@/lib/models";
 import { CONV, MODE_LABEL, STAGE_LABEL, activeLessons, modeComparison, projectTotals, targetRate } from "@/lib/loop";
 import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
 import { SignupTrend } from "@/components/SignupTrend";
+import { costEfficiency } from "@/lib/cost";
 import { pct, yen } from "@/lib/format";
 import { KillSwitch } from "@/components/KillSwitch";
-import { DemoButtons, IdeaForm } from "@/components/IdeaForm";
+import { IdeaForm } from "@/components/IdeaForm";
 import { DailyCard } from "@/components/DailyCard";
 import { Stat } from "@/components/ui";
 
@@ -29,7 +30,6 @@ export default function Home() {
     (db().prepare("SELECT DISTINCT project_id FROM approvals WHERE status = 'pending'").all() as { project_id: number }[]).map((r) => r.project_id),
   );
   const lessons = activeLessons({ includeDemo: true });
-  const hasDemo = projects.some((p) => p.demo);
   const hasSimulated = !!db().prepare("SELECT 1 FROM metrics WHERE source = 'simulated' LIMIT 1").get();
   const lastDaily = db().prepare("SELECT message FROM events WHERE kind = 'daily' ORDER BY id DESC LIMIT 1").get() as { message: string } | undefined;
   const modes = modeComparison();
@@ -71,7 +71,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* 大きな数字（デモを除いた実データ） */}
+      {/* 大きな数字 */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <a
           href="#waiting"
@@ -101,7 +101,9 @@ export default function Home() {
             {waiting.map((w) => {
               const label = w.kind === "stuck"
                 ? { title: "AIの作業が途中で停止", action: "作り直しを指示する" }
-                : WAIT_LABEL[w.kind];
+                : w.kind === "notify"
+                  ? { title: "登録者への連絡", action: "撤退を伝えて、メールアドレスを消す" }
+                  : WAIT_LABEL[w.kind];
               const urgent = w.daysLeft !== null && w.daysLeft <= 1;
               return (
                 <li key={w.key}>
@@ -141,7 +143,7 @@ export default function Home() {
         <section className="card p-4 lg:col-span-2">
           <Head
             title="登録・利用の推移（累計）"
-            note={`実データのみ（デモを除く）${o.trendSimulated ? "。シミュレーションの架空の数字を含みます" : ""}。点に合わせると訪問数も見られます。`}
+            note={`${o.trendSimulated ? "シミュレーションの架空の数字を含みます。" : ""}点に合わせると訪問数も見られます。`}
           />
           {o.trend.length ? (
             <SignupTrend data={o.trend} />
@@ -171,7 +173,7 @@ export default function Home() {
 
       {/* 自動化のループ */}
       <section className="card p-4">
-        <Head title="AIのプロダクト自動化ループ" note="各段階にいる案件の数です（デモを含む）。「あなた待ち」があると、AIはそこで止まっています。" />
+        <Head title="AIのプロダクト自動化ループ" note="各段階にいる案件の数です。「あなた待ち」があると、AIはそこで止まっています。" />
         <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {FLOW.map((f, i) => {
             const n = o.stageCount(f.stages);
@@ -254,6 +256,15 @@ export default function Home() {
               <div className="flex justify-between"><span>広告費</span><span className="num">{o.adJpy.toLocaleString("ja-JP")}円</span></div>
               <div className="num text-xs text-muted">1案件の上限 {s.adBudgetPerProjectJpy.toLocaleString("ja-JP")}円{hasSimulated ? "・シミュレーションの架空の金額を含む" : ""}</div>
             </div>
+            {(() => {
+              const c = costEfficiency().all;
+              return (
+                <div className="text-xs text-ink-2">
+                  これまでの成果1件あたり: <span className="num font-medium text-ink">{c.perConversion === null ? "—" : `${Math.round(c.perConversion).toLocaleString("ja-JP")}円`}</span>
+                  <span className="text-muted">（実案件のAI費用＋広告費 ÷ 登録・利用 {c.conversions}件。<Link href="/lab" className="underline">内訳</Link>）</span>
+                </div>
+              );
+            })()}
             <div className="border-t border-line pt-2 text-xs text-ink-2">
               使っているAI：{getModel(s.loopModel).label}（<Link href="/settings" className="underline">設定で変更</Link>）
             </div>
@@ -277,11 +288,10 @@ export default function Home() {
       <section id="board" className="scroll-mt-4 space-y-2">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="font-bold">案件の一覧</h2>
-          <DemoButtons hasDemo={hasDemo} />
         </div>
         {projects.length === 0 ? (
           <div className="card p-6 text-sm text-ink-2">
-            まだ案件がありません。上の「アイデアを出す」でAIに考えさせるか、「デモ案件を入れる」で流れを確認できます。
+            まだ案件がありません。上の「アイデアを出す」でAIに考えさせてください。
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -304,7 +314,7 @@ export default function Home() {
       <section className="space-y-2">
         <h2 className="font-bold">「毎回承認」と「自動で進める」の比較</h2>
         <p className="text-xs text-muted">
-          どこまでAIに任せてよいかを確かめるための比較です（デモ案件は含みません）。件数が少ないうちは差が偶然の可能性が高いので、参考程度に見てください。
+          どこまでAIに任せてよいかを確かめるための比較です。件数が少ないうちは差が偶然の可能性が高いので、参考程度に見てください。
         </p>
         <div className="card overflow-x-auto">
           <table className="w-full text-sm">
@@ -341,7 +351,7 @@ export default function Home() {
       <div>
         <section className="space-y-2">
           <h2 className="font-bold">AIの教訓メモ</h2>
-          <p className="text-xs text-muted">終わった案件からAIが学んだこと。次のアイデア出しで参照されます（デモの教訓は参照されません）。</p>
+          <p className="text-xs text-muted">終わった案件からAIが学んだこと。次のアイデア出しで参照されます。</p>
           <div className="card divide-y divide-line text-sm">
             {lessons.length ? lessons.map((l) => (
               <div key={l.id} className="p-3">

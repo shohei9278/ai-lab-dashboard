@@ -9,6 +9,7 @@ import { PageIntro } from "@/components/PageIntro";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
 import { IdeaAuthors } from "@/components/IdeaAuthors";
 import { DesignAuthors } from "@/components/DesignAuthors";
+import { CostEfficiency } from "@/components/CostEfficiency";
 import { MockBadge, Stat } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +44,8 @@ export default function LabPage() {
       <IdeaAuthors />
 
       <DesignAuthors />
+
+      <CostEfficiency />
 
       <div className="space-y-1 border-t border-line pt-6">
         <h2 className="font-bold">基礎テスト</h2>

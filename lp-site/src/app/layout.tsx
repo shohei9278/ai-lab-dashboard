@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Noto_Sans_JP } from "next/font/google";
 import Script from "next/script";
 import { GA_MEASUREMENT_ID, SITE_NAME } from "@/lib/site";
+import { ExcludedNotice } from "./ExcludedNotice";
 import "./globals.css";
 
 const noto = Noto_Sans_JP({ variable: "--font-noto", subsets: ["latin"], weight: ["400", "500", "700"] });
@@ -24,10 +25,13 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <>
             <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`} strategy="afterInteractive" />
             <Script id="ga" strategy="afterInteractive">
-              {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_MEASUREMENT_ID}');`}
+              {/* 運営者のブラウザ（?me=1 で印を付けたもの）では、GA に何も送らない */}
+              {`try{var m=new URLSearchParams(location.search).get('me');if(m==='1')localStorage.setItem('lp_exclude_me','1');if(m==='0')localStorage.removeItem('lp_exclude_me');if(localStorage.getItem('lp_exclude_me')==='1')window['ga-disable-${GA_MEASUREMENT_ID}']=true;}catch(e){}
+window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${GA_MEASUREMENT_ID}');`}
             </Script>
           </>
         )}
+        <ExcludedNotice />
         {children}
         <footer className="border-t border-line px-4 py-6 text-center text-xs text-muted">
           運営: {SITE_NAME}・<Link href="/privacy" className="underline">プライバシーポリシー</Link>

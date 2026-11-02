@@ -2,11 +2,12 @@
 
 import { useEffect } from "react";
 import { gaEvent } from "@/lib/ga";
-import { visitorId } from "./visitor";
+import { isExcluded, visitorId } from "./visitor";
 
 // 開いたことを1回だけ記録する。あわせて、どの部分まで読まれたかをGAに送る
 export function Tracker({ slug, version }: { slug: string; version: number }) {
   useEffect(() => {
+    if (isExcluded()) return;
     fetch("/api/track", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

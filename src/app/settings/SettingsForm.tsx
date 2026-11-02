@@ -29,7 +29,8 @@ export function SettingsForm({ initial, models, publishing }: {
   });
 
   async function save() {
-    const { targetPct, autoConfidencePct, useRatePct, lastDailyRun, killSwitch, ...rest } = v;
+    const { targetPct, autoConfidencePct, useRatePct, lastDailyRun, lastWeeklyReport, killSwitch, ...rest } = v;
+    void lastWeeklyReport;
     void lastDailyRun; void killSwitch; // 画面からは変えない
     const res = await fetch("/api/settings", {
       method: "POST",
@@ -105,6 +106,19 @@ export function SettingsForm({ initial, models, publishing }: {
           <Field label="集客中の上限" note="これ以上あれば、その日は休みます。"><input type="number" min={1} {...num("maxLive")} className={input} /></Field>
           <Field label="承認待ちの期限（日）" note="過ぎたら自動で見送りにします。"><input type="number" min={1} {...num("staleDays")} className={input} /></Field>
         </div>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={v.weeklyReport} onChange={(e) => set("weeklyReport", e.target.checked)} />
+          <span>
+            毎週月曜に、1週間のレポートを作る
+            <span className="block text-xs text-muted">数字と動きのまとめに加えて、Xの投稿と記事（note など）の下書き、実験メモの追加案を作ります（1回 約10〜20円）。「レポート」のページで見られます。</span>
+          </span>
+        </label>
+        <Field
+          label="いま話題のネタ（任意）"
+          note="アイデア出しのときに、今月・来月の行事（自動で入ります）と一緒にAIに渡します。その年だけの出来事や、気になっている話題を書いてください。例: ドラフト会議が話題、年末の大掃除向けツールを試したい"
+        >
+          <textarea value={v.trendNotes} onChange={(e) => set("trendNotes", e.target.value)} maxLength={500} rows={2} className="block w-full max-w-2xl rounded-lg border border-line bg-surface px-2 py-1 text-sm" />
+        </Field>
       </section>
 
       <section className="card space-y-4 p-4">
@@ -156,6 +170,48 @@ export function SettingsForm({ initial, models, publishing }: {
             className="block w-full max-w-md rounded-lg border border-line bg-surface px-2 py-1"
           />
         </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="運営者名（屋号）" note="撤退したときに、登録者へ送るメールの差出人に使います。">
+            <input value={v.operatorName} onChange={(e) => set("operatorName", e.target.value)} maxLength={60} className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />
+          </Field>
+          <Field label="LP・ツールを紹介する X のアカウント" note="「SNSで広める」の欄に、どのアカウントで投稿するかを表示します（@なしで入力）。">
+            <input value={v.snsAccount} onChange={(e) => set("snsAccount", e.target.value)} maxLength={16} placeholder="hitoride_app" className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />
+          </Field>
+          <Field label="問い合わせ先のメールアドレス" note="同じく、登録者へ送るメールに載せます（プライバシーポリシーの連絡先と同じものがおすすめ）。">
+            <input type="email" value={v.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />
+          </Field>
+        </div>
+        {initial.lpBaseUrl && (
+          <div className="rounded-lg bg-surface-2 p-3 text-sm">
+            <div className="font-medium">自分の訪問を数えないようにする</div>
+            <p className="mt-1 text-xs text-ink-2">
+              確認のために自分でLPを開くと、訪問として数えられてしまいます。使っているブラウザごとに（PC・スマホそれぞれで）、下のリンクを一度開いてください。
+              以後そのブラウザでは、訪問・ツールの利用・シェア・登録・GA のどれにも数えません（LPの上に黒い帯が出ます）。元に戻すには <code>?me=0</code> を付けて開きます。
+            </p>
+            <a href={`${initial.lpBaseUrl.replace(/\/+$/, "")}/?me=1`} target="_blank" rel="noreferrer" className="mt-2 inline-block text-sm text-accent underline">
+              このブラウザを数えないようにする ↗
+            </a>
+          </div>
+        )}
+      </section>
+
+      <section className="card space-y-3 p-4">
+        <h2 className="font-bold">実験の公開ページ</h2>
+        <p className="text-xs text-muted">
+          実験の様子（数字・公開した案件・AIどうしの採点・実験メモ・週のまとめ）を、パスワードなしで見られるページとして出します。発信するときのリンク先に使えます。
+          まだ公開していないアイデアや承認待ちの中身は載せません。実験メモは「公開ページに載せる」を付けたものだけ載せます。
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={v.showcaseEnabled} onChange={(e) => set("showcaseEnabled", e.target.checked)} />
+          公開ページを出す（<a href="/showcase" target="_blank" className="text-accent underline">/showcase</a>）
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={v.showcaseShowLinks} onChange={(e) => set("showcaseShowLinks", e.target.checked)} />
+          <span>
+            案件のLP・ツールへのリンクを載せる
+            <span className="block text-xs text-muted">載せると、公開ページを見た人がLPに来られます。そのかわり、LPの屋号（{initial.lpBaseUrl || "LPサイト"}）とこの実験が結びつきます。</span>
+          </span>
+        </label>
       </section>
 
       <section className="card space-y-4 p-4">

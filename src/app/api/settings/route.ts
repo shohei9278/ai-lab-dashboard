@@ -23,10 +23,25 @@ export async function POST(req: Request) {
   if (typeof body.dailyEnabled === "boolean") patch.dailyEnabled = body.dailyEnabled;
   if (typeof body.shadowJudge === "boolean") patch.shadowJudge = body.shadowJudge;
   if (typeof body.debateEnabled === "boolean") patch.debateEnabled = body.debateEnabled;
+  if (typeof body.weeklyReport === "boolean") patch.weeklyReport = body.weeklyReport;
+  if (typeof body.showcaseEnabled === "boolean") patch.showcaseEnabled = body.showcaseEnabled;
+  if (typeof body.showcaseShowLinks === "boolean") patch.showcaseShowLinks = body.showcaseShowLinks;
   if (typeof body.lpBaseUrl === "string") {
     const v = body.lpBaseUrl.trim();
     if (v && !/^https:\/\/[^\s/]+(\/[^\s]*)?$/.test(v)) return NextResponse.json({ error: "LPサイトのURLは https:// から始めてください" }, { status: 400 });
     patch.lpBaseUrl = v;
+  }
+  if (typeof body.trendNotes === "string") patch.trendNotes = body.trendNotes.trim().slice(0, 500);
+  if (typeof body.snsAccount === "string") {
+    const v = body.snsAccount.trim().replace(/^@/, "");
+    if (v && !/^[A-Za-z0-9_]{1,15}$/.test(v)) return NextResponse.json({ error: "X のユーザー名は、英数字と _ の15文字以内です" }, { status: 400 });
+    patch.snsAccount = v;
+  }
+  if (typeof body.operatorName === "string") patch.operatorName = body.operatorName.trim().slice(0, 60);
+  if (typeof body.contactEmail === "string") {
+    const v = body.contactEmail.trim();
+    if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return NextResponse.json({ error: "問い合わせ先のメールアドレスを確認してください" }, { status: 400 });
+    patch.contactEmail = v;
   }
   if (body.loopModel !== undefined) {
     if (!MODELS.some((m) => m.id === body.loopModel)) return NextResponse.json({ error: "モデルが不正です" }, { status: 400 });

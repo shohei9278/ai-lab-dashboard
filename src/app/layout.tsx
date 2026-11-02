@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Noto_Sans_JP } from "next/font/google";
+import { headers } from "next/headers";
 import { pendingCount } from "@/lib/views";
 import "./globals.css";
 
@@ -13,13 +14,25 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  // 公開ページ（/showcase）では、ダッシュボードのメニューや承認待ちの数を出さない
+  if ((await headers()).get("x-pathname") === "/showcase") {
+    return (
+      <html lang="ja">
+        <body className={`${noto.variable} antialiased`}>
+          <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
+        </body>
+      </html>
+    );
+  }
   const pending = pendingCount();
   const nav = [
     { href: "/", label: "ホーム" },
     { href: "/approvals", label: "承認待ち", badge: pending },
+    { href: "/growth", label: "集客" },
     { href: "/lab", label: "AIの使い分け" },
     { href: "/notes", label: "実験メモ" },
+    { href: "/reports", label: "レポート" },
     { href: "/settings", label: "設定" },
   ];
   return (

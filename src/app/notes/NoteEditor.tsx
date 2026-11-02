@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 type Option = { id: string; label: string };
-export type NoteDraft = { id?: number; topic: string; certainty: string; title: string; body: string; projectId: number | null };
+export type NoteDraft = { id?: number; topic: string; certainty: string; title: string; body: string; projectId: number | null; isPublic: boolean };
 
 // メモを書く・直すフォーム。id があれば編集、なければ追加
 export function NoteEditor({ initial, topics, certainties, projects, onDone }: {
@@ -46,6 +46,7 @@ export function NoteEditor({ initial, topics, certainties, projects, onDone }: {
             {projects.map((p) => <option key={p.id} value={p.id}>#{p.id} {p.title}</option>)}
           </select>
         </label>
+        <label className="flex items-center gap-1.5 pb-2"><input type="checkbox" checked={v.isPublic} onChange={(e) => set("isPublic", e.target.checked)} />公開ページに載せる</label>
         <button type="button" onClick={save} disabled={busy || !v.title.trim()} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-ink disabled:opacity-50">
           {busy ? "保存しています…" : v.id ? "保存" : "メモを追加"}
         </button>

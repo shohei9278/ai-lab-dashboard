@@ -29,6 +29,7 @@ export type NoteRow = {
   title: string;
   body: string;
   project_id: number | null;
+  is_public: number;
 };
 
 export function listNotes(topic?: string): (NoteRow & { project_title: string | null })[] {
@@ -38,7 +39,7 @@ export function listNotes(topic?: string): (NoteRow & { project_title: string | 
     .all(...(where ? [topic] : [])) as (NoteRow & { project_title: string | null })[];
 }
 
-type NoteInput = { topic: NoteTopic; certainty: NoteCertainty; title: string; body: string; projectId: number | null; author?: "ai" | "human"; at?: string };
+type NoteInput = { topic: NoteTopic; certainty: NoteCertainty; title: string; body: string; projectId: number | null; isPublic: boolean; author?: "ai" | "human"; at?: string };
 
 // 画面や API から来た値を確かめて整える
 export function parseNote(v: Record<string, unknown>): NoteInput {
@@ -49,21 +50,21 @@ export function parseNote(v: Record<string, unknown>): NoteInput {
   const body = typeof v.body === "string" ? v.body.trim().slice(0, 4000) : "";
   const pid = Number(v.projectId);
   const projectId = Number.isInteger(pid) && pid > 0 && db().prepare("SELECT 1 FROM projects WHERE id = ?").get(pid) ? pid : null;
-  return { topic, certainty, title, body, projectId };
+  return { topic, certainty, title, body, projectId, isPublic: v.isPublic === true };
 }
 
 export function addNote(n: NoteInput): number {
   return Number(
     db()
-      .prepare("INSERT INTO notes (author, topic, certainty, title, body, project_id, at, updated_at) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))")
-      .run(n.author ?? "human", n.topic, n.certainty, n.title, n.body, n.projectId, n.at ?? null).lastInsertRowid,
+      .prepare("INSERT INTO notes (author, topic, certainty, title, body, project_id, is_public, at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), datetime('now'))")
+      .run(n.author ?? "human", n.topic, n.certainty, n.title, n.body, n.projectId, n.isPublic ? 1 : 0, n.at ?? null).lastInsertRowid,
   );
 }
 
 export function updateNote(id: number, n: NoteInput) {
   const r = db()
-    .prepare("UPDATE notes SET topic = ?, certainty = ?, title = ?, body = ?, project_id = ?, updated_at = datetime('now') WHERE id = ?")
-    .run(n.topic, n.certainty, n.title, n.body, n.projectId, id);
+    .prepare("UPDATE notes SET topic = ?, certainty = ?, title = ?, body = ?, project_id = ?, is_public = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(n.topic, n.certainty, n.title, n.body, n.projectId, n.isPublic ? 1 : 0, id);
   if (!r.changes) throw new Error("メモが見つかりません");
 }
 

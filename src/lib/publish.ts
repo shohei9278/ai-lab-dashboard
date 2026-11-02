@@ -67,7 +67,8 @@ async function fetchAll(table: keyof typeof COLUMNS, slug: string, columns: stri
 // 公開中のLPの訪問と成果（事前登録LPは登録、動くツールは使った人）を、日付と版ごとに数えてダッシュボードに取り込む
 export async function syncRealMetrics(): Promise<{ projects: number; visits: number; signups: number }> {
   if (!publishingConfigured()) return { projects: 0, visits: 0, signups: 0 };
-  const projects = db().prepare("SELECT * FROM projects WHERE public_slug IS NOT NULL AND demo = 0").all() as ProjectRow[];
+  // 撤退した案件は取り込まない（登録者のメールアドレスを消したあとも、それまでの数字を残すため）
+  const projects = db().prepare("SELECT * FROM projects WHERE public_slug IS NOT NULL AND demo = 0 AND stage NOT IN ('killed', 'rejected')").all() as ProjectRow[];
   let visits = 0;
   let signups = 0;
   for (const p of projects) {
@@ -101,4 +102,20 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
     signups += conv.length;
   }
   return { projects: projects.length, visits, signups };
+}
+
+// ---- 撤退したときの登録者への連絡 ----
+
+// 連絡のための宛先（メールアドレス）。画面で見るときだけ取り出し、ダッシュボードには保存しない
+export async function signupEmails(slug: string): Promise<string[]> {
+  const { data, error } = await sb().from("signups").select("email").eq("slug", slug).order("id");
+  if (error) throw new Error(`登録者の取得に失敗しました: ${error.message}`);
+  return (data as { email: string }[]).map((r) => r.email);
+}
+
+// 連絡が済んだら、その案件の登録者のメールアドレスを消す（プライバシーポリシーの約束どおり）
+export async function deleteSignups(slug: string): Promise<number> {
+  const { error, count } = await sb().from("signups").delete({ count: "exact" }).eq("slug", slug);
+  if (error) throw new Error(`メールアドレスの削除に失敗しました: ${error.message}`);
+  return count ?? 0;
 }

@@ -15,6 +15,9 @@ export async function POST(req: Request) {
   const lp = await getLp(String(body.slug ?? ""));
   if (!lp || lp.status !== "published") return NextResponse.json({ error: "このページの受付は終了しています" }, { status: 400 });
 
+  // 運営者のブラウザ（?me=1 で印を付けたもの）からの登録は、確かめるだけで保存しない
+  if (body.test === true) return NextResponse.json({ ok: true });
+
   // 同じメールで2回登録しても、1回として扱う（エラーにはしない）
   const { error } = await supabase()
     .from("signups")
