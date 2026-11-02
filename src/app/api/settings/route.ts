@@ -23,6 +23,11 @@ export async function POST(req: Request) {
   if (typeof body.dailyEnabled === "boolean") patch.dailyEnabled = body.dailyEnabled;
   if (typeof body.shadowJudge === "boolean") patch.shadowJudge = body.shadowJudge;
   if (typeof body.debateEnabled === "boolean") patch.debateEnabled = body.debateEnabled;
+  if (typeof body.lpBaseUrl === "string") {
+    const v = body.lpBaseUrl.trim();
+    if (v && !/^https:\/\/[^\s/]+(\/[^\s]*)?$/.test(v)) return NextResponse.json({ error: "LPサイトのURLは https:// から始めてください" }, { status: 400 });
+    patch.lpBaseUrl = v;
+  }
   if (body.loopModel !== undefined) {
     if (!MODELS.some((m) => m.id === body.loopModel)) return NextResponse.json({ error: "モデルが不正です" }, { status: 400 });
     patch.loopModel = body.loopModel as string;

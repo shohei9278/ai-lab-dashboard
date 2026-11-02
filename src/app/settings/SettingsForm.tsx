@@ -10,7 +10,9 @@ const MODES: { id: ApprovalMode; label: string; body: string }[] = [
   { id: "alternate", label: "交互（比較用）", body: "新しい案件を2つのモードに交互に割り当てて、結果を比べます。" },
 ];
 
-export function SettingsForm({ initial, models }: { initial: Settings; models: { id: string; label: string; ok: boolean }[] }) {
+export function SettingsForm({ initial, models, publishing }: {
+  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean;
+}) {
   const router = useRouter();
   const [v, setV] = useState({
     ...initial,
@@ -118,6 +120,28 @@ export function SettingsForm({ initial, models }: { initial: Settings; models: {
             <input type="number" min={0.1} step="0.1" {...num("targetPct")} className={input} />
           </Field>
         </div>
+      </section>
+
+      <section className="card space-y-3 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-bold">公開用LPサイト</h2>
+          <span className="text-sm" style={{ color: publishing ? "var(--good)" : "var(--muted)" }}>
+            {publishing ? "✓ Supabase に接続済み" : "○ 未設定（公開は手動の前提）"}
+          </span>
+        </div>
+        <p className="text-xs text-muted">
+          公開を承認すると、LPがこのURLの下に「/p案件番号」で公開されます。訪問と登録の数は15分ごとに自動で取り込みます。
+          接続には <code>.env.local</code> に SUPABASE_URL と SUPABASE_SERVICE_ROLE_KEY が必要です（手順は docs/SETUP-LP.md）。
+        </p>
+        <Field label="LPサイトのURL（独自ドメイン）">
+          <input
+            type="url"
+            placeholder="https://example.com"
+            value={v.lpBaseUrl}
+            onChange={(e) => set("lpBaseUrl", e.target.value)}
+            className="block w-full max-w-md rounded-lg border border-line bg-surface px-2 py-1"
+          />
+        </Field>
       </section>
 
       <section className="card space-y-4 p-4">

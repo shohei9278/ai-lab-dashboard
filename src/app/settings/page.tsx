@@ -1,6 +1,7 @@
 import { getSettings } from "@/lib/db";
 import { MODELS, PROVIDER_ENV, PROVIDER_LABEL, hasKey, type Provider } from "@/lib/models";
 import { SettingsForm } from "./SettingsForm";
+import { publishingConfigured } from "@/lib/publish";
 import { PageIntro } from "@/components/PageIntro";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ export default function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageIntro title="設定">AIが使えるお金の上限、案件を判断する基準、製品ループで使うAIを決めます。</PageIntro>
-      <SettingsForm initial={s} models={MODELS.map((m) => ({ id: m.id, label: m.label, ok: hasKey(m.provider) }))} />
+      <SettingsForm initial={s} models={MODELS.map((m) => ({ id: m.id, label: m.label, ok: hasKey(m.provider) }))} publishing={publishingConfigured()} />
 
       <section className="space-y-2">
         <h2 className="font-bold">APIキー</h2>

@@ -1,5 +1,6 @@
 import { getSettings } from "./db";
-import { logEvent, runDaily } from "./loop";
+import { logEvent, runDaily, syncAndJudge } from "./loop";
+import { publishingConfigured } from "./publish";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
 const CHECK_EVERY_MS = 15 * 60 * 1000;
@@ -17,6 +18,12 @@ export function schedulerStatus() {
 }
 
 async function tick() {
+  // 公開中のLPの本物の数字は、毎回取り込む
+  try {
+    if (publishingConfigured()) await syncAndJudge();
+  } catch (e) {
+    logEvent(null, "system", "sync-error", `集客データの取り込みでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
+  }
   try {
     const s = getSettings();
     if (!s.dailyEnabled || new Date().getHours() < s.dailyHour) return;

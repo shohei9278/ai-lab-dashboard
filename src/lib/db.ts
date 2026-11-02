@@ -201,6 +201,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["approvals", "lp_version", "INTEGER NOT NULL DEFAULT 1"],
   ["shadow_judgments", "round_id", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "idea_model", "TEXT"], // アイデアを考えたAI（LPなど以降の作業は設定のAIが行う）
+  ["projects", "public_slug", "TEXT"], // 公開用LPサイトでのURLの一部（実際に公開したものだけ）
   ["approvals", "initial_choice", "TEXT"], // 判断: AIの意見を見る前に人が選んだもの
   ["approvals", "final_choice", "TEXT"], // 判断: AIの意見と議論を見たあとに人が確定したもの
 ];
@@ -271,6 +272,7 @@ export type Settings = {
   shadowJudge: boolean; // 判断のたびに他社の上位AIにも同じ判断をさせて記録する
   debateEnabled: boolean; // AIの判断が割れたら、AI同士に1回反論させて要約する
   improveExtraBudgetJpy: number; // 広告費の上限を超えたあと、改善して再挑戦するために使ってよい追加の広告費（0 = 上限を超えたら改善しない）
+  lpBaseUrl: string; // 公開用LPサイトのURL（例: https://example.com）
 };
 
 export type ApprovalMode = "manual" | "auto" | "alternate";
@@ -296,9 +298,10 @@ const DEFAULTS: Settings = {
   shadowJudge: true,
   debateEnabled: true,
   improveExtraBudgetJpy: 0,
+  lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun"]);
+const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl"]);
 const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled"]);
 
 export function getSettings(): Settings {
@@ -369,6 +372,7 @@ export type ProjectRow = {
   judged_visits: number;
   judged_ad_jpy: number;
   idea_model: string | null;
+  public_slug: string | null;
 };
 
 export type LpVersionRow = { id: number; created_at: string; project_id: number; version: number; lp: string; note: string | null; review: string | null };

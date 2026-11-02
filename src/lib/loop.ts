@@ -1,5 +1,6 @@
 import { callJson, isObj, isStr } from "./ai";
 import { MODELS, hasKey } from "./models";
+import { closeLp, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
   db, getSettings, saveSettings,
   type ApprovalRow, type LessonRow, type LpVersionRow, type MetricRow, type ProjectRow, type Stage,
@@ -512,6 +513,7 @@ export async function finalizeDecision(approvalId: number, choice: string, comme
     return prepareLp(pid, comment?.trim() || fromAi || "登録率が目標に届くよう、見出しを1か所だけ改善する");
   }
   setStage(pid, c === "continue" ? "continued" : "killed");
+  if (c === "kill") await closePublic(pid);
   await writeLesson(pid, `${DECISION_LABEL[c]}。AIの提案: ${DECISION_LABEL[proposed.decision]}（${proposed.reason}）`);
 }
 
@@ -603,6 +605,8 @@ async function autoImprove(projectId: number, d: Decision) {
   db().prepare("UPDATE projects SET improve_count = improve_count + 1 WHERE id = ?").run(projectId);
   setStage(projectId, "live");
   logEvent(projectId, "system", "auto-improve", `自動でLPを改善し、第${version}版で集客を再開（人の承認なし）`);
+  // すでに公開中なら、新しい版に差し替える
+  if (getProject(projectId)!.public_slug) await announcePublish(projectId);
 }
 
 // ---- 4. 教訓メモ ----
@@ -646,7 +650,7 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
     if (action === "reject") return setStage(pid, "rejected");
     if (action === "revise") return prepareLp(pid, comment);
     setStage(pid, "live");
-    logEvent(pid, "system", "publish", `第${getProject(pid)!.lp_version}版のLPで集客を開始（現在は手動で公開・広告出稿する前提）`);
+    await announcePublish(pid);
     return;
   }
   // decision
@@ -667,6 +671,7 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
     return prepareLp(pid, action === "revise" ? comment : d.next_action);
   }
   setStage(pid, d.decision === "continue" ? "continued" : "killed");
+  if (d.decision === "kill") await closePublic(pid);
   await writeLesson(pid, `${DECISION_LABEL[d.decision]}。理由: ${d.reason}`);
 }
 
@@ -685,7 +690,41 @@ export async function addMetrics(projectId: number, rows: { day: string; visits:
 // 次のどちらかで、自動でAIに判断させる
 // - 今の版の訪問が基準を超え、かつ前回の判断から基準の半分以上の訪問が増えた
 // - 広告費が上限、または「上限＋改善用の追加分」に達した（その線を越えてからはまだ判断していない）
-async function maybeAutoJudge(projectId: number) {
+// ---- 公開用LPサイトとのつなぎ ----
+
+// 公開の承認・自動改善のあと: 公開用サイトにLPを載せる。設定がなければ手動公開の前提で記録だけ残す
+async function announcePublish(projectId: number) {
+  const p = getProject(projectId)!;
+  try {
+    if (await publishLp(p)) {
+      logEvent(projectId, "system", "publish", `第${p.lp_version}版のLPを公開しました: ${publicUrl(projectId) ?? slugOf(projectId)}`);
+      return;
+    }
+  } catch (e) {
+    logEvent(projectId, "system", "publish-error", (e instanceof Error ? e.message : String(e)).slice(0, 300));
+    return;
+  }
+  logEvent(projectId, "system", "publish", `第${p.lp_version}版のLPで集客を開始（公開用サイトが未設定のため、手動で公開する前提）`);
+}
+
+async function closePublic(projectId: number) {
+  try {
+    if (await closeLp(getProject(projectId)!)) logEvent(projectId, "system", "close", "公開中のLPの受付を終了しました");
+  } catch (e) {
+    logEvent(projectId, "system", "publish-error", (e instanceof Error ? e.message : String(e)).slice(0, 300));
+  }
+}
+
+// 本物の訪問・登録を取り込み、基準に達した案件はAIに判断させる
+export async function syncAndJudge() {
+  const r = await syncRealMetrics();
+  const live = db().prepare("SELECT id FROM projects WHERE stage = 'live' AND public_slug IS NOT NULL AND demo = 0").all() as { id: number }[];
+  let judged = 0;
+  for (const { id } of live) if (await maybeAutoJudge(id)) judged++;
+  return { ...r, judged };
+}
+
+export async function maybeAutoJudge(projectId: number) {
   const p = getProject(projectId)!;
   const pending = db().prepare("SELECT COUNT(*) AS n FROM approvals WHERE project_id = ? AND status = 'pending'").get(projectId) as { n: number };
   if (p.stage !== "live" || pending.n > 0) return false;

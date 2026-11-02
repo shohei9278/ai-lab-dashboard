@@ -8,6 +8,7 @@ import { pct, yen } from "@/lib/format";
 import { ApprovalCard } from "@/components/ApprovalCard";
 import { Stat } from "@/components/ui";
 import { ProjectActions } from "./ProjectActions";
+import { publicUrl } from "@/lib/publish";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
 
 export const dynamic = "force-dynamic";
@@ -55,7 +56,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       {approvals.map((a) => <ApprovalCard key={a.id} a={a} />)}
 
-      <ProjectActions id={p.id} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} />
+      <ProjectActions id={p.id} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
 
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">AIのアイデア</h2>
