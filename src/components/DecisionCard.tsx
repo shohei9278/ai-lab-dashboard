@@ -46,12 +46,12 @@ export function DecisionCard({ a }: { a: ApprovalView }) {
         <div className="text-xs text-muted">集客の結果（第{j.lpVersion}版のLPまで）</div>
         <dl className="grid gap-2 text-sm sm:grid-cols-4">
           <Item label="訪問">{t.visits}人</Item>
-          <Item label="登録">{t.signups}人</Item>
-          <Item label="登録率（目標）">{pct(t.rate)}（{pct(a.targetRate)}）</Item>
+          <Item label={a.conv.noun}>{t.signups}人</Item>
+          <Item label={`${a.conv.rate}（目標）`}>{pct(t.rate)}（{pct(a.targetRate)}）</Item>
           <Item label="広告費（上限）">{t.adSpendJpy.toLocaleString("ja-JP")}円（{j.adBudgetJpy.toLocaleString("ja-JP")}円）</Item>
         </dl>
         <p className="text-sm"><span className="text-xs text-muted">検証する仮説: </span>{a.project.hypothesis}</p>
-        <Link href={`/lp/${a.project.id}`} target="_blank" className="text-sm text-accent underline">今のLPを見る ↗</Link>
+        <Link href={`/lp/${a.project.id}`} target="_blank" className="text-sm text-accent underline">{a.project.kind === "tool" ? "今のツールを見る ↗" : "今のLPを見る ↗"}</Link>
         {t.simulated && <p className="text-xs text-muted">※ 集客データにシミュレーションが含まれます</p>}
       </div>
 

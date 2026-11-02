@@ -8,6 +8,7 @@ const MODES: { id: ApprovalMode; label: string; body: string }[] = [
   { id: "manual", label: "毎回承認", body: "アイデアの採用・LPの公開・改善・撤退のすべてで、あなたの承認を待ちます。" },
   { id: "auto", label: "自動で進める", body: "アイデアの採用とLPの改善はAIが進めます。最初の公開と、続ける・撤退の判断だけ承認します。" },
   { id: "alternate", label: "交互（比較用）", body: "新しい案件を2つのモードに交互に割り当てて、結果を比べます。" },
+  { id: "confidence", label: "AIの自信で決める", body: "AIの自信が基準以上の案件だけ自動で進め、それ以外は毎回承認にします。「AIの自信は当たるのか」を確かめられます。" },
 ];
 
 export function SettingsForm({ initial, models, publishing }: {
@@ -17,6 +18,8 @@ export function SettingsForm({ initial, models, publishing }: {
   const [v, setV] = useState({
     ...initial,
     targetPct: Math.round(initial.targetSignupRate * 1000) / 10,
+    autoConfidencePct: Math.round(initial.autoConfidence * 100),
+    useRatePct: Math.round(initial.targetUseRate * 100),
   });
   const [msg, setMsg] = useState<string | null>(null);
   const set = <K extends keyof typeof v>(k: K, val: (typeof v)[K]) => setV((s) => ({ ...s, [k]: val }));
@@ -26,12 +29,12 @@ export function SettingsForm({ initial, models, publishing }: {
   });
 
   async function save() {
-    const { targetPct, lastDailyRun, killSwitch, ...rest } = v;
+    const { targetPct, autoConfidencePct, useRatePct, lastDailyRun, killSwitch, ...rest } = v;
     void lastDailyRun; void killSwitch; // 画面からは変えない
     const res = await fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...rest, targetSignupRate: targetPct / 100 }),
+      body: JSON.stringify({ ...rest, targetSignupRate: targetPct / 100, autoConfidence: autoConfidencePct / 100, targetUseRate: useRatePct / 100 }),
     });
     const data = await res.json();
     setMsg(res.ok ? "保存しました" : data.error);
@@ -44,7 +47,7 @@ export function SettingsForm({ initial, models, publishing }: {
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">進め方（モード）</h2>
         <p className="text-xs text-muted">新しく作られる案件に適用されます。すでにある案件のモードは変わりません。お金がかかる最初の公開と、続ける・撤退の判断は、どのモードでも人が承認します。</p>
-        <div className="grid gap-2 sm:grid-cols-3">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {MODES.map((m) => (
             <label key={m.id} className={`cursor-pointer rounded-lg border p-3 text-sm ${v.approvalMode === m.id ? "border-accent" : "border-line"}`}>
               <div className="flex items-center gap-2 font-medium">
@@ -55,6 +58,14 @@ export function SettingsForm({ initial, models, publishing }: {
             </label>
           ))}
         </div>
+        {v.approvalMode === "confidence" && (
+          <Field
+            label="自動モードにする自信の基準（%）"
+            note="毎日の自動実行では、アイデアを出したAI以外の2社による採点の平均（10点満点）を%にして使います（7点なら70%）。手動で依頼したアイデアは、AIの自己申告の自信度を使います。"
+          >
+            <input type="number" min={0} max={100} {...num("autoConfidencePct")} className={input} />
+          </Field>
+        )}
         <Field label="自動モードで、承認なしにLPを改善してよい回数" note="これを超えたら人の判断に回します。改善は1回に1か所だけ、対象読者と仮説は変えません。">
           <input type="number" min={0} {...num("maxAutoImprove")} className={input} />
         </Field>
@@ -116,8 +127,11 @@ export function SettingsForm({ initial, models, publishing }: {
           <Field label="判断に入る訪問数" note="今のLPの版での訪問がこの人数を超えたら、AIが続ける・改善・撤退を提案します。">
             <input type="number" min={1} {...num("judgeMinVisits")} className={input} />
           </Field>
-          <Field label="登録率の目標（%）" note="これを下回ると撤退の候補になります。">
+          <Field label="登録率の目標（%）" note="事前登録LPの案件で、これを下回ると撤退の候補になります。">
             <input type="number" min={0.1} step="0.1" {...num("targetPct")} className={input} />
+          </Field>
+          <Field label="ツールの利用率の目標（%）" note="動くツールの案件で、訪問者のうち実際に使った人の割合。これを下回ると撤退の候補になります。">
+            <input type="number" min={1} max={100} {...num("useRatePct")} className={input} />
           </Field>
         </div>
       </section>

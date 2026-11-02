@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* LPのプレビューで、公開用LPサイトと共通の部品を使う */
+@source "../../lp-site/src/lp";
 
 :root {
   color-scheme: light;

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { gaEvent } from "@/lib/ga";
+import { lpButtonClass, lpButtonStyle } from "@/lp/LpView";
 import { visitorId } from "./visitor";
 
 export function SignupForm({ slug, version, cta }: { slug: string; version: number; cta: string }) {
@@ -75,7 +76,8 @@ export function SignupForm({ slug, version, cta }: { slug: string; version: numb
       <button
         type="submit"
         disabled={state === "sending"}
-        className="w-full rounded-full bg-accent px-6 py-3 font-medium text-accent-ink disabled:opacity-60"
+        className={`${lpButtonClass} w-full`}
+        style={lpButtonStyle}
       >
         {state === "sending" ? "送信しています…" : cta}
       </button>

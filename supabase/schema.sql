@@ -45,3 +45,18 @@ create index if not exists signups_slug_day on signups (slug, day);
 alter table lps enable row level security;
 alter table lp_views enable row level security;
 alter table signups enable row level security;
+
+-- ---- 追加（動くツールの案件用）。すでに上を実行済みなら、ここから下だけを実行すればよい ----
+-- ツールを使った・シェアした（同じ人が同じ日に同じ版で何度やっても1回と数える）
+create table if not exists tool_events (
+  id bigserial primary key,
+  slug text not null references lps(slug),
+  version integer not null,
+  visitor_id text not null,
+  kind text not null check (kind in ('use', 'share')),
+  day date not null default (now() at time zone 'Asia/Tokyo')::date,
+  created_at timestamptz not null default now(),
+  unique (slug, version, visitor_id, kind, day)
+);
+create index if not exists tool_events_slug_day on tool_events (slug, day);
+alter table tool_events enable row level security;

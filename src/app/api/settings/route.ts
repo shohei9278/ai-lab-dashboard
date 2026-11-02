@@ -33,7 +33,7 @@ export async function POST(req: Request) {
     patch.loopModel = body.loopModel as string;
   }
   if (body.approvalMode !== undefined) {
-    if (!["manual", "auto", "alternate"].includes(body.approvalMode as string)) return NextResponse.json({ error: "モードが不正です" }, { status: 400 });
+    if (!["manual", "auto", "alternate", "confidence"].includes(body.approvalMode as string)) return NextResponse.json({ error: "モードが不正です" }, { status: 400 });
     patch.approvalMode = body.approvalMode as typeof patch.approvalMode;
   }
   const nums: [keyof typeof patch, number, number][] = [
@@ -48,6 +48,8 @@ export async function POST(req: Request) {
     ["maxLive", 1, 20],
     ["maxAutoImprove", 0, 10],
     ["staleDays", 1, 90],
+    ["autoConfidence", 0, 1],
+    ["targetUseRate", 0.001, 1],
   ];
   for (const [key, min, max] of nums) {
     if (body[key] === undefined) continue;

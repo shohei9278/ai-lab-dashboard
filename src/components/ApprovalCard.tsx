@@ -11,7 +11,8 @@ export type ApprovalView = {
   proposal: string;
   reason: string;
   createdAt: string;
-  project: { id: number; title: string; target: string; problem: string; solution: string; hypothesis: string; confidence: number | null; demo: boolean };
+  project: { id: number; title: string; target: string; problem: string; solution: string; hypothesis: string; confidence: number | null; demo: boolean; kind: "lp" | "tool" };
+  conv: { noun: string; rate: string }; // 成果の呼び方（事前登録LPは登録、動くツールは利用）
   decision?: { confidence: number; nextAction: string };
   review?: { ok: boolean; issues: string[] };
   totals?: { visits: number; signups: number; rate: number; adSpendJpy: number; simulated: boolean };
@@ -30,8 +31,8 @@ export type ApprovalView = {
 };
 
 const KIND = {
-  idea: { label: "アイデアの採用", approve: "このアイデアで進める", after: "承認すると、AIがLPの文章を作ります。", busy: "AIがLPを作っています…" },
-  publish: { label: "LPの公開", approve: "公開して集客を始める", after: "承認すると「集客中」になります（公開と広告出稿は今は手動）。", busy: "処理しています…" },
+  idea: { label: "アイデアの採用", approve: "このアイデアで進める", after: "承認すると、AIがLP（動くツールの場合はツール本体も）を作ります。", busy: "AIが作っています…" },
+  publish: { label: "公開", approve: "公開して集客を始める", after: "承認すると公開されて「集客中」になります（広告の出稿は手動）。", busy: "処理しています…" },
   decision: {
     label: "AIの判断",
     approve: "この判断に従う",
@@ -60,6 +61,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
     <article className="card space-y-3 p-4">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
         <span className="rounded border border-line px-1.5 py-0.5 text-ink-2">{k.label}</span>
+        <span className="rounded bg-surface-2 px-1.5 py-0.5 text-ink-2">{a.project.kind === "tool" ? "動くツール" : "事前登録LP"}</span>
         <Link href={`/projects/${a.project.id}`} className="text-accent underline">{a.project.title}</Link>
         {a.project.demo && <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5">デモ</span>}
         <span className="num">{a.createdAt.slice(5, 16)}</span>
@@ -96,7 +98,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
             </div>
           )}
           <Link href={`/lp/${a.project.id}`} target="_blank" className="inline-block text-sm text-accent underline">
-            作成されたLPを見る ↗
+            {a.project.kind === "tool" ? "ツールを実際に触って確かめる ↗" : "作成されたLPを見る ↗"}
           </Link>
         </div>
       )}
@@ -104,8 +106,8 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
       {a.kind === "decision" && a.totals && (
         <dl className="grid gap-2 text-sm sm:grid-cols-4">
           <Item label="訪問">{a.totals.visits}人</Item>
-          <Item label="登録">{a.totals.signups}人</Item>
-          <Item label="登録率（目標）">{pct(a.totals.rate)}（{pct(a.targetRate)}）</Item>
+          <Item label={a.conv.noun}>{a.totals.signups}人</Item>
+          <Item label={`${a.conv.rate}（目標）`}>{pct(a.totals.rate)}（{pct(a.targetRate)}）</Item>
           <Item label="AIの自信度">{a.decision ? `${Math.round(a.decision.confidence * 100)}%` : "—"}</Item>
           {a.decision && <div className="sm:col-span-4"><Item label="次にやること">{a.decision.nextAction}</Item></div>}
           {a.totals.simulated && <p className="text-xs text-muted sm:col-span-4">※ 集客データにシミュレーションが含まれます</p>}

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { db, getSettings, type ProjectRow, type Stage } from "@/lib/db";
 import { getModel } from "@/lib/models";
-import { MODE_LABEL, STAGE_LABEL, activeLessons, modeComparison, projectTotals } from "@/lib/loop";
+import { CONV, MODE_LABEL, STAGE_LABEL, activeLessons, modeComparison, projectTotals, targetRate } from "@/lib/loop";
 import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
 import { SignupTrend } from "@/components/SignupTrend";
 import { pct, yen } from "@/lib/format";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 const COLUMNS: { stages: Stage[]; title: string; who: string }[] = [
   { stages: ["idea"], title: "① アイデア", who: "AIが提案 → 毎回承認モードではあなたが採用を判断" },
   { stages: ["lp"], title: "② LP作成", who: "AIが紹介ページを作ってチェック → あなたが公開を判断" },
-  { stages: ["live"], title: "③ 集客中", who: "LPで事前登録を集める（自動モードはAIが改善も行う）" },
+  { stages: ["live"], title: "③ 集客中", who: "公開して反応を集める（自動モードはAIがLPの改善も行う）" },
   { stages: ["deciding"], title: "④ 判断", who: "AIが続ける・改善・撤退を提案" },
   { stages: ["continued", "killed", "rejected"], title: "⑤ 結果", who: "終わった案件。AIが教訓を残す" },
 ];
@@ -33,7 +33,11 @@ export default function Home() {
   const hasSimulated = !!db().prepare("SELECT 1 FROM metrics WHERE source = 'simulated' LIMIT 1").get();
   const lastDaily = db().prepare("SELECT message FROM events WHERE kind = 'daily' ORDER BY id DESC LIMIT 1").get() as { message: string } | undefined;
   const modes = modeComparison();
-  const modeSetting = s.approvalMode === "alternate" ? "2つのモードに交互に割り当て" : MODE_LABEL[s.approvalMode];
+  const modeSetting = s.approvalMode === "alternate"
+    ? "2つのモードに交互に割り当て"
+    : s.approvalMode === "confidence"
+      ? `AIの自信が${Math.round(s.autoConfidence * 100)}%以上なら自動`
+      : MODE_LABEL[s.approvalMode];
 
   const o = overview();
   const waiting = waitingItems();
@@ -79,7 +83,7 @@ export default function Home() {
           <div className="mt-1 text-xs text-ink-2">{waiting.length ? "下の一覧から案件を開けます ↓" : "止まっているものはありません"}</div>
         </a>
         <Stat
-          label="今日の事前登録"
+          label="今日の登録・利用"
           value={`${o.todaySignups}人`}
           sub={<>前日比 {diff >= 0 ? "+" : ""}{diff}人・累計 {o.totalSignups}人</>}
         />
@@ -136,7 +140,7 @@ export default function Home() {
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="card p-4 lg:col-span-2">
           <Head
-            title="事前登録の推移（累計）"
+            title="登録・利用の推移（累計）"
             note={`実データのみ（デモを除く）${o.trendSimulated ? "。シミュレーションの架空の数字を含みます" : ""}。点に合わせると訪問数も見られます。`}
           />
           {o.trend.length ? (
@@ -201,17 +205,17 @@ export default function Home() {
       {/* 下段の3つ */}
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="card p-4">
-          <Head title="集客中のLP" note={`登録率の目標 ${pct(s.targetSignupRate, 1)}・判断の目安は訪問${s.judgeMinVisits}人`} />
+          <Head title="集客中" note={`目標は登録率 ${pct(s.targetSignupRate, 1)}・ツールの利用率 ${pct(s.targetUseRate)}・判断の目安は訪問${s.judgeMinVisits}人`} />
           {o.live.length ? (
             <ul className="space-y-3 text-sm">
               {o.live.map(({ p, t }) => (
                 <li key={p.id}>
                   <Link href={`/projects/${p.id}`} className="flex justify-between gap-2 hover:underline">
                     <span className="truncate">{p.title}{p.demo ? <span className="ml-1 text-[10px] text-muted">デモ</span> : null}</span>
-                    <span className="num shrink-0" style={{ color: t.rate >= s.targetSignupRate ? "var(--good)" : "var(--text-2)" }}>{pct(t.rate, 1)}</span>
+                    <span className="num shrink-0" style={{ color: t.rate >= targetRate(p.kind, s) ? "var(--good)" : "var(--text-2)" }}>{CONV[p.kind].rate} {pct(t.rate, 1)}</span>
                   </Link>
                   <Meter value={t.visits / s.judgeMinVisits} />
-                  <div className="num text-xs text-muted">訪問 {t.visits}/{s.judgeMinVisits}人・登録 {t.signups}人</div>
+                  <div className="num text-xs text-muted">訪問 {t.visits}/{s.judgeMinVisits}人・{CONV[p.kind].noun} {t.signups}人</div>
                 </li>
               ))}
             </ul>
@@ -289,7 +293,7 @@ export default function Home() {
                     <div className="text-sm font-bold">{col.title} <span className="num font-normal text-muted">{items.length}</span></div>
                     <div className="text-xs text-muted">{col.who}</div>
                   </div>
-                  {items.map((p) => <ProjectCard key={p.id} p={p} pending={pendingByProject.has(p.id)} target={s.targetSignupRate} />)}
+                  {items.map((p) => <ProjectCard key={p.id} p={p} pending={pendingByProject.has(p.id)} target={targetRate(p.kind, s)} />)}
                 </div>
               );
             })}
@@ -311,7 +315,7 @@ export default function Home() {
                 <th className="px-3 py-2 text-right">人の承認（1案件あたり）</th>
                 <th className="px-3 py-2 text-right">LPの改善</th>
                 <th className="px-3 py-2 text-right">チェックで問題</th>
-                <th className="px-3 py-2 text-right">登録率</th>
+                <th className="px-3 py-2 text-right">成果の率</th>
                 <th className="px-3 py-2 text-right">継続 / 撤退</th>
                 <th className="px-3 py-2 text-right">AI費用</th>
               </tr>
@@ -361,6 +365,7 @@ function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; 
       <div className="flex items-start justify-between gap-2">
         <div className="text-sm font-medium">{p.title}</div>
         <span className="flex shrink-0 gap-1">
+          {p.kind === "tool" && <span className="rounded border border-line px-1 text-[10px] text-ink-2">ツール</span>}
           <span className="rounded border border-line px-1 text-[10px] text-ink-2">{p.mode === "auto" ? "自動" : "承認"}</span>
           {p.demo ? <span className="rounded border border-line px-1 text-[10px] text-muted">デモ</span> : null}
         </span>
@@ -368,7 +373,7 @@ function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; 
       <div className="line-clamp-2 text-xs text-ink-2">{p.target}</div>
       {t && (
         <div className="num text-xs text-ink-2">
-          訪問 {t.visits} / 登録 {t.signups}（<span style={{ color: t.rate >= target ? "var(--good)" : "var(--text-2)" }}>{pct(t.rate, 1)}</span>）
+          訪問 {t.visits} / {CONV[p.kind].noun} {t.signups}（<span style={{ color: t.rate >= target ? "var(--good)" : "var(--text-2)" }}>{pct(t.rate, 1)}</span>）
         </div>
       )}
       {p.improve_count > 0 && <div className="text-xs text-ink-2">LP改善 {p.improve_count}回（第{p.lp_version}版）</div>}
@@ -379,9 +384,9 @@ function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; 
 }
 
 const FLOW: { stages: Stage[]; title: string; who: string }[] = [
-  { stages: ["idea"], title: "アイデア", who: "3社のAIが出して採点。毎回承認モードはあなたが採用を判断" },
-  { stages: ["lp"], title: "LP作成", who: "AIがLPを作ってチェック。公開はあなたが判断" },
-  { stages: ["live"], title: "集客中", who: "事前登録を集める。自動モードはAIが改善も" },
+  { stages: ["idea"], title: "アイデア", who: "3社のAIが出し方（LP・ツール）も選んで採点。毎回承認モードはあなたが採用を判断" },
+  { stages: ["lp"], title: "作成", who: "AIがLPやツールを作ってチェック。公開はあなたが判断" },
+  { stages: ["live"], title: "集客中", who: "登録や利用を集める。自動モードはAIがLPの改善も" },
   { stages: ["deciding"], title: "判断", who: "AIが続ける・改善・撤退を提案し、あなたが決める" },
 ];
 

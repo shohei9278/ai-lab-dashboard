@@ -9,14 +9,7 @@ export function supabase() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
-export type Lp = {
-  headline: string;
-  subheadline: string;
-  pains: string[];
-  features: { title: string; body: string }[];
-  cta: string;
-  faq: { q: string; a: string }[];
-};
+import { normalizeLp, type Lp } from "@/lp/content";
 
 export type LpRow = { slug: string; project_id: number; version: number; title: string; content: Lp; status: "published" | "closed" };
 
@@ -24,5 +17,7 @@ export async function getLp(slug: string): Promise<LpRow | null> {
   if (!/^[a-z0-9-]{1,40}$/.test(slug)) return null;
   const { data, error } = await supabase().from("lps").select("*").eq("slug", slug).maybeSingle();
   if (error) throw error;
-  return data as LpRow | null;
+  if (!data) return null;
+  const row = data as LpRow;
+  return { ...row, content: normalizeLp(row.content) };
 }

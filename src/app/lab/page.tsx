@@ -8,6 +8,7 @@ import { RunsTable } from "@/components/RunsTable";
 import { PageIntro } from "@/components/PageIntro";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
 import { IdeaAuthors } from "@/components/IdeaAuthors";
+import { DesignAuthors } from "@/components/DesignAuthors";
 import { MockBadge, Stat } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +41,8 @@ export default function LabPage() {
       <ShadowJudgments />
 
       <IdeaAuthors />
+
+      <DesignAuthors />
 
       <div className="space-y-1 border-t border-line pt-6">
         <h2 className="font-bold">基礎テスト</h2>

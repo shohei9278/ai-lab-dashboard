@@ -44,37 +44,57 @@ export async function closeLp(p: ProjectRow) {
   return true;
 }
 
-// 公開中のLPの訪問・登録を、日付と版ごとに数えてダッシュボードに取り込む
+// Supabase は1回に最大1000行しか返さないので、全部そろうまで続けて取る
+async function fetchAll(table: "lp_views" | "signups" | "tool_events", slug: string) {
+  const rows: { version: number; day: string; kind?: string }[] = [];
+  const page = 1000;
+  for (let from = 0; ; from += page) {
+    const { data, error } = await sb()
+      .from(table)
+      .select(table === "tool_events" ? "version, day, kind" : "version, day")
+      .eq("slug", slug)
+      .order("id")
+      .range(from, from + page - 1);
+    if (error) throw new Error(`集計の取得に失敗しました（${table}）: ${error.message}`);
+    rows.push(...(data as unknown as typeof rows));
+    if (data.length < page) return rows;
+  }
+}
+
+// 公開中のLPの訪問と成果（事前登録LPは登録、動くツールは使った人）を、日付と版ごとに数えてダッシュボードに取り込む
 export async function syncRealMetrics(): Promise<{ projects: number; visits: number; signups: number }> {
   if (!publishingConfigured()) return { projects: 0, visits: 0, signups: 0 };
   const projects = db().prepare("SELECT * FROM projects WHERE public_slug IS NOT NULL AND demo = 0").all() as ProjectRow[];
   let visits = 0;
   let signups = 0;
   for (const p of projects) {
-    const [v, s] = await Promise.all([
-      sb().from("lp_views").select("version, day").eq("slug", p.public_slug!),
-      sb().from("signups").select("version, day").eq("slug", p.public_slug!),
-    ]);
-    if (v.error || s.error) throw new Error(`集計の取得に失敗しました: ${(v.error ?? s.error)!.message}`);
-    const key = (r: { version: number; day: string }) => `${r.day}|${r.version}`;
-    const agg = new Map<string, { day: string; version: number; visits: number; signups: number }>();
-    for (const r of v.data) {
-      const k = key(r);
-      agg.set(k, { day: r.day, version: r.version, visits: (agg.get(k)?.visits ?? 0) + 1, signups: agg.get(k)?.signups ?? 0 });
-    }
-    for (const r of s.data) {
-      const k = key(r);
-      agg.set(k, { day: r.day, version: r.version, visits: agg.get(k)?.visits ?? 0, signups: (agg.get(k)?.signups ?? 0) + 1 });
-    }
+    const slug = p.public_slug!;
+    const views = await fetchAll("lp_views", slug);
+    const isTool = p.kind === "tool";
+    const events = isTool ? await fetchAll("tool_events", slug) : [];
+    const conv = isTool ? events.filter((e) => e.kind === "use") : await fetchAll("signups", slug);
+    const shares = events.filter((e) => e.kind === "share");
+
+    const agg = new Map<string, { day: string; version: number; visits: number; signups: number; shares: number }>();
+    const bump = (r: { version: number; day: string }, field: "visits" | "signups" | "shares") => {
+      const k = `${r.day}|${r.version}`;
+      const a = agg.get(k) ?? { day: r.day, version: r.version, visits: 0, signups: 0, shares: 0 };
+      a[field] += 1;
+      agg.set(k, a);
+    };
+    views.forEach((r) => bump(r, "visits"));
+    conv.forEach((r) => bump(r, "signups"));
+    shares.forEach((r) => bump(r, "shares"));
+
     // 本物の数字は毎回まとめて入れ直す（広告費などの手入力の行はそのまま残す）
     const conn = db();
     conn.transaction(() => {
       conn.prepare("DELETE FROM metrics WHERE project_id = ? AND source = 'real'").run(p.id);
-      const ins = conn.prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source, lp_version) VALUES (?, ?, ?, ?, 0, 'real', ?)");
-      for (const a of agg.values()) ins.run(p.id, a.day, a.visits, a.signups, a.version);
+      const ins = conn.prepare("INSERT INTO metrics (project_id, day, visits, signups, shares, ad_spend_jpy, source, lp_version) VALUES (?, ?, ?, ?, ?, 0, 'real', ?)");
+      for (const a of agg.values()) ins.run(p.id, a.day, a.visits, a.signups, a.shares, a.version);
     })();
-    visits += v.data.length;
-    signups += s.data.length;
+    visits += views.length;
+    signups += conv.length;
   }
   return { projects: projects.length, visits, signups };
 }

@@ -19,6 +19,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     { href: "/", label: "ホーム" },
     { href: "/approvals", label: "承認待ち", badge: pending },
     { href: "/lab", label: "AIの使い分け" },
+    { href: "/notes", label: "実験メモ" },
     { href: "/settings", label: "設定" },
   ];
   return (

@@ -1,0 +1,8 @@
+# サーバーに送らないもの（.gitignore に加えて）
+# LPの共通部品（lp-site/src/lp）はダッシュボードでも使うので送る
+lp-site/node_modules/
+lp-site/.next/
+lp-site/.vercel/
+data/
+.env*
+!.env.example

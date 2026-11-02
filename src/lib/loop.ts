@@ -1,9 +1,10 @@
 import { callJson, isObj, isStr } from "./ai";
+import { ICONS, PREVIEW_KINDS, THEMES, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
 import { MODELS, hasKey } from "./models";
 import { closeLp, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
   db, getSettings, saveSettings,
-  type ApprovalRow, type LessonRow, type LpVersionRow, type MetricRow, type ProjectRow, type Stage,
+  type ApprovalRow, type LessonRow, type LpCandidateRow, type LpVersionRow, type MetricRow, type ProductKind, type ProjectRow, type Stage,
 } from "./db";
 
 // ---- AIが作るものの形 ----
@@ -16,16 +17,21 @@ export type Idea = {
   hypothesis: string;
   reason: string;
   confidence: number;
+  kind?: ProductKind; // 出し方（AIが選ぶ。無ければ事前登録LP）
 };
 
-export type Lp = {
-  headline: string;
-  subheadline: string;
-  pains: string[];
-  features: { title: string; body: string }[];
-  cta: string;
-  faq: { q: string; a: string }[];
+// 出し方ごとの呼び方と、成果の数え方
+export const KIND_LABEL: Record<ProductKind, string> = { lp: "事前登録LP", tool: "動くツール" };
+export const CONV: Record<ProductKind, { noun: string; rate: string }> = {
+  lp: { noun: "登録", rate: "登録率" },
+  tool: { noun: "利用", rate: "利用率" },
 };
+export function targetRate(kind: ProductKind, s = getSettings()): number {
+  return kind === "tool" ? s.targetUseRate : s.targetSignupRate;
+}
+
+// LPの型と整形は、公開用LPサイトと共通のものを使う
+export type { Lp } from "../../lp-site/src/lp/content";
 
 export type Decision = {
   decision: "continue" | "improve" | "kill" | "collect";
@@ -58,11 +64,7 @@ export const DECISION_LABEL: Record<Decision["decision"], string> = {
 const isIdea = (v: unknown): v is Idea =>
   isObj(v) && ["title", "target", "problem", "solution", "hypothesis", "reason"].every((k) => isStr(v[k]));
 
-const isLp = (v: unknown): v is Lp =>
-  isObj(v) && isStr(v.headline) && isStr(v.subheadline) && isStr(v.cta) &&
-  Array.isArray(v.pains) && v.pains.every(isStr) &&
-  Array.isArray(v.features) && v.features.every((f) => isObj(f) && isStr(f.title) && isStr(f.body)) &&
-  Array.isArray(v.faq) && v.faq.every((f) => isObj(f) && isStr(f.q) && isStr(f.a));
+const isLp = (v: unknown): v is Lp => isLpCore(v);
 
 const isDecision = (v: unknown): v is Decision =>
   isObj(v) && ["continue", "improve", "kill", "collect"].includes(v.decision as string) && isStr(v.reason) && isStr(v.next_action);
@@ -123,13 +125,30 @@ function today(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-// 「交互」のときは、件数が少ない方のモードに割り当てて比べやすくする
-function nextMode(): ProjectRow["mode"] {
+// 新しい案件のモードを決める
+// 「交互」は件数が少ない方へ。「AIの自信で決める」は、自信が基準以上なら自動、未満なら毎回承認
+type ModeChoice = { mode: ProjectRow["mode"]; why: string };
+
+function nextMode(confidence: { value: number | null; source: string }): ModeChoice {
   const s = getSettings();
-  if (s.approvalMode !== "alternate") return s.approvalMode;
+  if (s.approvalMode === "manual" || s.approvalMode === "auto") return { mode: s.approvalMode, why: "設定" };
+  if (s.approvalMode === "confidence") {
+    const pct = (x: number) => `${Math.round(x * 100)}%`;
+    if (confidence.value === null) return { mode: "manual", why: "自信の値がないため毎回承認" };
+    const auto = confidence.value >= s.autoConfidence;
+    return {
+      mode: auto ? "auto" : "manual",
+      why: `自信 ${pct(confidence.value)}（${confidence.source}）が基準 ${pct(s.autoConfidence)} ${auto ? "以上" : "未満"}`,
+    };
+  }
   const c = db().prepare("SELECT SUM(mode = 'auto') AS a, SUM(mode = 'manual') AS m FROM projects WHERE demo = 0").get() as { a: number | null; m: number | null };
-  return (c.a ?? 0) < (c.m ?? 0) ? "auto" : "manual";
+  return { mode: (c.a ?? 0) < (c.m ?? 0) ? "auto" : "manual", why: "交互に割り当て" };
 }
+
+const selfConfidence = (idea: Idea) => ({
+  value: typeof idea.confidence === "number" ? Math.max(0, Math.min(1, idea.confidence)) : null,
+  source: "アイデアを出したAIの自己申告",
+});
 
 // ---- 1. アイデア出し ----
 
@@ -142,33 +161,36 @@ async function askIdeas(theme: string, count: number, modelId?: string): Promise
   const out = await callJson<{ ideas: Idea[] }>({
     purpose: "アイデア出し",
     modelId,
-    system: `あなたは個人開発者向けに事業アイデアを考えるプロダクトマネージャーです。
+    system: `あなたは個人開発者向けにプロダクトのアイデアを考えるプロダクトマネージャーです。
+アイデアごとに、世に出す形（kind）も選びます。形は1つにとらわれず、アイデアに合うものを選ぶこと。
+- lp: 事前登録LP。まだ作らずに、紹介ページのメール事前登録で需要を確かめる。1人で1〜2週間で作れる、継続して使うWebサービス向け
+- tool: 動くツール。診断・シミュレーター・計算機・ジェネレーターなど、1つのWebページの中だけで完結して今すぐ使えるもの。外部のAPIやサーバー、ログインは使えない。話題性・季節性があり、シェアされやすいものが向く
 条件:
-- 1人で1〜2週間で作れる、小さなWebサービスやツールであること
-- まだ作らずに、LP（紹介ページ）のメール事前登録で需要を確かめられること
-- 医療・法律・金融など、規制が強い領域や専門資格が必要な領域は避ける
+- 医療・法律・金融など、規制が強い領域や専門資格が必要な領域は避ける（tool でも、診断の形で助言をしない）
 - 誇大な約束はしない
+- 実在の人物・団体のデータを使う tool は、正確なデータをコードに書けるものだけにする
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。
-形式: {"ideas":[{"title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること","solution":"どう解決するか","hypothesis":"検証したい仮説（数字で判定できる形）","reason":"このアイデアを考えた理由","confidence":0から1の数値（需要がある見込み）}]}`,
+形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
-    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準: LP訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定（この基準を使うこと）\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}`,
+    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
   return out.ideas.slice(0, count);
 }
 
-function insertProject(idea: Idea, theme: string, mode: ProjectRow["mode"], origin: ProjectRow["origin"], ideaModel: string): number {
+function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confidence: number | null }, origin: ProjectRow["origin"], ideaModel: string): number {
   const conf = typeof idea.confidence === "number" ? Math.max(0, Math.min(1, idea.confidence)) : null;
+  const { mode } = choice;
   const id = Number(
     db()
       .prepare(
-        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(idea.title, idea.target, idea.problem, idea.solution, idea.hypothesis, idea.reason, conf, getSettings().loopModel, theme || null, mode, origin, ideaModel)
+      .run(idea.title, idea.target, idea.problem, idea.solution, idea.hypothesis, idea.reason, conf, getSettings().loopModel, theme || null, mode, origin, ideaModel, choice.confidence, idea.kind === "tool" ? "tool" : "lp")
       .lastInsertRowid,
   );
-  logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${MODE_LABEL[mode]}モード）`);
+  logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
   return id;
 }
 
@@ -188,7 +210,8 @@ export async function generateIdeas(theme: string, count = 3): Promise<number[]>
   const ideas = await askIdeas(theme, count);
   const ids: number[] = [];
   for (const idea of ideas) {
-    const id = insertProject(idea, theme, nextMode(), "manual", getSettings().loopModel);
+    const conf = selfConfidence(idea);
+    const id = insertProject(idea, theme, { ...nextMode(conf), confidence: conf.value }, "manual", getSettings().loopModel);
     ids.push(id);
     await startProject(id);
   }
@@ -197,24 +220,39 @@ export async function generateIdeas(theme: string, count = 3): Promise<number[]>
 
 // ---- 2. LP作成とAIチェック ----
 
-async function writeLp(p: ProjectRow, instruction?: string, keepCore = false): Promise<Lp> {
+async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, modelId?: string, purpose = "LP作成"): Promise<Lp & { shareText?: string }> {
+  const isTool = p.kind === "tool";
   const prev = p.lp ? `\n\n今のLP:\n${p.lp}` : "";
   const core = keepCore
     ? "\n- 今回は改善なので、対象読者・サービスの中身・仮説は変えない。変えるのは指示された1か所だけにし、それ以外は今のLPのまま残す"
     : "";
-  return callJson<Lp>({
-    purpose: "LP作成",
+  const lp = await callJson<Lp>({
+    purpose,
+    modelId,
     projectId: p.id,
-    system: `あなたはLP（サービス紹介ページ）のコピーライターです。サービスはまだ開発前で、メールの事前登録で需要を確かめます。
+    system: `あなたはLP（サービス紹介ページ）のコピーライター兼デザイナーです。${isTool
+      ? "このページには、すでに動くツール本体が埋め込まれていて、訪問者はその場で無料・登録不要で使えます。ツールを使ってもらい、気に入ったらシェアしてもらうことが目的です。"
+      : "サービスはまだ開発前で、メールの事前登録で需要を確かめます。"}
 守ること:
 - 架空の利用者数・実績・お客様の声・受賞歴などは書かない
 - 「必ず」「誰でも」などの誇大表現は使わない
 - ターゲットが自分ごとだと感じる、具体的な言葉で書く
-- ボタンの文言（cta）は事前登録であることが分かるようにする${core}
-形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2]}`,
+- ${isTool ? "ボタンの文言（cta）は、すぐ使えることが分かるもの（例「さっそく使ってみる」）。preview は不要。pains は使う人の動機（〜したい・〜が気になる）でもよい" : "ボタンの文言（cta）は事前登録であることが分かるようにする"}${core}
+見た目も対象読者に合わせて選ぶ:
+- design.theme: ${Object.entries(THEMES).map(([k, t]) => `${k}=${t.label}`).join(" / ")}
+- design.layout: center=中央寄せ / split=左に文章・右に画面イメージ
+- design.badge: 見出しの上に出す短いラベル（15文字以内。例「飲食店のシフト集めに」）
+- preview: 完成したら使う画面のイメージ。kind は ${PREVIEW_KINDS.join(" / ")} のどれか。rows は1行あたり最大4つの短い文字列で3〜5行（list は [項目, 状態]、table は columns と各行、chat は [話し手, 発言]、form は [項目名, 入力例]）。人名は「山田さん」程度の仮名にし、実在の会社名や効果の数字は入れない
+- features[].icon: ${ICONS.join(" / ")} から内容に合うもの
+- steps: 使い方を3ステップ（任意）
+- beforeAfter: 使う前の状態と、使ったあとに目指す状態を各2〜3個（任意。効果を断言しない）${isTool ? "\n- shareText: X でシェアするときの文（60文字以内。ハッシュタグは1つまで。誇張しない）" : ""}
+形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明","icon":"clock"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2],"design":{"theme":"trust","layout":"split","badge":"ラベル"},"preview":{"title":"画面の名前","kind":"list","columns":[],"rows":[["項目","状態"]]},"steps":[{"title":"手順","body":"説明"}×3],"beforeAfter":{"before":["今の状態"],"after":["目指す状態"]}${isTool ? ',"shareText":"シェアの文"' : ""}}`,
     user: `サービス名: ${p.title}\n対象: ${p.target}\n課題: ${p.problem}\n解決策: ${p.solution}\n仮説: ${p.hypothesis}${prev}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`,
     validate: isLp,
   });
+  // 知らない値や長すぎる文は落としてから保存する
+  const shareText = (lp as { shareText?: unknown }).shareText;
+  return { ...normalizeLp(lp), shareText: typeof shareText === "string" ? shareText.slice(0, 100) : undefined };
 }
 
 // 公開前に、別の観点のAIが問題がないかを確認する
@@ -225,7 +263,10 @@ async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp): Promise<Review> {
     system: `あなたはLPの公開前チェック担当です。次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
 - 架空の利用者数・実績・お客様の声・受賞歴・具体的な効果の数字を断言している
 - 「必ず」「誰でも」「100%」などの誇大表現がある
-- 開発前なのに、すぐ使えるかのように書いている
+${p.kind === "tool"
+  ? "- ページの中のツールでできること以上のことを、できるかのように書いている"
+  : "- 開発前なのに、すぐ使えるかのように書いている"}
+- 画面イメージ（preview）や使う前後の比較（beforeAfter）に、実在の会社名・個人を特定できる名前・効果の数字の断言が入っている
 - 想定の対象読者からずれている${before ? "\n- 前の版から、対象読者やサービスの中身まで変わっている（改善は文言の調整にとどめるべき）" : ""}
 問題がなければ {"ok":true,"issues":[]}。
 形式: {"ok":true または false,"issues":["問題点"]}`,
@@ -234,23 +275,228 @@ async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp): Promise<Review> {
   });
 }
 
+// ---- 動くツールの本体 ----
+
+// 隔離された枠の中では使えないもの・外部への通信など、コードを読めば分かる問題を先に見つける
+function staticToolIssues(html: string): string[] {
+  const rules: [RegExp, string][] = [
+    [/\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|navigator\.sendBeacon/, "外部と通信している（通信は遮断されるので動かない）"],
+    [/<script[^>]*\bsrc\s*=|<link[^>]*\bhref\s*=|@import|url\(\s*['"]?https?:/i, "外部のファイルを読み込んでいる"],
+    [/localStorage|sessionStorage|indexedDB|document\.cookie/, "保存領域や Cookie を使っている（隔離された枠では使えない）"],
+    [/\b(alert|confirm|prompt)\s*\(|window\.open\s*\(/, "alert・confirm・prompt・window.open を使っている（隔離された枠では使えない）"],
+    [/<form[^>]*\baction\s*=/i, "フォームをどこかに送信しようとしている"],
+    [/<(html|head|body)[\s>]/i, "<html><head><body> を書いている（中身だけにする）"],
+  ];
+  const issues = rules.filter(([re]) => re.test(html)).map(([, msg]) => msg);
+  if (html.length > TOOL_HTML_MAX) issues.push(`長すぎる（${html.length}文字。${TOOL_HTML_MAX}文字以内）`);
+  if (!/<script[\s>]/i.test(html)) issues.push("スクリプトがなく、ツールとして動かない");
+  return issues;
+}
+
+async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string): Promise<string> {
+  const out = await callJson<{ html: string }>({
+    purpose: "ツール作成",
+    projectId: p.id,
+    system: `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
+守ること:
+- 1つのHTMLの断片だけを書く（<style> と <script> を含めてよい。<html><head><body> は書かない）
+- 外部のファイル・フォント・画像・API・CDN は一切使わない（通信はすべて遮断される）。必要なデータはコードの中に書く
+- localStorage・sessionStorage・Cookie・IndexedDB・alert・confirm・prompt・window.open は使えない（エラーになる）
+- フォームは送信しない（ボタンは type="button"）。入力は端末の中だけで処理する
+- 名前・メールアドレスなど個人を特定できる情報は入力させない
+- スマホ幅（360px）でも崩れない。prefers-color-scheme でライト・ダークの両方で読めるようにする
+- 日本語。開いた瞬間に使い方が分かり、結果はすぐ画面に表示する。結果は、シェアしたくなる見せ方を工夫する
+- 架空の統計を事実のように書かない。診断・占いのような遊びのツールは、そうと分かる一言を入れる。医療・法律・お金の助言はしない
+- 実在の人物・団体のデータは、正確だと確信できるものだけを使う。不確かなら使わない
+- 全体で40,000文字以内。読みやすく、動作の確かなコードにする
+形式: {"html":"ツール本体のHTML"}`,
+    user: `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : ""}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`,
+    validate: (v): v is { html: string } => isObj(v) && isStr(v.html),
+  });
+  return out.html.trim();
+}
+
+// ツール本体をAIが読んで、動かない箇所や問題のある内容がないかを確かめる
+async function reviewTool(p: ProjectRow, html: string): Promise<Review> {
+  return callJson<Review>({
+    purpose: "ツールチェック",
+    projectId: p.id,
+    system: `あなたはWebツールの公開前チェック担当です。コードを読んで、次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
+- 文法の誤りや、ボタンを押しても何も起きない・結果が出ないなど、動かない箇所がある
+- 外部への通信、外部ファイルの読み込み、保存領域・Cookie・alert・window.open を使っている
+- 個人を特定できる情報を入力させている
+- 架空の統計を事実のように書いている、医療・法律・お金の助言をしている、誰かを傷つける・差別的な内容がある
+- 実在の人物・団体について、不正確そうなデータを使っている
+- 「${p.solution}」というツールの目的からずれている
+問題がなければ {"ok":true,"issues":[]}。
+形式: {"ok":true または false,"issues":["問題点"]}`,
+    user: html,
+    validate: isReview,
+  });
+}
+
+// ツール本体を書いてチェックし、問題があれば1回だけ直す
+async function buildTool(p: ProjectRow, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review }> {
+  let html = await writeToolHtml(p, instruction, prevHtml);
+  const check = async (h: string): Promise<Review> => {
+    const found = staticToolIssues(h);
+    const ai = await reviewTool(p, h);
+    const issues = [...found, ...ai.issues];
+    return { ok: issues.length === 0 && ai.ok, issues };
+  };
+  let review = await check(html);
+  if (!review.ok) {
+    logEvent(p.id, "ai", "review", `ツールのチェックで問題が見つかったため書き直し: ${review.issues.join(" / ")}`);
+    html = await writeToolHtml(p, `次の問題を直すこと: ${review.issues.join(" / ")}`, html);
+    review = await check(html);
+  }
+  return { html, review };
+}
+
+// ---- LPのデザイン候補を3社で競わせる ----
+
+// 各社に1案ずつ書かせ、伏せ字を付けて3社全員で採点する。1位を返す
+async function competeLp(p: ProjectRow): Promise<{ lp: Lp; author: string; label: string; avg: number; count: number }> {
+  const authors = ideaAuthors();
+  const version = p.lp_version + 1;
+  const written = await Promise.all(
+    authors.map(async (author) => {
+      try {
+        const { shareText: _drop, ...lp } = await writeLp(p, undefined, false, author, "LPの候補作成");
+        void _drop;
+        return { author, lp: lp as Lp };
+      } catch (e) {
+        logEvent(p.id, "system", "lp-error", `${modelLabel(author)}のLP候補の作成に失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+        return null;
+      }
+    }),
+  );
+  // 順番を混ぜて伏せ字を付ける（作者の並び順で見抜かれないように）
+  const pool = written.filter((x): x is { author: string; lp: Lp } => !!x).sort(() => Math.random() - 0.5);
+  if (!pool.length) throw new Error("どのAIからもLPの候補を得られませんでした");
+  const insert = db().prepare("INSERT INTO lp_candidates (project_id, version, label, author_model, lp) VALUES (?, ?, ?, ?, ?)");
+  const cands = pool.map((x, i) => {
+    const label = String.fromCharCode(65 + i);
+    const id = Number(insert.run(p.id, version, label, x.author, JSON.stringify(x.lp)).lastInsertRowid);
+    return { id, label, ...x, avg: 0 };
+  });
+  if (cands.length > 1) {
+    const sheet = cands.map((c) => `【${c.label}】\n${JSON.stringify(c.lp)}`).join("\n\n");
+    const scoreRow = db().prepare("INSERT INTO lp_candidate_scores (candidate_id, scorer_model, score, reason) VALUES (?, ?, ?, ?)");
+    await Promise.all(
+      authors.map(async (scorer) => {
+        try {
+          const out = await callJson<{ scores: { label: string; score: number; reason: string }[] }>({
+            purpose: "LP候補の採点",
+            modelId: scorer,
+            projectId: p.id,
+            system: `あなたはLP（紹介ページ）の審査員です。同じサービスについて別々の人が作ったLPの案を、作者を知らないまま1〜10点で採点します。
+LPは決まった部品で表示されます（design.theme=テーマ色、layout=配置、preview=開発予定の画面イメージ、beforeAfter=使う前後の比較、steps=使い方）。
+観点:
+- 対象読者（${p.target}）が自分ごとだと感じ、事前登録したくなるか
+- 一目で何のサービスか分かるか
+- テーマ色・配置・画面イメージなどの見た目の選択が、対象読者と内容に合っているか
+- 架空の実績・お客様の声・効果の断言・誇大表現がないか（あれば大きく減点）
+点数は甘くしないこと（平凡なものは5点前後）。
+形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]}`,
+            user: sheet,
+            validate: (v): v is { scores: { label: string; score: number; reason: string }[] } =>
+              isObj(v) && Array.isArray(v.scores) && v.scores.every((x) => isObj(x) && isStr(x.label) && typeof x.score === "number"),
+          });
+          for (const sc of out.scores) {
+            const c = cands.find((x) => x.label === sc.label.trim().replace(/[【】]/g, ""));
+            if (c) scoreRow.run(c.id, scorer, Math.max(1, Math.min(10, sc.score)), typeof sc.reason === "string" ? sc.reason : null);
+          }
+        } catch (e) {
+          logEvent(p.id, "system", "lp-error", `${modelLabel(scorer)}のLP候補の採点に失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+        }
+      }),
+    );
+  }
+  for (const c of cands) {
+    const r = db().prepare("SELECT AVG(score) AS a FROM lp_candidate_scores WHERE candidate_id = ?").get(c.id) as { a: number | null };
+    c.avg = r.a ?? 0;
+    db().prepare("UPDATE lp_candidates SET avg_score = ? WHERE id = ?").run(c.avg, c.id);
+  }
+  const top = Math.max(...cands.map((c) => c.avg));
+  const tied = cands.filter((c) => Math.abs(c.avg - top) < 1e-9);
+  const win = tied[Math.floor(Math.random() * tied.length)];
+  db().prepare("UPDATE lp_candidates SET selected = 1 WHERE id = ?").run(win.id);
+  logEvent(p.id, "ai", "lp-select", `${cands.length}社のLP候補から、採点の平均が最も高い候補${win.label}（${win.avg.toFixed(1)}点）を選びました`);
+  return { lp: win.lp, author: win.author, label: win.label, avg: win.avg, count: cands.length };
+}
+
+export function lpCandidates(projectId: number): LpCandidateRow[] {
+  return db().prepare("SELECT * FROM lp_candidates WHERE project_id = ? ORDER BY version DESC, label").all(projectId) as LpCandidateRow[];
+}
+
+// 公開の承認待ちのあいだだけ、人が別の候補に切り替えられる（切り替えた候補もAIのチェックを通す）
+export async function switchLpCandidate(candidateId: number) {
+  const c = db().prepare("SELECT * FROM lp_candidates WHERE id = ?").get(candidateId) as LpCandidateRow | undefined;
+  if (!c) throw new Error("候補が見つかりません");
+  const p = getProject(c.project_id)!;
+  const pending = db().prepare("SELECT * FROM approvals WHERE project_id = ? AND kind = 'publish' AND status = 'pending'").get(p.id) as ApprovalRow | undefined;
+  if (!pending || p.lp_version !== c.version) throw new Error("公開前の、今の版の候補だけ切り替えられます");
+  const lp = normalizeLp(JSON.parse(c.lp));
+  const review = await reviewLp(p, lp);
+  const conn = db();
+  conn.transaction(() => {
+    conn.prepare("UPDATE projects SET lp = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), p.id);
+    conn.prepare("UPDATE lp_versions SET lp = ?, review = ?, author_model = ?, note = COALESCE(note, '') || ? WHERE project_id = ? AND version = ?")
+      .run(JSON.stringify(lp), JSON.stringify(review), c.author_model, `（あなたが候補${c.label}に切り替え）`, p.id, c.version);
+    conn.prepare("UPDATE lp_candidates SET human_selected = (id = ?) WHERE project_id = ? AND version = ?").run(c.id, p.id, c.version);
+    conn.prepare("UPDATE approvals SET payload = ? WHERE id = ?").run(JSON.stringify({ review }), pending.id);
+  })();
+  logEvent(p.id, "human", "lp-switch", `LPを候補${c.label}に切り替えました${review.ok ? "" : `（チェックで問題: ${review.issues.join(" / ")}）`}`);
+}
+
 // LPを書き、チェックし、問題があれば1回だけ直す。新しい版として保存する
+// 動くツールの案件では、ツール本体も作る（改善のときは、指示がツールとページのどちらに向くかをAIの指示文に任せる）
 async function buildLpVersion(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean }) {
   const p = getProject(projectId)!;
   const before = p.lp ? (JSON.parse(p.lp) as Lp) : undefined;
-  let lp = await writeLp(p, opts.instruction, opts.keepCore);
+  if (p.kind === "tool") return buildToolVersion(p, before, opts);
+  // 最初の版だけは、3社に候補を作らせて、作者を伏せて採点した1位を使う（改善や修正指示のときは1社で直す）
+  let author = getSettings().loopModel;
+  let note = opts.note;
+  let lp: Lp;
+  const compete = p.lp_version === 0 && !opts.instruction && !opts.keepCore && ideaAuthors().length > 1;
+  if (compete) {
+    const won = await competeLp(p);
+    lp = won.lp;
+    author = won.author;
+    note = `${opts.note}（${won.count}社の候補から採点で選択: 候補${won.label}・平均${won.avg.toFixed(1)}点）`;
+  } else {
+    lp = await writeLp(p, opts.instruction, opts.keepCore);
+  }
   let review = await reviewLp(p, lp, opts.keepCore ? before : undefined);
   if (!review.ok) {
     logEvent(projectId, "ai", "review", `チェックで問題が見つかったため書き直し: ${review.issues.join(" / ")}`);
-    lp = await writeLp({ ...p, lp: JSON.stringify(lp) }, `次の問題を直すこと: ${review.issues.join(" / ")}`, opts.keepCore);
+    lp = await writeLp({ ...p, lp: JSON.stringify(lp) }, `次の問題を直すこと: ${review.issues.join(" / ")}`, opts.keepCore, author);
     review = await reviewLp(p, lp, opts.keepCore ? before : undefined);
   }
   const version = p.lp_version + 1;
   const conn = db();
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, projectId);
-  conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review) VALUES (?, ?, ?, ?, ?)")
-    .run(projectId, version, JSON.stringify(lp), opts.note, JSON.stringify(review));
-  logEvent(projectId, "ai", "lp", `LPを作成（第${version}版）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
+  conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(projectId, version, JSON.stringify(lp), note, JSON.stringify(review), author);
+  logEvent(projectId, "ai", "lp", `LPを作成（第${version}版${compete ? "・3社の候補から選択" : ""}）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
+  return { lp, review, version };
+}
+
+async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { instruction?: string; note: string; keepCore?: boolean }) {
+  const { shareText, ...page } = await writeLp(p, opts.instruction, opts.keepCore);
+  const tool = await buildTool(p, opts.instruction, before?.tool?.html);
+  const pageReview = await reviewLp(p, page, opts.keepCore ? before : undefined);
+  const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
+  const lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? page.headline } });
+  if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
+  const version = p.lp_version + 1;
+  const conn = db();
+  conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, p.id);
+  conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(p.id, version, JSON.stringify(lp), opts.note, JSON.stringify(review), getSettings().loopModel);
+  logEvent(p.id, "ai", "lp", `ツールと紹介ページを作成（第${version}版・${(tool.html.length / 1000).toFixed(1)}千文字）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
   return { lp, review, version };
 }
 
@@ -260,8 +506,11 @@ export async function prepareLp(projectId: number, instruction?: string) {
   const { lp, review } = await buildLpVersion(projectId, { instruction, note: instruction ? `指示: ${instruction}` : "最初の版" });
   setStage(projectId, "lp");
   addApproval(
-    projectId, "publish", "このLPを公開して集客を始める",
-    `見出し「${lp.headline}」で、${p.target}に向けて事前登録を募ります。`,
+    projectId, "publish",
+    p.kind === "tool" ? "このツールを公開する" : "このLPを公開して集客を始める",
+    p.kind === "tool"
+      ? `${p.target}に向けたツールを公開します。公開する前に、プレビューで実際にツールを触って、動くか確かめてください。`
+      : `見出し「${lp.headline}」で、${p.target}に向けて事前登録を募ります。`,
     { review },
   );
 }
@@ -283,11 +532,14 @@ function judgePrompt(p: ProjectRow) {
   const all = projectTotals(p.id);
   const history = (db().prepare("SELECT message FROM events WHERE project_id = ? ORDER BY id").all(p.id) as { message: string }[])
     .map((e) => `- ${e.message}`).join("\n");
+  const isTool = p.kind === "tool";
+  const c = CONV[p.kind];
+  const shares = all.rows.reduce((n, r) => n + (r.shares ?? 0), 0);
   return {
     all,
-    system: `あなたは事業の撤退判断を担当するアナリストです。集客の数字を見て、次のどれかを選びます。
-- continue: 需要が確認できたので、実際にプロダクトを作る段階へ進む
-- improve: 需要の兆しはあるので、今すぐLPを1か所変えてもう一度集客する
+    system: `あなたは事業の撤退判断を担当するアナリストです。${isTool ? "対象は、紹介ページの中ですぐ使える「動くツール」です。" : ""}集客の数字を見て、次のどれかを選びます。
+- continue: ${isTool ? "よく使われているので、機能を足す・広めるなど、次の段階へ進む" : "需要が確認できたので、実際にプロダクトを作る段階へ進む"}
+- improve: ${isTool ? "反応の兆しはあるので、今すぐツールか紹介ページを1か所変えてもう一度集客する" : "需要の兆しはあるので、今すぐLPを1か所変えてもう一度集客する"}
 - collect: 今のLPを変えずに、もう少し集客してから判断する
 - kill: 需要が見込めないので撤退する
 ${budgetRule(s)}
@@ -297,9 +549,9 @@ improve の場合、next_action には「LPのどこを、どう変えるか」�
 形式: {"decision":"continue|improve|collect|kill","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること"}`,
     user: `サービス: ${p.title}（対象: ${p.target}）
 仮説: ${p.hypothesis}
-今のLP（第${p.lp_version}版）での結果: 訪問 ${cur.visits}人 / 登録 ${cur.signups}人 / 登録率 ${(cur.rate * 100).toFixed(1)}%
-全体の結果: 訪問 ${all.visits}人 / 登録 ${all.signups}人 / 登録率 ${(all.rate * 100).toFixed(1)}% / 広告費 ${all.adSpendJpy}円
-目標の登録率: ${(s.targetSignupRate * 100).toFixed(1)}% / 1案件の広告費上限: ${s.adBudgetPerProjectJpy}円 / 上限を超えたあと改善に使える追加の広告費: ${s.improveExtraBudgetJpy}円 / これまでの改善回数: ${p.improve_count}回
+今の${isTool ? "版" : "LP"}（第${p.lp_version}版）での結果: 訪問 ${cur.visits}人 / ${c.noun} ${cur.signups}人 / ${c.rate} ${(cur.rate * 100).toFixed(1)}%
+全体の結果: 訪問 ${all.visits}人 / ${c.noun} ${all.signups}人 / ${c.rate} ${(all.rate * 100).toFixed(1)}%${isTool ? ` / シェア ${shares}人` : ""} / 広告費 ${all.adSpendJpy}円
+目標の${c.rate}: ${(targetRate(p.kind, s) * 100).toFixed(1)}% / 1案件の広告費上限: ${s.adBudgetPerProjectJpy}円 / 上限を超えたあと改善に使える追加の広告費: ${s.improveExtraBudgetJpy}円 / これまでの改善回数: ${p.improve_count}回
 これまでの経過:
 ${history}`,
   };
@@ -337,7 +589,8 @@ async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Pr
       .prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'decision' AND status = 'rejected' AND proposal = ? AND lp_version = ?")
       .get(projectId, DECISION_LABEL.improve, p.lp_version);
     const blocked =
-      humanSaidNo ? "この版では人が改善を却下しているため"
+      p.kind === "tool" ? "ツールのプログラムの変更は、人が動作を確かめてから公開するため"
+      : humanSaidNo ? "この版では人が改善を却下しているため"
       : p.improve_count >= s.maxAutoImprove ? `自動での改善は${s.maxAutoImprove}回までのため`
       : adSpendJpy >= s.adBudgetPerProjectJpy + s.improveExtraBudgetJpy
         ? s.improveExtraBudgetJpy > 0
@@ -619,7 +872,7 @@ async function writeLesson(projectId: number, outcome: string) {
     projectId,
     system: `終わった案件から、次のアイデア出しに活かせる教訓を1〜2文で書きます。この案件だけの話ではなく、次に一般化できる形にすること。
 形式: {"lesson":"教訓"}`,
-    user: `サービス: ${p.title}（対象: ${p.target}）\n結果: ${outcome}\n訪問 ${t.visits}人 / 登録 ${t.signups}人 / 登録率 ${(t.rate * 100).toFixed(1)}% / LPの改善 ${p.improve_count}回`,
+    user: `サービス: ${p.title}（対象: ${p.target}）\n結果: ${outcome}\n形: ${KIND_LABEL[p.kind]}\n訪問 ${t.visits}人 / ${CONV[p.kind].noun} ${t.signups}人 / ${CONV[p.kind].rate} ${(t.rate * 100).toFixed(1)}% / 改善 ${p.improve_count}回`,
     validate: (v): v is { lesson: string } => isObj(v) && isStr(v.lesson),
   });
   db().prepare("INSERT INTO lessons (project_id, text) VALUES (?, ?)").run(projectId, out.lesson);
@@ -677,11 +930,11 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
 
 // ---- 集客データ ----
 
-export async function addMetrics(projectId: number, rows: { day: string; visits: number; signups: number; adSpendJpy: number; source: "manual" | "simulated" }[]) {
+export async function addMetrics(projectId: number, rows: { day: string; visits: number; signups: number; shares?: number; adSpendJpy: number; source: "manual" | "simulated" }[]) {
   const p = getProject(projectId);
   if (p?.stage !== "live") throw new Error("集客データを追加できるのは「集客中」の案件だけです");
-  const insert = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source, lp_version) VALUES (?, ?, ?, ?, ?, ?, ?)");
-  for (const r of rows) insert.run(projectId, r.day, r.visits, r.signups, r.adSpendJpy, r.source, p.lp_version);
+  const insert = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, shares, ad_spend_jpy, source, lp_version) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+  for (const r of rows) insert.run(projectId, r.day, r.visits, r.signups, r.shares ?? 0, r.adSpendJpy, r.source, p.lp_version);
   const added = rows.reduce((s, r) => s + r.visits, 0);
   logEvent(projectId, "system", "metrics", `集客データを追加: 訪問 +${added}人（第${p.lp_version}版・${rows[0]?.source === "simulated" ? "シミュレーション" : "手入力"}）`);
   return maybeAutoJudge(projectId);
@@ -747,14 +1000,17 @@ export function simulatedDays(project: ProjectRow, days: number) {
     return x - Math.floor(x);
   };
   // AIの自信度を「本当の需要」のぶれた推定とみなし、LPを改善するたびに少しだけ上がることにする
-  const base = (project.ai_confidence ?? 0.5) * 0.06 + (seed(0) - 0.5) * 0.04;
+  // 動くツールは、その場で使えるので成果の割合がずっと高い
+  const scale = project.kind === "tool" ? 0.6 : 0.06;
+  const base = (project.ai_confidence ?? 0.5) * scale + (seed(0) - 0.5) * scale * 0.66;
   const trueRate = Math.max(0.005, base + project.improve_count * 0.005);
   const done = (db().prepare("SELECT COUNT(*) AS n FROM metrics WHERE project_id = ?").get(project.id) as { n: number }).n;
   return Array.from({ length: days }, (_, i) => {
     const visits = 15 + Math.round(seed(done + i + 1) * 35);
     const signups = Array.from({ length: visits }, (_, k) => seed(1000 + (done + i) * 100 + k) < trueRate).filter(Boolean).length;
     const day = new Date(Date.now() - (days - i - 1) * 86400000).toISOString().slice(0, 10);
-    return { day, visits, signups, adSpendJpy: visits * 100, source: "simulated" as const };
+    const shares = project.kind === "tool" ? Math.round(signups * 0.1 * seed(5000 + done + i) * 2) : 0;
+    return { day, visits, signups, shares, adSpendJpy: visits * 100, source: "simulated" as const };
   });
 }
 
@@ -786,7 +1042,9 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     const ids: number[] = [];
     for (const c of kept) {
       // 承認するときに作者が分からないよう、ここでは作者名を出さない
-      const id = insertProject(c.idea, "", nextMode(), "daily", c.author);
+      // 作者の自己申告は甘くなりがちなので、他社の採点の平均を自信として使う
+      const conf = c.peerAvg !== null ? { value: c.peerAvg / 10, source: "他社のAIによる採点の平均" } : selfConfidence(c.idea);
+      const id = insertProject(c.idea, "", { ...nextMode(conf), confidence: conf.value }, "daily", c.author);
       db().prepare("UPDATE idea_candidates SET selected = 1, project_id = ? WHERE id = ?").run(id, c.id);
       logEvent(id, "ai", "select", `${candidates.length}件の候補から選ばれました（3社のAIによる採点の平均 ${c.avg.toFixed(1)}点 / 10点）`);
       ids.push(id);
@@ -811,7 +1069,7 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
 
 // ---- 3社でアイデアを出し、作者を伏せて全員で採点する ----
 
-type Candidate = { id: number; label: string; author: string; idea: Idea; avg: number };
+type Candidate = { id: number; label: string; author: string; idea: Idea; avg: number; peerAvg: number | null };
 
 const modelLabel = (id: string) => MODELS.find((m) => m.id === id)?.label ?? id;
 
@@ -842,12 +1100,12 @@ async function gatherAndScoreIdeas(perModel: number, keep: number): Promise<{ ca
   const candidates: Candidate[] = pool.map((x, i) => {
     const label = String.fromCharCode(65 + i);
     const id = Number(insert.run(batchId, label, x.author, x.idea.title, JSON.stringify(x.idea)).lastInsertRowid);
-    return { id, label, author: x.author, idea: x.idea, avg: 0 };
+    return { id, label, author: x.author, idea: x.idea, avg: 0, peerAvg: null };
   });
 
   // 3. 各社が、作者を伏せた全候補に点を付ける
   const sheet = candidates
-    .map((c) => `【${c.label}】${c.idea.title}\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}`)
+    .map((c) => `【${c.label}】${c.idea.title}（形: ${c.idea.kind === "tool" ? "tool" : "lp"}）\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}`)
     .join("\n\n");
   const scoreRow = db().prepare("INSERT INTO idea_scores (candidate_id, scorer_model, score, reason) VALUES (?, ?, ?, ?)");
   await Promise.all(
@@ -858,8 +1116,8 @@ async function gatherAndScoreIdeas(perModel: number, keep: number): Promise<{ ca
           modelId: scorer,
           system: `あなたは事業アイデアの審査員です。作者が誰かは分かりません。次の観点で各アイデアを1〜10点で採点します。
 - 対象者が具体的で、その人に安く届けられるか
-- 困りごとが強く、事前登録したくなるか
-- 1人で1〜2週間で作れる大きさか
+- 困りごと・欲しい気持ちが強く、事前登録したくなるか（形が tool なら、使ってシェアしたくなるか）
+- 選んだ形（lp=事前登録LP / tool=1ページで完結する動くツール）が、そのアイデアに合っているか。tool なら外部の通信なしで本当に作れるか
 - 既存の無料サービスとの違いがはっきりしているか
 点数は甘くしないこと（平凡なものは5点前後）。
 形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]}`,
@@ -881,6 +1139,8 @@ async function gatherAndScoreIdeas(perModel: number, keep: number): Promise<{ ca
   for (const c of candidates) {
     const r = db().prepare("SELECT AVG(score) AS a FROM idea_scores WHERE candidate_id = ?").get(c.id) as { a: number | null };
     c.avg = r.a ?? 0;
+    const peer = db().prepare("SELECT AVG(score) AS a FROM idea_scores WHERE candidate_id = ? AND scorer_model != ?").get(c.id, c.author) as { a: number | null };
+    c.peerAvg = peer.a;
     db().prepare("UPDATE idea_candidates SET avg_score = ? WHERE id = ?").run(c.avg, c.id);
   }
   const kept: Candidate[] = [];
@@ -893,6 +1153,41 @@ async function gatherAndScoreIdeas(perModel: number, keep: number): Promise<{ ca
     rest.splice(rest.indexOf(pick), 1);
   }
   return { candidates, kept };
+}
+
+// LPのデザイン候補の作者別の成績: 他社からの点、自分の案への点、AIに選ばれた数、人が切り替えた数、
+// その作者のLPで集めた実際の登録率（公開の判断が済んだ案件だけ。承認待ちの案件では作者を伏せているため）
+export function designAuthorStats() {
+  const rows = db()
+    .prepare(
+      `SELECT c.* FROM lp_candidates c JOIN projects p ON p.id = c.project_id
+       WHERE p.demo = 0 AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.project_id = c.project_id AND a.kind = 'publish' AND a.status = 'pending')`,
+    )
+    .all() as LpCandidateRow[];
+  const authors = [...new Set(rows.map((r) => r.author_model))];
+  return authors.map((author) => {
+    const mine = rows.filter((r) => r.author_model === author);
+    const ids = mine.map((r) => r.id).join(",") || "NULL";
+    const fromOthers = db().prepare(`SELECT AVG(score) AS a FROM lp_candidate_scores WHERE candidate_id IN (${ids}) AND scorer_model != ?`).get(author) as { a: number | null };
+    const fromSelf = db().prepare(`SELECT AVG(score) AS a FROM lp_candidate_scores WHERE candidate_id IN (${ids}) AND scorer_model = ?`).get(author) as { a: number | null };
+    // 実際に使われた版（この作者が書いた版）の成果
+    const used = db()
+      .prepare("SELECT v.project_id, v.version FROM lp_versions v JOIN projects p ON p.id = v.project_id WHERE p.demo = 0 AND p.kind = 'lp' AND v.author_model = ?")
+      .all(author) as { project_id: number; version: number }[];
+    const totals = used.map((u) => projectTotals(u.project_id, u.version)).filter((t) => t.visits > 0);
+    const visits = totals.reduce((n, t) => n + t.visits, 0);
+    const signups = totals.reduce((n, t) => n + t.signups, 0);
+    return {
+      author,
+      candidates: mine.length,
+      aiSelected: mine.filter((r) => r.selected).length,
+      humanSelected: mine.filter((r) => r.human_selected).length,
+      scoreFromOthers: fromOthers.a,
+      scoreFromSelf: fromSelf.a,
+      rate: visits ? signups / visits : null,
+      visits,
+    };
+  });
 }
 
 // 作者別の成績: 他社からの点、自分の案への点、選ばれた数、人の採用、実際の登録率

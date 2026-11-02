@@ -1,19 +1,19 @@
 import type { ApprovalView } from "@/components/ApprovalCard";
 import { db, getSettings, type ApprovalRow, type ProjectRow } from "./db";
-import { debateFor, projectTotals, shadowModels, type Decision, type Review, type ShadowRow } from "./loop";
+import { CONV, debateFor, projectTotals, shadowModels, targetRate, type Decision, type Review, type ShadowRow } from "./loop";
 import { modelInfo } from "./models";
 
 // 承認待ちを、カードに表示できる形にまとめる
 export function pendingApprovals(projectId?: number): ApprovalView[] {
   const rows = db()
     .prepare(
-      `SELECT a.*, p.title, p.target, p.problem, p.solution, p.hypothesis, p.ai_confidence, p.demo
+      `SELECT a.*, p.title, p.target, p.problem, p.solution, p.hypothesis, p.ai_confidence, p.demo, p.kind AS product_kind
        FROM approvals a JOIN projects p ON p.id = a.project_id
        WHERE a.status = 'pending' ${projectId ? "AND a.project_id = ?" : ""}
        ORDER BY a.id`,
     )
-    .all(...(projectId ? [projectId] : [])) as (ApprovalRow & Pick<ProjectRow, "title" | "target" | "problem" | "solution" | "hypothesis" | "ai_confidence" | "demo">)[];
-  const { targetSignupRate } = getSettings();
+    .all(...(projectId ? [projectId] : [])) as (ApprovalRow & Pick<ProjectRow, "title" | "target" | "problem" | "solution" | "hypothesis" | "ai_confidence" | "demo"> & { product_kind: ProjectRow["kind"] })[];
+  const s = getSettings();
   return rows.map((r) => {
     const d = r.kind === "decision" && r.payload ? (JSON.parse(r.payload) as Decision) : null;
     const review = r.kind === "publish" && r.payload ? (JSON.parse(r.payload) as { review?: Review }).review : undefined;
@@ -26,12 +26,13 @@ export function pendingApprovals(projectId?: number): ApprovalView[] {
       createdAt: r.created_at,
       project: {
         id: r.project_id, title: r.title, target: r.target, problem: r.problem, solution: r.solution,
-        hypothesis: r.hypothesis, confidence: r.ai_confidence, demo: !!r.demo,
+        hypothesis: r.hypothesis, confidence: r.ai_confidence, demo: !!r.demo, kind: r.product_kind,
       },
       decision: d ? { confidence: d.confidence, nextAction: d.next_action } : undefined,
       review,
       totals: t ? { visits: t.visits, signups: t.signups, rate: t.rate, adSpendJpy: t.adSpendJpy, simulated: t.simulated } : undefined,
-      targetRate: targetSignupRate,
+      targetRate: targetRate(r.product_kind, s),
+      conv: CONV[r.product_kind],
       judge: d ? judgeView(r, d) : undefined,
     };
   });

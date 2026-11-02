@@ -13,7 +13,7 @@ export function IdeaAuthors() {
         <h2 className="font-bold">アイデア出しの比較</h2>
         <p className="text-sm text-ink-2">
           毎日の自動実行では、3社のAIがそれぞれアイデアを出し、作者を伏せて3社全員で採点し、平均点の上位を進めます。
-          LPなど以降の作業は同じAIが行うので、結果の差は「アイデアの差」として比べられます。
+          LPは3社の候補から作者を伏せた採点で選び、ツールや判断は同じAIが行うので、アイデアの作者とは関係なく決まります。結果の差は「アイデアの差」として比べられます。
         </p>
       </div>
       {stats.length === 0 ? (
@@ -30,7 +30,7 @@ export function IdeaAuthors() {
                   <th className="px-3 py-2 text-right">自分の案への点</th>
                   <th className="px-3 py-2 text-right">他社の案への点</th>
                   <th className="px-3 py-2 text-right">人の採用</th>
-                  <th className="px-3 py-2 text-right">実際の登録率</th>
+                  <th className="px-3 py-2 text-right">実際の成果の率</th>
                 </tr>
               </thead>
               <tbody>
@@ -61,7 +61,7 @@ export function IdeaAuthors() {
           </div>
           <p className="text-xs text-muted">
             「自分の案への点」と「他社の案への点」は、そのAIが審査員として付けた点です。自分の案だけ点が高ければ、作者を伏せていても文体などで見抜いて、ひいきしている可能性があります。
-            「人の採用」は毎回承認モードでアイデアを承認した数です。「実際の登録率」は、集客まで進んだ案件の合計です。件数が少ないうちは差が偶然の可能性が高いです。
+            「人の採用」は毎回承認モードでアイデアを承認した数です。「実際の成果の率」は、集客まで進んだ案件の合計です（事前登録LPは登録、ツールは利用の割合）。件数が少ないうちは差が偶然の可能性が高いです。
           </p>
         </>
       )}

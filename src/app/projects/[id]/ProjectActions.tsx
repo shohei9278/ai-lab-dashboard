@@ -4,8 +4,8 @@ import { useState } from "react";
 import type { Stage } from "@/lib/db";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 
-export function ProjectActions({ id, stage, hasLp, hasPending, judgeMinVisits, publicUrl }: {
-  id: number; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number;
+export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl }: {
+  id: number; convNoun: string; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number;
   publicUrl: string | null; // 実際に公開しているときだけ入る
 }) {
   const { run, busy, error } = useLoopAction();
@@ -24,7 +24,7 @@ export function ProjectActions({ id, stage, hasLp, hasPending, judgeMinVisits, p
           <h2 className="font-bold">公開中</h2>
           <a href={publicUrl} target="_blank" rel="noreferrer" className="text-sm text-accent underline">{publicUrl} ↗</a>
           <p className="mt-1 text-xs text-muted">
-            訪問と登録の数は15分ごとに自動で取り込みます。訪問が{judgeMinVisits}人を超えるか、広告費が上限に達すると、AIが判断して承認待ちに出します。
+            訪問と{convNoun}の数は15分ごとに自動で取り込みます。訪問が{judgeMinVisits}人を超えるか、広告費が上限に達すると、AIが判断して承認待ちに出します。
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -58,7 +58,7 @@ export function ProjectActions({ id, stage, hasLp, hasPending, judgeMinVisits, p
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <Num label="訪問" value={visits} onChange={setVisits} />
-          <Num label="登録" value={signups} onChange={setSignups} />
+          <Num label={convNoun} value={signups} onChange={setSignups} />
           <Num label="広告費（円）" value={adSpend} onChange={setAdSpend} />
           <ActionButton
             disabled={!!busy || visits === "" || signups === ""}

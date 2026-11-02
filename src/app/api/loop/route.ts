@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  addMetrics, decide, finalizeDecision, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, syncAndJudge,
+  addMetrics, decide, finalizeDecision, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { clearDemo, seedDemo } from "@/lib/demo";
@@ -30,6 +30,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       case "generate-lp":
         await prepareLp(requireProject(body).id);
+        return NextResponse.json({ ok: true });
+      case "use-candidate":
+        await switchLpCandidate(Number(body.candidateId));
         return NextResponse.json({ ok: true });
       case "sync":
         return NextResponse.json(await syncAndJudge());

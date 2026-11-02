@@ -13,10 +13,10 @@
     "@google/genai": "^2.32.0",
     "@supabase/supabase-js": "^2.58.0",
     "better-sqlite3": "^12.4.1",
-    "next": "15.5.4",
+    "next": "15.5.28",
     "openai": "^6.49.0",
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
+    "react": "19.1.10",
+    "react-dom": "19.1.10",
     "recharts": "^3.2.1"
   },
   "devDependencies": {
@@ -27,9 +27,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "15.5.4",
+    "eslint-config-next": "15.5.28",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
     "typescript": "^5"
+  },
+  "engines": {
+    "node": "22.x"
   }
 }
