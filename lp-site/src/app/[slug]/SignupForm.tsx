@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { gaEvent } from "@/lib/ga";
 import { visitorId } from "./visitor";
 
 export function SignupForm({ slug, version, cta }: { slug: string; version: number; cta: string }) {
@@ -10,6 +11,8 @@ export function SignupForm({ slug, version, cta }: { slug: string; version: numb
   const [website, setWebsite] = useState(""); // ロボット対策の見えない欄（人は入力しない）
   const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
+  const [started, setStarted] = useState(false);
+  const ga = { lp_slug: slug, lp_version: version };
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,9 +25,11 @@ export function SignupForm({ slug, version, cta }: { slug: string; version: numb
     const data = res ? await res.json().catch(() => ({})) : {};
     if (res?.ok) {
       setState("done");
+      gaEvent("sign_up", { ...ga, method: "email" });
     } else {
       setState("error");
       setMessage(data.error ?? "送信できませんでした。時間をおいてもう一度お試しください。");
+      gaEvent("sign_up_error", ga);
     }
   }
 
@@ -47,6 +52,11 @@ export function SignupForm({ slug, version, cta }: { slug: string; version: numb
           autoComplete="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          onFocus={() => {
+            if (started) return;
+            setStarted(true);
+            gaEvent("form_start", ga);
+          }}
           className="mt-1 block w-full rounded-lg border border-line bg-bg px-3 py-2"
         />
       </label>

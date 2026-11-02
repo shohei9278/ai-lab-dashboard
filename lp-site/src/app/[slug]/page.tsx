@@ -4,6 +4,7 @@ import { getLp } from "@/lib/supabase";
 import { SITE_NAME } from "@/lib/site";
 import { SignupForm } from "./SignupForm";
 import { Tracker } from "./Tracker";
+import { CtaLink } from "./CtaLink";
 
 export const dynamic = "force-dynamic";
 
@@ -36,10 +37,10 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
         <div className="text-sm text-muted">{lp.title}</div>
         <h1 className="text-2xl font-bold leading-snug sm:text-4xl">{c.headline}</h1>
         <p className="text-ink-2 sm:text-lg">{c.subheadline}</p>
-        <a href="#signup" className="inline-block rounded-full bg-accent px-6 py-3 font-medium text-accent-ink">{c.cta}</a>
+        <CtaLink slug={lp.slug} version={lp.version}>{c.cta}</CtaLink>
       </header>
 
-      <section className="bg-surface-2 px-6 py-14">
+      <section data-section="pains" className="bg-surface-2 px-6 py-14">
         <div className="mx-auto max-w-xl space-y-3">
           <h2 className="text-center font-bold">こんなことで困っていませんか？</h2>
           <ul className="space-y-2">
@@ -50,7 +51,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-4xl gap-6 px-6 py-14 sm:grid-cols-3">
+      <section data-section="features" className="mx-auto grid max-w-4xl gap-6 px-6 py-14 sm:grid-cols-3">
         {c.features.map((f) => (
           <div key={f.title} className="space-y-1">
             <h3 className="font-bold">{f.title}</h3>
@@ -59,7 +60,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
         ))}
       </section>
 
-      <section className="mx-auto max-w-2xl space-y-3 border-t border-line px-6 py-14">
+      <section data-section="faq" className="mx-auto max-w-2xl space-y-3 border-t border-line px-6 py-14">
         <h2 className="font-bold">よくある質問</h2>
         {c.faq.map((f) => (
           <div key={f.q}>
@@ -69,7 +70,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
         ))}
       </section>
 
-      <section id="signup" className="bg-surface-2 px-6 py-16">
+      <section id="signup" data-section="signup" className="bg-surface-2 px-6 py-16">
         <div className="mx-auto max-w-md space-y-4 text-center">
           <h2 className="text-lg font-bold">{c.cta}</h2>
           <p className="text-sm text-ink-2">現在準備中のサービスです。メールアドレスを登録いただくと、提供を始めるときにご案内します。登録は無料です。</p>

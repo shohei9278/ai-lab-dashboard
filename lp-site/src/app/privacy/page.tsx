@@ -1,4 +1,4 @@
-import { CONTACT_EMAIL, POLICY_UPDATED, SITE_NAME } from "@/lib/site";
+import { CONTACT_EMAIL, GA_MEASUREMENT_ID, POLICY_UPDATED, SITE_NAME } from "@/lib/site";
 
 export const metadata = { title: `プライバシーポリシー｜${SITE_NAME}` };
 
@@ -36,15 +36,27 @@ export default function Privacy() {
         </ul>
       </Section>
 
-      <Section title="5. 保管期間と削除">
+      {GA_MEASUREMENT_ID && (
+        <Section title="5. アクセス解析ツールの利用（外部への情報送信）">
+          <p>ページの使われ方を把握して内容を改善するため、Google LLC が提供する「Google アナリティクス」を利用しています。ページを開くと、次の情報がお使いのブラウザから Google に送信されます。</p>
+          <ul className="ml-5 list-disc">
+            <li>送信先: Google LLC（米国）</li>
+            <li>送信される情報: 閲覧したページのURL、参照元、閲覧日時、ブラウザ・端末・おおよその地域の情報、Cookie に保存される識別子、ページ内での操作（どの部分まで読んだか、登録ボタンを押したか、登録が完了したか）</li>
+            <li>利用目的: 閲覧数や操作の集計によるページの改善</li>
+          </ul>
+          <p>メールアドレスなど、個人を直接特定できる情報は送信しません。Google による情報の取り扱いは <a href="https://policies.google.com/technologies/partner-sites?hl=ja" target="_blank" rel="noreferrer" className="underline">Google のポリシー</a> をご覧ください。送信を止めたい場合は、<a href="https://tools.google.com/dlpage/gaoptout?hl=ja" target="_blank" rel="noreferrer" className="underline">Google アナリティクス オプトアウト アドオン</a> をご利用ください。</p>
+        </Section>
+      )}
+
+      <Section title={`${GA_MEASUREMENT_ID ? 6 : 5}. 保管期間と削除`}>
         <p>サービスの提供開始のご案内を終えたとき、またはサービスを開発しないと決めたときは、メールアドレスを速やかに削除します。ご本人からのご依頼があれば、いつでも削除します。</p>
       </Section>
 
-      <Section title="6. 開示・訂正・削除などのご請求">
+      <Section title={`${GA_MEASUREMENT_ID ? 7 : 6}. 開示・訂正・削除などのご請求`}>
         <p>ご自身の情報の開示・訂正・利用停止・削除をご希望の場合は、下記の連絡先までご連絡ください。ご本人であることを確認したうえで対応します。</p>
       </Section>
 
-      <Section title="7. お問い合わせ先">
+      <Section title={`${GA_MEASUREMENT_ID ? 8 : 7}. お問い合わせ先`}>
         <p>運営: {SITE_NAME}</p>
         <p>連絡先: {CONTACT_EMAIL || "（未設定）"}</p>
       </Section>
