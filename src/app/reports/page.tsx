@@ -3,6 +3,7 @@ import { getSettings } from "@/lib/db";
 import { listReports, type Report } from "@/lib/report";
 import { NOTE_TOPICS } from "@/lib/notes";
 import { PageIntro } from "@/components/PageIntro";
+import { LabTabs } from "@/components/LabTabs";
 import { AddNoteButton, CopyButton, CreateReportButton } from "./ReportActions";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         1週間の数字と動きを、AIがまとめたものです。外に発信するための下書き（Xの投稿・記事）と、実験メモに残すとよい気づきも作ります。
         {s.weeklyReport ? "毎週月曜に自動で作ります。" : "自動で作るのは止めています（設定で変えられます）。"}
       </PageIntro>
+      <LabTabs current="/reports" />
 
       {reports.length > 1 && (
         <nav className="flex flex-wrap gap-2 text-sm" aria-label="過去のレポート">

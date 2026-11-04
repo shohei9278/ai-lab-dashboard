@@ -11,8 +11,8 @@ const MODES: { id: ApprovalMode; label: string; body: string }[] = [
   { id: "confidence", label: "AIの自信で決める", body: "AIの自信が基準以上の案件だけ自動で進め、それ以外は毎回承認にします。「AIの自信は当たるのか」を確かめられます。" },
 ];
 
-export function SettingsForm({ initial, models, publishing }: {
-  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean;
+export function SettingsForm({ initial, models, publishing, snsReady }: {
+  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { label: string; ok: boolean; free: boolean }[];
 }) {
   const router = useRouter();
   const [v, setV] = useState({
@@ -47,7 +47,7 @@ export function SettingsForm({ initial, models, publishing }: {
     <div className="space-y-4">
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">進め方（モード）</h2>
-        <p className="text-xs text-muted">新しく作られる案件に適用されます。すでにある案件のモードは変わりません。お金がかかる最初の公開と、続ける・撤退の判断は、どのモードでも人が承認します。</p>
+        <p className="text-xs text-muted">新しく作られる案件に適用されます。すでにある案件のモードは変わりません。下の「全自動」をオンにしない限り、最初の公開と、続ける・撤退の判断は、どのモードでも人が承認します。</p>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {MODES.map((m) => (
             <label key={m.id} className={`cursor-pointer rounded-lg border p-3 text-sm ${v.approvalMode === m.id ? "border-accent" : "border-line"}`}>
@@ -65,6 +65,18 @@ export function SettingsForm({ initial, models, publishing }: {
             note="毎日の自動実行では、アイデアを出したAI以外の2社による採点の平均（10点満点）を%にして使います（7点なら70%）。手動で依頼したアイデアは、AIの自己申告の自信度を使います。"
           >
             <input type="number" min={0} max={100} {...num("autoConfidencePct")} className={input} />
+          </Field>
+        )}
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={v.fullAuto} onChange={(e) => set("fullAuto", e.target.checked)} />
+          <span>
+            全自動（自動モードの案件は、公開・続ける・撤退も人の承認なしで行う）
+            <span className="block text-xs text-muted">AIのチェックとデザインの確認を通ったものだけ自動で公開し、通らなかったものは人の承認に回します。動くツールの改善も、ブラウザでの自動テストを通れば差し替えます。広告費の上限を超えて集客を続ける判断だけは人に回します。公開したものはホームの一覧に「AIだけで公開（確認）」として出るので、あとから見て「問題なし」「出すべきでなかった」の印を付けてください。</span>
+          </span>
+        </label>
+        {v.fullAuto && (
+          <Field label="人の承認なしで新しく公開してよい件数（直近7日）" note="これを超えた分は、人の承認に回します。">
+            <input type="number" min={0} {...num("autoPublishPerWeek")} className={input} />
           </Field>
         )}
         <Field label="自動モードで、承認なしにLPを改善してよい回数" note="これを超えたら人の判断に回します。改善は1回に1か所だけ、対象読者と仮説は変えません。">
@@ -113,6 +125,20 @@ export function SettingsForm({ initial, models, publishing }: {
             <span className="block text-xs text-muted">数字と動きのまとめに加えて、Xの投稿と記事（note など）の下書き、実験メモの追加案を作ります（1回 約10〜20円）。「レポート」のページで見られます。</span>
           </span>
         </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={v.illustrations} onChange={(e) => set("illustrations", e.target.checked)} />
+          <span>
+            LPにAIが描いたイラストを入れる
+            <span className="block text-xs text-muted">最初の版を作るときに、見出しの横に置くイラストを画像生成AIで1枚描きます（1枚 約12円）。文字・ロゴ・実在の人物は描かせません。公開する前にプレビューで確かめてください。</span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={v.freePage} onChange={(e) => set("freePage", e.target.checked)} />
+          <span>
+            事前登録LPのページ全体を、AIに自由にデザインさせる
+            <span className="block text-xs text-muted">決まった部品の組み合わせではなく、AIがサービスごとの世界観を決めてページを丸ごと書きます。スマホとPCの画面を撮ってAIが崩れを確かめ、問題があれば1回直します（1件 約100〜150円）。うまく作れなかったときは部品のLPを使います。動くツールの案件には使いません。</span>
+          </span>
+        </label>
         <Field
           label="いま話題のネタ（任意）"
           note="アイデア出しのときに、今月・来月の行事（自動で入ります）と一緒にAIに渡します。その年だけの出来事や、気になっている話題を書いてください。例: ドラフト会議が話題、年末の大掃除向けツールを試したい"
@@ -140,6 +166,9 @@ export function SettingsForm({ initial, models, publishing }: {
           </Field>
           <Field label="判断に入る訪問数" note="今のLPの版での訪問がこの人数を超えたら、AIが続ける・改善・撤退を提案します。">
             <input type="number" min={1} {...num("judgeMinVisits")} className={input} />
+          </Field>
+          <Field label="訪問が少なくても判断する日数" note="公開（または前の判断）からこの日数がたったら、訪問が少なくてもAIが判断します。人が来ていないときは、ページを変えずに投稿の切り口・場所・対象を見直す（集客の見直し）を選べます。見直しは2回まで。">
+            <input type="number" min={1} max={60} {...num("judgeAfterDays")} className={input} />
           </Field>
           <Field label="登録率の目標（%）" note="事前登録LPの案件で、これを下回ると撤退の候補になります。">
             <input type="number" min={0.1} step="0.1" {...num("targetPct")} className={input} />
@@ -177,6 +206,24 @@ export function SettingsForm({ initial, models, publishing }: {
           <Field label="LP・ツールを紹介する X のアカウント" note="「SNSで広める」の欄に、どのアカウントで投稿するかを表示します（@なしで入力）。">
             <input value={v.snsAccount} onChange={(e) => set("snsAccount", e.target.value)} maxLength={16} placeholder="hitoride_app" className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />
           </Field>
+          <div className="space-y-2 sm:col-span-2">
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={v.autoPost} disabled={!snsReady.some((x) => x.ok)} onChange={(e) => set("autoPost", e.target.checked)} />
+              <span>
+                公開中の案件を、AIがSNSに自動で投稿する
+                <span className="block text-xs text-muted">
+                  使える場所: {snsReady.map((x) => `${x.label} ${x.ok ? "✓" : "—（キー未設定）"}`).join("　")}（キーの入れ方は docs/SETUP-SNS.md）。
+                  集客の作戦の「投稿の型」に沿って書き、日本時間の8〜22時に、場所ごとに間隔をあけて投稿します。1つの案件は20時間に1回まで。返信・フォロー・いいねなど、他人への働きかけはしません。
+                  X はリンク付きの投稿が1件 約30円（$0.20）かかり、AIの月の予算に含めて数えます。Threads と Bluesky は無料です。自動で投稿するアカウントには、各サービスで「自動化されたアカウント」のラベルを付けてください。
+                </span>
+              </span>
+            </label>
+            {v.autoPost && (
+              <Field label="自動投稿の上限（場所ごと・直近24時間）" note="">
+                <input type="number" min={1} max={10} {...num("autoPostPerDay")} className={input} />
+              </Field>
+            )}
+          </div>
           <Field label="問い合わせ先のメールアドレス" note="同じく、登録者へ送るメールに載せます（プライバシーポリシーの連絡先と同じものがおすすめ）。">
             <input type="email" value={v.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />
           </Field>

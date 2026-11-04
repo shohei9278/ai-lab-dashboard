@@ -23,7 +23,7 @@ export function LpCandidates({ projectId, version, items, canSwitch }: { project
     <div className="space-y-2 border-t border-line pt-3">
       <div className="text-xs text-muted">
         第{version}版のLPの候補（{items.length}社が1案ずつ作り、作者を伏せて{items.length}社全員で採点）。
-        {canSwitch ? "公開する前なら、別の候補に切り替えられます。" : ""}
+        {canSwitch ? "公開する前なら、別の候補に切り替えられます（イラストは選ばれた候補に合わせて描いたものなので、切り替えたら「描き直す」で作り直してください）。" : ""}
         {items.some((c) => c.author === null) ? "作者は、公開の判断をしたあとに表示されます。" : ""}
       </div>
       <ul className="grid gap-2 sm:grid-cols-3">

@@ -64,3 +64,20 @@ alter table tool_events enable row level security;
 -- ---- 追加（SNSの投稿ごとの計測用）。ここから下だけを実行すればよい ----
 -- 投稿に付けた専用のリンク（?s=…）から来た訪問を見分ける
 alter table lp_views add column if not exists source text;
+
+-- ---- 追加（ページの中でどこまで進んだかの計測用）。ここから下だけを実行すればよい ----
+-- GA に送っているのと同じイベント（ボタンを押した・入力を始めた・どこまで読んだ・登録した・使った・シェアした）を、
+-- 訪問者ごと・1日1回だけ記録する。ダッシュボードの「ページの中での動き」に使う
+create table if not exists lp_events (
+  id bigserial primary key,
+  slug text not null references lps(slug),
+  version integer not null,
+  visitor_id text not null,
+  name text not null check (name in ('cta_click', 'form_start', 'section_view', 'scroll_depth', 'sign_up', 'sign_up_error', 'tool_use', 'share')),
+  detail text not null default '', -- section_view は部分の名前、scroll_depth は % 、share は方法
+  day date not null default (now() at time zone 'Asia/Tokyo')::date,
+  created_at timestamptz not null default now(),
+  unique (slug, version, visitor_id, name, detail, day)
+);
+create index if not exists lp_events_slug on lp_events (slug, version);
+alter table lp_events enable row level security;

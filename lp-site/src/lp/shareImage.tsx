@@ -25,8 +25,9 @@ export function ShareImage({ lp, title, siteName }: { lp: Lp; title: string; sit
   const accent = theme.accent[0];
   const soft = theme.soft[0];
   const t = shareImageText(lp, title, siteName);
-  // 見出しが長いときは文字を小さくする
-  const size = t.headline.length > 34 ? 52 : t.headline.length > 22 ? 62 : 72;
+  const ill = lp.design?.illustration;
+  // 見出しが長いときは文字を小さくする（イラストがあるときは幅が半分になるので、さらに小さく）
+  const size = ill ? (t.headline.length > 26 ? 42 : t.headline.length > 16 ? 50 : 58) : t.headline.length > 34 ? 52 : t.headline.length > 22 ? 62 : 72;
   return (
     <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", background: `linear-gradient(135deg, ${soft} 0%, #ffffff 70%)`, fontFamily: "NotoSansJP", color: "#111111", padding: "64px 72px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -35,7 +36,13 @@ export function ShareImage({ lp, title, siteName }: { lp: Lp; title: string; sit
           <div style={{ display: "flex", fontSize: 24, fontWeight: 700, color: "#ffffff", background: accent, borderRadius: 999, padding: "6px 18px" }}>{t.badge}</div>
         ) : null}
       </div>
-      <div style={{ display: "flex", flex: 1, alignItems: "center", fontSize: size, fontWeight: 700, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{t.headline}</div>
+      <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 40 }}>
+        <div style={{ display: "flex", flex: 1, fontSize: size, fontWeight: 700, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{t.headline}</div>
+        {ill ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={ill.url} alt="" width={450} height={300} style={{ borderRadius: 24, objectFit: "cover" }} />
+        ) : null}
+      </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ display: "flex", fontSize: 28, fontWeight: 700, color: "#ffffff", background: accent, borderRadius: 14, padding: "12px 26px" }}>{t.label}</div>
         <div style={{ display: "flex", fontSize: 26, color: "#555555" }}>{t.siteName}</div>

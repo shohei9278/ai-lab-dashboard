@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db, getSettings, type EventRow } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
-import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, getProject, lpCandidates, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
+import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, buildingNow, getProject, lpCandidates, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
 import { LpCandidates } from "@/components/LpCandidates";
 import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
@@ -13,6 +13,13 @@ import { ProjectActions } from "./ProjectActions";
 import { RevisionForm } from "./RevisionForm";
 import { ToolTestCard } from "./ToolTestCard";
 import { NotifyCard } from "./NotifyCard";
+import { IllustrationControls } from "./IllustrationControls";
+import { PageCheckCard } from "./PageCheckCard";
+import { AutoReviewCard } from "./AutoReviewCard";
+import { EventLog } from "./EventLog";
+import { FunnelCard } from "./FunnelCard";
+import { funnel } from "@/lib/funnel";
+import { eventDetails } from "@/lib/eventDetails";
 import { SnsPosts } from "./SnsPosts";
 import { listPosts, postLink } from "@/lib/sns";
 import { projectCost } from "@/lib/cost";
@@ -22,7 +29,6 @@ import { ShadowJudgments } from "@/components/ShadowJudgments";
 export const dynamic = "force-dynamic";
 
 const STEPS = ["idea", "lp", "live", "deciding"] as const;
-const ACTOR = { ai: "AI", human: "あなた", system: "システム" } as const;
 
 export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -59,8 +65,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       current: humanPicked ? !!c.human_selected : !!c.selected,
     };
   });
-  // 作者で判断が引っ張られないよう、人が一度も承認・却下していない案件ではアイデアの作者を伏せる
-  const authorHidden = !p.demo && !db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status != 'pending'").get(p.id);
+  // 毎回承認モードで、あなたが最初に承認するまでは、アイデアの作者を伏せる（先入観にならないように）。自動で進む案件は伏せない
+  const authorHidden = !p.demo && p.mode === "manual" && !db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status != 'pending'").get(p.id);
 
   return (
     <div className="space-y-6">
@@ -69,6 +75,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-bold">{p.title}</h1>
           <span className="rounded border border-line px-1.5 py-0.5 text-xs">{STAGE_LABEL[p.stage]}</span>
+          {!!p.growth_phase && <span className="rounded px-1.5 py-0.5 text-xs font-medium" style={{ background: "var(--surface-2)", color: "var(--good)" }}>育てる段階（実験 {p.growth_count}回）</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{KIND_LABEL[p.kind]}</span>
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{MODE_LABEL[p.mode]}モード</span>
           {p.origin === "daily" && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">毎日の自動実行で作成</span>}
@@ -86,7 +93,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       {approvals.map((a) => <ApprovalCard key={a.id} a={a} />)}
 
-      <ProjectActions id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
+      <ProjectActions isTool={isTool} building={buildingNow(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
 
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">AIのアイデア</h2>
@@ -95,6 +102,9 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <Item label="困りごと">{p.problem}</Item>
           <Item label="解決策">{p.solution}</Item>
           <Item label="検証する仮説">{p.hypothesis}</Item>
+          <Item label="最初の届け方（企画のとき）">{p.first_channel ?? "—"}</Item>
+          <Item label="最初の1週間の検証">{p.first_test ?? "—"}</Item>
+          {p.growth_focus && <Item label={`今の集客の方針（見直し ${p.rethink_count}回）`}>{p.growth_focus}</Item>}
           <Item label="AIがこれを選んだ理由">{p.ai_reason}</Item>
           <Item label="AIの自信度">{p.ai_confidence === null ? "—" : `${Math.round(p.ai_confidence * 100)}%`}</Item>
         </dl>
@@ -113,6 +123,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           </div>
           <div className="text-lg font-bold">{lp.headline}</div>
           <div className="text-sm text-ink-2">{lp.subheadline}</div>
+          {lp.design && <IllustrationControls id={p.id} url={lp.design.illustration?.url ?? null} isPublic={!!p.public_slug && p.public_version === p.lp_version} />}
           {candidateViews.length > 1 && (
             <LpCandidates projectId={p.id} version={p.lp_version} items={candidateViews} canSwitch={publishPending && p.stage === "lp"} />
           )}
@@ -168,6 +179,26 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <p className="card p-3 text-sm text-ink-2">✓ 事前登録してくれた人への連絡と、メールアドレスの削除は済んでいます。</p>
       )}
 
+      {p.public_slug && <FunnelCard f={funnel(p)} isTool={isTool} />}
+
+      {!!p.auto_published && (
+        <AutoReviewCard id={p.id} review={p.human_review} note={p.human_review_note} at={p.human_review_at} url={publicUrl(p.id)} />
+      )}
+
+      {!isTool && lp && (
+        <PageCheckCard
+          id={p.id}
+          version={p.lp_version}
+          hasPage={!!lp.page}
+          isPublic={!!p.public_slug && p.public_version === p.lp_version}
+          check={(() => {
+            const v = versions.find((x) => x.version === p.lp_version);
+            const c = v?.test ? JSON.parse(v.test) : null;
+            return c?.kind === "page" ? c : null;
+          })()}
+        />
+      )}
+
       {isTool && lp?.tool && (
         <ToolTestCard
           id={p.id}
@@ -187,7 +218,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           account={s.snsAccount}
           imageUrl={publicUrl(p.id) ? `${publicUrl(p.id)}/opengraph-image?v=${p.public_version ?? p.lp_version}` : null}
           posts={listPosts(p.id).map((x) => ({
-            id: x.id, code: x.code, platform: x.platform, angle: x.angle, text: x.text, author: x.author, status: x.status, postedAt: x.posted_at,
+            id: x.id, code: x.code, platform: x.platform, angle: x.angle, text: x.text, author: x.author, status: x.status === "posted" ? "posted" : "draft", postedAt: x.posted_at,
             postUrl: x.post_url, impressions: x.impressions, visits: x.visits, conversions: x.conversions, link: postLink(p.id, x.code),
           }))}
         />
@@ -258,15 +289,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       <section className="space-y-2">
         <h2 className="font-bold">経過</h2>
-        <ol className="card divide-y divide-line text-sm">
-          {events.map((e) => (
-            <li key={e.id} className="flex gap-3 p-3">
-              <span className="num shrink-0 text-xs text-muted">{e.at.slice(5, 16)}</span>
-              <span className="w-14 shrink-0 text-xs font-medium" style={{ color: e.actor === "ai" ? "var(--accent)" : "var(--text-2)" }}>{ACTOR[e.actor]}</span>
-              <span>{e.message}</span>
-            </li>
-          ))}
-        </ol>
+        <EventLog projectId={p.id} events={events} details={eventDetails(p.id, events.filter((e) => !e.message.startsWith("AIが判断しました（内容は")), authorHidden)} />
       </section>
     </div>
   );

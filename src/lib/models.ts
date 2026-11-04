@@ -49,6 +49,9 @@ export function getModel(id: string): ModelDef {
 export function modelInfo(id: string): Pick<ModelDef, "id" | "label" | "provider" | "tier"> {
   const m = MODELS.find((x) => x.id === id);
   if (m) return m;
+  if (id === "x-api") return { id, label: "X API（自動投稿）", provider: "openai", tier: "light" };
+  if (id === "threads-api") return { id, label: "Threads API（自動投稿）", provider: "openai", tier: "light" };
+  if (id === "bluesky-api") return { id, label: "Bluesky（自動投稿）", provider: "openai", tier: "light" };
   const provider: Provider = id.startsWith("claude") ? "anthropic" : id.startsWith("gemini") ? "google" : "openai";
   return { id, label: `${id}（旧）`, provider, tier: "top" };
 }

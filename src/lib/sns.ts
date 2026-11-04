@@ -1,28 +1,23 @@
 import crypto from "node:crypto";
 import { callJson, isObj, isStr } from "./ai";
-import { db } from "./db";
+import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
+import { AUTO_PLATFORMS, autoPlatforms, xWeightedLength, type AutoPlatform } from "./snsApi";
+import type { GrowthPlan } from "./growth";
 import { CONV, KIND_LABEL, getProject, logEvent, type Lp } from "./loop";
 import { publicUrl } from "./publish";
 
-// SNSへの投稿。投稿そのものは、あなたのアカウントから行う（画面からXの投稿画面を開く）。
+// SNSへの投稿。画面からXの投稿画面を開いて、あなたが投稿することもできる。
+// 設定で「自動で投稿」をオンにし、X・Threads・Bluesky のキーを入れると、AIが集客の作戦に沿って下書きし、自動で投稿する（maybeAutoPost）。
 // 投稿ごとに専用のリンクを付けるので、どの投稿から何人来て、何人が登録・利用したかが分かる
 
+// status の link は、集客の作戦で場所ごとに作った専用リンク（投稿ではない）
 export type SnsPost = {
   id: number; created_at: string; project_id: number; platform: string; code: string; angle: string | null; text: string;
-  author: "ai" | "human"; status: "draft" | "posted"; posted_at: string | null; post_url: string | null;
+  author: "ai" | "human"; status: "draft" | "posted" | "link"; posted_at: string | null; post_url: string | null;
   impressions: number | null; visits: number; conversions: number;
 };
 
-// X の文字数の数え方: 日本語などは1文字を2と数え、URLは長さに関係なく23と数える。上限は280
-export function xWeightedLength(text: string, withUrl = true): number {
-  let n = 0;
-  for (const ch of text) {
-    const c = ch.codePointAt(0)!;
-    const light = c <= 0x10ff || (c >= 0x2000 && c <= 0x200d) || (c >= 0x2010 && c <= 0x201f) || (c >= 0x2032 && c <= 0x2037);
-    n += light ? 1 : 2;
-  }
-  return n + (withUrl ? 1 + 23 : 0);
-}
+export { xWeightedLength };
 export const X_LIMIT = 280;
 
 export function postLink(projectId: number, code: string): string | null {
@@ -31,7 +26,7 @@ export function postLink(projectId: number, code: string): string | null {
 }
 
 export function listPosts(projectId: number): SnsPost[] {
-  return db().prepare("SELECT * FROM sns_posts WHERE project_id = ? ORDER BY status = 'posted', id DESC").all(projectId) as SnsPost[];
+  return db().prepare("SELECT * FROM sns_posts WHERE project_id = ? AND status != 'link' ORDER BY status = 'posted', id DESC").all(projectId) as SnsPost[];
 }
 
 const newCode = () => crypto.randomBytes(4).toString("hex").slice(0, 6);
@@ -43,7 +38,25 @@ export function addPost(projectId: number, text: string, author: "ai" | "human",
 }
 
 // AIに、切り口の違う投稿の下書きをいくつか作らせる
-export async function draftPosts(projectId: number, count: number, hint?: string): Promise<number[]> {
+// 最新の集客の作戦のうち、この案件・この場所に関わるところ（投稿の型・やり方）を、下書きを書くAIに渡す
+function planContext(projectId: number, platform: string): string {
+  // 案件ごとの方針: 集客の見直しで決めたもの（あれば最優先）と、企画のときに決めた最初の届け方
+  const p = getProject(projectId);
+  const own = p?.growth_focus
+    ? `\n\nこの案件の今の集客の方針（最優先で従う）: ${p.growth_focus}`
+    : p?.first_channel ? `\n\nこの案件の最初の届け方（企画のときに決めたもの）: ${p.first_channel}` : "";
+  const row = db().prepare("SELECT content FROM growth_plans ORDER BY id DESC LIMIT 1").get() as { content: string } | undefined;
+  if (!row) return own;
+  const plan = JSON.parse(row.content) as GrowthPlan;
+  const ch = plan.channels.filter((c) => c.platform === platform && c.projects.includes(projectId));
+  return `\n\n集客の作戦（これに沿って書く）:
+${ch.map((c) => `- ${c.name}: ${c.how}（気をつけること: ${c.risk}）`).join("\n") || `- 方針: ${plan.summary}`}
+届きやすい投稿の型:
+${plan.postPatterns.map((x) => `- ${x.name}: ${x.example.replace(/\n/g, " ")}`).join("\n")}
+やってはいけないこと: ${plan.avoid.join(" / ")}${own}`;
+}
+
+export async function draftPosts(projectId: number, count: number, hint?: string, platform: AutoPlatform = "x"): Promise<number[]> {
   const p = getProject(projectId);
   if (!p?.lp) throw new Error("まだLPやツールがありません");
   const lp = JSON.parse(p.lp) as Lp;
@@ -52,23 +65,24 @@ export async function draftPosts(projectId: number, count: number, hint?: string
   const out = await callJson<{ posts: { angle: string; text: string }[] }>({
     purpose: "SNS投稿の下書き",
     projectId,
-    system: `あなたはX（旧Twitter）で、個人が作った小さな${isTool ? "Webツール" : "サービス"}を紹介する投稿を書く担当です。
+    system: `あなたは${AUTO_PLATFORMS[platform].label}で、個人が作った小さな${isTool ? "Webツール" : "サービス"}を紹介する投稿を書く担当です。
 投稿にはリンクが自動で付くので、本文にURLは書かない。
 守ること:
-- 1件あたり日本語で110文字以内（リンクを付けても280の上限に収まるように）
+- 1件あたり${AUTO_PLATFORMS[platform].bodyHint}（リンクを付けても上限に収まるように）
 - ${isTool ? "無料・登録不要でその場で使えることが伝わるようにする" : "まだ準備中で、事前登録を受け付けていることを正直に書く（すでに使えるとは書かない）"}
 - 架空の利用者数・実績・お客様の声、効果の断言、誇大表現、他人になりすました書き方はしない
+- 運営者の体験談・感想（「自分は〜にした」「〜してみたら」など）を作らない。実際にあったか分からないことは書かない。文例を紹介するときは「たとえば」「こんな一言も」のように例として示す
 - ページに書かれている機能・特徴だけを書く（書かれていないことを、できるかのように書かない）
 - ハッシュタグは使っても1つまで。絵文字は控えめに
 - 押し付けがましい宣伝ではなく、対象の人が「自分のことだ」と思う書き出しにする
 - 投稿ごとに切り口を変える（例: 困りごとへの共感 / 使い方の具体例 / 作った理由 / 問いかけ）
-これまでの投稿と反応がある場合は、反応が良かった切り口を参考にし、同じ文は避ける。
+これまでの投稿と反応がある場合は、反応が良かった切り口を参考にし、同じ文は避ける。それだけで読む価値がある内容（文例・使い方の具体例など）を入れ、宣伝だけの投稿にしない。
 形式: {"posts":[{"angle":"切り口を短く","text":"本文"}]}`,
-    user: `${KIND_LABEL[p.kind]}: ${p.title}\n対象: ${p.target}\n困りごと・動機: ${p.problem}\n中身: ${p.solution}\nページの見出し: ${lp.headline}\nページの補足: ${lp.subheadline}\nページに書かれている特徴: ${lp.features.map((f) => `${f.title}（${f.body}）`).join(" / ")}\n件数: ${count}${hint ? `\n今回の希望: ${hint}` : ""}\n\nこれまでの投稿と反応:\n${past}`,
+    user: `${KIND_LABEL[p.kind]}: ${p.title}\n対象: ${p.target}\n困りごと・動機: ${p.problem}\n中身: ${p.solution}\nページの見出し: ${lp.headline}\nページの補足: ${lp.subheadline}\nページに書かれている特徴: ${lp.features.map((f) => `${f.title}（${f.body}）`).join(" / ")}\n件数: ${count}${hint ? `\n今回の希望: ${hint}` : ""}\n\nこれまでの投稿と反応:\n${past}${planContext(projectId, platform)}`,
     validate: (v): v is { posts: { angle: string; text: string }[] } =>
       isObj(v) && Array.isArray(v.posts) && v.posts.length > 0 && v.posts.every((x) => isObj(x) && isStr(x.text)),
   });
-  const ids = out.posts.slice(0, count).map((x) => addPost(projectId, x.text.trim().slice(0, 280), "ai", typeof x.angle === "string" ? x.angle.slice(0, 40) : null));
+  const ids = out.posts.slice(0, count).map((x) => addPost(projectId, x.text.trim().slice(0, 500), "ai", typeof x.angle === "string" ? x.angle.slice(0, 40) : null, platform));
   logEvent(projectId, "ai", "sns-draft", `SNS投稿の下書きを${ids.length}件作成`);
   return ids;
 }
@@ -123,4 +137,121 @@ export function attributePosts(projectId: number, views: { visitor_id: string; s
     const visitors = new Set(views.filter((v) => v.source === p.code).map((v) => v.visitor_id));
     upd.run(visitors.size, [...visitors].filter((v) => converted.has(v)).length, p.id);
   }
+}
+
+// ---- 自動投稿 ----
+
+// 日本時間の何時か（サーバーが海外の時刻でも、日本の昼間にだけ投稿する）
+function jstHour(): number {
+  return Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tokyo", hour: "numeric", hourCycle: "h23" }).format(new Date()));
+}
+
+// 集客中の案件を1つ選んで、AIが書いた投稿を X・Threads・Bluesky に自動で投稿する（返信・フォロー・いいねなど、他人への働きかけはしない）
+// - 日本時間の8〜22時だけ。場所ごとに、直近24時間の投稿数は設定の上限まで、1つの案件は20時間に1回まで
+// - まだその場所に投稿していない案件（公開したばかりの案件）を先に選ぶ
+// - 投稿の費用は、AIの費用と同じ月の予算に数える
+export async function maybeAutoPost(): Promise<string[]> {
+  const s = getSettings();
+  if (!s.autoPost || s.killSwitch) return [];
+  const h = jstHour();
+  if (h < 8 || h >= 22) return [];
+  const done: string[] = [];
+  for (const platform of autoPlatforms()) {
+    if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) break;
+    try {
+      const url = await autoPostTo(platform, s.autoPostPerDay);
+      if (url) done.push(url);
+    } catch (e) {
+      logEvent(null, "system", "sns-auto-error", `${AUTO_PLATFORMS[platform].label}への自動投稿でエラー: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`);
+    }
+  }
+  return done;
+}
+
+async function autoPostTo(platform: AutoPlatform, perDay: number): Promise<string | null> {
+  const apiId = `${platform}-api`;
+  // 失敗した直後は、2時間あけてから試す（クレジット切れなどで、15分ごとに失敗し続けないように）
+  if (db().prepare("SELECT 1 FROM ai_calls WHERE model_id = ? AND error IS NOT NULL AND at >= datetime('now', '-2 hours') AND id = (SELECT MAX(id) FROM ai_calls WHERE model_id = ?)").get(apiId, apiId)) return null;
+  const recent = db().prepare("SELECT COUNT(*) AS n, MAX(posted_at) AS last FROM sns_posts WHERE platform = ? AND status = 'posted' AND author = 'ai' AND post_url IS NOT NULL AND posted_at >= datetime('now', '-24 hours')").get(platform) as { n: number; last: string | null };
+  if (recent.n >= perDay) return null;
+  // 1日の投稿を間隔をあけて出す（例: 1日3件なら、前の投稿から5時間ほどあける）
+  if (recent.last && Date.now() - Date.parse(recent.last.replace(" ", "T") + "Z") < (14 / Math.max(1, perDay)) * 3_600_000) return null;
+
+  const candidates = db().prepare(
+    `SELECT p.*, (SELECT MAX(posted_at) FROM sns_posts x WHERE x.project_id = p.id AND x.platform = ? AND x.status = 'posted') AS last_post
+     FROM projects p WHERE p.stage = 'live' AND p.demo = 0 AND p.public_slug IS NOT NULL AND COALESCE(p.human_review, '') != 'bad' AND p.sns_paused = 0
+     ORDER BY last_post IS NOT NULL, last_post, p.id DESC`,
+  ).all(platform) as (ProjectRow & { last_post: string | null })[];
+  const p = candidates.find((c) => !c.last_post || Date.now() - Date.parse(c.last_post.replace(" ", "T") + "Z") > 20 * 3_600_000);
+  if (!p || !publicUrl(p.id)) return null;
+  return postProject(p, platform);
+}
+
+// 公開した直後に、無料の場所（Threads・Bluesky）へ、時間帯や1日の上限を待たずに1件投稿する
+// 自動投稿がオンのときだけ。失敗したら、ふだんの自動投稿の順番（まだ投稿していない案件が先）で、あとから投稿される
+export async function postOnPublish(projectId: number): Promise<void> {
+  const s = getSettings();
+  if (!s.autoPost || s.killSwitch) return;
+  const p = getProject(projectId);
+  if (!p?.public_slug || !publicUrl(p.id) || p.human_review === "bad" || p.sns_paused) return;
+  for (const platform of autoPlatforms()) {
+    if (AUTO_PLATFORMS[platform].costUsd > 0) continue;
+    if (db().prepare("SELECT 1 FROM sns_posts WHERE project_id = ? AND platform = ? AND status = 'posted'").get(p.id, platform)) continue;
+    try {
+      await postProject(p, platform);
+    } catch (e) {
+      logEvent(p.id, "system", "sns-auto-error", `${AUTO_PLATFORMS[platform].label}への公開時の投稿でエラー: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`);
+    }
+  }
+}
+
+async function postProject(p: ProjectRow, platform: AutoPlatform): Promise<string | null> {
+  const def = AUTO_PLATFORMS[platform];
+  const apiId = `${platform}-api`;
+  // まだ投稿していないAIの下書きがあれば使い、なければ1件書かせる
+  let draft = db().prepare("SELECT * FROM sns_posts WHERE project_id = ? AND status = 'draft' AND author = 'ai' AND platform = ? ORDER BY id LIMIT 1").get(p.id, platform) as SnsPost | undefined;
+  if (!draft) {
+    const [id] = await draftPosts(p.id, 1, undefined, platform);
+    draft = getPost(id);
+  }
+  const link = postLink(p.id, draft.code)!;
+  if (!def.fits(draft.text, link)) {
+    logEvent(p.id, "system", "sns-auto-skip", `下書きが長すぎるため、${def.label}への自動投稿を見送りました: ${draft.text.slice(0, 40)}…`);
+    db().prepare("DELETE FROM sns_posts WHERE id = ?").run(draft.id);
+    return null;
+  }
+  const record = (cost: number, error: string | null) =>
+    db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, ?, ?, 0, 0, ?, ?)").run(p.id, `${def.label}への自動投稿`, apiId, cost, error);
+  let posted: { url: string };
+  try {
+    posted = await def.post(draft.text, link);
+  } catch (e) {
+    const msg = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+    record(0, msg);
+    logEvent(p.id, "system", "sns-auto-error", msg);
+    return null;
+  }
+  db().prepare("UPDATE sns_posts SET status = 'posted', posted_at = datetime('now'), post_url = ? WHERE id = ?").run(posted.url, draft.id);
+  record(def.costUsd, null);
+  logEvent(p.id, "ai", "sns-post", `${def.label}に自動で投稿: ${draft.text.slice(0, 60)}… ${posted.url}`);
+  return posted.url;
+}
+
+// 集客の作戦で、自動では投稿しない場所（note・Instagram・LINE など）に置くための専用リンクを、案件ごとに作っておく
+export function ensureChannelLinks(plan: GrowthPlan) {
+  const auto = new Set<string>(autoPlatforms());
+  for (const c of plan.channels) {
+    if (auto.has(c.platform)) continue;
+    for (const pid of c.projects) {
+      if (!getProject(pid)?.public_slug) continue;
+      const exists = db().prepare("SELECT 1 FROM sns_posts WHERE project_id = ? AND platform = ? AND status = 'link'").get(pid, c.platform);
+      if (!exists) db().prepare("INSERT INTO sns_posts (project_id, code, angle, text, author, platform, status) VALUES (?, ?, ?, ?, 'human', ?, 'link')").run(pid, newCode(), c.name.slice(0, 40), `${c.name}に置く専用リンク`, c.platform);
+    }
+  }
+}
+
+// 場所ごとの専用リンク（集客の作戦の画面に出す）
+export function channelLinks(): { projectId: number; platform: string; code: string; url: string | null; visits: number; conversions: number }[] {
+  return (db().prepare("SELECT project_id, platform, code, visits, conversions FROM sns_posts WHERE status = 'link' ORDER BY project_id, platform").all() as { project_id: number; platform: string; code: string; visits: number; conversions: number }[])
+    .map((r) => ({ projectId: r.project_id, platform: r.platform, code: r.code, url: postLink(r.project_id, r.code), visits: r.visits, conversions: r.conversions }));
 }

@@ -7,6 +7,8 @@ import { Tracker } from "./Tracker";
 import { CtaLink } from "./CtaLink";
 import { LpView } from "@/lp/LpView";
 import { ShareButtons, ToolSection } from "./ToolSection";
+import { FreePage } from "./FreePage";
+import { imgOriginsOf } from "@/lp/pageHtml";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,16 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
       <main className="mx-auto max-w-2xl px-4 py-24 text-center">
         <h1 className="text-xl font-bold">{lp.title}</h1>
         <p className="mt-3 text-ink-2">このサービスの事前登録の受付は終了しました。ご関心をお寄せいただき、ありがとうございました。</p>
+      </main>
+    );
+  }
+
+  // AIが自由に書いたページがあれば、部品の表示の代わりに画面いっぱいに出す（動くツールの案件は部品の表示のまま）
+  if (lp.content.page && !lp.content.tool) {
+    return (
+      <main>
+        <Tracker slug={lp.slug} version={lp.version} />
+        <FreePage slug={lp.slug} version={lp.version} html={lp.content.page.html} title={lp.title} imgOrigins={imgOriginsOf(lp.content.design?.illustration?.url, lp.content.page.html)} operator={`運営: ${SITE_NAME}`} />
       </main>
     );
   }

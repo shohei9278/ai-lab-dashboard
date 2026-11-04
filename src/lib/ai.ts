@@ -1,5 +1,6 @@
 import { db, getSettings, monthSpendUsd } from "./db";
 import { costUsd, getModel, hasKey } from "./models";
+import Anthropic from "@anthropic-ai/sdk";
 import { callModel } from "./providers";
 
 export class GuardError extends Error {}
@@ -36,6 +37,47 @@ export async function callJson<T>(opts: {
     if (ok) return parsed as T;
   }
   throw new Error("AIの出力を読み取れませんでした（2回失敗）");
+}
+
+// 長い出力（ページのHTMLなど）や、画像を見せる呼び出し用。Claude だけで、出力は文字のまま返す
+// 製品ループのAIが Claude ならそれを、違えば Claude Opus を使う
+export function claudeModelId(): string | null {
+  const id = getSettings().loopModel;
+  if (getModel(id).provider === "anthropic") return hasKey("anthropic") ? id : null;
+  return hasKey("anthropic") ? "claude-opus-5-5" : null;
+}
+
+export type ClaudeContent = ({ type: "text"; text: string } | { type: "image"; source: { type: "base64"; media_type: "image/png" | "image/jpeg"; data: string } })[];
+
+export async function callClaude(opts: { purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number }): Promise<string> {
+  const s = getSettings();
+  if (s.killSwitch) throw new GuardError("緊急停止中のため、AIを呼び出せません");
+  if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) throw new GuardError("今月のAI予算の上限に達しています");
+  const id = claudeModelId();
+  if (!id) throw new GuardError("Claude のAPIキーがありません");
+  const model = getModel(id);
+  const log = (inTok: number, outTok: number, error: string | null) =>
+    db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(opts.projectId ?? null, opts.purpose, model.id, inTok, outTok, costUsd(model, inTok, outTok), error);
+  try {
+    // 出力が長いので、途中で切れないよう流しながら受け取る
+    const msg = await new Anthropic({ timeout: 15 * 60 * 1000, maxRetries: 1 }).messages.stream({
+      model: model.id,
+      max_tokens: opts.maxTokens,
+      thinking: { type: "adaptive" },
+      system: opts.system,
+      messages: [{ role: "user", content: opts.content }],
+    }).finalMessage();
+    const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+    const error = msg.stop_reason === "refusal" ? "refusal" : msg.stop_reason === "max_tokens" ? "出力が長すぎて途中で切れました" : null;
+    log(msg.usage.input_tokens, msg.usage.output_tokens, error);
+    if (error) throw new Error(error);
+    return text;
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (!/refusal|途中で切れました/.test(m)) log(0, 0, m.slice(0, 500));
+    throw new Error(`AIの呼び出しに失敗しました: ${m.slice(0, 200)}`);
+  }
 }
 
 function parseJson(text: string): unknown {

@@ -6,7 +6,7 @@ import { ActionButton } from "@/components/LoopAction";
 
 // 投稿先（growth.ts の SNS_PLATFORMS と同じ）
 const PLATFORMS: Record<string, string> = {
-  x: "X", threads: "Threads", instagram: "Instagram", note: "note", facebook: "Facebook", line: "LINE", community: "コミュニティ・掲示板", other: "その他",
+  x: "X", threads: "Threads", bluesky: "Bluesky", instagram: "Instagram", note: "note", facebook: "Facebook", line: "LINE", community: "コミュニティ・掲示板", other: "その他",
 };
 
 export type PostView = {

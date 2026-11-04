@@ -30,7 +30,22 @@ export function Tracker({ slug, version }: { slug: string; version: number }) {
       { threshold: 0.5 },
     );
     document.querySelectorAll("[data-section]").forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+
+    // どこまで読んだか（25%ごと。自由にデザインしたページは、枠の中から同じものが届く）
+    let depth = 0;
+    const onScroll = () => {
+      const h = document.documentElement;
+      const p = Math.floor(((h.scrollTop + innerHeight) / h.scrollHeight) * 4) * 25;
+      if (p > depth) {
+        depth = p;
+        if (p >= 50) gaEvent("scroll_depth", { lp_slug: slug, lp_version: version, percent: p });
+      }
+    };
+    addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      observer.disconnect();
+      removeEventListener("scroll", onScroll);
+    };
   }, [slug, version]);
   return null;
 }

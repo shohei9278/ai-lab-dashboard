@@ -223,6 +223,35 @@ CREATE TABLE IF NOT EXISTS growth_plans (
   content TEXT NOT NULL, -- JSON（GrowthPlan 型）
   done TEXT NOT NULL DEFAULT '[]' -- 「今週やること」のうち済んだものの番号（JSON）
 );
+-- 自分のSNSの投稿についたコメント。AIが返信の案を書き、人が「送る」を押したものだけ返信する
+CREATE TABLE IF NOT EXISTS sns_comments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+  post_id INTEGER NOT NULL REFERENCES sns_posts(id),
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  platform TEXT NOT NULL, -- threads / bluesky
+  ext_id TEXT NOT NULL, -- そのサービスでのコメントのID（Bluesky は at:// のURI）
+  ext_cid TEXT, -- Bluesky で返信するときに使う
+  root_uri TEXT, -- Bluesky: 自分の投稿のURI
+  root_cid TEXT,
+  author TEXT NOT NULL,
+  text TEXT NOT NULL,
+  commented_at TEXT,
+  draft TEXT, -- AIが書いた返信の案（空なら「返さなくてよい」）
+  draft_reason TEXT, -- 返さなくてよい理由など
+  status TEXT NOT NULL DEFAULT 'new', -- new / replied / ignored
+  reply_url TEXT,
+  replied_at TEXT,
+  UNIQUE (platform, ext_id)
+);
+-- ページの中での動き（公開サイトの lp_events から、取り込むたびに作り直す）。版ごと・イベントごとの人数
+CREATE TABLE IF NOT EXISTS lp_funnel (
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  version INTEGER NOT NULL,
+  name TEXT NOT NULL, -- cta_click / form_start / section_view / scroll_depth / sign_up / sign_up_error / tool_use / share
+  detail TEXT NOT NULL DEFAULT '',
+  visitors INTEGER NOT NULL
+);
 -- 世の中の話題（Googleトレンドの急上昇ワード、はてなブックマークの人気エントリー）。毎日1回取って、アイデア出しに渡す
 CREATE TABLE IF NOT EXISTS trend_snapshots (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,6 +345,19 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["notes", "is_public", "INTEGER NOT NULL DEFAULT 0"], // 実験の公開ページに載せる
   ["projects", "notify_status", "TEXT"], // 撤退したときの登録者への連絡: pending = まだ / done = 連絡してメールアドレスを削除した // 動くツールの、ブラウザでの自動テストの結果（JSON） // 出し方: lp = 事前登録LP / tool = 動くツール
   ["metrics", "shares", "INTEGER NOT NULL DEFAULT 0"], // 動くツールがシェアされた数
+  ["projects", "sns_paused", "INTEGER NOT NULL DEFAULT 0"],
+  ["projects", "first_channel", "TEXT"], // 企画のときに決めた、最初の利用者がいる場所
+  ["projects", "first_test", "TEXT"], // 企画のときに決めた、最初の1週間の検証
+  ["projects", "published_at", "TEXT"], // 最初に公開した日時
+  ["projects", "judged_at", "TEXT"], // 最後にAIが判断した日時
+  ["projects", "rethink_count", "INTEGER NOT NULL DEFAULT 0"], // 集客の見直しをした回数
+  ["projects", "growth_focus", "TEXT"], // いまの集客の切り口・場所・対象（見直しで変わる）
+  ["projects", "growth_phase", "INTEGER NOT NULL DEFAULT 0"], // 1 = 「続ける」になって、育てる段階に入った
+  ["projects", "growth_count", "INTEGER NOT NULL DEFAULT 0"], // 育てる段階で試した実験の数 // この案件だけSNSへの自動投稿を止める
+  ["projects", "auto_published", "INTEGER NOT NULL DEFAULT 0"], // 人の承認なしで公開した（全自動）
+  ["projects", "human_review", "TEXT"], // 全自動で公開したものを、人があとから見た評価: ok = 問題なし / bad = 出すべきでなかった
+  ["projects", "human_review_note", "TEXT"],
+  ["projects", "human_review_at", "TEXT"],
   ["projects", "mode_confidence", "REAL"], // モードを決めたときに使った自信（毎日の実行では他社の採点の平均、手動では自己申告）
 ];
 
@@ -396,6 +438,13 @@ export type Settings = {
   operatorName: string; // 登録者に連絡するときの差出人（屋号）
   contactEmail: string; // 登録者に連絡するときの問い合わせ先
   snsAccount: string; // LP・ツールを紹介する X のアカウント（@なし）
+  illustrations: boolean; // LPの見出しの横に、AIが描いたイラストを置く
+  freePage: boolean; // 事前登録LPのページ全体を、部品ではなくAIに自由にデザインさせる
+  fullAuto: boolean; // 自動モードの案件は、公開・撤退も人の承認なしで行う（人はあとから見て印を付ける）
+  autoPublishPerWeek: number; // 人の承認なしで新しく公開してよい件数（直近7日）
+  autoPost: boolean; // 集客中の案件を、AIが X に自動で投稿する（X のAPIキーが必要）
+  autoPostPerDay: number; // 自動投稿の上限（直近24時間）
+  judgeAfterDays: number; // 訪問が少なくても、公開（または前の判断）からこの日数がたったらAIに判断させる
 };
 
 export type ApprovalMode = "manual" | "auto" | "alternate" | "confidence";
@@ -419,6 +468,13 @@ const DEFAULTS: Settings = {
   operatorName: "",
   contactEmail: "",
   snsAccount: "",
+  illustrations: true,
+  freePage: true,
+  fullAuto: false,
+  autoPublishPerWeek: 3,
+  autoPost: false,
+  autoPostPerDay: 2,
+  judgeAfterDays: 7,
   dailyEnabled: false,
   dailyHour: 9,
   dailyIdeaCount: 2,
@@ -435,7 +491,7 @@ const DEFAULTS: Settings = {
 };
 
 const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];
@@ -510,6 +566,19 @@ export type ProjectRow = {
   kind: ProductKind;
   public_version: number | null;
   notify_status: "pending" | "done" | null;
+  auto_published: number;
+  sns_paused: number;
+  first_channel: string | null;
+  first_test: string | null;
+  published_at: string | null;
+  judged_at: string | null;
+  rethink_count: number;
+  growth_focus: string | null;
+  growth_phase: number;
+  growth_count: number;
+  human_review: "ok" | "bad" | null;
+  human_review_note: string | null;
+  human_review_at: string | null;
 };
 
 // 出し方（形）。アイデアを出すときにAIが選ぶ

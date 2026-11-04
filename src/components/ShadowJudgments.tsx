@@ -3,7 +3,7 @@ import { debateStats, shadowRounds, shadowScores, type Decision } from "@/lib/lo
 import { modelInfo } from "@/lib/models";
 import { pct } from "@/lib/format";
 
-const SHORT: Record<Decision["decision"], string> = { continue: "続ける", improve: "改善", collect: "集客継続", kill: "撤退" };
+const SHORT: Record<Decision["decision"], string> = { continue: "続ける", improve: "改善", collect: "集客継続", kill: "撤退", rethink: "集客を見直す" };
 const short = (d: string | null) => (d ? SHORT[d as Decision["decision"]] ?? d : "—");
 
 // 判断の裏比較: AIごとの成績と、判断1回ごとの答えの並び

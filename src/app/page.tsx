@@ -1,23 +1,24 @@
 import Link from "next/link";
 import { db, getSettings, type ProjectRow, type Stage } from "@/lib/db";
 import { getModel } from "@/lib/models";
-import { CONV, MODE_LABEL, STAGE_LABEL, activeLessons, modeComparison, projectTotals, targetRate } from "@/lib/loop";
+import { CONV, MODE_LABEL, STAGE_LABEL, autoPublishStats, projectTotals, targetRate } from "@/lib/loop";
 import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
 import { SignupTrend } from "@/components/SignupTrend";
 import { costEfficiency } from "@/lib/cost";
-import { pct, yen } from "@/lib/format";
+import { pct } from "@/lib/format";
 import { KillSwitch } from "@/components/KillSwitch";
 import { IdeaForm } from "@/components/IdeaForm";
 import { DailyCard } from "@/components/DailyCard";
 import { Stat } from "@/components/ui";
+import { AUTO_PLATFORMS, autoPlatforms } from "@/lib/snsApi";
 
 export const dynamic = "force-dynamic";
 
 const COLUMNS: { stages: Stage[]; title: string; who: string }[] = [
-  { stages: ["idea"], title: "① アイデア", who: "AIが提案 → 毎回承認モードではあなたが採用を判断" },
-  { stages: ["lp"], title: "② LP作成", who: "AIが紹介ページを作ってチェック → あなたが公開を判断" },
-  { stages: ["live"], title: "③ 集客中", who: "公開して反応を集める（自動モードはAIがLPの改善も行う）" },
-  { stages: ["deciding"], title: "④ 判断", who: "AIが続ける・改善・撤退を提案" },
+  { stages: ["idea"], title: "① アイデア", who: "3社のAIが出して採点し、上位を進める" },
+  { stages: ["lp"], title: "② 作成", who: "AIがLPやツールを作ってチェック。通れば自動で公開" },
+  { stages: ["live"], title: "③ 公開・集客中", who: "AIがSNSに投稿して人を呼ぶ。届いていなければ集客を見直し、「続ける」になった案件は育てる" },
+  { stages: ["deciding"], title: "④ 判断", who: "AIが続ける・改善・集客の見直し・撤退を決める" },
   { stages: ["continued", "killed", "rejected"], title: "⑤ 結果", who: "終わった案件。AIが教訓を残す" },
 ];
 
@@ -29,10 +30,21 @@ export default function Home() {
   const pendingByProject = new Set(
     (db().prepare("SELECT DISTINCT project_id FROM approvals WHERE status = 'pending'").all() as { project_id: number }[]).map((r) => r.project_id),
   );
-  const lessons = activeLessons({ includeDemo: true });
   const hasSimulated = !!db().prepare("SELECT 1 FROM metrics WHERE source = 'simulated' LIMIT 1").get();
+  const xPosts = db().prepare(
+    `SELECT s.text, s.platform, s.posted_at, s.post_url, s.visits, s.conversions, p.id AS project_id, p.title, p.kind
+     FROM sns_posts s JOIN projects p ON p.id = s.project_id WHERE s.status = 'posted' ORDER BY s.posted_at DESC LIMIT 4`,
+  ).all() as { text: string; platform: string; posted_at: string; post_url: string | null; visits: number; conversions: number; project_id: number; title: string; kind: ProjectRow["kind"] }[];
+  const xToday = (db().prepare("SELECT COUNT(*) AS n FROM sns_posts WHERE status = 'posted' AND author = 'ai' AND post_url IS NOT NULL AND posted_at >= datetime('now', '-24 hours')").get() as { n: number }).n;
+  const snsOn = autoPlatforms().map((k) => AUTO_PLATFORMS[k].label);
+  const xReady = snsOn.length > 0;
+  // 場所ごとの最後の自動投稿が失敗していたら出す
+  const xLastError = db().prepare(
+    `SELECT c.at, c.purpose || ': ' || c.error AS error FROM ai_calls c
+     WHERE c.model_id IN ('x-api', 'threads-api', 'bluesky-api') AND c.error IS NOT NULL AND c.id = (SELECT MAX(id) FROM ai_calls d WHERE d.model_id = c.model_id)
+     ORDER BY c.id DESC LIMIT 1`,
+  ).get() as { at: string; error: string } | undefined;
   const lastDaily = db().prepare("SELECT message FROM events WHERE kind = 'daily' ORDER BY id DESC LIMIT 1").get() as { message: string } | undefined;
-  const modes = modeComparison();
   const modeSetting = s.approvalMode === "alternate"
     ? "2つのモードに交互に割り当て"
     : s.approvalMode === "confidence"
@@ -41,6 +53,7 @@ export default function Home() {
 
   const o = overview();
   const waiting = waitingItems();
+  const autoStats = autoPublishStats();
   const waitingAt = (stage: Stage) => waiting.filter((w) => w.stage === stage).length;
   const diff = o.todaySignups - o.yesterdaySignups;
   const budgetRatio = s.monthlyBudgetJpy ? o.aiJpy / s.monthlyBudgetJpy : 0;
@@ -56,7 +69,9 @@ export default function Home() {
         <div className="max-w-3xl space-y-1">
           <h1 className="text-xl font-bold">AIが自動でプロダクトを作る実験</h1>
           <p className="text-sm text-ink-2">
-            AIがアイデアを考え、紹介ページ（LP）を作り、集まった反応を見て「続ける・改善・撤退」を判断します。あなたは要所で承認するだけです。
+            {s.fullAuto && s.approvalMode === "auto"
+              ? "AIがアイデアを考え、事前登録のページや動くツールを作って公開し、Xで人を呼び、集まった反応を見て「続ける・改善・撤退」まで決めます。あなたは、AIだけで公開したものをあとから確認します。"
+              : "AIがアイデアを考え、事前登録のページや動くツールを作って公開し、集まった反応を見て「続ける・改善・撤退」を判断します。設定によって、要所であなたの承認を待ちます。"}
           </p>
           <p className="flex items-center gap-1.5 text-xs text-ink-2">
             <span aria-hidden style={{ color: status.c }}>●</span>{status.t}
@@ -78,24 +93,24 @@ export default function Home() {
           className="card block p-4 hover:bg-surface-2"
           style={waiting.length ? { borderColor: "var(--accent)", boxShadow: "inset 4px 0 0 var(--accent)" } : undefined}
         >
-          <div className="text-xs text-muted">あなた待ちで止まっている</div>
+          <div className="text-xs text-muted">あなたの確認・対応</div>
           <div className="num mt-1 text-2xl font-bold" style={{ color: waiting.length ? "var(--accent)" : undefined }}>{waiting.length}件</div>
-          <div className="mt-1 text-xs text-ink-2">{waiting.length ? "下の一覧から案件を開けます ↓" : "止まっているものはありません"}</div>
+          <div className="mt-1 text-xs text-ink-2">{waiting.length ? "下の一覧から案件を開けます ↓" : "確認することはありません"}</div>
         </a>
         <Stat
           label="今日の登録・利用"
           value={`${o.todaySignups}人`}
           sub={<>前日比 {diff >= 0 ? "+" : ""}{diff}人・累計 {o.totalSignups}人</>}
         />
-        <Stat label="集客中のLP" value={`${o.liveReal}件`} sub={`これまでに作った案件 ${o.projectsReal}件`} />
-        <Stat label="今月AIが自動で処理した数" value={`${o.aiCallsMonth}回`} sub={`今日 ${o.aiCallsToday}回・アイデア出し、LP作成、判断など`} />
+        <Stat label="公開・集客中" value={`${o.liveReal}件`} sub={`これまでに作った案件 ${o.projectsReal}件`} />
+        <Stat label="今月AIが自動で処理した数" value={`${o.aiCallsMonth}回`} sub={`今日 ${o.aiCallsToday}回・アイデア出し、ページ作成、投稿、判断など`} />
       </div>
 
       {/* 止まっているもの */}
       <section id="waiting" className="card scroll-mt-4 p-4" style={waiting.length ? { borderColor: "var(--accent)" } : undefined}>
-        <Head title="あなた待ちで止まっているもの" note="古い順です。行を押すと案件の画面に移動して、そこで承認・修正指示・却下ができます。" />
+        <Head title="あなたの確認・対応" note="AIだけで公開したものの確認と、AIが人に回したもの（チェックで問題が残った・上限に達したなど）です。古い順で、行を押すと案件の画面に移動します。" />
         {waiting.length === 0 ? (
-          <p className="text-sm text-ink-2">いまは何も止まっていません。AIが自動で進めています。</p>
+          <p className="text-sm text-ink-2">いまは確認することはありません。AIが自動で進めています。</p>
         ) : (
           <ul className="divide-y divide-line">
             {waiting.map((w) => {
@@ -103,11 +118,15 @@ export default function Home() {
                 ? { title: "AIの作業が途中で停止", action: "作り直しを指示する" }
                 : w.kind === "notify"
                   ? { title: "登録者への連絡", action: "撤退を伝えて、メールアドレスを消す" }
+                : w.kind === "comment"
+                  ? { title: "SNSのコメント", action: "AIが書いた返信の案を見て、送るか決める" }
+                : w.kind === "review"
+                  ? { title: "AIだけで公開（確認）", action: "公開中のページを見て、問題ないか印を付ける（止まってはいません）" }
                   : WAIT_LABEL[w.kind];
               const urgent = w.daysLeft !== null && w.daysLeft <= 1;
               return (
                 <li key={w.key}>
-                  <Link href={`/projects/${w.projectId}`} className="group flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 hover:bg-surface-2 sm:flex-nowrap">
+                  <Link href={w.kind === "comment" ? "/growth#comments" : `/projects/${w.projectId}`} className="group flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 hover:bg-surface-2 sm:flex-nowrap">
                     <span
                       className="w-36 shrink-0 rounded px-1.5 py-0.5 text-center text-xs font-medium"
                       style={w.kind === "stuck"
@@ -136,6 +155,12 @@ export default function Home() {
             })}
           </ul>
         )}
+        {autoStats.published > 0 && (
+          <p className="mt-3 border-t border-line pt-3 text-xs text-ink-2">
+            AIだけで公開したもの: {autoStats.published}件（あなたが確認済み {autoStats.reviewed}件・うち「出すべきでなかった」{autoStats.bad}件
+            {autoStats.reviewed > 0 ? `＝${pct(autoStats.bad / autoStats.reviewed, 0)}` : ""}）
+          </p>
+        )}
       </section>
 
       {/* 推移と処理ログ */}
@@ -148,7 +173,7 @@ export default function Home() {
           {o.trend.length ? (
             <SignupTrend data={o.trend} />
           ) : (
-            <p className="py-10 text-center text-sm text-ink-2">まだ集客の数字がありません。LPを公開すると、ここに推移が出ます。</p>
+            <p className="py-10 text-center text-sm text-ink-2">まだ集客の数字がありません。LPやツールを公開すると、ここに推移が出ます。</p>
           )}
         </section>
         <section className="card p-4">
@@ -173,7 +198,7 @@ export default function Home() {
 
       {/* 自動化のループ */}
       <section className="card p-4">
-        <Head title="AIのプロダクト自動化ループ" note="各段階にいる案件の数です。「あなた待ち」があると、AIはそこで止まっています。" />
+        <Head title="AIのプロダクト自動化ループ" note="各段階にいる案件の数です。「あなたの確認」がある段階は、行を押すと一覧に移動します。" />
         <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           {FLOW.map((f, i) => {
             const n = o.stageCount(f.stages);
@@ -191,7 +216,7 @@ export default function Home() {
                   </div>
                   <div className="mt-1 text-xs text-ink-2">{f.who}</div>
                   <div className="mt-2 text-xs font-medium" style={{ color: w ? "var(--accent)" : "var(--muted)" }}>
-                    {w ? `● あなた待ち ${w}件 →` : "○ あなた待ちなし"}
+                    {w ? `● あなたの確認 ${w}件 →` : "○ 確認なし"}
                   </div>
                 </a>
                 {i < FLOW.length - 1 && <span aria-hidden className="absolute -right-2 top-1/2 z-10 hidden -translate-y-1/2 text-muted lg:block">→</span>}
@@ -200,7 +225,7 @@ export default function Home() {
           })}
         </ol>
         <p className="mt-2 text-xs text-ink-2">
-          ↺ 判断で「改善」になると 2. LP作成 に戻ります。終わった案件：継続 {o.stageCount(["continued"])}件・撤退 {o.stageCount(["killed"])}件・見送り {o.stageCount(["rejected"])}件
+          ↺ 判断で「改善」になると 2. 作成 に戻り、「集客の見直し」「続ける（育てる）」では公開したまま次の実験に進みます。終わった案件：継続 {o.stageCount(["continued"])}件・撤退 {o.stageCount(["killed"])}件・見送り {o.stageCount(["rejected"])}件
         </p>
       </section>
 
@@ -222,26 +247,44 @@ export default function Home() {
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-ink-2">集客中のLPはありません。</p>
+            <p className="text-sm text-ink-2">公開中の案件はありません。</p>
           )}
         </section>
         <section className="card p-4">
-          <Head title="AIによるLPの改善" note={`自動モードでは、承認なしで${s.maxAutoImprove}回まで改善します`} />
-          {o.improving.length ? (
+          <Head
+            title="SNSでの集客"
+            note={!xReady ? "SNSのキーが未設定です（docs/SETUP-SNS.md）" : s.autoPost ? `AIが ${snsOn.join("・")} に自動で投稿中（直近24時間 ${xToday}件・場所ごとに1日${s.autoPostPerDay}件まで）` : "自動投稿はオフです（設定でオンにできます）"}
+          />
+          {xLastError && (
+            <p className="mb-3 rounded-lg p-2 text-xs" style={{ background: "var(--surface-2)", color: "var(--critical)" }}>
+              ! 最後の自動投稿が失敗しました（{xLastError.at.slice(5, 16)}）: {xLastError.error}
+              <span className="block text-ink-2">{/credits depleted/.test(xLastError.error) ? "X の Developer Console でクレジットを購入してください。" : ""}2時間ごとに試し直します。</span>
+            </p>
+          )}
+          {xPosts.length ? (
             <ul className="space-y-3 text-sm">
-              {o.improving.map(({ p, note }) => (
-                <li key={p.id}>
-                  <Link href={`/projects/${p.id}`} className="flex justify-between gap-2 hover:underline">
-                    <span className="truncate">{p.title}{p.demo ? <span className="ml-1 text-[10px] text-muted">デモ</span> : null}</span>
-                    <span className="num shrink-0 text-ink-2">第{p.lp_version}版</span>
-                  </Link>
-                  <Meter value={p.improve_count / Math.max(1, s.maxAutoImprove)} />
-                  {note && <div className="line-clamp-1 text-xs text-muted">{note}</div>}
+              {xPosts.map((x) => (
+                <li key={x.posted_at + x.project_id}>
+                  <div className="flex justify-between gap-2 text-xs text-muted">
+                    <Link href={`/projects/${x.project_id}`} className="truncate hover:underline">{x.title}<span className="ml-1 text-muted">・{x.platform === "x" ? "X" : x.platform === "threads" ? "Threads" : x.platform === "bluesky" ? "Bluesky" : x.platform}</span></Link>
+                    <span className="num shrink-0">{x.posted_at.slice(5, 16)}</span>
+                  </div>
+                  <p className="line-clamp-2 text-xs text-ink-2">{x.text}</p>
+                  <div className="num text-xs text-muted">
+                    訪問 {x.visits}人・{CONV[x.kind].noun} {x.conversions}人
+                    {x.post_url && <a href={x.post_url} target="_blank" rel="noreferrer" className="ml-2 text-accent underline">投稿 ↗</a>}
+                  </div>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-sm text-ink-2">まだ改善した案件はありません。</p>
+            <p className="text-sm text-ink-2">まだ投稿はありません。</p>
+          )}
+          <Link href="/growth" className="mt-3 block text-xs text-accent underline">SNSの管理を開く →</Link>
+          {o.improving.length > 0 && (
+            <p className="mt-3 border-t border-line pt-2 text-xs text-ink-2">
+              AIが改善した案件: {o.improving.map(({ p }) => `${p.title}（第${p.lp_version}版）`).join("・")}
+            </p>
           )}
         </section>
         <section className="card p-4">
@@ -311,58 +354,9 @@ export default function Home() {
         )}
       </section>
 
-      <section className="space-y-2">
-        <h2 className="font-bold">「毎回承認」と「自動で進める」の比較</h2>
-        <p className="text-xs text-muted">
-          どこまでAIに任せてよいかを確かめるための比較です。件数が少ないうちは差が偶然の可能性が高いので、参考程度に見てください。
-        </p>
-        <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-muted">
-              <tr className="border-b border-line">
-                <th className="px-3 py-2">モード</th>
-                <th className="px-3 py-2 text-right">案件数</th>
-                <th className="px-3 py-2 text-right">人の承認（1案件あたり）</th>
-                <th className="px-3 py-2 text-right">LPの改善</th>
-                <th className="px-3 py-2 text-right">チェックで問題</th>
-                <th className="px-3 py-2 text-right">成果の率</th>
-                <th className="px-3 py-2 text-right">継続 / 撤退</th>
-                <th className="px-3 py-2 text-right">AI費用</th>
-              </tr>
-            </thead>
-            <tbody>
-              {modes.map((m) => (
-                <tr key={m.mode} className="num border-b border-line last:border-0">
-                  <td className="px-3 py-2 whitespace-nowrap">{MODE_LABEL[m.mode]}</td>
-                  <td className="px-3 py-2 text-right">{m.projects}</td>
-                  <td className="px-3 py-2 text-right">{m.humanApprovals}回（{m.approvalsPerProject.toFixed(1)}）</td>
-                  <td className="px-3 py-2 text-right">{m.improvements}回</td>
-                  <td className="px-3 py-2 text-right">{m.reviewIssues}件</td>
-                  <td className="px-3 py-2 text-right">{m.rate === null ? "—" : pct(m.rate, 1)}</td>
-                  <td className="px-3 py-2 text-right">{m.continued} / {m.killed}</td>
-                  <td className="px-3 py-2 text-right">{yen(m.costUsd, s.usdJpy)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <div>
-        <section className="space-y-2">
-          <h2 className="font-bold">AIの教訓メモ</h2>
-          <p className="text-xs text-muted">終わった案件からAIが学んだこと。次のアイデア出しで参照されます。</p>
-          <div className="card divide-y divide-line text-sm">
-            {lessons.length ? lessons.map((l) => (
-              <div key={l.id} className="p-3">
-                {l.demo ? <span className="mr-2 rounded border border-line px-1 text-[10px] text-muted" title="デモの教訓はAIへの入力に使われません">デモ</span> : null}
-                {l.text}
-                {l.project_id && <Link href={`/projects/${l.project_id}`} className="ml-2 text-xs text-accent underline">案件</Link>}
-              </div>
-            )) : <div className="p-3 text-ink-2">まだありません。</div>}
-          </div>
-        </section>
-      </div>
+      <p className="text-sm text-ink-2">
+        AIのランキング・全自動の成績・教訓は <Link href="/lab" className="text-accent underline">実験結果</Link> にまとめています。
+      </p>
     </div>
   );
 }
@@ -376,7 +370,8 @@ function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; 
         <div className="text-sm font-medium">{p.title}</div>
         <span className="flex shrink-0 gap-1">
           {p.kind === "tool" && <span className="rounded border border-line px-1 text-[10px] text-ink-2">ツール</span>}
-          <span className="rounded border border-line px-1 text-[10px] text-ink-2">{p.mode === "auto" ? "自動" : "承認"}</span>
+          <span className="rounded border border-line px-1 text-[10px] text-ink-2">{p.auto_published ? "AIだけで公開" : p.mode === "auto" ? "自動" : "承認"}</span>
+          {!!p.growth_phase && <span className="rounded border border-line px-1 text-[10px]" style={{ color: "var(--good)" }}>育成中</span>}
           {p.demo ? <span className="rounded border border-line px-1 text-[10px] text-muted">デモ</span> : null}
         </span>
       </div>
@@ -386,18 +381,19 @@ function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; 
           訪問 {t.visits} / {CONV[p.kind].noun} {t.signups}（<span style={{ color: t.rate >= target ? "var(--good)" : "var(--text-2)" }}>{pct(t.rate, 1)}</span>）
         </div>
       )}
-      {p.improve_count > 0 && <div className="text-xs text-ink-2">LP改善 {p.improve_count}回（第{p.lp_version}版）</div>}
-      {pending && <div className="text-xs font-medium text-accent">● あなたの承認待ち</div>}
+      {p.improve_count > 0 && <div className="text-xs text-ink-2">改善 {p.improve_count}回（第{p.lp_version}版）</div>}
+      {pending && <div className="text-xs font-medium text-accent">● あなたの判断待ち</div>}
+      {!!p.auto_published && !p.human_review && <div className="text-xs font-medium text-accent">● あとから確認してください</div>}
       {result && <div className="text-xs font-medium" style={{ color: result.c }}>{result.i} {STAGE_LABEL[p.stage]}</div>}
     </Link>
   );
 }
 
 const FLOW: { stages: Stage[]; title: string; who: string }[] = [
-  { stages: ["idea"], title: "アイデア", who: "3社のAIが出し方（LP・ツール）も選んで採点。毎回承認モードはあなたが採用を判断" },
-  { stages: ["lp"], title: "作成", who: "AIがLPやツールを作ってチェック。公開はあなたが判断" },
-  { stages: ["live"], title: "集客中", who: "登録や利用を集める。自動モードはAIがLPの改善も" },
-  { stages: ["deciding"], title: "判断", who: "AIが続ける・改善・撤退を提案し、あなたが決める" },
+  { stages: ["idea"], title: "アイデア", who: "3社のAIが、種類を問わずアイデアと「最初の届け方」を出し、採点して選ぶ" },
+  { stages: ["lp"], title: "作成", who: "AIが事前登録のページや動くツールを作り、画面を撮ってチェック。通れば自動で公開" },
+  { stages: ["live"], title: "公開・集客", who: "AIがSNSに投稿して人を呼ぶ。届いていなければ集客を見直す" },
+  { stages: ["deciding"], title: "判断", who: "訪問がたまるか一定の日数がたつと、AIが続ける（育てる）・改善・集客の見直し・撤退を決める" },
 ];
 
 function waitLabel(days: number): string {

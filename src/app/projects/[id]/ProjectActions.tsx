@@ -4,8 +4,9 @@ import { useState } from "react";
 import type { Stage } from "@/lib/db";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 
-export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl }: {
-  id: number; convNoun: string; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number;
+export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building }: {
+  id: number; convNoun: string; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number; isTool: boolean;
+  building: { what: string; since: number } | null; // AIが今作業中なら、その内容
   publicUrl: string | null; // 実際に公開しているときだけ入る
 }) {
   const { run, busy, error } = useLoopAction();
@@ -14,7 +15,8 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
   const [adSpend, setAdSpend] = useState("");
 
   // 承認後にAI呼び出しが失敗して止まったとき用
-  const stuck = !hasPending && (stage === "idea" || (stage === "lp" && !hasLp));
+  const stuck = !hasPending && !building && (stage === "idea" || (stage === "lp" && !hasLp));
+  const thing = isTool ? "ツール" : "LP";
 
   // 実際に公開しているLPは、訪問と登録が自動で入る。人が入れるのは広告費だけ
   if (stage === "live" && publicUrl) {
@@ -85,12 +87,20 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
     );
   }
 
+  if (building) {
+    return (
+      <div className="card p-4 text-sm text-ink-2">
+        <span aria-hidden style={{ color: "var(--accent)" }}>◐</span> AIが{building.what}（{Math.max(1, Math.round((Date.now() - building.since) / 60000))}分前から）。終わると自動で次に進みます。ページを開き直すと最新の状態になります。
+      </div>
+    );
+  }
+
   if (stuck) {
     return (
       <div className="card space-y-2 p-4">
-        <p className="text-sm text-ink-2">LPの作成が途中で止まっています（AIの呼び出しに失敗した可能性があります）。</p>
-        <ActionButton variant="primary" disabled={!!busy} onClick={() => run("AIがLPを作っています…", { action: "generate-lp", projectId: id })}>
-          LPを作り直す
+        <p className="text-sm text-ink-2">{thing}の作成が途中で止まっています（AIの呼び出しに失敗したか、作成中にサーバーが止まった可能性があります）。</p>
+        <ActionButton variant="primary" disabled={!!busy} onClick={() => run(`AIが${thing}を作っています…`, { action: "generate-lp", projectId: id })}>
+          {thing}を作り直す
         </ActionButton>
         <BusyNote busy={busy} error={error} />
       </div>

@@ -7,13 +7,14 @@ import type { ApprovalView } from "./ApprovalCard";
 import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
 
 const LABEL: Record<string, string> = {
-  continue: "続ける（プロダクト化へ）",
-  improve: "LPを改善して再挑戦",
-  collect: "今のLPのまま集客を続ける",
+  continue: "続ける（育てる段階へ）",
+  improve: "改善して再挑戦",
+  collect: "今のまま集客を続ける",
+  rethink: "集客を見直す（ページは変えない）",
   kill: "撤退する",
 };
-const SHORT: Record<string, string> = { continue: "続ける", improve: "改善", collect: "集客継続", kill: "撤退" };
-const CHOICES = ["continue", "improve", "collect", "kill"] as const;
+const SHORT: Record<string, string> = { continue: "続ける", improve: "改善", collect: "集客継続", kill: "撤退", rethink: "集客を見直す" };
+const CHOICES = ["continue", "improve", "collect", "rethink", "kill"] as const;
 const pct = (x: number, d = 1) => `${(x * 100).toFixed(d)}%`;
 
 // 判断の承認待ちは2段階: まず数字だけを見て選び、そのあとAIの意見と議論を見て確定する
@@ -164,7 +165,7 @@ export function DecisionCard({ a }: { a: ApprovalView }) {
             <ActionButton
               variant="primary"
               disabled={!!busy || !final}
-              onClick={() => run(final === "improve" ? "AIがLPを作り直しています…" : "処理しています…", { action: "final", approvalId: a.id, choice: final, comment: comment || undefined })}
+              onClick={() => run(final === "improve" ? (a.project.kind === "tool" ? "AIがツールを作り直しています…" : "AIがLPを作り直しています…") : "処理しています…", { action: "final", approvalId: a.id, choice: final, comment: comment || undefined })}
             >
               「{SHORT[final] ?? "—"}」で確定する
             </ActionButton>

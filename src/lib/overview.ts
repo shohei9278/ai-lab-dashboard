@@ -1,5 +1,5 @@
 import { db, getSettings, monthAdSpendJpy, monthSpendBreakdownUsd, type ApprovalKind, type EventRow, type ProjectRow, type Stage } from "./db";
-import { projectTotals } from "./loop";
+import { buildingNow, projectTotals } from "./loop";
 import { maskEvents } from "./views";
 
 // ホームの一覧画面（全体の様子）に出す数字をまとめる
@@ -16,7 +16,7 @@ export type WaitItem = {
   projectId: number;
   title: string;
   demo: boolean;
-  kind: ApprovalKind | "stuck" | "notify";
+  kind: ApprovalKind | "stuck" | "notify" | "review" | "comment";
   stage: Stage;
   since: string; // UTC の datetime
   daysWaiting: number;
@@ -53,6 +53,7 @@ export function waitingItems(): WaitItem[] {
     )
     .all() as ProjectRow[];
   for (const p of stuck) {
+    if (buildingNow(p.id)) continue; // AIが今まさに作っている
     items.push({
       key: `s${p.id}`, projectId: p.id, title: p.title, demo: !!p.demo, kind: "stuck", stage: p.stage,
       since: p.updated_at, daysWaiting: daysSince(p.updated_at), daysLeft: null,
@@ -62,6 +63,17 @@ export function waitingItems(): WaitItem[] {
   const notify = db().prepare("SELECT * FROM projects WHERE notify_status = 'pending'").all() as ProjectRow[];
   for (const p of notify) {
     items.push({ key: `n${p.id}`, projectId: p.id, title: p.title, demo: !!p.demo, kind: "notify", stage: p.stage, since: p.updated_at, daysWaiting: daysSince(p.updated_at), daysLeft: null });
+  }
+  // SNSの投稿についたコメントで、返信するか決めていないもの（案件ごとにまとめる）
+  const comments = db().prepare("SELECT project_id, COUNT(*) AS n, MIN(fetched_at) AS since FROM sns_comments WHERE status = 'new' GROUP BY project_id").all() as { project_id: number; n: number; since: string }[];
+  for (const c of comments) {
+    const p = db().prepare("SELECT * FROM projects WHERE id = ?").get(c.project_id) as ProjectRow;
+    items.push({ key: `c${p.id}`, projectId: p.id, title: `${p.title}（${c.n}件）`, demo: !!p.demo, kind: "comment", stage: p.stage, since: c.since, daysWaiting: daysSince(c.since), daysLeft: null });
+  }
+  // 全自動で公開したもので、まだあなたが見ていないもの（止まってはいないが、あとから確認してほしい）
+  const unreviewed = db().prepare("SELECT * FROM projects WHERE auto_published = 1 AND human_review IS NULL AND stage NOT IN ('rejected')").all() as ProjectRow[];
+  for (const p of unreviewed) {
+    items.push({ key: `r${p.id}`, projectId: p.id, title: p.title, demo: !!p.demo, kind: "review", stage: p.stage, since: p.updated_at, daysWaiting: daysSince(p.updated_at), daysLeft: null });
   }
   return items.sort((a, b) => a.since.localeCompare(b.since));
 }

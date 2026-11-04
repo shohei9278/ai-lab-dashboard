@@ -2,6 +2,8 @@ import { callJson, isObj, isStr } from "./ai";
 import { db, getSettings, type ProjectRow } from "./db";
 import { CONV, KIND_LABEL, STAGE_LABEL, logEvent, projectTotals, type Lp } from "./loop";
 import { publicUrl } from "./publish";
+import { AUTO_PLATFORMS, autoPlatforms } from "./snsApi";
+import { ensureChannelLinks } from "./sns";
 import { seasonalContext } from "./season";
 import { trendsText } from "./trends";
 
@@ -11,6 +13,7 @@ import { trendsText } from "./trends";
 export const SNS_PLATFORMS = {
   x: "X",
   threads: "Threads",
+  bluesky: "Bluesky",
   instagram: "Instagram",
   note: "note",
   facebook: "Facebook",
@@ -40,7 +43,7 @@ export async function createGrowthPlan(input: { followers: number | null; wish: 
   const lines = projects.map((p) => {
     const lp = p.lp ? (JSON.parse(p.lp) as Lp) : null;
     const t = projectTotals(p.id);
-    return `- #${p.id} ${p.title}（${KIND_LABEL[p.kind]}・${STAGE_LABEL[p.stage]}）対象: ${p.target} / 困りごと・動機: ${p.problem} / 見出し: ${lp?.headline ?? ""} / URL: ${publicUrl(p.id) ?? "未設定"} / ここまで: 訪問${t.visits} ${CONV[p.kind].noun}${t.signups}`;
+    return `- #${p.id} ${p.title}（${KIND_LABEL[p.kind]}・${STAGE_LABEL[p.stage]}）対象: ${p.target} / 困りごと・動機: ${p.problem} / 見出し: ${lp?.headline ?? ""} / URL: ${publicUrl(p.id) ?? "未設定"} / ここまで: 訪問${t.visits} ${CONV[p.kind].noun}${t.signups}${p.first_channel ? ` / 企画のときに決めた最初の届け方: ${p.first_channel}` : ""}${p.growth_focus ? ` / 今の集客の方針（見直し済み）: ${p.growth_focus}` : ""}${p.growth_phase ? " / 育てる段階（需要確認済み）" : ""}`;
   });
   const posts = (db().prepare("SELECT s.platform, s.text, s.visits, s.conversions, p.title FROM sns_posts s JOIN projects p ON p.id = s.project_id WHERE s.status = 'posted' ORDER BY s.posted_at DESC LIMIT 20").all() as { platform: string; text: string; visits: number; conversions: number; title: string }[])
     .map((x) => `- [${x.platform}] ${x.title}: 「${x.text.slice(0, 60)}…」訪問${x.visits} 成果${x.conversions}`);
@@ -60,7 +63,8 @@ export async function createGrowthPlan(input: { followers: number | null; wish: 
 - フォロワー0のアカウントの投稿は、そのままではほとんど届かない。すでに対象の人が集まっている場所（検索・ハッシュタグ・コミュニティ・まとめ・関連する話題への返信など）から入る道を、案件ごとの対象者に合わせて具体的に考える
 - 動くツールは「その場で使える・結果をシェアしたくなる」ので広まりやすい。事前登録LPは、困りごとを持つ人が集まる場所で、押し付けにならない形で知ってもらう
 - 1人で週に数時間でできる量にする。効果が大きく手間が小さい順に並べる
-- 効果は、ダッシュボードの案件の画面で「投稿先ごとに作る専用リンク（URLの最後に ?s=… が付く）」で測る。UTM などほかの仕組みは使わない（measure にもそう書く）
+- 効果は、投稿先ごとの専用リンク（URLの最後に ?s=… が付く）で測る。UTM などほかの仕組みは使わない（measure にもそう書く）。リンクはダッシュボードが場所ごとに自動で作る
+- ${autoPlatforms().length ? `${autoPlatforms().map((k) => AUTO_PLATFORMS[k].label).join("・")} への自分の投稿は、AIがこの作戦の「投稿の型」に沿って自動で行う（1日数件。返信・フォロー・いいねはしない）。人がやることには、これらへの自分の投稿を入れず、自動ではできないこと（他の場所への投稿・記事・身近な人への共有・プロフィールの設定など）を入れる` : "投稿は人が行う"}
 - 時期の話題に乗れるなら使う
 守ること:
 - スパム・自作自演・なりすまし・複数アカウントでの水増し・無関係な人への大量の返信・規約違反は提案しない。運営者が名乗った上での紹介にする
@@ -81,6 +85,7 @@ export async function createGrowthPlan(input: { followers: number | null; wish: 
   const id = Number(
     db().prepare("INSERT INTO growth_plans (model_id, input, content) VALUES (?, ?, ?)").run(s.loopModel, JSON.stringify(input), JSON.stringify(plan)).lastInsertRowid,
   );
+  ensureChannelLinks(plan);
   logEvent(null, "ai", "growth", "集客の作戦を作りました");
   return id;
 }

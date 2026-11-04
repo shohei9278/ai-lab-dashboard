@@ -91,4 +91,12 @@ export async function maybeWeeklyReport() {
   const now = new Date();
   if (!s.weeklyReport || s.killSwitch || now.getDay() !== 1 || now.getHours() < s.dailyHour || s.lastWeeklyReport === day(now)) return;
   await createReport();
+  // 集客の作戦も、前の週の結果をふまえて作り直す（公開中の案件がないときは何もしない）
+  try {
+    const { createGrowthPlan } = await import("./growth");
+    await createGrowthPlan({ followers: null, wish: "" });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (!/公開中の案件がありません/.test(msg)) logEvent(null, "system", "growth-error", `集客の作戦の作り直しでエラー: ${msg}`.slice(0, 500));
+  }
 }

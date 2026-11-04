@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  addMetrics, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  addMetrics, changeIllustration, redesignPage, removePage, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -28,9 +28,12 @@ export async function POST(req: Request) {
       case "final":
         await finalizeDecision(Number(body.approvalId), String(body.choice), typeof body.comment === "string" ? body.comment.slice(0, 500) : undefined);
         return NextResponse.json({ ok: true });
-      case "generate-lp":
-        await prepareLp(requireProject(body).id);
+      case "generate-lp": {
+        // 途中で止まった案件の作り直し。自動モードの案件は、最初に作るときと同じ扱いにする（全自動ならチェックを通れば公開）
+        const p = requireProject(body);
+        await prepareLp(p.id, undefined, { auto: p.mode === "auto" && !p.public_slug });
         return NextResponse.json({ ok: true });
+      }
       case "revise": {
         const instruction = typeof body.instruction === "string" ? body.instruction.trim().slice(0, 1000) : "";
         if (!instruction) throw new Error("修正の内容を書いてください");
@@ -44,6 +47,16 @@ export async function POST(req: Request) {
       }
       case "notify-done":
         return NextResponse.json({ deleted: await finishNotify(requireProject(body).id) });
+      case "illustration":
+        await changeIllustration(requireProject(body).id, body.mode === "remove" ? "remove" : "redraw");
+        return NextResponse.json({ ok: true });
+      case "human-review":
+        await reviewAutoPublished(requireProject(body).id, body.verdict === "bad" ? "bad" : "ok", typeof body.note === "string" ? body.note.trim().slice(0, 500) : "", body.stop === true);
+        return NextResponse.json({ ok: true });
+      case "page":
+        if (body.mode === "remove") await removePage(requireProject(body).id);
+        else await redesignPage(requireProject(body).id);
+        return NextResponse.json({ ok: true });
       case "test-tool":
         return NextResponse.json(await retestTool(requireProject(body).id));
       case "use-candidate":

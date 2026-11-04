@@ -102,7 +102,7 @@ export function testIssues(t: ToolTest): string[] {
 }
 
 export function screenshotPath(file: string): string | null {
-  if (!/^[a-z0-9_-]+\.png$/i.test(file)) return null;
+  if (!/^[a-z0-9_-]+\.(png|jpg)$/i.test(file)) return null;
   const p = path.join(dataDir("screenshots"), file);
   return fs.existsSync(p) ? p : null;
 }

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { NOTE_CERTAINTY, NOTE_TOPICS, listNotes, type NoteCertainty } from "@/lib/notes";
 import { PageIntro } from "@/components/PageIntro";
+import { LabTabs } from "@/components/LabTabs";
 import { NoteActions, NoteEditor } from "./NoteEditor";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
         「確からしさ」で、1回見ただけのことと、数字で確かめたことを分けておくと、あとで発信するときに使いやすくなります。
         （AIの教訓メモとは別で、ここに書いたことはAIへの入力には使いません）
       </PageIntro>
+      <LabTabs current="/notes" />
 
       <section className="card p-4">
         <h2 className="mb-3 font-bold">メモを追加</h2>

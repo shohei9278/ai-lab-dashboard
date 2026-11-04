@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Noto_Sans_JP } from "next/font/google";
+import { M_PLUS_Rounded_1c, Noto_Sans_JP, Noto_Serif_JP } from "next/font/google";
 import { headers } from "next/headers";
 import { pendingCount } from "@/lib/views";
 import "./globals.css";
 
 const noto = Noto_Sans_JP({ variable: "--font-noto", subsets: ["latin"], weight: ["400", "500", "700"] });
+// LPの書体の選択肢（丸ゴシック・明朝）。使うLPでだけ読み込まれるよう、先読みはしない
+const rounded = M_PLUS_Rounded_1c({ variable: "--font-rounded", subsets: ["latin"], weight: ["400", "700"], preload: false });
+const mincho = Noto_Serif_JP({ variable: "--font-mincho", subsets: ["latin"], weight: ["400", "700"], preload: false });
 
 export const metadata: Metadata = {
   title: "AI Product Lab",
@@ -19,7 +22,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   if ((await headers()).get("x-pathname") === "/showcase") {
     return (
       <html lang="ja">
-        <body className={`${noto.variable} antialiased`}>
+        <body className={`${noto.variable} ${rounded.variable} ${mincho.variable} antialiased`}>
           <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
         </body>
       </html>
@@ -28,16 +31,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const pending = pendingCount();
   const nav = [
     { href: "/", label: "ホーム" },
-    { href: "/approvals", label: "承認待ち", badge: pending },
+    { href: "/approvals", label: "判断待ち", badge: pending },
     { href: "/growth", label: "集客" },
-    { href: "/lab", label: "AIの使い分け" },
-    { href: "/notes", label: "実験メモ" },
-    { href: "/reports", label: "レポート" },
+    { href: "/lab", label: "実験結果" },
     { href: "/settings", label: "設定" },
   ];
   return (
     <html lang="ja">
-      <body className={`${noto.variable} antialiased`}>
+      <body className={`${noto.variable} ${rounded.variable} ${mincho.variable} antialiased`}>
         <header className="border-b border-line bg-surface">
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
             <Link href="/" className="font-bold">AI Product Lab</Link>

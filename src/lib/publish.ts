@@ -46,8 +46,11 @@ export async function closeLp(p: ProjectRow) {
 }
 
 // Supabase は1回に最大1000行しか返さないので、全部そろうまで続けて取る
-type Row = { version: number; day: string; visitor_id: string; kind?: string; source?: string | null };
-const COLUMNS = { lp_views: "version, day, visitor_id, source", signups: "version, day, visitor_id", tool_events: "version, day, visitor_id, kind" } as const;
+type Row = { version: number; day: string; visitor_id: string; kind?: string; source?: string | null; name?: string; detail?: string };
+const COLUMNS = {
+  lp_views: "version, day, visitor_id, source", signups: "version, day, visitor_id", tool_events: "version, day, visitor_id, kind",
+  lp_events: "version, day, visitor_id, name, detail",
+} as const;
 
 async function fetchAll(table: keyof typeof COLUMNS, slug: string, columns: string = COLUMNS[table]): Promise<Row[]> {
   const rows: Row[] = [];
@@ -98,10 +101,56 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
       for (const a of agg.values()) ins.run(p.id, a.day, a.visits, a.signups, a.shares, a.version);
     })();
     attributePosts(p.id, views, conv);
+    await syncFunnel(p.id, slug);
     visits += views.length;
     signups += conv.length;
   }
   return { projects: projects.length, visits, signups };
+}
+
+// ページの中での動き（ボタン・入力開始・読んだ深さなど）を、版・イベントごとの人数にまとめて入れ直す
+// 公開サイトの Supabase に lp_events の表をまだ作っていないときは、何もしない
+async function syncFunnel(projectId: number, slug: string) {
+  let rows: Row[];
+  try {
+    rows = await fetchAll("lp_events", slug);
+  } catch (e) {
+    if (/lp_events/.test(e instanceof Error ? e.message : "")) return;
+    throw e;
+  }
+  const people = new Map<string, Set<string>>();
+  for (const r of rows) {
+    const k = `${r.version}|${r.name}|${r.detail ?? ""}`;
+    if (!people.has(k)) people.set(k, new Set());
+    people.get(k)!.add(r.visitor_id);
+  }
+  const conn = db();
+  conn.transaction(() => {
+    conn.prepare("DELETE FROM lp_funnel WHERE project_id = ?").run(projectId);
+    const ins = conn.prepare("INSERT INTO lp_funnel (project_id, version, name, detail, visitors) VALUES (?, ?, ?, ?, ?)");
+    for (const [k, set] of people) {
+      const [version, name, detail] = k.split("|");
+      ins.run(projectId, Number(version), name, detail, set.size);
+    }
+  })();
+}
+
+// ---- AIが描いたイラストの置き場所（Supabase の公開用の保存領域） ----
+
+const BUCKET = "lp-images";
+
+// 画像を保存して、誰でも見られるURLを返す。保存領域がまだ無ければ作る
+export async function uploadImage(path: string, bytes: Buffer, contentType: string): Promise<string> {
+  if (!publishingConfigured()) throw new Error("Supabase の設定がないため、画像を保存できません");
+  const client = sb();
+  let { error } = await client.storage.from(BUCKET).upload(path, bytes, { contentType, upsert: true });
+  if (error && /not found|does not exist/i.test(error.message)) {
+    const made = await client.storage.createBucket(BUCKET, { public: true, fileSizeLimit: 5 * 1024 * 1024, allowedMimeTypes: ["image/webp", "image/png", "image/jpeg"] });
+    if (made.error && !/already exists/i.test(made.error.message)) throw new Error(`画像の保存場所を作れませんでした: ${made.error.message}`);
+    ({ error } = await client.storage.from(BUCKET).upload(path, bytes, { contentType, upsert: true }));
+  }
+  if (error) throw new Error(`画像を保存できませんでした: ${error.message}`);
+  return client.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
 // ---- 撤退したときの登録者への連絡 ----

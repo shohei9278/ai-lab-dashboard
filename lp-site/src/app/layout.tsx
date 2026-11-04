@@ -1,12 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Noto_Sans_JP } from "next/font/google";
+import { M_PLUS_Rounded_1c, Noto_Sans_JP, Noto_Serif_JP } from "next/font/google";
 import Script from "next/script";
 import { GA_MEASUREMENT_ID, SITE_NAME } from "@/lib/site";
 import { ExcludedNotice } from "./ExcludedNotice";
 import "./globals.css";
 
 const noto = Noto_Sans_JP({ variable: "--font-noto", subsets: ["latin"], weight: ["400", "500", "700"] });
+// LPの書体の選択肢（丸ゴシック・明朝）。使うLPでだけ読み込まれるよう、先読みはしない
+const rounded = M_PLUS_Rounded_1c({ variable: "--font-rounded", subsets: ["latin"], weight: ["400", "700"], preload: false });
+const mincho = Noto_Serif_JP({ variable: "--font-mincho", subsets: ["latin"], weight: ["400", "700"], preload: false });
 
 // シェア画像などのURLを絶対URLにするための基準（Vercel が本番のドメインを渡してくれる）
 const base = process.env.SITE_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
@@ -20,7 +23,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ja">
-      <body className={`${noto.variable} antialiased`}>
+      <body className={`${noto.variable} ${rounded.variable} ${mincho.variable} antialiased`}>
         {GA_MEASUREMENT_ID && (
           <>
             <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`} strategy="afterInteractive" />

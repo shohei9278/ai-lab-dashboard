@@ -1,9 +1,12 @@
-import { callJson, isObj, isStr } from "./ai";
-import { ICONS, PREVIEW_KINDS, THEMES, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
+import { callClaude, callJson, claudeModelId, isObj, isStr } from "./ai";
+import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
 import { MODELS, hasKey } from "./models";
 import { testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
 import { trendsText } from "./trends";
+import { withIllustration } from "./illustration";
+import { buildPage, pageTexts, type PageCheck } from "./freePage";
+import { funnelText } from "./funnel";
 import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
   db, getSettings, saveSettings,
@@ -21,6 +24,8 @@ export type Idea = {
   reason: string;
   confidence: number;
   kind?: ProductKind; // 出し方（AIが選ぶ。無ければ事前登録LP）
+  channel?: string; // 最初の利用者がいる場所（どこで、どう届けるか）
+  first_test?: string; // 最初の1週間で、何人に届けて何を確かめるか
 };
 
 // 出し方ごとの呼び方と、成果の数え方
@@ -37,7 +42,7 @@ export function targetRate(kind: ProductKind, s = getSettings()): number {
 export type { Lp } from "../../lp-site/src/lp/content";
 
 export type Decision = {
-  decision: "continue" | "improve" | "kill" | "collect";
+  decision: "continue" | "improve" | "kill" | "collect" | "rethink";
   reason: string;
   confidence: number;
   next_action: string;
@@ -47,7 +52,7 @@ export type Review = { ok: boolean; issues: string[] };
 
 export const STAGE_LABEL: Record<Stage, string> = {
   idea: "アイデア",
-  lp: "LP作成",
+  lp: "作成",
   live: "集客中",
   deciding: "判断待ち",
   continued: "継続",
@@ -58,10 +63,11 @@ export const STAGE_LABEL: Record<Stage, string> = {
 export const MODE_LABEL = { manual: "毎回承認", auto: "自動で進める" } as const;
 
 export const DECISION_LABEL: Record<Decision["decision"], string> = {
-  continue: "続ける（プロダクト化へ）",
-  improve: "LPを改善して再挑戦",
+  continue: "続ける（育てる段階へ）",
+  improve: "改善して再挑戦",
   kill: "撤退する",
-  collect: "今のLPのまま集客を続ける",
+  collect: "今のまま集客を続ける",
+  rethink: "集客を見直す（ページは変えない）",
 };
 
 const isIdea = (v: unknown): v is Idea =>
@@ -70,7 +76,7 @@ const isIdea = (v: unknown): v is Idea =>
 const isLp = (v: unknown): v is Lp => isLpCore(v);
 
 const isDecision = (v: unknown): v is Decision =>
-  isObj(v) && ["continue", "improve", "kill", "collect"].includes(v.decision as string) && isStr(v.reason) && isStr(v.next_action);
+  isObj(v) && ["continue", "improve", "kill", "collect", "rethink"].includes(v.decision as string) && isStr(v.reason) && isStr(v.next_action);
 
 const isReview = (v: unknown): v is Review => isObj(v) && typeof v.ok === "boolean" && Array.isArray(v.issues) && v.issues.every(isStr);
 
@@ -93,6 +99,26 @@ function addApproval(projectId: number, kind: ApprovalRow["kind"], proposal: str
       )
       .run(projectId, kind, proposal, reason, payload === undefined ? null : JSON.stringify(payload), projectId).lastInsertRowid,
   );
+}
+
+// AIが作業中の案件（このサーバーの中だけで持つ。途中でサーバーが止まると消えるので、そのときは「止まっている」扱いになる）
+const gBuilding = globalThis as unknown as { __aiLabBuilding?: Map<number, { what: string; since: number }> };
+const building = (gBuilding.__aiLabBuilding ??= new Map());
+
+export function buildingNow(id: number): { what: string; since: number } | null {
+  return building.get(id) ?? null;
+}
+
+async function whileBuilding<T>(id: number, what: string, fn: () => Promise<T>): Promise<T> {
+  // 同じ案件を2つ同時に作ると、版が重なって公開中の中身とずれるので止める
+  const now = building.get(id);
+  if (now) throw new Error(`AIがいま${now.what}。終わるまでお待ちください`);
+  building.set(id, { what, since: Date.now() });
+  try {
+    return await fn();
+  } finally {
+    building.delete(id);
+  }
 }
 
 export function getProject(id: number): ProjectRow | undefined {
@@ -156,7 +182,7 @@ const selfConfidence = (idea: Idea) => ({
 // ---- 1. アイデア出し ----
 
 // modelId を指定すると、そのAIにアイデアを出させる（指定しなければ設定のAI）
-async function askIdeas(theme: string, count: number, modelId?: string): Promise<Idea[]> {
+export async function askIdeas(theme: string, count: number, modelId?: string): Promise<Idea[]> {
   const s = getSettings();
   const lessons = activeLessons().map((l) => `- ${l.text}`).join("\n") || "（まだなし）";
   const existing = (db().prepare("SELECT title FROM projects WHERE demo = 0 ORDER BY id DESC LIMIT 30").all() as { title: string }[])
@@ -164,17 +190,19 @@ async function askIdeas(theme: string, count: number, modelId?: string): Promise
   const out = await callJson<{ ideas: Idea[] }>({
     purpose: "アイデア出し",
     modelId,
-    system: `あなたは個人開発者向けにプロダクトのアイデアを考えるプロダクトマネージャーです。
+    system: `あなたは個人や小さなチームが出すプロダクトのアイデアを考えるプロダクトマネージャーです。
+プロダクトの種類は問わない（Webサービス・スマホアプリ・ブラウザ拡張・LINEボットやSlackアプリ・AIを使うサービス・テンプレートや素材などのデジタル商品など）。Webサービスばかりに偏らないこと。
 アイデアごとに、世に出す形（kind）も選びます。形は1つにとらわれず、アイデアに合うものを選ぶこと。
-- lp: 事前登録LP。まだ作らずに、紹介ページのメール事前登録で需要を確かめる。1人で1〜2週間で作れる、継続して使うWebサービス向け
+- lp: 事前登録LP。まだ作らずに、紹介ページのメール事前登録で需要を確かめる。プロダクトの種類も、作る大変さも問わない（需要が確かめられてから作る）。継続して使うもの・作るのに時間がかかるもの向け
 - tool: 動くツール。診断・シミュレーター・計算機・ジェネレーターなど、1つのWebページの中だけで完結して今すぐ使えるもの。外部のAPIやサーバー、ログインは使えない。話題性・季節性があり、シェアされやすいものが向く
 条件:
 - 医療・法律・金融など、規制が強い領域や専門資格が必要な領域は避ける（tool でも、診断の形で助言をしない）
 - 誇大な約束はしない
 - 実在の人物・団体のデータを使う tool は、正確なデータをコードに書けるものだけにする
 - 世の中の話題は、ヒントとして使う（そのまま題材にしなくてよい）。事件・事故・災害・訃報・個人の不祥事など、人の不幸や特定の個人に乗った企画はしない
+- 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案は出さない（スパム扱いされやすいため）。自分の投稿で見つけてもらう形にする
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。
-形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）}]}`,
+形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
     user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
@@ -188,10 +216,11 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
   const id = Number(
     db()
       .prepare(
-        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind, first_channel, first_test)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(idea.title, idea.target, idea.problem, idea.solution, idea.hypothesis, idea.reason, conf, getSettings().loopModel, theme || null, mode, origin, ideaModel, choice.confidence, idea.kind === "tool" ? "tool" : "lp")
+      .run(idea.title, idea.target, idea.problem, idea.solution, idea.hypothesis, idea.reason, conf, getSettings().loopModel, theme || null, mode, origin, ideaModel, choice.confidence, idea.kind === "tool" ? "tool" : "lp",
+        isStr(idea.channel) ? idea.channel.slice(0, 500) : null, isStr(idea.first_test) ? idea.first_test.slice(0, 500) : null)
       .lastInsertRowid,
   );
   logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
@@ -205,8 +234,8 @@ async function startProject(id: number) {
     addApproval(id, "idea", `「${p.title}」で進める`, p.ai_reason);
     return;
   }
-  logEvent(id, "system", "auto", "自動モードのため、アイデアの承認を省いてLPを作成");
-  await prepareLp(id);
+  logEvent(id, "system", "auto", `自動モードのため、アイデアの承認を省いて${p.kind === "tool" ? "ツール" : "LP"}を作成`);
+  await prepareLp(id, undefined, { auto: true });
 }
 
 // 手動でアイデアを依頼したとき（選別なし）
@@ -224,9 +253,21 @@ export async function generateIdeas(theme: string, count = 3): Promise<number[]>
 
 // ---- 2. LP作成とAIチェック ----
 
-async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, modelId?: string, purpose = "LP作成"): Promise<Lp & { shareText?: string }> {
+// LPの候補を3社で作るとき、見た目が似通わないように1社ずつ違う方向性を渡す
+const DESIGN_DIRECTIONS = [
+  "信頼感と落ち着き（説明は丁寧に、余白を多めに）",
+  "親しみやすくやわらかい（会話のような言葉、丸みのある見た目）",
+  "シンプルで力強い（短い言葉、大きな見出し、メリハリ）",
+  "あたたかく生活感がある（使う場面が目に浮かぶ言葉）",
+  "遊び心がある（意外性のある見出し、明るい見た目）",
+  "上品で大人っぽい（言葉を選び、装飾は控えめに）",
+];
+
+async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, modelId?: string, purpose = "LP作成", direction?: string): Promise<Lp & { shareText?: string }> {
   const isTool = p.kind === "tool";
-  const prev = p.lp ? `\n\n今のLP:\n${p.lp}` : "";
+  const before = p.lp ? (JSON.parse(p.lp) as Lp) : null;
+  // 自由に書いたページのHTMLは長いので、文言の材料としては渡さない
+  const prev = before ? `\n\n今のLP:\n${JSON.stringify({ ...before, page: undefined })}` : "";
   const core = keepCore
     ? "\n- 今回は改善なので、対象読者・サービスの中身・仮説は変えない。変えるのは指示された1か所だけにし、それ以外は今のLPのまま残す"
     : "";
@@ -242,21 +283,26 @@ async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, mo
 - 「必ず」「誰でも」などの誇大表現は使わない
 - ターゲットが自分ごとだと感じる、具体的な言葉で書く
 - ${isTool ? "ボタンの文言（cta）は、すぐ使えることが分かるもの（例「さっそく使ってみる」）。preview は不要。pains は使う人の動機（〜したい・〜が気になる）でもよい" : "ボタンの文言（cta）は事前登録であることが分かるようにする"}${core}
-見た目も対象読者に合わせて選ぶ:
-- design.theme: ${Object.entries(THEMES).map(([k, t]) => `${k}=${t.label}`).join(" / ")}
-- design.layout: center=中央寄せ / split=左に文章・右に画面イメージ
+見た目も対象読者に合わせて選ぶ（決まった部品の組み合わせで表示される。いつも同じ組み合わせにせず、このサービスらしさが出るものを選ぶ）:${direction ? `\n- 今回のデザインの方向性: ${direction}（これに合う組み合わせ・言葉づかいにする）` : ""}
+- design.theme（テーマ色）: ${Object.entries(THEMES).map(([k, t]) => `${k}=${t.label}`).join(" / ")}
+${(Object.keys(DESIGN_OPTIONS) as (keyof typeof DESIGN_OPTIONS)[]).map((k) => `- design.${k}: ${Object.entries(DESIGN_OPTIONS[k]).map(([v, l]) => `${v}=${l}`).join(" / ")}`).join("\n")}
+- design.order: ${SECTIONS.join(" / ")} を、読んでほしい順に並べたもの（pains=困りごと, beforeAfter=使う前後, features=できること, steps=使い方, faq=よくある質問）
 - design.badge: 見出しの上に出す短いラベル（15文字以内。例「飲食店のシフト集めに」）
+- illustrationPrompt: 見出しの横に置くイラストを描くAIへの指示（英語で2〜3文）。サービスを使っている場面や、困りごとが解決した場面を、人物の顔をはっきり描かない形で。文字・ロゴ・実在の人物や商品は描かせない
 - preview: 完成したら使う画面のイメージ。kind は ${PREVIEW_KINDS.join(" / ")} のどれか。rows は1行あたり最大4つの短い文字列で3〜5行（list は [項目, 状態]、table は columns と各行、chat は [話し手, 発言]、form は [項目名, 入力例]）。人名は「山田さん」程度の仮名にし、実在の会社名や効果の数字は入れない
 - features[].icon: ${ICONS.join(" / ")} から内容に合うもの
 - steps: 使い方を3ステップ（任意）
 - beforeAfter: 使う前の状態と、使ったあとに目指す状態を各2〜3個（任意。効果を断言しない）${isTool ? "\n- shareText: X でシェアするときの文（60文字以内。ハッシュタグは1つまで。誇張しない）" : ""}
-形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明","icon":"clock"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2],"design":{"theme":"trust","layout":"split","badge":"ラベル"},"preview":{"title":"画面の名前","kind":"list","columns":[],"rows":[["項目","状態"]]},"steps":[{"title":"手順","body":"説明"}×3],"beforeAfter":{"before":["今の状態"],"after":["目指す状態"]}${isTool ? ',"shareText":"シェアの文"' : ""}}`,
+形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明","icon":"clock"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2],"design":{"theme":"trust","layout":"split","font":"gothic","pattern":"none","corners":"round","painStyle":"cards","featureStyle":"cards","order":["pains","features","steps","faq"],"badge":"ラベル"},"illustrationPrompt":"A calm scene of ...","preview":{"title":"画面の名前","kind":"list","columns":[],"rows":[["項目","状態"]]},"steps":[{"title":"手順","body":"説明"}×3],"beforeAfter":{"before":["今の状態"],"after":["目指す状態"]}${isTool ? ',"shareText":"シェアの文"' : ""}}`,
     user: `サービス名: ${p.title}\n対象: ${p.target}\n課題: ${p.problem}\n解決策: ${p.solution}\n仮説: ${p.hypothesis}${prev}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`,
     validate: isLp,
   });
   // 知らない値や長すぎる文は落としてから保存する
   const shareText = (lp as { shareText?: unknown }).shareText;
-  return { ...normalizeLp(lp), shareText: typeof shareText === "string" ? shareText.slice(0, 100) : undefined };
+  const out = normalizeLp(lp);
+  // イラストはシステムが作って付けるもの。AIの出力にURLがあっても使わず、前の版のイラストを引き継ぐ
+  if (out.design) out.design.illustration = before?.design?.illustration;
+  return { ...out, shareText: typeof shareText === "string" ? shareText.slice(0, 100) : undefined };
 }
 
 // 公開前に、別の観点のAIが問題がないかを確認する
@@ -298,10 +344,7 @@ function staticToolIssues(html: string): string[] {
 }
 
 async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string): Promise<string> {
-  const out = await callJson<{ html: string }>({
-    purpose: "ツール作成",
-    projectId: p.id,
-    system: `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
+  const system = `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
 守ること:
 - 1つのHTMLの断片だけを書く（<style> と <script> を含めてよい。<html><head><body> は書かない）
 - 外部のファイル・フォント・画像・API・CDN は一切使わない（通信はすべて遮断される）。必要なデータはコードの中に書く
@@ -314,8 +357,24 @@ async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: str
 - 架空の統計を事実のように書かない。診断・占いのような遊びのツールは、そうと分かる一言を入れる。医療・法律・お金の助言はしない
 - 実在の人物・団体のデータは、正確だと確信できるものだけを使う。不確かなら使わない
 - 全体で40,000文字以内。読みやすく、動作の確かなコードにする
-形式: {"html":"ツール本体のHTML"}`,
-    user: `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : ""}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`,
+`;
+  const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : ""}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`;
+  // ツールのHTMLは長く、JSONに包むと出力の上限で途中で切れやすい。Claude が使えるときは、HTMLをそのまま最後まで受け取る
+  if (claudeModelId()) {
+    const text = await callClaude({
+      purpose: "ツール作成",
+      projectId: p.id,
+      system: `${system}出力はHTMLの断片だけ。説明やコードブロックは付けない。`,
+      content: [{ type: "text", text: user }],
+      maxTokens: 64000,
+    });
+    return text.replace(/^\s*```(?:html)?\s*/i, "").replace(/```\s*$/, "").trim();
+  }
+  const out = await callJson<{ html: string }>({
+    purpose: "ツール作成",
+    projectId: p.id,
+    system: `${system}形式: {"html":"ツール本体のHTML"}`,
+    user,
     validate: (v): v is { html: string } => isObj(v) && isStr(v.html),
   });
   return out.html.trim();
@@ -376,10 +435,11 @@ export async function retestTool(projectId: number): Promise<ToolTest> {
 async function competeLp(p: ProjectRow): Promise<{ lp: Lp; author: string; label: string; avg: number; count: number }> {
   const authors = ideaAuthors();
   const version = nextVersion(p.id);
+  const directions = [...DESIGN_DIRECTIONS].sort(() => Math.random() - 0.5);
   const written = await Promise.all(
-    authors.map(async (author) => {
+    authors.map(async (author, i) => {
       try {
-        const { shareText: _drop, ...lp } = await writeLp(p, undefined, false, author, "LPの候補作成");
+        const { shareText: _drop, ...lp } = await writeLp(p, undefined, false, author, "LPの候補作成", directions[i % directions.length]);
         void _drop;
         return { author, lp: lp as Lp };
       } catch (e) {
@@ -459,17 +519,24 @@ export async function switchLpCandidate(candidateId: number) {
   const conn = db();
   conn.transaction(() => {
     conn.prepare("UPDATE projects SET lp = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), p.id);
-    conn.prepare("UPDATE lp_versions SET lp = ?, review = ?, author_model = ?, note = COALESCE(note, '') || ? WHERE project_id = ? AND version = ?")
+    conn.prepare("UPDATE lp_versions SET lp = ?, review = ?, author_model = ?, test = NULL, note = COALESCE(note, '') || ? WHERE project_id = ? AND version = ?")
       .run(JSON.stringify(lp), JSON.stringify(review), c.author_model, `（あなたが候補${c.label}に切り替え）`, p.id, c.version);
     conn.prepare("UPDATE lp_candidates SET human_selected = (id = ?) WHERE project_id = ? AND version = ?").run(c.id, p.id, c.version);
     conn.prepare("UPDATE approvals SET payload = ? WHERE id = ?").run(JSON.stringify({ review }), pending.id);
   })();
-  logEvent(p.id, "human", "lp-switch", `LPを候補${c.label}に切り替えました${review.ok ? "" : `（チェックで問題: ${review.issues.join(" / ")}）`}`);
+  const hadPage = !!(JSON.parse(p.lp ?? "{}") as Lp).page;
+  logEvent(p.id, "human", "lp-switch", `LPを候補${c.label}に切り替えました${review.ok ? "" : `（チェックで問題: ${review.issues.join(" / ")}）`}${hadPage ? "。自由なデザインのページは外れたので、必要なら「デザインし直す」で作り直してください" : ""}`);
 }
 
 // LPを書き、チェックし、問題があれば1回だけ直す。新しい版として保存する
 // 動くツールの案件では、ツール本体も作る（改善のときは、指示がツールとページのどちらに向くかをAIの指示文に任せる）
 async function buildLpVersion(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean }) {
+  const kind = getProject(projectId)!.kind;
+  const what = `${kind === "tool" ? "ツール" : "LP"}を${opts.instruction || opts.keepCore ? "直して" : "作って"}います`;
+  return whileBuilding(projectId, what, () => buildLpVersionNow(projectId, opts));
+}
+
+async function buildLpVersionNow(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean }) {
   const p = getProject(projectId)!;
   const before = p.lp ? (JSON.parse(p.lp) as Lp) : undefined;
   if (p.kind === "tool") return buildToolVersion(p, before, opts);
@@ -484,7 +551,9 @@ async function buildLpVersion(projectId: number, opts: { instruction?: string; n
     author = won.author;
     note = `${opts.note}（${won.count}社の候補から採点で選択: 候補${won.label}・平均${won.avg.toFixed(1)}点）`;
   } else {
-    lp = await writeLp(p, opts.instruction, opts.keepCore);
+    // 最初の版を1社で作るときも、方向性をランダムに渡して見た目が似通わないようにする
+    const direction = before ? undefined : DESIGN_DIRECTIONS[Math.floor(Math.random() * DESIGN_DIRECTIONS.length)];
+    lp = await writeLp(p, opts.instruction, opts.keepCore, undefined, "LP作成", direction);
   }
   let review = await reviewLp(p, lp, opts.keepCore ? before : undefined);
   if (!review.ok) {
@@ -493,12 +562,62 @@ async function buildLpVersion(projectId: number, opts: { instruction?: string; n
     review = await reviewLp(p, lp, opts.keepCore ? before : undefined);
   }
   const version = nextVersion(p.id);
+  // 見出しの横のイラスト（まだ無いときだけ描く。改善の版では前のイラストを引き継ぐ）
+  const drawn = await withIllustration(p, lp, version);
+  lp = drawn.lp;
+  if (drawn.note) logEvent(projectId, "system", "illustration", drawn.note);
+  // 部品で作ったLPを材料に、AIがページ全体を自由にデザインする（うまくいかなければ部品のLPのまま）
+  let pageCheck: PageCheck | null = null;
+  if (getSettings().freePage) {
+    const made = await withPage(p, lp, version, { prevHtml: before?.page?.html, instruction: opts.instruction, keepCore: opts.keepCore });
+    lp = made.lp;
+    pageCheck = made.check;
+    if (pageCheck && !pageCheck.ok) review = { ok: false, issues: [...review.issues, ...pageCheck.issues.map((x) => `デザイン: ${x}`)] };
+  }
   const conn = db();
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, projectId);
-  conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(projectId, version, JSON.stringify(lp), note, JSON.stringify(review), author);
-  logEvent(projectId, "ai", "lp", `LPを作成（第${version}版${compete ? "・3社の候補から選択" : ""}）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
+  conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model, test) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(projectId, version, JSON.stringify(lp), note, JSON.stringify(review), author, pageCheck ? JSON.stringify(pageCheck) : null);
+  logEvent(projectId, "ai", "lp", `LPを作成（第${version}版${compete ? "・3社の候補から選択" : ""}${lp.page ? "・自由なデザイン" : ""}）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
   return { lp, review, version };
+}
+
+// AIにページ全体を自由にデザインさせる。失敗したら、部品で作ったLPのまま返す
+async function withPage(p: ProjectRow, lp: Lp, version: number, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean } = {}): Promise<{ lp: Lp; check: PageCheck | null }> {
+  try {
+    const made = await buildPage(p, lp, `p${p.id}-v${version}-page`, opts);
+    logEvent(p.id, "ai", "page", `ページ全体をデザイン（${(made.html.length / 1000).toFixed(1)}千文字）${made.check.ok ? "" : `。確認で残った指摘: ${made.check.issues.join(" / ")}`}`);
+    return { lp: { ...lp, ...pageTexts(made.html), page: { html: made.html } }, check: made.check };
+  } catch (e) {
+    logEvent(p.id, "system", "page-error", `自由なデザインのページを作れなかったため、部品で作ったLPを使います: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+    return { lp: { ...lp, page: undefined }, check: null };
+  }
+}
+
+// 今の版のページ全体を、AIにデザインし直させる（候補を切り替えたあとなど。案件の画面のボタンから）。公開中の版なら公開サイトにも反映する
+export async function redesignPage(projectId: number) {
+  const p = getProject(projectId);
+  if (!p?.lp || p.kind !== "lp") throw new Error("事前登録LPの案件だけデザインし直せます");
+  const current = JSON.parse(p.lp) as Lp;
+  const made = await whileBuilding(projectId, "ページをデザインしています", () => withPage(p, { ...current, page: undefined }, p.lp_version));
+  if (!made.lp.page) throw new Error("デザインを作れませんでした（経過を確認してください）");
+  db().prepare("UPDATE projects SET lp = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(made.lp), projectId);
+  db().prepare("UPDATE lp_versions SET lp = ?, test = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(made.lp), JSON.stringify(made.check), projectId, p.lp_version);
+  logEvent(projectId, "human", "page", "ページ全体をデザインし直しました");
+  const now = getProject(projectId)!;
+  if (now.public_slug && now.public_version === now.lp_version && now.stage !== "killed") await announcePublish(projectId);
+}
+
+// 自由なデザインをやめて、部品で作ったLPに戻す
+export async function removePage(projectId: number) {
+  const p = getProject(projectId);
+  if (!p?.lp) throw new Error("まだLPがありません");
+  const lp = { ...(JSON.parse(p.lp) as Lp), page: undefined };
+  db().prepare("UPDATE projects SET lp = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), projectId);
+  db().prepare("UPDATE lp_versions SET lp = ?, test = NULL WHERE project_id = ? AND version = ?").run(JSON.stringify(lp), projectId, p.lp_version);
+  logEvent(projectId, "human", "page", "自由なデザインをやめて、部品で作ったLPに戻しました");
+  const now = getProject(projectId)!;
+  if (now.public_slug && now.public_version === now.lp_version && now.stage !== "killed") await announcePublish(projectId);
 }
 
 async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { instruction?: string; note: string; keepCore?: boolean }) {
@@ -507,14 +626,28 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html);
   const pageReview = await reviewLp(p, page, opts.keepCore ? before : undefined);
   const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
-  const lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? page.headline } });
+  let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? page.headline } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
+  if (lp.design) lp.design.illustration = before?.design?.illustration;
+  const drawn = await withIllustration(p, lp, version);
+  lp = drawn.lp;
+  if (drawn.note) logEvent(p.id, "system", "illustration", drawn.note);
   const conn = db();
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, p.id);
   conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model, test) VALUES (?, ?, ?, ?, ?, ?, ?)")
     .run(p.id, version, JSON.stringify(lp), opts.note, JSON.stringify(review), getSettings().loopModel, JSON.stringify(tool.test));
   logEvent(p.id, "ai", "lp", `ツールと紹介ページを作成（第${version}版・${(tool.html.length / 1000).toFixed(1)}千文字）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
   return { lp, review, version };
+}
+
+// 全自動で公開してよいか。だめなら理由を返す
+function autoPublishBlocked(p: ProjectRow, review: Review): string | null {
+  const s = getSettings();
+  if (!s.fullAuto || p.mode !== "auto") return "全自動ではない";
+  if (!review.ok) return `AIのチェックで問題が残ったため（${review.issues.join(" / ").slice(0, 200)}）`;
+  const n = (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-publish' AND at >= datetime('now', '-7 days')").get() as { n: number }).n;
+  if (n >= s.autoPublishPerWeek) return `直近7日に人の承認なしで公開した件数が上限（${s.autoPublishPerWeek}件）に達したため`;
+  return null;
 }
 
 // 新しいLPを作って、公開の承認待ちにする（最初の公開は、どちらのモードでも人が承認する）
@@ -524,11 +657,21 @@ function nextVersion(projectId: number): number {
   return (r.v ?? 0) + 1;
 }
 
-export async function prepareLp(projectId: number, instruction?: string, opts: { keepCore?: boolean; byHuman?: boolean } = {}) {
+export async function prepareLp(projectId: number, instruction?: string, opts: { keepCore?: boolean; byHuman?: boolean; auto?: boolean } = {}) {
   const p = getProject(projectId)!;
   const note = !instruction ? "最初の版" : opts.byHuman ? `あなたの指示: ${instruction}` : `指示: ${instruction}`;
   const { lp, review } = await buildLpVersion(projectId, { instruction, note, keepCore: opts.keepCore });
   setStage(projectId, "lp");
+  // 全自動: チェックを通ったものだけ、人の承認なしで公開する（あとから人が見て印を付ける）
+  const blocked = opts.auto ? autoPublishBlocked(p, review) : "対象外";
+  if (!blocked) {
+    db().prepare("UPDATE projects SET auto_published = 1 WHERE id = ?").run(projectId);
+    setStage(projectId, "live");
+    logEvent(projectId, "system", "auto-publish", `全自動のため、人の承認なしで公開しました（AIのチェック: 問題なし）`);
+    await announcePublish(projectId);
+    return;
+  }
+  if (opts.auto && getSettings().fullAuto) logEvent(projectId, "system", "auto-blocked", `${blocked}、公開は人の承認に回します`);
   // すでに公開中なら、承認されるまでは前の版が公開されたまま
   const replacing = !!p.public_slug && p.public_version !== null;
   addApproval(
@@ -555,7 +698,12 @@ function budgetRule(s: ReturnType<typeof getSettings>): string {
     : `広告費が上限（${cap}円）に達している場合は、improve も collect も選ばず、continue か kill のどちらかを選ぶ（上限を超えて広告費を使わないため）。`;
 }
 
-function judgePrompt(p: ProjectRow) {
+// 判断のきっかけ: visits = 訪問が十分たまった / budget = 広告費の線を越えた / slow = 日数がたったのに訪問が少ない
+export type JudgeTrigger = "visits" | "budget" | "slow";
+
+const daysSinceUtc = (utc: string | null) => (utc ? (Date.now() - Date.parse(utc.replace(" ", "T") + "Z")) / 86_400_000 : 0);
+
+export function judgePrompt(p: ProjectRow, trigger: JudgeTrigger = "visits") {
   const s = getSettings();
   const cur = projectTotals(p.id, p.lp_version);
   const all = projectTotals(p.id);
@@ -564,35 +712,58 @@ function judgePrompt(p: ProjectRow) {
   const isTool = p.kind === "tool";
   const c = CONV[p.kind];
   const shares = all.rows.reduce((n, r) => n + (r.shares ?? 0), 0);
+  const growing = !!p.growth_phase;
+  const posts = (db().prepare("SELECT platform, COUNT(*) AS n, SUM(visits) AS v, SUM(conversions) AS cv FROM sns_posts WHERE project_id = ? AND status = 'posted' GROUP BY platform").all(p.id) as { platform: string; n: number; v: number; cv: number }[])
+    .map((x) => `${x.platform} ${x.n}件（訪問${x.v}・成果${x.cv}）`).join(" / ") || "まだなし";
+  const thing = isTool ? "ツールか紹介ページ" : "LP";
+  const options = growing
+    ? `この案件はすでに「続ける」と判断され、育てる段階にある（需要は確認済み）。次の育てる実験を1つ選ぶ。
+- improve: ${isTool ? "機能を1つ足す・何度も使いたくなる工夫・結果を共有したくなる工夫など、ツールか紹介ページを1か所変える" : "LPを1か所変えて、登録をさらに増やす"}
+- rethink: ページは変えずに、集客の場所・切り口・対象を広げる（まだ試していない場所や、近い対象者へ）
+- collect: 今の実験の結果がまだ出ていないので、変えずに様子を見る
+- kill: 反応が落ちきって、これ以上育てる見込みがない（めったに選ばない）`
+    : `次のどれかを選ぶ。
+- continue: ${isTool ? "よく使われているので、機能を足す・広めるなど、育てる段階へ進む" : "需要が確認できたので、育てる段階へ進む（実際に作るかは運営者が決める）"}
+- improve: 訪問者は来ているが、${c.noun}につながっていない。今すぐ${thing}を1か所変えてもう一度集客する
+- rethink: そもそも人が来ていない・届いていない。ページは変えずに、投稿の切り口・集客する場所・対象者の言い方を変えて、もう一度集客する
+- collect: 今のまま、もう少し集客してから判断する
+- kill: 需要が見込めないので撤退する`;
+  const slowNote = trigger === "slow"
+    ? `\n今回は、公開（または前回の判断）から${s.judgeAfterDays}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
+    : "";
   return {
     all,
-    system: `あなたは事業の撤退判断を担当するアナリストです。${isTool ? "対象は、紹介ページの中ですぐ使える「動くツール」です。" : ""}集客の数字を見て、次のどれかを選びます。
-- continue: ${isTool ? "よく使われているので、機能を足す・広めるなど、次の段階へ進む" : "需要が確認できたので、実際にプロダクトを作る段階へ進む"}
-- improve: ${isTool ? "反応の兆しはあるので、今すぐツールか紹介ページを1か所変えてもう一度集客する" : "需要の兆しはあるので、今すぐLPを1か所変えてもう一度集客する"}
-- collect: 今のLPを変えずに、もう少し集客してから判断する
-- kill: 需要が見込めないので撤退する
+    system: `あなたは事業の撤退判断を担当するアナリストです。${isTool ? "対象は、紹介ページの中ですぐ使える「動くツール」です。" : ""}集客の数字を見て、判断します。
+${options}
 ${budgetRule(s)}
 数字が少なすぎて判断できない場合も、その旨を理由に書いたうえで最も妥当なものを選ぶこと。
 improve は「今すぐ変える」場合だけに使う。「もう少し様子を見てから変える」なら collect を選ぶこと。
-improve の場合、next_action には「LPのどこを、どう変えるか」を1か所だけ、条件を付けずに具体的に書くこと（一度に複数を変えると、何が効いたか分からなくなるため）。
-形式: {"decision":"continue|improve|collect|kill","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること"}`,
+「ページの中での動き」があれば、どこで離脱しているか（読まれていない・ボタンが押されない・入力したのに登録しない など）を理由と next_action に活かすこと。
+improve の場合、next_action には「どこを、どう変えるか」を1か所だけ、条件を付けずに具体的に書くこと（一度に複数を変えると、何が効いたか分からなくなるため）。
+rethink の場合、next_action には「どこで（具体的な場所・ハッシュタグ・検索される言葉）、誰に、どんな切り口で届けるか」を具体的に書くこと。これまでの届け方と同じことは書かない。自動で投稿できるのは X・Threads・Bluesky の自分の投稿だけで、それ以外の場所は運営者の手作業になるので、自分の投稿の切り口を中心にする。他人の投稿やQ&Aサイトに宣伝のための返信・回答をする案は出さない。${slowNote}
+形式: {"decision":"${growing ? "improve|rethink|collect|kill" : "continue|improve|collect|rethink|kill"}","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること"}`,
     user: `サービス: ${p.title}（対象: ${p.target}）
 仮説: ${p.hypothesis}
+企画のときに決めた最初の届け方: ${p.first_channel ?? "（なし）"}
+企画のときに決めた最初の1週間の検証: ${p.first_test ?? "（なし）"}
+${p.growth_focus ? `いまの集客の方針（前回の見直しで決めたもの）: ${p.growth_focus}\n` : ""}公開してから: ${p.published_at ? `${Math.floor(daysSinceUtc(p.published_at))}日` : "不明"}${p.judged_at ? ` / 前回の判断から ${Math.floor(daysSinceUtc(p.judged_at))}日` : ""} / 集客の見直し ${p.rethink_count}回${growing ? ` / 育てる段階での実験 ${p.growth_count}回` : ""}
+SNSへの投稿: ${posts}
 今の${isTool ? "版" : "LP"}（第${p.lp_version}版）での結果: 訪問 ${cur.visits}人 / ${c.noun} ${cur.signups}人 / ${c.rate} ${(cur.rate * 100).toFixed(1)}%
 全体の結果: 訪問 ${all.visits}人 / ${c.noun} ${all.signups}人 / ${c.rate} ${(all.rate * 100).toFixed(1)}%${isTool ? ` / シェア ${shares}人` : ""} / 広告費 ${all.adSpendJpy}円
+${funnelText(p)}
 目標の${c.rate}: ${(targetRate(p.kind, s) * 100).toFixed(1)}% / 1案件の広告費上限: ${s.adBudgetPerProjectJpy}円 / 上限を超えたあと改善に使える追加の広告費: ${s.improveExtraBudgetJpy}円 / これまでの改善回数: ${p.improve_count}回
 これまでの経過:
 ${history}`,
   };
 }
 
-export async function judge(projectId: number) {
+export async function judge(projectId: number, trigger: JudgeTrigger = "visits") {
   const p = getProject(projectId)!;
-  const prompt = judgePrompt(p);
+  const prompt = judgePrompt(p, trigger);
   const d = await callJson<Decision>({ purpose: "判断", projectId, system: prompt.system, user: prompt.user, validate: isDecision });
   logEvent(projectId, "ai", "judge", `判断を提案: ${DECISION_LABEL[d.decision]}`);
   // 同じ数字で何度も判断し直さないよう、判断した時点の訪問数と広告費を覚えておく
-  db().prepare("UPDATE projects SET judged_visits = ?, judged_ad_jpy = ? WHERE id = ?").run(prompt.all.visits, prompt.all.adSpendJpy, projectId);
+  db().prepare("UPDATE projects SET judged_visits = ?, judged_ad_jpy = ?, judged_at = datetime('now') WHERE id = ?").run(prompt.all.visits, prompt.all.adSpendJpy, projectId);
 
   const approvalId = await applyDecision(p, d, prompt.all.adSpendJpy);
   // 実際の流れを待たせないよう、裏比較は後ろで走らせる
@@ -600,6 +771,26 @@ export async function judge(projectId: number) {
 }
 
 // AIの判断に従って次へ進める。人の承認待ちを作ったときはその id を返す
+// 集客の見直し: ページは変えずに、投稿の切り口・場所・対象を変える。まだ投稿していない下書きは捨てて、新しい方針で書き直させる
+async function applyRethink(projectId: number, d: Decision, by: "ai" | "human") {
+  db().prepare("UPDATE projects SET growth_focus = ?, rethink_count = rethink_count + 1, judged_at = datetime('now') WHERE id = ?").run(d.next_action.slice(0, 800), projectId);
+  db().prepare("DELETE FROM sns_posts WHERE project_id = ? AND status = 'draft' AND author = 'ai'").run(projectId);
+  if (getProject(projectId)!.growth_phase) db().prepare("UPDATE projects SET growth_count = growth_count + 1 WHERE id = ?").run(projectId);
+  setStage(projectId, "live");
+  logEvent(projectId, by === "ai" ? "system" : "human", "rethink", `集客を見直しました（ページは変えずに、ここから届け方を変える）: ${d.next_action}`);
+}
+
+// 「続ける」: 終わりにせず、育てる段階に入る。公開・自動投稿・定期的な判断はそのまま続き、判断では次の育てる実験を選ぶ
+async function startGrowth(projectId: number, reason: string) {
+  db().prepare("UPDATE projects SET growth_phase = 1, judged_at = datetime('now') WHERE id = ?").run(projectId);
+  setStage(projectId, "live");
+  const p = getProject(projectId)!;
+  logEvent(projectId, "system", "grow", p.kind === "tool"
+    ? "続けると判断。育てる段階に入りました（機能を足す・何度も使ってもらう・集客先を広げる実験を続けます）"
+    : "続けると判断。需要は確認できました。育てる段階に入り、集客を広げながら登録を増やします（実際に作るかはあなたが決めます）");
+  await writeLesson(projectId, `続ける（育てる段階へ）。理由: ${reason}`);
+}
+
 async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Promise<number | null> {
   const s = getSettings();
   const projectId = p.id;
@@ -618,7 +809,7 @@ async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Pr
       .prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'decision' AND status = 'rejected' AND proposal = ? AND lp_version = ?")
       .get(projectId, DECISION_LABEL.improve, p.lp_version);
     const blocked =
-      p.kind === "tool" ? "ツールのプログラムの変更は、人が動作を確かめてから公開するため"
+      p.kind === "tool" && !s.fullAuto ? "ツールのプログラムの変更は、人が動作を確かめてから公開するため"
       : humanSaidNo ? "この版では人が改善を却下しているため"
       : p.improve_count >= s.maxAutoImprove ? `自動での改善は${s.maxAutoImprove}回までのため`
       : adSpendJpy >= s.adBudgetPerProjectJpy + s.improveExtraBudgetJpy
@@ -634,8 +825,48 @@ async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Pr
     setStage(projectId, "deciding");
     return addApproval(projectId, "decision", DECISION_LABEL[d.decision], `${d.reason}\n（${blocked}、自動では進めずに判断をお願いしています）`, d);
   }
+  // 集客の見直しは、ページもお金も変えないので、自動モードなら承認なしで進める
+  if (d.decision === "rethink" && p.mode === "auto") {
+    await applyRethink(projectId, d, "ai");
+    return null;
+  }
+
+  // 全自動: 続ける・撤退もAIの判断のまま進める（広告費の上限を超えて集客を続けるのは、お金がかかるので人に回す）
+  if (p.mode === "auto" && s.fullAuto && (d.decision === "continue" || d.decision === "kill")) {
+    logEvent(projectId, "system", "auto-decision", `全自動のため、AIの判断「${DECISION_LABEL[d.decision]}」をそのまま実行しました（人の承認なし）: ${d.reason}`);
+    if (d.decision === "continue") {
+      await startGrowth(projectId, d.reason);
+      return null;
+    }
+    setStage(projectId, "killed");
+    await closePublic(projectId);
+    await writeLesson(projectId, `${DECISION_LABEL[d.decision]}（AIが判断）。理由: ${d.reason}`);
+    return null;
+  }
   setStage(projectId, "deciding");
   return addApproval(projectId, "decision", DECISION_LABEL[d.decision], d.reason, d);
+}
+
+// 全自動で公開したものを、人があとから見て印を付ける。「出すべきでなかった」なら公開も止められる
+export async function reviewAutoPublished(projectId: number, verdict: "ok" | "bad", note: string, stop: boolean) {
+  const p = getProject(projectId);
+  if (!p?.auto_published) throw new Error("人の承認なしで公開した案件ではありません");
+  db().prepare("UPDATE projects SET human_review = ?, human_review_note = ?, human_review_at = datetime('now') WHERE id = ?").run(verdict, note || null, projectId);
+  logEvent(projectId, "human", "human-review", verdict === "ok" ? `あとから確認: 問題なし${note ? `（${note}）` : ""}` : `あとから確認: 出すべきでなかった${note ? `（${note}）` : ""}`);
+  if (verdict === "bad" && stop && !["killed", "rejected"].includes(p.stage)) {
+    setStage(projectId, "killed");
+    await closePublic(projectId);
+    logEvent(projectId, "human", "stop", "あとから確認した結果、公開を止めました");
+    if (note) await writeLesson(projectId, `AIだけで公開したが、人が見て出すべきでなかったと判断。理由: ${note}`);
+  }
+}
+
+// 全自動で公開したもののうち、人があとから見てダメだったものの割合
+export function autoPublishStats() {
+  const r = db().prepare(
+    `SELECT COUNT(*) AS n, SUM(human_review IS NOT NULL) AS reviewed, SUM(human_review = 'bad') AS bad FROM projects WHERE auto_published = 1 AND demo = 0`,
+  ).get() as { n: number; reviewed: number | null; bad: number | null };
+  return { published: r.n, reviewed: r.reviewed ?? 0, bad: r.bad ?? 0 };
 }
 
 // ---- 判断の裏比較 ----
@@ -685,7 +916,7 @@ export type DebateResult = { positions: DebatePosition[]; issue: string; missing
 type Rebuttal = { decision: Decision["decision"]; argument: string; changed?: boolean };
 
 const isRebuttal = (v: unknown): v is Rebuttal =>
-  isObj(v) && ["continue", "improve", "kill", "collect"].includes(v.decision as string) && isStr(v.argument);
+  isObj(v) && ["continue", "improve", "kill", "collect", "rethink"].includes(v.decision as string) && isStr(v.argument);
 
 async function runDebate(projectId: number, approvalId: number, roundId: number, prompt: { system: string; user: string }) {
   const rows = (db().prepare("SELECT * FROM shadow_judgments WHERE round_id = ? AND decision IS NOT NULL").all(roundId) as ShadowRow[]);
@@ -718,7 +949,7 @@ async function runDebate(projectId: number, approvalId: number, roundId: number,
 - 相手の主張に納得した場合だけ意見を変える。納得しなければ変えなくてよい（相手に合わせる必要はない）
 - 主張には必ず数字を引用する
 - argument は相手の意見への反論、または意見を変えた理由を2〜3文で書く
-形式: {"decision":"continue|improve|collect|kill","argument":"主張","changed":true または false}`,
+形式: {"decision":"continue|improve|collect|rethink|kill","argument":"主張","changed":true または false}`,
             user: `${prompt.user}\n\nあなたの最初の判断: ${DECISION_LABEL[r.decision as Decision["decision"]]} 理由: ${r.reason}\n\n他のAIの判断:\n${others}`,
             validate: isRebuttal,
           });
@@ -757,7 +988,7 @@ export function debateFor(approvalId: number): { status: string; result: DebateR
 // 1. AIの意見を見る前に、数字だけを見て選ぶ（最初の判断）
 // 2. AIの意見と議論を見たあとに確定する（最終判断）。ここで初めて実際に進む
 
-export const CHOICES: Decision["decision"][] = ["continue", "improve", "collect", "kill"];
+export const CHOICES: Decision["decision"][] = ["continue", "improve", "collect", "rethink", "kill"];
 
 export function setInitialChoice(approvalId: number, choice: string) {
   const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
@@ -794,8 +1025,14 @@ export async function finalizeDecision(approvalId: number, choice: string, comme
     db().prepare("UPDATE projects SET improve_count = improve_count + 1 WHERE id = ?").run(pid);
     return prepareLp(pid, comment?.trim() || fromAi || "登録率が目標に届くよう、見出しを1か所だけ改善する");
   }
-  setStage(pid, c === "continue" ? "continued" : "killed");
-  if (c === "kill") await closePublic(pid);
+  if (c === "rethink") {
+    const fromAi = proposed.decision === "rethink" ? proposed.next_action
+      : (db().prepare(`SELECT next_action FROM shadow_judgments WHERE approval_id = ? AND decision = 'rethink' LIMIT 1`).get(approvalId) as { next_action: string } | undefined)?.next_action;
+    return applyRethink(pid, { ...proposed, next_action: comment?.trim() || fromAi || "投稿の切り口と集客する場所を変える" }, "human");
+  }
+  if (c === "continue") return startGrowth(pid, `${comment ?? ""} AIの提案: ${DECISION_LABEL[proposed.decision]}（${proposed.reason}）`.trim());
+  setStage(pid, "killed");
+  await closePublic(pid);
   await writeLesson(pid, `${DECISION_LABEL[c]}。AIの提案: ${DECISION_LABEL[proposed.decision]}（${proposed.reason}）`);
 }
 
@@ -877,16 +1114,24 @@ export function debateStats() {
 }
 
 async function autoImprove(projectId: number, d: Decision) {
-  const { version, review } = await buildLpVersion(projectId, { instruction: d.next_action, note: `自動改善: ${d.next_action}`, keepCore: true });
+  const built = await buildLpVersion(projectId, { instruction: d.next_action, note: `自動改善: ${d.next_action}`, keepCore: true });
+  const { version } = built;
+  let review = built.review;
+  // 動くツールは、ブラウザでの自動テストも通ったものだけ自動で差し替える
+  if (getProject(projectId)!.kind === "tool") {
+    const row = db().prepare("SELECT test FROM lp_versions WHERE project_id = ? AND version = ?").get(projectId, version) as { test: string | null } | undefined;
+    const t = row?.test ? (JSON.parse(row.test) as ToolTest) : null;
+    if (!t || (!t.skipped && !t.ok)) review = { ok: false, issues: [...review.issues, ...(t ? testIssues(t) : ["ブラウザでの自動テストの結果がない"])] };
+  }
   if (!review.ok) {
     // チェックを通らない改善は公開せず、人に回す
     setStage(projectId, "lp");
-    addApproval(projectId, "publish", "改善したLPを公開する", `AIのチェックで問題が残ったため、自動公開を止めました: ${review.issues.join(" / ")}`, { review });
+    addApproval(projectId, "publish", getProject(projectId)!.kind === "tool" ? "改善したツールを公開する" : "改善したLPを公開する", `AIのチェックで問題が残ったため、自動公開を止めました: ${review.issues.join(" / ")}`, { review });
     return;
   }
-  db().prepare("UPDATE projects SET improve_count = improve_count + 1 WHERE id = ?").run(projectId);
+  db().prepare("UPDATE projects SET improve_count = improve_count + 1, growth_count = growth_count + growth_phase WHERE id = ?").run(projectId);
   setStage(projectId, "live");
-  logEvent(projectId, "system", "auto-improve", `自動でLPを改善し、第${version}版で集客を再開（人の承認なし）`);
+  logEvent(projectId, "system", "auto-improve", `自動で${getProject(projectId)!.kind === "tool" ? "ツール" : "LP"}を改善し、第${version}版で集客を再開（人の承認なし）`);
   // すでに公開中なら、新しい版に差し替える
   if (getProject(projectId)!.public_slug) await announcePublish(projectId);
 }
@@ -952,8 +1197,10 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
     db().prepare("UPDATE projects SET improve_count = improve_count + 1 WHERE id = ?").run(pid);
     return prepareLp(pid, action === "revise" ? comment : d.next_action);
   }
-  setStage(pid, d.decision === "continue" ? "continued" : "killed");
-  if (d.decision === "kill") await closePublic(pid);
+  if (d.decision === "rethink") return applyRethink(pid, d, "human");
+  if (d.decision === "continue") return startGrowth(pid, d.reason);
+  setStage(pid, "killed");
+  await closePublic(pid);
   await writeLesson(pid, `${DECISION_LABEL[d.decision]}。理由: ${d.reason}`);
 }
 
@@ -994,6 +1241,26 @@ export async function finishNotify(projectId: number): Promise<number> {
   return n;
 }
 
+// 今の版のイラストを描き直す・外す（案件の画面のボタンから）。公開中の版なら公開サイトにも反映する
+export async function changeIllustration(projectId: number, action: "redraw" | "remove") {
+  const p = getProject(projectId);
+  if (!p?.lp) throw new Error("まだLPがありません");
+  let lp = JSON.parse(p.lp) as Lp;
+  if (!lp.design) throw new Error("このLPには見た目の設定がありません（古い形式のため）");
+  if (action === "remove") {
+    lp = { ...lp, design: { ...lp.design, illustration: undefined } };
+  } else {
+    const drawn = await withIllustration(p, { ...lp, design: { ...lp.design, illustration: undefined } }, p.lp_version, { force: true });
+    if (drawn.note) throw new Error(drawn.note);
+    lp = drawn.lp;
+  }
+  db().prepare("UPDATE projects SET lp = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), projectId);
+  db().prepare("UPDATE lp_versions SET lp = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(lp), projectId, p.lp_version);
+  logEvent(projectId, "human", "illustration", action === "remove" ? "イラストを外しました" : "イラストを描き直しました");
+  const now = getProject(projectId)!;
+  if (now.public_slug && now.public_version === now.lp_version && now.stage !== "killed") await announcePublish(projectId);
+}
+
 // ---- 集客データ ----
 
 export async function addMetrics(projectId: number, rows: { day: string; visits: number; signups: number; shares?: number; adSpendJpy: number; source: "manual" | "simulated" }[]) {
@@ -1016,14 +1283,18 @@ async function announcePublish(projectId: number) {
   const p = getProject(projectId)!;
   try {
     if (await publishLp(p)) {
-      logEvent(projectId, "system", "publish", `第${p.lp_version}版のLPを公開しました: ${publicUrl(projectId) ?? slugOf(projectId)}`);
+      logEvent(projectId, "system", "publish", `第${p.lp_version}版の${p.kind === "tool" ? "ツール" : "LP"}を公開しました: ${publicUrl(projectId) ?? slugOf(projectId)}`);
+      db().prepare("UPDATE projects SET published_at = COALESCE(published_at, datetime('now')) WHERE id = ?").run(projectId);
+      // 無料の場所（Threads・Bluesky）には、公開したその場で1件投稿する（まだ投稿していない場所だけ）
+      const { postOnPublish } = await import("./sns");
+      await postOnPublish(projectId);
       return;
     }
   } catch (e) {
     logEvent(projectId, "system", "publish-error", (e instanceof Error ? e.message : String(e)).slice(0, 300));
     return;
   }
-  logEvent(projectId, "system", "publish", `第${p.lp_version}版のLPで集客を開始（公開用サイトが未設定のため、手動で公開する前提）`);
+  logEvent(projectId, "system", "publish", `第${p.lp_version}版の${p.kind === "tool" ? "ツール" : "LP"}で集客を開始（公開用サイトが未設定のため、手動で公開する前提）`);
 }
 
 async function closePublic(projectId: number) {
@@ -1060,9 +1331,20 @@ export async function maybeAutoJudge(projectId: number) {
   // 上限と「上限＋改善用の追加分」の2つの線のどちらかを、前回の判断のあとで越えたら判断する
   const lines = [s.adBudgetPerProjectJpy, s.adBudgetPerProjectJpy + s.improveExtraBudgetJpy];
   const budgetHit = lines.some((line) => all.adSpendJpy >= line && p.judged_ad_jpy < line);
-  if (!enoughVisits && !budgetHit) return false;
-  await judge(projectId);
+  // 訪問が少なくても、公開（または前の判断）から決めた日数がたったら判断する（人が来ないまま止まり続けないように）
+  const publishedAt = p.published_at ?? backfillPublishedAt(p);
+  const since = p.judged_at ?? publishedAt;
+  const slow = !!since && daysSinceUtc(since) >= s.judgeAfterDays;
+  if (!enoughVisits && !budgetHit && !slow) return false;
+  await judge(projectId, enoughVisits ? "visits" : budgetHit ? "budget" : "slow");
   return true;
+}
+
+// 公開した日時がまだ記録されていない案件（この仕組みを入れる前に公開したもの）は、最初の公開の記録から埋める
+function backfillPublishedAt(p: ProjectRow): string | null {
+  const first = db().prepare("SELECT MIN(at) AS at FROM events WHERE project_id = ? AND kind IN ('publish', 'auto-publish')").get(p.id) as { at: string | null };
+  if (first.at) db().prepare("UPDATE projects SET published_at = ? WHERE id = ?").run(first.at, p.id);
+  return first.at;
 }
 
 // 広告を出さずに流れを試すための、ダミーの集客データ
@@ -1105,7 +1387,8 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     const pending = (db()
       .prepare("SELECT COUNT(*) AS n FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.status = 'pending' AND p.demo = 0")
       .get() as { n: number }).n;
-    const live = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0").get() as { n: number }).n;
+    // 育てる段階に入った案件は数えない（うまくいった案件があっても、新しいアイデアは止めない）
+    const live = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0 AND growth_phase = 0").get() as { n: number }).n;
     if (pending >= s.maxPending) return skip(`承認待ちが${pending}件たまっているため、アイデア出しを休みました（上限${s.maxPending}件）`);
     if (live >= s.maxLive) return skip(`集客中の案件が${live}件あるため、アイデア出しを休みました（上限${s.maxLive}件）`);
 
@@ -1177,7 +1460,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number): Promise<{ ca
 
   // 3. 各社が、作者を伏せた全候補に点を付ける
   const sheet = candidates
-    .map((c) => `【${c.label}】${c.idea.title}（形: ${c.idea.kind === "tool" ? "tool" : "lp"}）\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}`)
+    .map((c) => `【${c.label}】${c.idea.title}（形: ${c.idea.kind === "tool" ? "tool" : "lp"}）\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}\n最初の届け方: ${c.idea.channel ?? "（書かれていない）"}\n最初の1週間の検証: ${c.idea.first_test ?? "（書かれていない）"}`)
     .join("\n\n");
   const scoreRow = db().prepare("INSERT INTO idea_scores (candidate_id, scorer_model, score, reason) VALUES (?, ?, ?, ?)");
   await Promise.all(
@@ -1188,8 +1471,10 @@ async function gatherAndScoreIdeas(perModel: number, keep: number): Promise<{ ca
           modelId: scorer,
           system: `あなたは事業アイデアの審査員です。作者が誰かは分かりません。次の観点で各アイデアを1〜10点で採点します。
 - 対象者が具体的で、その人に安く届けられるか
+- 「最初の届け方」が具体的で現実的か（広告なし・フォロワーほぼ0のアカウントと手作業で、本当に最初の利用者に会えるか）。曖昧なもの・書かれていないものは大きく減点する
 - 困りごと・欲しい気持ちが強く、事前登録したくなるか（形が tool なら、使ってシェアしたくなるか）
 - 選んだ形（lp=事前登録LP / tool=1ページで完結する動くツール）が、そのアイデアに合っているか。tool なら外部の通信なしで本当に作れるか
+- プロダクトの種類（Webサービス・スマホアプリ・拡張機能・ボット・デジタル商品など）では差をつけない。lp は作る前に需要を確かめるものなので、作るのが大変なことでは減点しない
 - 既存の無料サービスとの違いがはっきりしているか
 点数は甘くしないこと（平凡なものは5点前後）。
 形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]}`,
@@ -1330,7 +1615,7 @@ export function modeComparison() {
       improvements: mine.reduce((s, p) => s + p.improve_count, 0),
       reviewIssues,
       rate: visits ? signups / visits : null,
-      continued: mine.filter((p) => p.stage === "continued").length,
+      continued: mine.filter((p) => p.stage === "continued" || p.growth_phase).length,
       killed: mine.filter((p) => p.stage === "killed").length,
       costUsd: cost,
     };

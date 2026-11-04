@@ -46,7 +46,8 @@ function isRetryable(e: unknown, msg: string): boolean {
 async function realCall(model: ModelDef, prompt: { system: string; user: string }) {
   if (model.provider === "anthropic") {
     // 比較を公平にするため、拒否時に別モデルへ切り替える fallbacks は使わない（拒否はそのまま記録する）
-    const client = new Anthropic();
+    // 応答が返らないまま止まり続けないよう、1回の呼び出しは6分で打ち切る（失敗としてやり直しの判断に回す）
+    const client = new Anthropic({ timeout: 6 * 60 * 1000, maxRetries: 1 });
     const res = await client.messages.create({
       model: model.id,
       max_tokens: 16000,
@@ -64,7 +65,7 @@ async function realCall(model: ModelDef, prompt: { system: string; user: string 
   }
 
   if (model.provider === "openai") {
-    const client = new OpenAI();
+    const client = new OpenAI({ timeout: 6 * 60 * 1000, maxRetries: 1 });
     const res = await client.responses.create({
       model: model.id,
       instructions: prompt.system,

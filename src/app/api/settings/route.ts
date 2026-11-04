@@ -24,6 +24,10 @@ export async function POST(req: Request) {
   if (typeof body.shadowJudge === "boolean") patch.shadowJudge = body.shadowJudge;
   if (typeof body.debateEnabled === "boolean") patch.debateEnabled = body.debateEnabled;
   if (typeof body.weeklyReport === "boolean") patch.weeklyReport = body.weeklyReport;
+  if (typeof body.illustrations === "boolean") patch.illustrations = body.illustrations;
+  if (typeof body.freePage === "boolean") patch.freePage = body.freePage;
+  if (typeof body.fullAuto === "boolean") patch.fullAuto = body.fullAuto;
+  if (typeof body.autoPost === "boolean") patch.autoPost = body.autoPost;
   if (typeof body.showcaseEnabled === "boolean") patch.showcaseEnabled = body.showcaseEnabled;
   if (typeof body.showcaseShowLinks === "boolean") patch.showcaseShowLinks = body.showcaseShowLinks;
   if (typeof body.lpBaseUrl === "string") {
@@ -62,6 +66,9 @@ export async function POST(req: Request) {
     ["maxPending", 1, 50],
     ["maxLive", 1, 20],
     ["maxAutoImprove", 0, 10],
+    ["autoPublishPerWeek", 0, 50],
+    ["autoPostPerDay", 1, 10],
+    ["judgeAfterDays", 1, 60],
     ["staleDays", 1, 90],
     ["autoConfidence", 0, 1],
     ["targetUseRate", 0.001, 1],
