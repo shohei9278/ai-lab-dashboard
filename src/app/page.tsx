@@ -11,6 +11,7 @@ import { IdeaForm } from "@/components/IdeaForm";
 import { DailyCard } from "@/components/DailyCard";
 import { Stat } from "@/components/ui";
 import { AUTO_PLATFORMS, autoPlatforms } from "@/lib/snsApi";
+import { budgetState } from "@/lib/budget";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,7 @@ export default function Home() {
   const waitingAt = (stage: Stage) => waiting.filter((w) => w.stage === stage).length;
   const diff = o.todaySignups - o.yesterdaySignups;
   const budgetRatio = s.monthlyBudgetJpy ? o.aiJpy / s.monthlyBudgetJpy : 0;
+  const bud = budgetState();
   const status = s.killSwitch
     ? { c: "var(--critical)", t: "緊急停止中" }
     : s.dailyEnabled
@@ -293,7 +295,12 @@ export default function Home() {
             <div>
               <div className="flex justify-between"><span>AI費用</span><span className="num">{Math.round(o.aiJpy).toLocaleString("ja-JP")}円</span></div>
               <Meter value={budgetRatio} warn />
-              <div className="num text-xs text-muted">上限 {s.monthlyBudgetJpy.toLocaleString("ja-JP")}円 の {pct(budgetRatio)}</div>
+              <div className="num text-xs text-muted">上限 {s.monthlyBudgetJpy.toLocaleString("ja-JP")}円 の {pct(budgetRatio)}・月末の見込み 約{Math.round(bud.projected).toLocaleString("ja-JP")}円</div>
+              <div className="mt-1 text-xs" style={{ color: bud.creativeOk && bud.newToday > 0 ? "var(--text-2)" : "var(--warning)" }}>
+                {!bud.creativeOk
+                  ? "予算の残りが少ないため、新しい案件は休み、SNSの投稿と判断だけ続けています"
+                  : `新しい案件: 今日はあと${bud.newToday}件まで（1件 約${Math.round(bud.perProject)}円・予算のペースに合わせて自動で調整）`}
+              </div>
             </div>
             <div>
               <div className="flex justify-between"><span>広告費</span><span className="num">{o.adJpy.toLocaleString("ja-JP")}円</span></div>

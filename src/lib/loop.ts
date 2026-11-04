@@ -7,6 +7,7 @@ import { trendsText } from "./trends";
 import { withIllustration } from "./illustration";
 import { buildPage, pageTexts, type PageCheck } from "./freePage";
 import { funnelText } from "./funnel";
+import { budgetState } from "./budget";
 import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
   db, getSettings, saveSettings,
@@ -817,6 +818,12 @@ async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Pr
           ? "広告費が改善用の追加分も含めて上限に達しているため"
           : "広告費が上限に達していて、上限を超えたあとの改善は設定で認められていないため"
       : null;
+    if (!blocked && !budgetState().creativeOk) {
+      // 予算の残りが少ないときは、作り直さずに今のまま集客を続ける（投稿と判断の分を残す）
+      setStage(projectId, "live");
+      logEvent(projectId, "system", "collect", `改善の判断でしたが、今月の予算の残りが少ないため、作り直さずに今のまま集客を続けます: ${d.next_action}`);
+      return null;
+    }
     if (!blocked) {
       await autoImprove(projectId, d);
       return null;
@@ -1392,7 +1399,11 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     if (pending >= s.maxPending) return skip(`承認待ちが${pending}件たまっているため、アイデア出しを休みました（上限${s.maxPending}件）`);
     if (live >= s.maxLive) return skip(`集客中の案件が${live}件あるため、アイデア出しを休みました（上限${s.maxLive}件）`);
 
-    const { candidates, kept } = await gatherAndScoreIdeas(s.dailyIdeaCount, s.dailyKeep);
+    // 月の予算のペースに合わせて、今日新しく作る案件の数を決める（1件ごとの作り方は変えない）
+    const b = budgetState();
+    if (!b.creativeOk) return skip(`今月の予算の${Math.round((b.creativeCap / b.budget) * 100)}%を使ったため、新しい案件は休みました（残りはSNSの投稿と判断に使います）`);
+    if (b.newToday === 0) return skip(`予算のペースを守るため、今日は新しい案件を休みました（今日使える額 約${Math.round(b.allowanceToday)}円・1件 約${Math.round(b.perProject)}円）`);
+    const { candidates, kept } = await gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday);
     if (!candidates.length) return skip("どのAIからもアイデアを得られなかったため休みました");
     const ids: number[] = [];
     for (const c of kept) {

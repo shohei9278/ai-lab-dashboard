@@ -18,7 +18,7 @@ export function DailyCard({ enabled, hour, lastRun, lastMessage, count, keep, mo
             </span>
           </h2>
           <p className="text-xs text-muted">
-            毎日{hour}時以降に、3社のAIが{count}件ずつアイデアを出し、作者を伏せて3社で採点して上位{keep}件を進めます。進め方: {modeLabel}。
+            毎日{hour}時以降に、3社のAIが{count}件ずつアイデアを出し、作者を伏せて3社で採点して上位を最大{keep}件進めます（月の予算のペースに合わせて、件数は自動で減らします）。進め方: {modeLabel}。
             <Link href="/settings" className="ml-1 underline">設定</Link>
           </p>
         </div>
