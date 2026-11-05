@@ -77,6 +77,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       case "simulate": {
         const p = requireProject(body);
+        if (!p.demo) throw new Error("シミュレーションはデモ案件でだけ使えます（本物の案件の判断に架空の数字が混ざらないように）");
         const judged = await addMetrics(p.id, simulatedDays(p, Math.min(7, Math.max(1, Number(body.days) || 3))));
         return NextResponse.json({ ok: true, judged });
       }

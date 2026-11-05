@@ -97,7 +97,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
       {approvals.map((a) => <ApprovalCard key={a.id} a={a} />)}
 
-      <ProjectActions isTool={isTool} building={buildingNow(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
+      <ProjectActions demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
 
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">AIのアイデア</h2>
@@ -151,6 +151,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                         <span className="font-medium text-ink">第{v.version}版</span>
                         <span className="num">{jstDateTime(v.created_at)}</span>
                         <span>{v.note}</span>
+                        {v.tool_model && <span>コード: {modelInfo(v.tool_model).label}{v.tool_rewrites ? `（書き直し ${v.tool_rewrites}回）` : ""}</span>}
                         {vt.visits > 0 && <span className="num">訪問 {vt.visits} / {conv.noun} {vt.signups}（{pct(vt.rate, 1)}）</span>}
                         {review && (review.ok
                           ? <span style={{ color: "var(--good)" }}>✓ チェックOK</span>
@@ -231,6 +232,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           test={(() => {
             const v = versions.find((x) => x.version === p.lp_version);
             return v?.test ? JSON.parse(v.test) : null;
+          })()}
+          author={(() => {
+            const v = versions.find((x) => x.version === p.lp_version);
+            return v?.tool_model ? { label: modelInfo(v.tool_model).label, rewrites: v.tool_rewrites } : null;
           })()}
         />
       )}

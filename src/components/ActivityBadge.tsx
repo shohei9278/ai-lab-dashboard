@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 type Item = { key: string; title: string; detail: string; since: number };
 
-// どのページの上にも出す「AIが作業中」の表示。ページを移っても、裏で続いている作業が分かるように
+// どのページにも出す「AIが作業中」の表示。ページを移っても、裏で続いている作業が分かるように
 export function ActivityBadge() {
   const [items, setItems] = useState<Item[]>([]);
   const [done, setDone] = useState<string[]>([]);
@@ -37,7 +37,8 @@ export function ActivityBadge() {
   const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
   if (!items.length && !done.length) return null;
   return (
-    <Link href="/live" className="ml-auto flex max-w-full items-center gap-2 rounded-full border px-3 py-1 text-xs hover:bg-surface-2" style={{ borderColor: items.length ? "var(--accent)" : "var(--good)" }} title="ライブ画面で見る">
+    // スクロールしても見えるように、画面の右下に固定して出す
+    <Link href="/live" className="fixed bottom-4 right-4 z-50 flex max-w-[min(28rem,calc(100vw-2rem))] items-center gap-2 rounded-full border bg-surface px-3 py-2 text-xs shadow-lg hover:bg-surface-2" style={{ borderColor: items.length ? "var(--accent)" : "var(--good)" }} title="ライブ画面で見る">
       <style>{`@keyframes lab-badge { 0%,100% { opacity: 1 } 50% { opacity: .3 } } .lab-badge { animation: lab-badge 1.4s ease-in-out infinite } @media (prefers-reduced-motion: reduce) { .lab-badge { animation: none } }`}</style>
       {items.length ? (
         <>

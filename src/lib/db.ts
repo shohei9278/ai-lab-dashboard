@@ -410,6 +410,11 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "first_test", "TEXT"], // 企画のときに決めた、最初の1週間の検証
   ["projects", "want_id", "INTEGER"], // 元になった「欲しい」の声（user_wants）
   ["page_candidates", "html", "TEXT"], // その案のページ（あとから人が入れ替えられるように残す）
+  ["lessons", "fact", "TEXT"], // 観測した事実（数字など）
+  ["lessons", "interpretation", "TEXT"], // 仮の解釈
+  ["lessons", "unknown", "TEXT"], // まだ判断できないこと
+  ["lessons", "certainty", "TEXT"], // 確かさ: low（データ不足・保留）/ mid / high
+  ["projects", "growth_focus_at", "TEXT"], // 集客の方針を最後に見直した日時（見直す前後の数字を分けるため）
   ["projects", "published_at", "TEXT"], // 最初に公開した日時
   ["projects", "judged_at", "TEXT"], // 最後にAIが判断した日時
   ["projects", "rethink_count", "INTEGER NOT NULL DEFAULT 0"], // 集客の見直しをした回数
@@ -650,6 +655,7 @@ export type ProjectRow = {
   judged_at: string | null;
   rethink_count: number;
   growth_focus: string | null;
+  growth_focus_at: string | null;
   growth_phase: number;
   growth_count: number;
   human_review: "ok" | "bad" | null;
@@ -660,7 +666,7 @@ export type ProjectRow = {
 // 出し方（形）。アイデアを出すときにAIが選ぶ
 export type ProductKind = "lp" | "tool";
 
-export type LpVersionRow = { id: number; created_at: string; project_id: number; version: number; lp: string; note: string | null; review: string | null; author_model: string | null; test: string | null };
+export type LpVersionRow = { id: number; created_at: string; project_id: number; version: number; lp: string; note: string | null; review: string | null; author_model: string | null; test: string | null; tool_model: string | null; tool_rewrites: number | null };
 export type LpCandidateRow = {
   id: number; at: string; project_id: number; version: number; label: string; author_model: string; lp: string;
   avg_score: number | null; selected: number; human_selected: number;
@@ -685,7 +691,7 @@ export type ApprovalRow = {
 export type EventRow = { id: number; at: string; project_id: number | null; actor: "ai" | "human" | "system"; kind: string; message: string };
 // signups は「成果」の数: 事前登録LPなら登録、動くツールなら使った人の数
 export type MetricRow = { id: number; project_id: number; day: string; visits: number; signups: number; ad_spend_jpy: number; source: string; lp_version: number; shares: number };
-export type LessonRow = { id: number; at: string; project_id: number | null; text: string; active: number };
+export type LessonRow = { id: number; at: string; project_id: number | null; text: string; active: number; fact: string | null; interpretation: string | null; unknown: string | null; certainty: "low" | "mid" | "high" | null };
 
 // 案件の段階: アイデア → LP作成 → 集客中 → 判断待ち → 継続 / 撤退（却下はアイデア段階で止めたもの）
 export type Stage = "idea" | "lp" | "live" | "deciding" | "continued" | "killed" | "rejected";

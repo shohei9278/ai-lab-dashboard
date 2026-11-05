@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { getSettings } from "@/lib/db";
 import { getModel } from "@/lib/models";
-import { KIND_LABEL, MODE_LABEL, activeLessons, modeComparison } from "@/lib/loop";
+import { CERTAINTY_LABEL, KIND_LABEL, MODE_LABEL, activeLessons, modeComparison } from "@/lib/loop";
 import { endReasons, headline, kindComparison, overallRanking, rankings, refEffect, type Ranking } from "@/lib/experiment";
 import { pct, yen } from "@/lib/format";
 import { PageIntro } from "@/components/PageIntro";
@@ -225,13 +225,18 @@ export default function LabPage() {
       <section className="space-y-2">
         <div>
           <h2 className="font-bold">AIの教訓（{lessons.length}件）</h2>
-          <p className="text-xs text-muted">終わった案件からAIが学んだこと。次のアイデア出しで参照されます。</p>
+          <p className="text-xs text-muted">終わった案件からAIが学んだこと。事実・仮の解釈・まだ分からないことに分けて残し、次のアイデア出しで参照されます。訪問が判断の基準に届かなかった案件の教訓は、確かさ「低（保留）」になります。</p>
         </div>
         <div className="card divide-y divide-line text-sm">
           {lessons.length ? lessons.map((l) => (
-            <div key={l.id} className="p-3">
-              {l.text}
-              {l.project_id && <Link href={`/projects/${l.project_id}`} className="ml-2 text-xs text-accent underline">案件</Link>}
+            <div key={l.id} className="space-y-1 p-3">
+              <div>
+                {l.certainty && <span className="mr-2 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">確かさ {CERTAINTY_LABEL[l.certainty]}</span>}
+                {l.interpretation ?? l.text}
+                {l.project_id && <Link href={`/projects/${l.project_id}`} className="ml-2 text-xs text-accent underline">案件</Link>}
+              </div>
+              {l.fact && <div className="text-xs text-ink-2">事実: {l.fact}</div>}
+              {l.unknown && <div className="text-xs text-muted">まだ分からない: {l.unknown}</div>}
             </div>
           )) : <div className="p-3 text-ink-2">まだありません。案件が終わると、AIが教訓を書きます。</div>}
         </div>

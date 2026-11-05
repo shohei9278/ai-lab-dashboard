@@ -165,11 +165,13 @@ export function lpVersions(projectId: number): LpVersionRow[] {
 }
 
 // デモ案件の教訓は架空なので、AIへの入力には使わない（画面表示では区別して出す）
+// シミュレーションの数字が混ざった案件の教訓も、同じく架空の結果なので使わない
 export function activeLessons({ includeDemo = false } = {}): (LessonRow & { demo: number })[] {
   return db()
     .prepare(
-      `SELECT l.*, COALESCE(p.demo, 0) AS demo FROM lessons l LEFT JOIN projects p ON p.id = l.project_id
-       WHERE l.active = 1 ${includeDemo ? "" : "AND COALESCE(p.demo, 0) = 0"} ORDER BY l.id DESC LIMIT 20`,
+      `SELECT l.*, CASE WHEN COALESCE(p.demo, 0) = 1 OR EXISTS (SELECT 1 FROM metrics m WHERE m.project_id = l.project_id AND m.source = 'simulated') THEN 1 ELSE 0 END AS demo
+       FROM lessons l LEFT JOIN projects p ON p.id = l.project_id
+       WHERE l.active = 1 ${includeDemo ? "" : "AND COALESCE(p.demo, 0) = 0 AND NOT EXISTS (SELECT 1 FROM metrics m WHERE m.project_id = l.project_id AND m.source = 'simulated')"} ORDER BY l.id DESC LIMIT 20`,
     )
     .all() as (LessonRow & { demo: number })[];
 }
@@ -220,7 +222,7 @@ const selfConfidence = (idea: Idea) => ({
 // alsoExisting: 既にある案件として扱う題名（仮テストで、前の日に選ばれたもの）
 export async function askIdeas(theme: string, count: number, modelId?: string, alsoExisting: string[] = []): Promise<Idea[]> {
   const s = getSettings();
-  const lessons = activeLessons().map((l) => `- ${l.text}`).join("\n") || "（まだなし）";
+  const lessons = activeLessons().map(lessonLine).join("\n") || "（まだなし）";
   const existing = [...alsoExisting, ...(db().prepare("SELECT title FROM projects WHERE demo = 0 ORDER BY id DESC LIMIT 30").all() as { title: string }[]).map((p) => p.title)]
     .map((t) => `- ${t}`).join("\n") || "（まだなし）";
   // 選ばれなかった最近の案も渡す（同じ題材が毎日出ては負ける、の繰り返しを防ぐ）
@@ -241,7 +243,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 - 季節や世の中の話題に頼りすぎない。件数のうち半分以上（1件だけなら、その1件）は、季節や話題が過ぎても1年中ある困りごと（evergreen）にする。季節もの（seasonal）を出すなら、その季節が終わっても使われる理由があるものを選ぶ
 - 時期のネタや世の中の話題は、使ってもよいヒントにすぎない（必ず使う材料ではない）。事件・事故・災害・訃報・個人の不祥事など、人の不幸や特定の個人に乗った企画はしない
 - 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案は出さない（スパム扱いされやすいため）。自分の投稿で見つけてもらう形にする
-過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
+過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
 形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
     user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}`,
@@ -836,6 +838,19 @@ export function judgePrompt(p: ProjectRow, trigger: JudgeTrigger = "visits") {
   const posts = (db().prepare("SELECT platform, COUNT(*) AS n, SUM(visits) AS v, SUM(conversions) AS cv FROM sns_posts WHERE project_id = ? AND status = 'posted' GROUP BY platform").all(p.id) as { platform: string; n: number; v: number; cv: number }[])
     .map((x) => `${x.platform} ${x.n}件（訪問${x.v}・成果${x.cv}）`).join(" / ") || "まだなし";
   const thing = isTool ? "ツールか紹介ページ" : "LP";
+  // 集客を見直したあとの効果が分かるように、見直す前と後の数字を分ける（訪問は日ごとの記録なので、見直した日の分は「後」に入れる）
+  const since = p.growth_focus_at;
+  const split = (() => {
+    if (!since) return "";
+    const day = since.slice(0, 10);
+    const sum = (rows: MetricRow[]) => rows.reduce((a, r) => ({ v: a.v + r.visits, c: a.c + r.signups }), { v: 0, c: 0 });
+    const before = sum(all.rows.filter((r) => r.day < day));
+    const after = sum(all.rows.filter((r) => r.day >= day));
+    const rate = (x: { v: number; c: number }) => (x.v ? `${((x.c / x.v) * 100).toFixed(1)}%` : "—");
+    const postsAfter = (db().prepare("SELECT COUNT(*) AS n, COALESCE(SUM(visits), 0) AS v, COALESCE(SUM(conversions), 0) AS cv FROM sns_posts WHERE project_id = ? AND status = 'posted' AND posted_at >= ?").get(p.id, since) as { n: number; v: number; cv: number });
+    const days = Math.max(0, Math.floor(daysSinceUtc(since)));
+    return `\n最後に集客を見直してから ${days}日（${day}〜）:\n- 見直す前: 訪問 ${before.v}人 / ${c.noun} ${before.c}人 / ${c.rate} ${rate(before)}\n- 見直した後: 訪問 ${after.v}人 / ${c.noun} ${after.c}人 / ${c.rate} ${rate(after)}\n- 見直した後のSNSへの投稿: ${postsAfter.n}件（訪問${postsAfter.v}・成果${postsAfter.cv}）\n見直しの効果は「見直した後」の数字で判断する。見直した後の訪問がまだ少なければ、効果は判断できない（collect も考える）。`;
+  })();
   const options = growing
     ? `この案件はすでに「続ける」と判断され、育てる段階にある（需要は確認済み）。次の育てる実験を1つ選ぶ。
 - improve: ${isTool ? "機能を1つ足す・何度も使いたくなる工夫・結果を共有したくなる工夫など、ツールか紹介ページを1か所変える" : "LPを1か所変えて、登録をさらに増やす"}
@@ -867,7 +882,7 @@ rethink の場合、next_action には「どこで（具体的な場所・ハッ
 企画のときに決めた最初の届け方: ${p.first_channel ?? "（なし）"}
 企画のときに決めた最初の1週間の検証: ${p.first_test ?? "（なし）"}
 ${p.growth_focus ? `いまの集客の方針（前回の見直しで決めたもの）: ${p.growth_focus}\n` : ""}公開してから: ${p.published_at ? `${Math.floor(daysSinceUtc(p.published_at))}日` : "不明"}${p.judged_at ? ` / 前回の判断から ${Math.floor(daysSinceUtc(p.judged_at))}日` : ""} / 集客の見直し ${p.rethink_count}回${growing ? ` / 育てる段階での実験 ${p.growth_count}回` : ""}
-SNSへの投稿: ${posts}
+SNSへの投稿: ${posts}${split}
 今の${isTool ? "版" : "LP"}（第${p.lp_version}版）での結果: 訪問 ${cur.visits}人 / ${c.noun} ${cur.signups}人 / ${c.rate} ${(cur.rate * 100).toFixed(1)}%
 全体の結果: 訪問 ${all.visits}人 / ${c.noun} ${all.signups}人 / ${c.rate} ${(all.rate * 100).toFixed(1)}%${isTool ? ` / シェア ${shares}人` : ""} / 広告費 ${all.adSpendJpy}円
 ${funnelText(p)}
@@ -893,7 +908,7 @@ export async function judge(projectId: number, trigger: JudgeTrigger = "visits")
 // AIの判断に従って次へ進める。人の承認待ちを作ったときはその id を返す
 // 集客の見直し: ページは変えずに、投稿の切り口・場所・対象を変える。まだ投稿していない下書きは捨てて、新しい方針で書き直させる
 async function applyRethink(projectId: number, d: Decision, by: "ai" | "human") {
-  db().prepare("UPDATE projects SET growth_focus = ?, rethink_count = rethink_count + 1, judged_at = datetime('now') WHERE id = ?").run(d.next_action.slice(0, 800), projectId);
+  db().prepare("UPDATE projects SET growth_focus = ?, growth_focus_at = datetime('now'), rethink_count = rethink_count + 1, judged_at = datetime('now') WHERE id = ?").run(d.next_action.slice(0, 800), projectId);
   db().prepare("DELETE FROM sns_posts WHERE project_id = ? AND status = 'draft' AND author = 'ai'").run(projectId);
   if (getProject(projectId)!.growth_phase) db().prepare("UPDATE projects SET growth_count = growth_count + 1 WHERE id = ?").run(projectId);
   setStage(projectId, "live");
@@ -1265,19 +1280,44 @@ async function autoImprove(projectId: number, d: Decision) {
 
 // ---- 4. 教訓メモ ----
 
+// 少ない数字から強い結論を作らないよう、「観測した事実」「仮の解釈」「まだ判断できないこと」に分けて残す
+// 訪問が判断の基準に届いていない案件は、確かさを「低（保留）」に固定する
+type Certainty = "low" | "mid" | "high";
+export const CERTAINTY_LABEL: Record<Certainty, string> = { low: "低（データ不足・保留）", mid: "中", high: "高" };
+
 async function writeLesson(projectId: number, outcome: string) {
   const p = getProject(projectId)!;
+  const s = getSettings();
   const t = projectTotals(projectId);
-  const out = await callJson<{ lesson: string }>({
+  const enough = t.visits >= s.judgeMinVisits;
+  const reach = classifyEnd(p);
+  const posts = (db().prepare("SELECT COUNT(*) AS n FROM sns_posts WHERE project_id = ? AND status = 'posted'").get(projectId) as { n: number }).n;
+  const out = await callJson<{ fact: string; interpretation: string; unknown: string; certainty: Certainty }>({
     purpose: "教訓メモ",
     projectId,
-    system: `終わった案件から、次のアイデア出しに活かせる教訓を1〜2文で書きます。この案件だけの話ではなく、次に一般化できる形にすること。
-形式: {"lesson":"教訓"}`,
-    user: `サービス: ${p.title}（対象: ${p.target}）\n結果: ${outcome}\n形: ${KIND_LABEL[p.kind]}\n訪問 ${t.visits}人 / ${CONV[p.kind].noun} ${t.signups}人 / ${CONV[p.kind].rate} ${(t.rate * 100).toFixed(1)}% / 改善 ${p.improve_count}回`,
-    validate: (v): v is { lesson: string } => isObj(v) && isStr(v.lesson),
+    system: `終わった案件から、次のアイデア出しに活かせる教訓を書きます。少ない数字から強い結論を作らないことが最も大切です。次の3つに分けて書きます。
+- fact: 観測した事実だけ（数字・したこと）。解釈を混ぜない
+- interpretation: 事実から考えられる仮の解釈を1〜2文。次の案件にも当てはまりそうな形で書く。言い切らず「〜かもしれない」の確かさで書く
+- unknown: この結果からは、まだ判断できないこと（例: 届いた人が少なく、需要の有無は分からない）
+- certainty: 解釈の確かさ。low / mid / high
+守ること:
+- 訪問が判断の基準（${s.judgeMinVisits}人）に届いていなければ、certainty は必ず low。需要の有無・対象者の良し悪しについて結論を出さない
+- ほとんど人に届いていない（「届かなかった」）場合、学べるのは届け方のことだけ。「この対象には需要がない」「この題材は弱い」とは書かない
+形式: {"fact":"","interpretation":"","unknown":"","certainty":"low"}`,
+    user: `サービス: ${p.title}（対象: ${p.target}）\n結果: ${outcome}\n形: ${KIND_LABEL[p.kind]}\n訪問 ${t.visits}人（判断の基準 ${s.judgeMinVisits}人${enough ? "に届いている" : "に届いていない"}） / ${CONV[p.kind].noun} ${t.signups}人 / ${CONV[p.kind].rate} ${(t.rate * 100).toFixed(1)}% / 改善 ${p.improve_count}回 / 集客の見直し ${p.rethink_count}回 / SNSへの投稿 ${posts}件\n終わり方の分類: ${END_REASON_LABEL[reach] ?? reach}\n最初の届け方: ${p.first_channel ?? "（なし）"}${p.growth_focus ? `\n最後の集客の方針: ${p.growth_focus}` : ""}`,
+    validate: (v): v is { fact: string; interpretation: string; unknown: string; certainty: Certainty } => isObj(v) && isStr(v.fact) && isStr(v.interpretation),
   });
-  db().prepare("INSERT INTO lessons (project_id, text) VALUES (?, ?)").run(projectId, out.lesson);
-  logEvent(projectId, "ai", "lesson", `教訓を記録: ${out.lesson}`);
+  const certainty: Certainty = !enough ? "low" : (["low", "mid", "high"] as const).includes(out.certainty) ? out.certainty : "low";
+  const unknown = isStr(out.unknown) ? out.unknown.slice(0, 400) : "";
+  db().prepare("INSERT INTO lessons (project_id, text, fact, interpretation, unknown, certainty) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(projectId, out.interpretation.slice(0, 400), out.fact.slice(0, 400), out.interpretation.slice(0, 400), unknown || null, certainty);
+  logEvent(projectId, "ai", "lesson", `教訓を記録（確かさ: ${CERTAINTY_LABEL[certainty]}）: ${out.interpretation}`);
+}
+
+// アイデア出しに渡す形（確かさと、まだ分からないことも一緒に渡す）
+export function lessonLine(l: LessonRow): string {
+  if (!l.fact) return `- ${l.text}`;
+  return `- [確かさ: ${CERTAINTY_LABEL[l.certainty ?? "low"]}] 事実: ${l.fact} / 仮の解釈: ${l.interpretation ?? l.text}${l.unknown ? ` / まだ分からない: ${l.unknown}` : ""}`;
 }
 
 // ---- 人間の承認 ----

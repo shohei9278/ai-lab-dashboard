@@ -4,8 +4,8 @@ import { useState } from "react";
 import type { Stage } from "@/lib/db";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 
-export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building }: {
-  id: number; convNoun: string; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number; isTool: boolean;
+export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building, demo }: {
+  id: number; convNoun: string; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number; isTool: boolean; demo: boolean;
   building: { what: string; since: number } | null; // AIが今作業中なら、その内容
   publicUrl: string | null; // 実際に公開しているときだけ入る
 }) {
@@ -74,9 +74,12 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
           </ActionButton>
         </div>
         <div className="flex flex-wrap gap-2 border-t border-line pt-3">
-          <ActionButton disabled={!!busy} onClick={() => run("シミュレーションしています…", { action: "simulate", projectId: id, days: 3 })}>
-            3日分をシミュレーション（ダミー）
-          </ActionButton>
+          {/* 架空の数字で本物の案件が判断・撤退しないよう、シミュレーションはデモ案件だけ */}
+          {demo && (
+            <ActionButton disabled={!!busy} onClick={() => run("シミュレーションしています…", { action: "simulate", projectId: id, days: 3 })}>
+              3日分をシミュレーション（ダミー）
+            </ActionButton>
+          )}
           <ActionButton disabled={!!busy} onClick={() => run("AIが判断しています…", { action: "judge", projectId: id })}>
             今すぐAIに判断させる
           </ActionButton>

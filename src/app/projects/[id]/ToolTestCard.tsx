@@ -6,7 +6,7 @@ import { jstDateTime } from "@/lib/format";
 type Test = { ok: boolean; skipped?: string; errors: string[]; clicked: number; changed: boolean; overflow: boolean; screenshot?: string; at: string };
 
 // 動くツールの、ブラウザでの自動テストの結果（スマホ幅で開いて、ボタンなどを押してみる）
-export function ToolTestCard({ id, version, test }: { id: number; version: number; test: Test | null }) {
+export function ToolTestCard({ id, version, test, author }: { id: number; version: number; test: Test | null; author: { label: string; rewrites: number | null } | null }) {
   const { run, busy, error } = useLoopAction();
   const issues = test && !test.skipped
     ? [...test.errors, ...(test.clicked > 0 && !test.changed ? ["押しても画面が変わらない"] : []), ...(test.clicked === 0 ? ["押せる所が見つからない"] : []), ...(test.overflow ? ["スマホ幅で横にはみ出している"] : [])]
@@ -17,6 +17,10 @@ export function ToolTestCard({ id, version, test }: { id: number; version: numbe
         <div>
           <h2 className="font-bold">ブラウザでの自動テスト（第{version}版）</h2>
           <p className="text-xs text-muted">スマホの画面幅でツールを開き、入力欄に値を入れて、ボタンなどを順に押します。エラー・結果が出ない・横へのはみ出しがないかを確かめます。</p>
+          <p className="mt-1 text-sm">
+            コードを書いたAI: <b>{author?.label ?? "記録なし"}</b>
+            {author && <span className="ml-1 text-xs text-ink-2">（チェックやテストで書き直した回数 {author.rewrites ?? 0}回）</span>}
+          </p>
         </div>
         <ActionButton disabled={!!busy} onClick={() => run("ブラウザで動かしています…", { action: "test-tool", projectId: id })}>もう一度テストする</ActionButton>
       </div>
