@@ -31,7 +31,7 @@ export function queueRefs(urls: string[]): number {
   let n = 0;
   for (const raw of urls) {
     const url = raw.trim();
-    if (!/^https:\/\/[^\s]+$/.test(url) || /rdlp\.jp\/lp-archive/.test(url)) continue; // まとめサイトそのものは取り込まない（元のLPのURLを送る）
+    if (!/^https:\/\/[^\s]+$/.test(url) || /rdlp\.jp\/lp-archive|sankoudesign\.com/.test(url)) continue; // まとめサイトそのものは取り込まない（元のLPのURLを送る）
     n += db().prepare("INSERT OR IGNORE INTO design_refs (url) VALUES (?)").run(url.slice(0, 500)).changes;
   }
   if (n) void processQueue();

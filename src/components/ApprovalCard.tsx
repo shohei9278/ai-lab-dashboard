@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
 import { DecisionCard } from "./DecisionCard";
+import { jstDateTime } from "@/lib/format";
 
 export type ApprovalView = {
   id: number;
@@ -64,7 +65,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-ink-2">{a.project.kind === "tool" ? "動くツール" : "事前登録LP"}</span>
         <Link href={`/projects/${a.project.id}`} className="text-accent underline">{a.project.title}</Link>
         {a.project.demo && <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5">デモ</span>}
-        <span className="num">{a.createdAt.slice(5, 16)}</span>
+        <span className="num">{jstDateTime(a.createdAt)}</span>
       </div>
 
       <div>

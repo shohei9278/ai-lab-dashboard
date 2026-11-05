@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ActionButton } from "@/components/LoopAction";
+import { jstDateTime } from "@/lib/format";
 
 // 投稿先（growth.ts の SNS_PLATFORMS と同じ）
 const PLATFORMS: Record<string, string> = {
@@ -200,7 +201,7 @@ function PostedRow({ p, act }: { p: PostView; act: (label: string, body: Record<
   return (
     <tr className="border-b border-line align-top last:border-0">
       <td className="max-w-md px-2 py-2">
-        <div className="text-xs text-muted">{PLATFORMS[p.platform] ?? p.platform}・{p.postedAt?.slice(5, 16)}{p.angle ? `・${p.angle}` : ""}</div>
+        <div className="text-xs text-muted">{PLATFORMS[p.platform] ?? p.platform}・{p.postedAt ? jstDateTime(p.postedAt) : ""}{p.angle ? `・${p.angle}` : ""}</div>
         <div className="line-clamp-3">{p.text}</div>
       </td>
       <td className="px-2 py-2 text-right">

@@ -7,7 +7,7 @@ import { costEfficiency } from "@/lib/cost";
 import { publicUrl } from "@/lib/publish";
 import { NOTE_CERTAINTY, NOTE_TOPICS, type NoteRow } from "@/lib/notes";
 import { listReports, type Report } from "@/lib/report";
-import { pct } from "@/lib/format";
+import { jstDate, pct } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -135,7 +135,7 @@ export default function Showcase() {
             {notes.map((n) => (
               <li key={n.id} className="card p-4">
                 <div className="flex flex-wrap gap-2 text-xs text-muted">
-                  <span className="num">{n.at.slice(0, 10)}</span>
+                  <span className="num">{jstDate(n.at)}</span>
                   <span>{NOTE_TOPICS[n.topic]}</span>
                   <span>{NOTE_CERTAINTY[n.certainty].label}</span>
                 </div>

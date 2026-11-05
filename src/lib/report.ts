@@ -4,6 +4,7 @@ import { CONV, KIND_LABEL, STAGE_LABEL, ideaAuthorStats, logEvent } from "./loop
 import { modelInfo } from "./models";
 import { costEfficiency } from "./cost";
 import { headline, endReasons, rankings } from "./experiment";
+import { jstDateTime } from "./format";
 
 // 週ごとのレポート: 1週間の数字と動きをAIがまとめ、発信用の下書き（Xの投稿・記事）と、実験メモの追加案も作る
 
@@ -51,7 +52,7 @@ function gather(start: string) {
     `AIのランキング（部門ごとの1位）:\n${tops.join("\n") || "（まだ比べられない）"}`,
     `期間: ${start} から今日まで`,
     `案件（実案件のみ）:\n${lines.join("\n") || "（なし）"}`,
-    `今週の出来事:\n${events.map((e) => `- ${e.at.slice(5, 16)} [${e.actor}] ${e.message}`).join("\n").slice(0, 6000) || "（なし）"}`,
+    `今週の出来事:\n${events.map((e) => `- ${jstDateTime(e.at)} [${e.actor}] ${e.message}`).join("\n").slice(0, 6000) || "（なし）"}`,
     `今週のAI費用（目的別）:\n${cost.map((c) => `- ${c.purpose}: ${c.n}回・${Math.round(c.usd * s.usdJpy)}円`).join("\n") || "（なし）"}`,
     `成果1件あたりの費用（累計）: ${ce.perConversion === null ? "成果なし" : `${Math.round(ce.perConversion)}円`}（AI ${Math.round(ce.aiJpy)}円＋広告 ${Math.round(ce.adJpy)}円、成果 ${ce.conversions}件）`,
     `アイデア出しのAI別の成績（累計）:\n${authors.join("\n") || "（なし）"}`,

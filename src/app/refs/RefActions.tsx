@@ -64,3 +64,30 @@ export function BulkAdd() {
     </div>
   );
 }
+
+// 足りない参考をAIに出させる
+export function MakeNeeds({ label }: { label: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <button
+        type="button"
+        disabled={busy}
+        className="rounded-lg border border-line px-3 py-1 disabled:opacity-50"
+        onClick={async () => {
+          setBusy(true);
+          setErr(null);
+          const res = await fetch("/api/refs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "needs" }) }).catch(() => null);
+          const data = res ? await res.json().catch(() => ({})) : {};
+          setBusy(false);
+          if (res?.ok) router.refresh(); else setErr(data.error ?? "出せませんでした");
+        }}
+      >
+        {busy ? "AIが考えています…" : label}
+      </button>
+      {err && <span style={{ color: "var(--critical)" }}>{err}</span>}
+    </div>
+  );
+}

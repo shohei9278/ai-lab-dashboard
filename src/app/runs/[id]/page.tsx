@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { getSettings } from "@/lib/db";
 import { runStats } from "@/lib/stats";
-import { AUTHOR_LABEL, ms, pct, yen } from "@/lib/format";
+import { AUTHOR_LABEL, jstFull, ms, pct, yen } from "@/lib/format";
 import { LANG_LABEL, TASK_LABEL, VARIANT_LABEL, type PromptLang, type PromptVariant, type TaskType } from "@/lib/tasks";
 import type { Provider } from "@/lib/models";
 import { MockBadge, StatusBadge, Warnings } from "@/components/ui";
@@ -41,7 +41,7 @@ export default async function RunPage({ params }: { params: Promise<{ id: string
         </div>
         <div className="num text-sm text-ink-2">
           プロンプト: {VARIANT_LABEL[run.variant as PromptVariant]}・指示: {LANG_LABEL[run.lang as PromptLang]}・繰り返し {run.reps}回・
-          {run.created_at} 開始{run.note && `・メモ: ${run.note}`}
+          {jstFull(run.created_at)} 開始{run.note && `・メモ: ${run.note}`}
         </div>
         {run.error && <p className="text-sm" style={{ color: "var(--critical)" }}>! {run.error}</p>}
         {active && (

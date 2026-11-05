@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { jstDate } from "./format";
 
 // 無料で取れる「世の中の話題」。どちらも公開されている RSS を、1日1回だけ読む
 // - Googleトレンドの急上昇ワード（日本）: いま検索されている言葉
@@ -97,7 +98,7 @@ export function trendsText(): string {
   const byCat = new Map<string, string[]>();
   for (const x of items.filter((i) => i.source === "hatena")) byCat.set(x.category!, [...(byCat.get(x.category!) ?? []), x.title]);
   return [
-    `いま世の中で話題のこと（${fetchedAt?.slice(0, 10)} に自動取得）:`,
+    `いま世の中で話題のこと（${jstDate(fetchedAt)} に自動取得）:`,
     google.length ? `- Googleで急に検索が増えている言葉: ${google.join("、")}` : "",
     ...[...byCat].map(([cat, titles]) => `- はてなブックマークでよく読まれている記事（${cat}）: ${titles.slice(0, 6).map((t) => t.slice(0, 60)).join(" / ")}`),
   ].filter(Boolean).join("\n");

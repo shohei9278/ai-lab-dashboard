@@ -5,6 +5,7 @@ import { NOTE_TOPICS } from "@/lib/notes";
 import { PageIntro } from "@/components/PageIntro";
 import { LabTabs } from "@/components/LabTabs";
 import { AddNoteButton, CopyButton, CreateReportButton } from "./ReportActions";
+import { jstFull } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +39,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
       ) : (
         <>
           <section className="card space-y-3 p-4">
-            <div className="text-xs text-muted">{current.period_start}〜{current.period_end}・{current.created_at.slice(0, 16)} 作成</div>
+            <div className="text-xs text-muted">{current.period_start}〜{current.period_end}・{jstFull(current.created_at)} 作成</div>
             <p className="whitespace-pre-wrap">{r.summary}</p>
             {r.numbers.length > 0 && (
               <dl className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4">

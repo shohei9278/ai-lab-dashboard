@@ -1,6 +1,7 @@
 import { listRefs, type RefTags } from "@/lib/designRefs";
 import { PageIntro } from "@/components/PageIntro";
-import { RefActions, Bookmarklet, BulkAdd } from "./RefActions";
+import { RefActions, Bookmarklet, BulkAdd, MakeNeeds } from "./RefActions";
+import { savedNeeds } from "@/lib/refNeeds";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ export default function RefsPage() {
   const refs = listRefs();
   const ok = refs.filter((r) => r.status === "ok");
   const waiting = refs.filter((r) => r.status === "queued").length;
+  const needs = savedNeeds();
   return (
     <div className="space-y-6">
       <PageIntro title="デザインの参考">
@@ -20,11 +22,44 @@ export default function RefsPage() {
         <h2 className="font-bold">集め方</h2>
         <ol className="list-decimal space-y-1 pl-5 text-sm">
           <li>下の「参考に追加」のボタンを、ブラウザのブックマークバーにドラッグして置く（最初の1回だけ）</li>
-          <li>LPアーカイブなどで良いLPを探し、<b>元のLPのページ</b>を開く（まとめサイトの画像は、規約で保存できないため使いません）</li>
+          <li>LPアーカイブや SANKOU! で良いLPを探し、<b>元のLPのページ</b>を開く（まとめサイトの画像や分類は、規約で保存・転用できないため使いません）</li>
           <li>ブックマークバーの「参考に追加」を押す。小さな窓が出て、すぐ閉じます</li>
         </ol>
         <Bookmarklet />
         <BulkAdd />
+      </section>
+
+      <section className="card space-y-3 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h2 className="font-bold">AIがほしい参考</h2>
+            <p className="text-xs text-muted">これから作りそうな案件と、今のライブラリの偏りを見比べて、足りない参考をAIが挙げます。リンクは、LPアーカイブを雰囲気・色・業種で絞り込んだページと、SANKOU! のサイト内検索です。</p>
+          </div>
+          <MakeNeeds label={needs ? "出し直す（約5円）" : "足りない参考を出す（約5円）"} />
+        </div>
+        {needs ? (
+          <>
+            <p className="text-sm text-ink-2">{needs.summary}<span className="ml-2 text-xs text-muted">{new Date(needs.at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}時点</span></p>
+            <ol className="grid gap-2 md:grid-cols-2">
+              {needs.needs.map((n, i) => (
+                <li key={i} className="rounded-lg border border-line p-3 text-sm">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-medium">{i + 1}. {n.what}</span>
+                    <span className="num shrink-0 text-xs text-ink-2">目安 {n.count}件</span>
+                  </div>
+                  <p className="mt-1 text-xs text-ink-2">{n.why}</p>
+                  {n.keywords && <p className="mt-1 text-xs"><span className="text-muted">見どころ:</span> {n.keywords}</p>}
+                  <div className="mt-2 flex flex-wrap gap-3 text-xs">
+                    <a href={n.url} target="_blank" rel="noreferrer" className="text-accent underline">LPアーカイブで探す ↗</a>
+                    {n.sankouUrl && <a href={n.sankouUrl} target="_blank" rel="noreferrer" className="text-accent underline">SANKOU!で探す ↗</a>}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </>
+        ) : (
+          <p className="text-sm text-ink-2">まだ出していません。右のボタンで出せます。</p>
+        )}
       </section>
 
       <section className="space-y-2">

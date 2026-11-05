@@ -5,7 +5,7 @@ import { CONV, MODE_LABEL, STAGE_LABEL, autoPublishStats, projectTotals, targetR
 import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
 import { SignupTrend } from "@/components/SignupTrend";
 import { costEfficiency } from "@/lib/cost";
-import { pct } from "@/lib/format";
+import { jstDateTime, pct } from "@/lib/format";
 import { KillSwitch } from "@/components/KillSwitch";
 import { IdeaForm } from "@/components/IdeaForm";
 import { DailyCard } from "@/components/DailyCard";
@@ -184,7 +184,7 @@ export default function Home() {
             {o.events.map((e) => (
               <li key={e.id} className="text-xs">
                 <div className="flex gap-2 text-muted">
-                  <span className="num">{e.at.slice(5, 16)}</span>
+                  <span className="num">{jstDateTime(e.at)}</span>
                   <span className="font-medium" style={{ color: e.actor === "ai" ? "var(--accent)" : "var(--text-2)" }}>{ACTOR[e.actor]}</span>
                   {e.title && e.project_id ? (
                     <Link href={`/projects/${e.project_id}`} className="truncate text-accent hover:underline">{e.title}</Link>
@@ -259,7 +259,7 @@ export default function Home() {
           />
           {xLastError && (
             <p className="mb-3 rounded-lg p-2 text-xs" style={{ background: "var(--surface-2)", color: "var(--critical)" }}>
-              ! 最後の自動投稿が失敗しました（{xLastError.at.slice(5, 16)}）: {xLastError.error}
+              ! 最後の自動投稿が失敗しました（{jstDateTime(xLastError.at)}）: {xLastError.error}
               <span className="block text-ink-2">{/credits depleted/.test(xLastError.error) ? "X の Developer Console でクレジットを購入してください。" : ""}2時間ごとに試し直します。</span>
             </p>
           )}
@@ -269,7 +269,7 @@ export default function Home() {
                 <li key={x.posted_at + x.project_id}>
                   <div className="flex justify-between gap-2 text-xs text-muted">
                     <Link href={`/projects/${x.project_id}`} className="truncate hover:underline">{x.title}<span className="ml-1 text-muted">・{x.platform === "x" ? "X" : x.platform === "threads" ? "Threads" : x.platform === "bluesky" ? "Bluesky" : x.platform}</span></Link>
-                    <span className="num shrink-0">{x.posted_at.slice(5, 16)}</span>
+                    <span className="num shrink-0">{jstDateTime(x.posted_at)}</span>
                   </div>
                   <p className="line-clamp-2 text-xs text-ink-2">{x.text}</p>
                   <div className="num text-xs text-muted">

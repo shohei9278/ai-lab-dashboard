@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
+import { jstDateTime } from "@/lib/format";
 
 // 全自動（人の承認なし）で公開したものを、あとから見て印を付ける
 export function AutoReviewCard({ id, review, note, at, url }: { id: number; review: "ok" | "bad" | null; note: string | null; at: string | null; url: string | null }) {
@@ -21,7 +22,7 @@ export function AutoReviewCard({ id, review, note, at, url }: { id: number; revi
         <p className="text-sm">
           {review === "ok" ? <span style={{ color: "var(--good)" }}>✓ 問題なし</span> : <span style={{ color: "var(--critical)" }}>! 出すべきでなかった</span>}
           {note && <span className="ml-2 text-ink-2">{note}</span>}
-          {at && <span className="ml-2 text-xs text-muted">{at.slice(5, 16)}（UTC）</span>}
+          {at && <span className="ml-2 text-xs text-muted">{jstDateTime(at)}</span>}
         </p>
       ) : (
         <div className="space-y-2">

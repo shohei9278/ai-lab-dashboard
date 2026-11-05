@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { debateStats, shadowRounds, shadowScores, type Decision } from "@/lib/loop";
 import { modelInfo } from "@/lib/models";
-import { pct } from "@/lib/format";
+import { jstDateTime, pct } from "@/lib/format";
 
 const SHORT: Record<Decision["decision"], string> = { continue: "続ける", improve: "改善", collect: "集客継続", kill: "撤退", rethink: "集客を見直す" };
 const short = (d: string | null) => (d ? SHORT[d as Decision["decision"]] ?? d : "—");
@@ -123,7 +123,7 @@ function RoundsTable({ rounds, models, showProject }: {
         <tbody>
           {rounds.map((r) => (
             <tr key={r.primary.id} className="border-b border-line align-top last:border-0">
-              <td className="num px-3 py-2 whitespace-nowrap text-ink-2">{r.at.slice(5, 16)}</td>
+              <td className="num px-3 py-2 whitespace-nowrap text-ink-2">{jstDateTime(r.at)}</td>
               {showProject && (
                 <td className="px-3 py-2">
                   {r.project ? <Link href={`/projects/${r.project.id}`} className="text-accent underline">{r.project.title}</Link> : "—"}

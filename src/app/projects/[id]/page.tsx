@@ -6,7 +6,7 @@ import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, buildingNo
 import { LpCandidates } from "@/components/LpCandidates";
 import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
-import { pct, yen } from "@/lib/format";
+import { jstDateTime, pct, yen } from "@/lib/format";
 import { ApprovalCard } from "@/components/ApprovalCard";
 import { Stat } from "@/components/ui";
 import { ProjectActions } from "./ProjectActions";
@@ -140,7 +140,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
                     <li key={v.id} className="rounded-lg bg-surface-2 p-2">
                       <div className="flex flex-wrap gap-x-3 text-xs text-ink-2">
                         <span className="font-medium text-ink">第{v.version}版</span>
-                        <span className="num">{v.created_at.slice(5, 16)}</span>
+                        <span className="num">{jstDateTime(v.created_at)}</span>
                         <span>{v.note}</span>
                         {vt.visits > 0 && <span className="num">訪問 {vt.visits} / {conv.noun} {vt.signups}（{pct(vt.rate, 1)}）</span>}
                         {review && (review.ok

@@ -13,7 +13,7 @@ export default async function AddRef({ searchParams }: { searchParams: Promise<{
       <h1 className="font-bold">デザインの参考</h1>
       {!ok ? (
         <p style={{ color: "var(--critical)" }}>https:// で始まるページで押してください。</p>
-      ) : /rdlp\.jp\/lp-archive/.test(url) ? (
+      ) : /rdlp\.jp\/lp-archive|sankoudesign\.com/.test(url) ? (
         <p style={{ color: "var(--critical)" }}>まとめサイトのページは取り込みません。元のLPのページを開いてから押してください。</p>
       ) : added ? (
         <p style={{ color: "var(--good)" }}>✓ 受け付けました。画面を撮ってタグを付けます（1件 30秒ほど）。</p>

@@ -3,6 +3,7 @@ import type { EventRow } from "@/lib/db";
 import { decisionShort, type EventDetail } from "@/lib/eventDetails";
 import { KIND_LABEL } from "@/lib/loop";
 import { modelInfo } from "@/lib/models";
+import { jstDateTime } from "@/lib/format";
 
 const ACTOR = { ai: "AI", human: "あなた", system: "システム" } as const;
 const pt = (x: number | null) => (x === null ? "—" : `${x.toFixed(1)}点`);
@@ -15,7 +16,7 @@ export function EventLog({ projectId, events, details }: { projectId: number; ev
         const d = details.get(e.id);
         const head = (
           <>
-            <span className="num shrink-0 text-xs text-muted">{e.at.slice(5, 16)}</span>
+            <span className="num shrink-0 text-xs text-muted">{jstDateTime(e.at)}</span>
             <span className="w-14 shrink-0 text-xs font-medium" style={{ color: e.actor === "ai" ? "var(--accent)" : "var(--text-2)" }}>{ACTOR[e.actor]}</span>
             <span className="min-w-0 flex-1">{e.message}</span>
           </>

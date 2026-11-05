@@ -4,6 +4,7 @@ import { NOTE_CERTAINTY, NOTE_TOPICS, listNotes, type NoteCertainty } from "@/li
 import { PageIntro } from "@/components/PageIntro";
 import { LabTabs } from "@/components/LabTabs";
 import { NoteActions, NoteEditor } from "./NoteEditor";
+import { jstDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,7 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
           {notes.map((n) => (
             <li key={n.id} className="card p-4">
               <div className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
-                <span className="num text-muted">{n.at.slice(0, 10)}</span>
+                <span className="num text-muted">{jstDate(n.at)}</span>
                 <span className="rounded border border-line px-1.5 py-0.5">{NOTE_TOPICS[n.topic]}</span>
                 <span className="inline-flex items-center gap-1" title={NOTE_CERTAINTY[n.certainty].note}>
                   <span aria-hidden style={{ color: CERTAINTY_STYLE[n.certainty] }}>●</span>{NOTE_CERTAINTY[n.certainty].label}

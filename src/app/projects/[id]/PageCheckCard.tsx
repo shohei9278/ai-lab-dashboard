@@ -1,6 +1,7 @@
 "use client";
 
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
+import { jstDateTime } from "@/lib/format";
 
 type Check = { ok: boolean; issues: string[]; skipped?: string; shots: string[]; pc?: string; at: string };
 
@@ -43,7 +44,7 @@ export function PageCheckCard({ id, version, hasPage, isPublic, check }: { id: n
           <div className="space-y-2">
             <div className="text-sm" style={{ color: check.issues.length ? "var(--critical)" : "var(--good)" }}>
               {check.issues.length ? `! 直しきれなかった指摘が${check.issues.length}件あります` : "✓ 問題なし"}
-              <span className="ml-2 text-xs text-muted">{check.at.slice(5, 16).replace("T", " ")}（UTC）</span>
+              <span className="ml-2 text-xs text-muted">{jstDateTime(check.at)}</span>
             </div>
             {check.issues.length > 0 && <ul className="list-disc space-y-0.5 pl-5 text-xs text-ink-2">{check.issues.map((x) => <li key={x}>{x}</li>)}</ul>}
             <div className="flex gap-2 overflow-x-auto pb-1">

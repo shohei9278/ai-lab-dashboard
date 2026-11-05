@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ApprovalView } from "./ApprovalCard";
 import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
+import { jstDateTime } from "@/lib/format";
 
 const LABEL: Record<string, string> = {
   continue: "続ける（育てる段階へ）",
@@ -40,7 +41,7 @@ export function DecisionCard({ a }: { a: ApprovalView }) {
         <span className="rounded border border-line px-1.5 py-0.5 text-ink-2">続ける・撤退の判断</span>
         <Link href={`/projects/${a.project.id}`} className="text-accent underline">{a.project.title}</Link>
         {a.project.demo && <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5">デモ</span>}
-        <span className="num">{a.createdAt.slice(5, 16)}</span>
+        <span className="num">{jstDateTime(a.createdAt)}</span>
       </div>
 
       <div className="space-y-2">

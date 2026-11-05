@@ -1,6 +1,7 @@
 "use client";
 
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
+import { jstDateTime } from "@/lib/format";
 
 type Test = { ok: boolean; skipped?: string; errors: string[]; clicked: number; changed: boolean; overflow: boolean; screenshot?: string; at: string };
 
@@ -28,7 +29,7 @@ export function ToolTestCard({ id, version, test }: { id: number; version: numbe
           <div className="min-w-0 flex-1 space-y-1 text-sm">
             <div style={{ color: issues.length ? "var(--critical)" : "var(--good)" }}>
               {issues.length ? `! 問題が${issues.length}件あります` : "✓ 問題なし"}
-              <span className="ml-2 text-xs text-muted">{test.clicked}か所を操作・{test.at.slice(5, 16).replace("T", " ")}（UTC）</span>
+              <span className="ml-2 text-xs text-muted">{test.clicked}か所を操作・{jstDateTime(test.at)}</span>
             </div>
             {issues.length > 0 && <ul className="list-disc space-y-0.5 pl-5 text-xs text-ink-2">{issues.map((x) => <li key={x}>{x}</li>)}</ul>}
           </div>

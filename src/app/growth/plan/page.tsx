@@ -8,6 +8,7 @@ import { GrowthTabs } from "@/components/GrowthTabs";
 import { CopyButton } from "../../reports/ReportActions";
 import { CreatePlan, TaskCheck } from "../GrowthActions";
 import { Trends } from "@/components/Trends";
+import { jstFull, jstMonthDay } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export default async function GrowthPage({ searchParams }: { searchParams: Promi
         <nav className="flex flex-wrap gap-2 text-sm" aria-label="過去の作戦">
           {plans.map((p) => (
             <Link key={p.id} href={`/growth/plan?id=${p.id}`} className={`num rounded-full border px-3 py-1 ${p.id === row?.id ? "border-accent bg-accent text-accent-ink" : "border-line text-ink-2"}`}>
-              {p.created_at.slice(5, 10)}
+              {jstMonthDay(p.created_at)}
             </Link>
           ))}
         </nav>
@@ -52,7 +53,7 @@ export default async function GrowthPage({ searchParams }: { searchParams: Promi
       ) : (
         <>
           <section className="card space-y-2 p-4">
-            <div className="text-xs text-muted">{row.created_at.slice(0, 16)} 作成</div>
+            <div className="text-xs text-muted">{jstFull(row.created_at)} 作成</div>
             <p className="whitespace-pre-wrap">{plan.summary}</p>
           </section>
 

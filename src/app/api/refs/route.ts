@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import { deleteRef, queueRefs } from "@/lib/designRefs";
+import { makeNeeds } from "@/lib/refNeeds";
 
 // デザインの参考: URLを受け付ける・消す
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { urls?: unknown; url?: unknown; deleteId?: unknown };
+  const body = (await req.json().catch(() => ({}))) as { urls?: unknown; url?: unknown; deleteId?: unknown; action?: unknown };
+  if (body.action === "needs") {
+    try {
+      return NextResponse.json(await makeNeeds());
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 });
+    }
+  }
   if (typeof body.deleteId === "number") {
     deleteRef(body.deleteId);
     return NextResponse.json({ ok: true });

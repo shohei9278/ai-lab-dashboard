@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { RunRow } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
 import { LANG_LABEL, TASK_LABEL, VARIANT_LABEL, type PromptLang, type PromptVariant, type TaskType } from "@/lib/tasks";
-import { yen } from "@/lib/format";
+import { jstDateTime, yen } from "@/lib/format";
 import { MockBadge, StatusBadge } from "./ui";
 
 export function RunsTable({ runs, usdJpy }: { runs: RunRow[]; usdJpy: number }) {
@@ -34,7 +34,7 @@ export function RunsTable({ runs, usdJpy }: { runs: RunRow[]; usdJpy: number }) 
             return (
               <tr key={r.id} className="border-b border-line last:border-0 hover:bg-surface-2">
                 <td className="px-3 py-2"><Link href={`/runs/${r.id}`} className="text-accent underline">{r.id}</Link></td>
-                <td className="num px-3 py-2 whitespace-nowrap text-ink-2">{r.created_at.slice(5, 16)}</td>
+                <td className="num px-3 py-2 whitespace-nowrap text-ink-2">{jstDateTime(r.created_at)}</td>
                 <td className="px-3 py-2 whitespace-nowrap">{TASK_LABEL[r.task as TaskType]} <MockBadge mock={!!r.mock} /></td>
                 <td className="px-3 py-2 whitespace-nowrap text-ink-2">
                   {VARIANT_LABEL[r.variant as PromptVariant]}・{LANG_LABEL[r.lang as PromptLang]}・{r.reps}回
