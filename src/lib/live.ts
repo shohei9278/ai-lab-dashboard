@@ -1,5 +1,5 @@
 import { db, getSettings } from "./db";
-import { activityList, buildingList, liveNotesList } from "./loop";
+import { activityList, buildingList, ideaRunning, liveNotesList } from "./loop";
 import { modelInfo } from "./models";
 import { schedulerStatus } from "./scheduler";
 
@@ -94,6 +94,7 @@ export function liveSnapshot() {
     killSwitch: s.killSwitch,
     building: buildingList().map((b) => ({ ...b, title: titles.get(b.id) ?? `#${b.id}` })),
     activities: activityList(),
+    ideaBusy: ideaRunning(),
     numbers: {
       visitsToday: today.v, convToday: today.c, visitsTotal: total.v, convTotal: total.c,
       costTodayJpy: Math.round(costToday.s * s.usdJpy), callsToday: costToday.n, costMonthJpy: Math.round(costMonth * s.usdJpy),

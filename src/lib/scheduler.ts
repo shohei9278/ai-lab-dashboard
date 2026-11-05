@@ -8,6 +8,7 @@ import { syncComments } from "./snsComments";
 import { maybeDailyDigest } from "./notify";
 import { maybeDailyBackup } from "./backup";
 import { resumeRefQueue } from "./designRefs";
+import { maybeWeeklyViral, resumeViralQueue } from "./viralPosts";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
 const CHECK_EVERY_MS = 5 * 60 * 1000;
@@ -56,6 +57,12 @@ async function tickNow() {
     logEvent(null, "system", "report-error", `週のレポートの作成でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
   }
   resumeRefQueue();
+  resumeViralQueue();
+  try {
+    await maybeWeeklyViral();
+  } catch (e) {
+    logEvent(null, "system", "viral-error", `Xで話題の投稿の検索でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
+  }
   try {
     const file = await maybeDailyBackup();
     if (file) logEvent(null, "system", "backup", `データベースのバックアップを取りました（${file}）`);

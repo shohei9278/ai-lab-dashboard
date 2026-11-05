@@ -2,18 +2,20 @@
 
 import { useState } from "react";
 import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
+import { useIdeaBusy } from "./useIdeaBusy";
 
-export function IdeaForm({ modelLabel }: { modelLabel: string }) {
+export function IdeaForm({ authors }: { authors: string[] }) {
   const { run, busy, error } = useLoopAction();
   const [theme, setTheme] = useState("");
   const [count, setCount] = useState(3);
+  const ideaBusy = useIdeaBusy();
 
   return (
     <div className="card space-y-3 p-4">
       <div>
         <h2 className="font-bold">AIにアイデアを出させる</h2>
         <p className="text-xs text-muted">
-          テーマを入れると {modelLabel} が {count}件のアイデアを考えます（空欄ならおまかせ）。過去の教訓も踏まえます。1回あたり数円です。
+          テーマを入れると {authors.join("・")} がそれぞれ{Math.max(2, count)}件ずつ考え、作者を伏せて採点し合い、点数の高い{count}件を案件にします（空欄ならおまかせ）。過去の教訓も踏まえます。1回あたり十数円です。
         </p>
       </div>
       <div className="flex flex-wrap gap-2">
@@ -34,14 +36,15 @@ export function IdeaForm({ modelLabel }: { modelLabel: string }) {
         </select>
         <ActionButton
           variant="primary"
-          disabled={!!busy}
+          disabled={!!busy || !!ideaBusy}
           onClick={async () => {
-            if (await run("AIがアイデアを考えています…（10〜30秒ほど）", { action: "ideas", theme, count })) setTheme("");
+            if (await run("3社のAIがアイデアを考えて採点しています…（1〜2分ほど。ライブ画面でも見られます）", { action: "ideas", theme, count })) setTheme("");
           }}
         >
           アイデアを出す
         </ActionButton>
       </div>
+      {ideaBusy && !busy && <p className="text-xs text-muted">いま「{ideaBusy}」が動いています。終わると押せるようになります。</p>}
       <BusyNote busy={busy} error={error} />
     </div>
   );

@@ -28,6 +28,7 @@ export async function POST(req: Request) {
   if (typeof body.freePage === "boolean") patch.freePage = body.freePage;
   if (typeof body.fullAuto === "boolean") patch.fullAuto = body.fullAuto;
   if (typeof body.autoPost === "boolean") patch.autoPost = body.autoPost;
+  if (typeof body.viralSearch === "boolean") patch.viralSearch = body.viralSearch;
   if (typeof body.showcaseEnabled === "boolean") patch.showcaseEnabled = body.showcaseEnabled;
   if (typeof body.showcaseShowLinks === "boolean") patch.showcaseShowLinks = body.showcaseShowLinks;
   if (typeof body.lpBaseUrl === "string") {
@@ -68,6 +69,8 @@ export async function POST(req: Request) {
     ["maxAutoImprove", 0, 10],
     ["autoPublishPerWeek", 0, 50],
     ["autoPostPerDay", 1, 10],
+    ["viralSearchCount", 100, 1000],
+    ["wantsSearchCount", 0, 1000],
     ["judgeAfterDays", 1, 60],
     ["digestHour", 0, 23],
     ["staleDays", 1, 90],

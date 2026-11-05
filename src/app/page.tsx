@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { db, getSettings, type ProjectRow, type Stage } from "@/lib/db";
 import { getModel } from "@/lib/models";
-import { CONV, MODE_LABEL, STAGE_LABEL, autoPublishStats, projectTotals, targetRate } from "@/lib/loop";
+import { CONV, MODE_LABEL, STAGE_LABEL, autoPublishStats, ideaAuthors, projectTotals, targetRate } from "@/lib/loop";
 import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
 import { SignupTrend } from "@/components/SignupTrend";
 import { costEfficiency } from "@/lib/cost";
@@ -332,7 +332,7 @@ export default function Home() {
           keep={s.dailyKeep}
           modeLabel={modeSetting}
         />
-        <IdeaForm modelLabel={getModel(s.loopModel).label} />
+        <IdeaForm authors={ideaAuthors().map((id) => getModel(id).label)} />
       </div>
 
       <section id="board" className="scroll-mt-4 space-y-2">

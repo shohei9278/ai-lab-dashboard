@@ -100,7 +100,7 @@ export function LiveView({ initial }: { initial: LiveSnapshot }) {
       <section className="card p-4" style={data.building.length || data.activities.length ? { borderColor: "var(--accent)" } : undefined}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-xs text-muted">いまAIがやっていること</div>
-          <PracticeButton busy={data.activities.length > 0} />
+          <PracticeButton busy={data.activities.length > 0 || !!data.ideaBusy} />
         </div>
         {data.activities.map((a) => (
           <div key={a.key} className="mt-2 space-y-1">

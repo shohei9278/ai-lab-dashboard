@@ -1,3 +1,5 @@
+import { viralHints } from "./viralPosts";
+import { getWant, wantsText } from "./userWants";
 import { callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
 import { MODELS, hasKey, modelInfo } from "./models";
@@ -29,6 +31,7 @@ export type Idea = {
   channel?: string; // 最初の利用者がいる場所（どこで、どう届けるか）
   first_test?: string; // 最初の1週間で、何人に届けて何を確かめるか
   season?: "seasonal" | "evergreen"; // 季節もの（その時期だけ）か、1年中ある困りごとか
+  want_id?: number; // 元にした「欲しい」の声（user_wants）の番号
 };
 
 // 出し方ごとの呼び方と、成果の数え方
@@ -239,9 +242,9 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 - 時期のネタや世の中の話題は、使ってもよいヒントにすぎない（必ず使う材料ではない）。事件・事故・災害・訃報・個人の不祥事など、人の不幸や特定の個人に乗った企画はしない
 - 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案は出さない（スパム扱いされやすいため）。自分の投稿で見つけてもらう形にする
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
-形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）}]}`,
+形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
-    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}`,
+    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
   return out.ideas.slice(0, count);
@@ -253,11 +256,12 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
   const id = Number(
     db()
       .prepare(
-        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind, first_channel, first_test)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind, first_channel, first_test, want_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(idea.title, idea.target, idea.problem, idea.solution, idea.hypothesis, idea.reason, conf, getSettings().loopModel, theme || null, mode, origin, ideaModel, choice.confidence, idea.kind === "tool" ? "tool" : "lp",
-        isStr(idea.channel) ? idea.channel.slice(0, 500) : null, isStr(idea.first_test) ? idea.first_test.slice(0, 500) : null)
+        isStr(idea.channel) ? idea.channel.slice(0, 500) : null, isStr(idea.first_test) ? idea.first_test.slice(0, 500) : null,
+        typeof idea.want_id === "number" && getWant(idea.want_id)?.status === "ok" ? idea.want_id : null)
       .lastInsertRowid,
   );
   logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
@@ -275,16 +279,28 @@ async function startProject(id: number) {
   await prepareLp(id, undefined, { auto: true });
 }
 
-// 手動でアイデアを依頼したとき（選別なし）
+// 手動でアイデアを依頼したとき: 毎日の分と同じく、3社が案を出し、作者を伏せて採点し、上位の件数だけ案件にする
 export async function generateIdeas(theme: string, count = 3): Promise<number[]> {
-  const ideas = await askIdeas(theme, count);
+  const title = theme ? `アイデア出し（テーマ: ${theme.slice(0, 30)}）` : "アイデア出し（おまかせ）";
+  const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), count, false, { title, theme }));
+  if (!candidates.length) throw new Error("どのAIからもアイデアを得られませんでした");
   const ids: number[] = [];
-  for (const idea of ideas) {
-    const conf = selfConfidence(idea);
-    const id = insertProject(idea, theme, { ...nextMode(conf), confidence: conf.value }, "manual", getSettings().loopModel);
+  for (const c of kept) {
+    const conf = c.peerAvg !== null ? { value: c.peerAvg / 10, source: "他社のAIによる採点の平均" } : selfConfidence(c.idea);
+    const id = insertProject(c.idea, theme, { ...nextMode(conf), confidence: conf.value }, "manual", c.author);
+    db().prepare("UPDATE idea_candidates SET selected = 1, project_id = ? WHERE id = ?").run(id, c.id);
+    logEvent(id, "ai", "select", `${candidates.length}件の候補から選ばれました（3社のAIによる採点の平均 ${c.avg.toFixed(1)}点 / 10点）`);
     ids.push(id);
-    await startProject(id);
   }
+  for (const c of candidates.filter((x) => !kept.includes(x))) {
+    logEvent(null, "ai", "idea-skipped", `アイデア「${c.idea.title}」を見送り（${modelLabel(c.author)}の案・平均 ${c.avg.toFixed(1)}点）`);
+  }
+  // LP・ツールの作成は数分かかるので、画面を待たせずに裏で順に進める
+  void (async () => {
+    for (const id of ids) {
+      await startProject(id).catch((e) => logEvent(id, "system", "lp-error", `作成に失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
+    }
+  })();
   return ids;
 }
 
@@ -656,12 +672,12 @@ async function withPage(p: ProjectRow, lp: Lp, version: number, opts: { prevHtml
     ]);
     const ok = [plain, withRefs].filter((x) => x.status === "fulfilled");
     if (!ok.length) throw (plain as PromiseRejectedResult).reason;
-    const save = db().prepare("INSERT INTO page_candidates (project_id, version, with_refs, ref_ids, score, reason, selected, check_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    const save = db().prepare("INSERT INTO page_candidates (project_id, version, with_refs, ref_ids, score, reason, selected, check_json, html) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     if (plain.status === "fulfilled" && withRefs.status === "fulfilled") {
       const j = await judgePages(p, plain.value.check, withRefs.value.check);
       const pick = j.winner === "b" ? withRefs.value : plain.value;
-      save.run(p.id, version, 0, null, j.scoreA, j.reason, j.winner === "a" ? 1 : 0, JSON.stringify(plain.value.check));
-      save.run(p.id, version, 1, JSON.stringify(refs.map((r) => r.id)), j.scoreB, j.reason, j.winner === "b" ? 1 : 0, JSON.stringify(withRefs.value.check));
+      save.run(p.id, version, 0, null, j.scoreA, j.reason, j.winner === "a" ? 1 : 0, JSON.stringify(plain.value.check), plain.value.html);
+      save.run(p.id, version, 1, JSON.stringify(refs.map((r) => r.id)), j.scoreB, j.reason, j.winner === "b" ? 1 : 0, JSON.stringify(withRefs.value.check), withRefs.value.html);
       logEvent(p.id, "ai", "page-select", `デザインを2案作り、画面で見比べて「${j.winner === "b" ? "参考あり" : "参考なし"}」を選びました（参考なし ${j.scoreA}点・参考あり ${j.scoreB}点）: ${j.reason}`);
       return done(pick.html, pick.check, `・${j.winner === "b" ? "参考あり" : "参考なし"}の案`);
     }
@@ -683,6 +699,31 @@ export async function redesignPage(projectId: number) {
   db().prepare("UPDATE projects SET lp = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(made.lp), projectId);
   db().prepare("UPDATE lp_versions SET lp = ?, test = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(made.lp), JSON.stringify(made.check), projectId, p.lp_version);
   logEvent(projectId, "human", "page", "ページ全体をデザインし直しました");
+  const now = getProject(projectId)!;
+  if (now.public_slug && now.public_version === now.lp_version && now.stage !== "killed") await announcePublish(projectId);
+}
+
+export type PageCandidateRow = {
+  id: number; at: string; project_id: number; version: number; with_refs: number; ref_ids: string | null;
+  score: number | null; reason: string | null; selected: number; check_json: string | null; html: string | null;
+};
+
+// 今の版で最後に作った2案（参考なし・参考あり）。selected は「AIが選んだ方」のまま残し、人が入れ替えても変えない（成績の集計に使うため）
+export function pageCandidates(projectId: number, version: number): PageCandidateRow[] {
+  return (db().prepare("SELECT * FROM page_candidates WHERE project_id = ? AND version = ? ORDER BY id DESC LIMIT 2").all(projectId, version) as PageCandidateRow[])
+    .sort((a, b) => a.with_refs - b.with_refs);
+}
+
+// 2案のうち、もう一方のページに入れ替える（人が押したとき）。公開中の版なら公開サイトにも反映する
+export async function switchPageCandidate(projectId: number, candidateId: number) {
+  const p = getProject(projectId);
+  if (!p?.lp || p.kind !== "lp") throw new Error("事前登録LPの案件だけ入れ替えられます");
+  const c = pageCandidates(projectId, p.lp_version).find((x) => x.id === candidateId);
+  if (!c?.html) throw new Error("この案はページが残っていないため、入れ替えられません");
+  const lp: Lp = { ...(JSON.parse(p.lp) as Lp), ...pageTexts(c.html), page: { html: c.html } };
+  db().prepare("UPDATE projects SET lp = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), projectId);
+  db().prepare("UPDATE lp_versions SET lp = ?, test = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(lp), c.check_json, projectId, p.lp_version);
+  logEvent(projectId, "human", "page", `デザインを「${c.with_refs ? "参考あり" : "参考なし"}」の案に入れ替えました`);
   const now = getProject(projectId)!;
   if (now.public_slug && now.public_version === now.lp_version && now.stage !== "killed") await announcePublish(projectId);
 }
@@ -1518,7 +1559,10 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     const b = budgetState();
     if (!b.creativeOk) return skip(`今月の予算の${Math.round((b.creativeCap / b.budget) * 100)}%を使ったため、新しい案件は休みました（残りはSNSの投稿と判断に使います）`);
     if (b.newToday === 0) return skip(`予算のペースを守るため、今日は新しい案件を休みました（今日使える額 約${Math.round(b.allowanceToday)}円・1件 約${Math.round(b.perProject)}円）`);
-    const { candidates, kept } = await gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday);
+    // ほかのアイデア出しが動いていたら、今回は見送って次の確認（5分後）に回す（実行済みの印は付けない）
+    const busy = ideaRunning();
+    if (busy) return { ran: false, message: `いま「${busy}」が動いているため、終わってから実行します`, projectIds: [] };
+    const { candidates, kept } = await withIdeaLock("毎日のアイデア出し", () => gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday));
     if (!candidates.length) return skip("どのAIからもアイデアを得られなかったため休みました");
     const ids: number[] = [];
     for (const c of kept) {
@@ -1554,12 +1598,27 @@ type Candidate = { id: number; label: string; author: string; idea: Idea; avg: n
 
 const modelLabel = (id: string) => MODELS.find((m) => m.id === id)?.label ?? id;
 
+// アイデア出しは、同時に1つだけ動かす（毎日の自動実行・ホームの入力欄・ライブ画面の「見るだけ」・仮テスト）
+// 同時に動くと、どちらも同じ「既にある案件・最近出た案」を見て似た案を出し、費用も予算の計算も重なるため
+const gIdea = globalThis as unknown as { __aiLabIdeaRun?: string };
+export const ideaRunning = (): string | null => gIdea.__aiLabIdeaRun ?? null;
+export class IdeaBusyError extends Error {}
+async function withIdeaLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  if (gIdea.__aiLabIdeaRun) throw new IdeaBusyError(`いま「${gIdea.__aiLabIdeaRun}」が動いています。終わってからもう一度押してください`);
+  gIdea.__aiLabIdeaRun = label;
+  try {
+    return await fn();
+  } finally {
+    gIdea.__aiLabIdeaRun = undefined;
+  }
+}
+
 // アイデアを出すAI: 各社の上位モデル（キーがあるもの）
 export function ideaAuthors(): string[] {
   return MODELS.filter((m) => m.tier === "top" && hasKey(m.provider)).map((m) => m.id);
 }
 
-async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[] } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
+async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
   const authors = ideaAuthors();
   const batchId = `${Date.now()}`;
   const act = `ideas-${batchId}`;
@@ -1572,7 +1631,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   const results = await Promise.all(
     authors.map(async (author) => {
       try {
-        const ideas = await askIdeas("", perModel, author, opts.alsoExisting);
+        const ideas = await askIdeas(opts.theme ?? "", perModel, author, opts.alsoExisting);
         setStep(act, title, modelLabel(author), `アイデア${ideas.length}件を出しました。ほかの社を待っています`);
         for (const idea of ideas) {
           liveNote({ who: modelLabel(author), provider: prov(author), kind: `アイデアを提案（${idea.kind === "tool" ? "動くツール" : "事前登録LP"}・${idea.season === "seasonal" ? "季節もの" : "1年中"}）`, text: `「${idea.title}」— ${idea.solution}${idea.channel ? `\n届け方: ${idea.channel}` : ""}`, batch: batchId });
@@ -1597,7 +1656,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
 
   // 3. 各社が、作者を伏せた全候補に点を付ける
   const sheet = candidates
-    .map((c) => `【${c.label}】${c.idea.title}（形: ${c.idea.kind === "tool" ? "tool" : "lp"}）\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}\n需要の時期: ${c.idea.season === "seasonal" ? "季節もの" : c.idea.season === "evergreen" ? "1年中" : "（書かれていない）"}\n最初の届け方: ${c.idea.channel ?? "（書かれていない）"}\n最初の1週間の検証: ${c.idea.first_test ?? "（書かれていない）"}`)
+    .map((c) => `【${c.label}】${c.idea.title}（形: ${c.idea.kind === "tool" ? "tool" : "lp"}）\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}\n需要の時期: ${c.idea.season === "seasonal" ? "季節もの" : c.idea.season === "evergreen" ? "1年中" : "（書かれていない）"}\n最初の届け方: ${c.idea.channel ?? "（書かれていない）"}\n最初の1週間の検証: ${c.idea.first_test ?? "（書かれていない）"}${wantLine(c.idea.want_id)}`)
     .join("\n\n");
   const scoreRow = db().prepare("INSERT INTO idea_scores (candidate_id, scorer_model, score, reason) VALUES (?, ?, ?, ?)");
   authors.forEach((a) => setStep(act, title, modelLabel(a), `作者を伏せた${candidates.length}件を採点しています`));
@@ -1617,7 +1676,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
 - 季節が過ぎても需要が残るか。季節もの（その時期だけ使われるもの）は、時期が過ぎたあとも使われる理由がなければ減点する（公開から判断まで1〜3週間かかり、育てる時間もいるため）
 点数は甘くしないこと（平凡なものは5点前後）。
 形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]}`,
-          user: sheet,
+          user: opts.theme ? `依頼されたテーマ: ${opts.theme}（テーマから外れたものは減点する）\n\n${sheet}` : sheet,
           validate: (v): v is { scores: { label: string; score: number; reason: string }[] } =>
             isObj(v) && Array.isArray(v.scores) && v.scores.every((x) => isObj(x) && isStr(x.label) && typeof x.score === "number"),
         });
@@ -1658,44 +1717,42 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   }
 }
 
-const gPracticeFlag = globalThis as unknown as { __aiLabPractice?: boolean };
+// 採点の表に載せる、元になった声（実際にXで欲しいと言われているか）
+function wantLine(id: number | undefined): string {
+  const w = typeof id === "number" ? getWant(id) : undefined;
+  return w?.status === "ok" ? `\n元になった声: Xの投稿（いいね${w.likes ?? 0}）「${w.problem}」` : "";
+}
 
 // 仮テスト: 毎朝のアイデア出しと同じ形（各社 設定の件数ずつ・上位を選ぶ）を、案件にせずに何日分か続けて回す
 // 前の日に選ばれたアイデアは「既にある案件」として次の日に渡す。選ばれたものには selected の印を付ける（成績には数えない）
 export async function simulateDays(days: number): Promise<{ day: number; batch: string; kept: string[] }[]> {
-  if (gPracticeFlag.__aiLabPractice) throw new Error("いま、アイデア出しを見ているところです");
-  gPracticeFlag.__aiLabPractice = true;
+  return withIdeaLock(`アイデア出しの仮テスト（${days}日分）`, () => simulate(days));
+}
+
+async function simulate(days: number): Promise<{ day: number; batch: string; kept: string[] }[]> {
   const s = getSettings();
   const picked: string[] = [];
   const out: { day: number; batch: string; kept: string[] }[] = [];
-  try {
-    for (let d = 1; d <= days; d++) {
-      const { candidates, kept } = await gatherAndScoreIdeas(s.dailyIdeaCount, s.dailyKeep, true, { title: `アイデア出しの仮テスト（${d}/${days}日目）`, alsoExisting: picked });
-      for (const k of kept) {
-        db().prepare("UPDATE idea_candidates SET selected = 1 WHERE id = ?").run(k.id);
-        picked.push(k.idea.title);
-      }
-      const batch = candidates[0] ? (db().prepare("SELECT batch_id FROM idea_candidates WHERE id = ?").get(candidates[0].id) as { batch_id: string }).batch_id : "";
-      out.push({ day: d, batch, kept: kept.map((k) => k.idea.title) });
+  for (let d = 1; d <= days; d++) {
+    const { candidates, kept } = await gatherAndScoreIdeas(s.dailyIdeaCount, s.dailyKeep, true, { title: `アイデア出しの仮テスト（${d}/${days}日目）`, alsoExisting: picked });
+    for (const k of kept) {
+      db().prepare("UPDATE idea_candidates SET selected = 1 WHERE id = ?").run(k.id);
+      picked.push(k.idea.title);
     }
-    logEvent(null, "ai", "idea-practice", `アイデア出しの仮テストを${days}日分回しました（案件にはしていません）: ${out.map((o) => `${o.day}日目 ${o.kept.join("・") || "なし"}`).join(" / ")}`);
-    return out;
-  } finally {
-    gPracticeFlag.__aiLabPractice = false;
+    const batch = candidates[0] ? (db().prepare("SELECT batch_id FROM idea_candidates WHERE id = ?").get(candidates[0].id) as { batch_id: string }).batch_id : "";
+    out.push({ day: d, batch, kept: kept.map((k) => k.idea.title) });
   }
+  logEvent(null, "ai", "idea-practice", `アイデア出しの仮テストを${days}日分回しました（案件にはしていません）: ${out.map((o) => `${o.day}日目 ${o.kept.join("・") || "なし"}`).join(" / ")}`);
+  return out;
 }
 
 // ライブ画面から: 3社にアイデアを出させて採点するところまでを見る（案件にはしない・成績にも数えない）
 export async function practiceIdeas(): Promise<number> {
-  if (gPracticeFlag.__aiLabPractice) throw new Error("いま、アイデア出しを見ているところです");
-  gPracticeFlag.__aiLabPractice = true;
-  try {
+  return withIdeaLock("アイデア出し（見るだけ）", async () => {
     const { candidates } = await gatherAndScoreIdeas(1, 0, true);
     logEvent(null, "ai", "idea-practice", `アイデア出しだけを見ました（${candidates.length}件。案件にはしていません）`);
     return candidates.length;
-  } finally {
-    gPracticeFlag.__aiLabPractice = false;
-  }
+  });
 }
 
 // LPのデザイン候補の作者別の成績: 他社からの点、自分の案への点、AIに選ばれた数、人が切り替えた数、

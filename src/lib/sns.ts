@@ -1,3 +1,4 @@
+import { viralHints } from "./viralPosts";
 import crypto from "node:crypto";
 import { callJson, isObj, isStr } from "./ai";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
@@ -78,7 +79,7 @@ export async function draftPosts(projectId: number, count: number, hint?: string
 - 投稿ごとに切り口を変える（例: 困りごとへの共感 / 使い方の具体例 / 作った理由 / 問いかけ）
 これまでの投稿と反応がある場合は、反応が良かった切り口を参考にし、同じ文は避ける。それだけで読む価値がある内容（文例・使い方の具体例など）を入れ、宣伝だけの投稿にしない。
 形式: {"posts":[{"angle":"切り口を短く","text":"本文"}]}`,
-    user: `${KIND_LABEL[p.kind]}: ${p.title}\n対象: ${p.target}\n困りごと・動機: ${p.problem}\n中身: ${p.solution}\nページの見出し: ${lp.headline}\nページの補足: ${lp.subheadline}\nページに書かれている特徴: ${lp.features.map((f) => `${f.title}（${f.body}）`).join(" / ")}\n件数: ${count}${hint ? `\n今回の希望: ${hint}` : ""}\n\nこれまでの投稿と反応:\n${past}${planContext(projectId, platform)}`,
+    user: `${KIND_LABEL[p.kind]}: ${p.title}\n対象: ${p.target}\n困りごと・動機: ${p.problem}\n中身: ${p.solution}\nページの見出し: ${lp.headline}\nページの補足: ${lp.subheadline}\nページに書かれている特徴: ${lp.features.map((f) => `${f.title}（${f.body}）`).join(" / ")}\n件数: ${count}${hint ? `\n今回の希望: ${hint}` : ""}\n\nこれまでの投稿と反応:\n${past}${planContext(projectId, platform)}${viralHints("sns")}`,
     validate: (v): v is { posts: { angle: string; text: string }[] } =>
       isObj(v) && Array.isArray(v.posts) && v.posts.length > 0 && v.posts.every((x) => isObj(x) && isStr(x.text)),
   });

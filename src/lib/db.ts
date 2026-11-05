@@ -258,6 +258,35 @@ CREATE TABLE IF NOT EXISTS design_refs (
   note TEXT, -- どこが良いか（AIのメモ）
   used INTEGER NOT NULL DEFAULT 0 -- ページ作りで参考にした回数
 );
+-- 話題の個人開発の投稿: あなたが貼ったURLと、週1回のXの検索で拾ったもの。AIが「なぜ伸びたか」をまとめ、投稿・LP・アイデア出しの参考にする（画像は保存しない）
+CREATE TABLE IF NOT EXISTS viral_posts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  tweet_id TEXT NOT NULL UNIQUE,
+  url TEXT NOT NULL,
+  source TEXT NOT NULL DEFAULT 'manual', -- manual / search
+  status TEXT NOT NULL DEFAULT 'queued', -- queued / ok / error
+  error TEXT,
+  author TEXT,
+  text TEXT,
+  posted_at TEXT,
+  likes INTEGER, reposts INTEGER, bookmarks INTEGER, views INTEGER, images INTEGER,
+  analysis TEXT -- JSON: { genre, format, hook, visual, why, takeaway, angle }
+);
+-- 「こういうの欲しい」の声: 週1回のXの検索で拾い、AIがプロダクトの需要だけを残す。アイデア出しに渡す（投稿者には返信・メンションしない）
+CREATE TABLE IF NOT EXISTS user_wants (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  tweet_id TEXT NOT NULL UNIQUE,
+  url TEXT NOT NULL,
+  text TEXT NOT NULL,
+  posted_at TEXT,
+  likes INTEGER, reposts INTEGER, bookmarks INTEGER, replies INTEGER,
+  status TEXT NOT NULL DEFAULT 'ok', -- ok（需要）/ rejected（買い物の話など、プロダクトの需要ではない）
+  who TEXT, -- 誰が
+  problem TEXT, -- 何に困っている・何が欲しい
+  note TEXT -- AIのメモ（外した理由など）
+);
 -- 自由なデザインのページの候補（参考なし・参考ありの2案を作り、画面を見たAIの採点で1つを公開する）
 CREATE TABLE IF NOT EXISTS page_candidates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -379,6 +408,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "end_reason", "TEXT"], // 撤退した理由の分類: unreached / unused / unspread / stopped
   ["projects", "first_channel", "TEXT"], // 企画のときに決めた、最初の利用者がいる場所
   ["projects", "first_test", "TEXT"], // 企画のときに決めた、最初の1週間の検証
+  ["projects", "want_id", "INTEGER"], // 元になった「欲しい」の声（user_wants）
+  ["page_candidates", "html", "TEXT"], // その案のページ（あとから人が入れ替えられるように残す）
   ["projects", "published_at", "TEXT"], // 最初に公開した日時
   ["projects", "judged_at", "TEXT"], // 最後にAIが判断した日時
   ["projects", "rethink_count", "INTEGER NOT NULL DEFAULT 0"], // 集客の見直しをした回数
@@ -478,6 +509,10 @@ export type Settings = {
   judgeAfterDays: number; // 訪問が少なくても、公開（または前の判断）からこの日数がたったらAIに判断させる
   digestHour: number; // 1日のまとめをスマホに送る時刻（日本時間）
   lastDigest: string; // 最後に1日のまとめを送った日（日本時間の YYYY-MM-DD）
+  viralSearch: boolean; // 週1回、Xで話題の個人開発の投稿を検索して取り込む（X のAPIキーが必要。読んだ投稿1件ごとに費用がかかる）
+  viralSearchCount: number; // 1回の検索で読む投稿の数（100件ずつ）
+  lastViralSearch: string; // 最後に検索した日時（ISO）
+  wantsSearchCount: number; // 同じ検索のときに、「欲しい」の声を読む数（100件ずつ。0 なら探さない）
 };
 
 export type ApprovalMode = "manual" | "auto" | "alternate" | "confidence";
@@ -510,6 +545,10 @@ const DEFAULTS: Settings = {
   judgeAfterDays: 7,
   digestHour: 21,
   lastDigest: "",
+  viralSearch: true,
+  viralSearchCount: 300,
+  lastViralSearch: "",
+  wantsSearchCount: 200,
   dailyEnabled: false,
   dailyHour: 9,
   dailyIdeaCount: 2,
@@ -525,8 +564,8 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost"]);
+const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];
@@ -606,6 +645,7 @@ export type ProjectRow = {
   end_reason: string | null;
   first_channel: string | null;
   first_test: string | null;
+  want_id: number | null;
   published_at: string | null;
   judged_at: string | null;
   rethink_count: number;

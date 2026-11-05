@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { activityList, buildingList } from "@/lib/loop";
+import { activityList, buildingList, ideaRunning } from "@/lib/loop";
 
 export const dynamic = "force-dynamic";
 
@@ -11,5 +11,5 @@ export async function GET() {
     ...activityList().map((a) => ({ key: a.key, title: a.title, detail: Object.entries(a.steps).map(([who, st]) => `${who.split(" ")[0]}: ${st}`).join(" ／ "), since: a.since })),
     ...buildingList().map((b) => ({ key: `b${b.id}`, title: titles.get(b.id) ?? `#${b.id}`, detail: `AIが${b.what}`, since: b.since })),
   ];
-  return NextResponse.json({ items }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ items, ideaBusy: ideaRunning() }, { headers: { "Cache-Control": "no-store" } });
 }

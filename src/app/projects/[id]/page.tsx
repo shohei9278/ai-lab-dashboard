@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db, getSettings, type EventRow } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
-import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, buildingNow, getProject, lpCandidates, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
+import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, buildingNow, getProject, lpCandidates, pageCandidates, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
 import { LpCandidates } from "@/components/LpCandidates";
 import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
@@ -15,9 +15,11 @@ import { ToolTestCard } from "./ToolTestCard";
 import { NotifyCard } from "./NotifyCard";
 import { IllustrationControls } from "./IllustrationControls";
 import { PageCheckCard } from "./PageCheckCard";
+import { PageCandidatesCard } from "./PageCandidatesCard";
 import { AutoReviewCard } from "./AutoReviewCard";
 import { EventLog } from "./EventLog";
 import { FunnelCard } from "./FunnelCard";
+import { getWant } from "@/lib/userWants";
 import { funnel } from "@/lib/funnel";
 import { eventDetails } from "@/lib/eventDetails";
 import { SnsPosts } from "./SnsPosts";
@@ -35,6 +37,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const p = getProject(Number(id));
   if (!p) notFound();
   const s = getSettings();
+  const want = p.want_id ? getWant(p.want_id) : undefined;
   const t = projectTotals(p.id);
   const approvals = pendingApprovals(p.id);
   const events = maskEvents(db().prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id DESC").all(p.id) as EventRow[]);
@@ -105,6 +108,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <Item label="検証する仮説">{p.hypothesis}</Item>
           <Item label="最初の届け方（企画のとき）">{p.first_channel ?? "—"}</Item>
           <Item label="最初の1週間の検証">{p.first_test ?? "—"}</Item>
+          {want && (
+            <Item label="元になった声（X）">
+              {want.problem}（いいね {want.likes ?? 0}）{" "}
+              <a href={want.url} target="_blank" rel="noreferrer" className="text-accent underline">投稿 ↗</a>
+            </Item>
+          )}
           {p.growth_focus && <Item label={`今の集客の方針（見直し ${p.rethink_count}回）`}>{p.growth_focus}</Item>}
           <Item label="AIがこれを選んだ理由">{p.ai_reason}</Item>
           <Item label="AIの自信度">{p.ai_confidence === null ? "—" : `${Math.round(p.ai_confidence * 100)}%`}</Item>
@@ -199,6 +208,21 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           })()}
         />
       )}
+
+      {!isTool && lp?.page && (() => {
+        const rows = pageCandidates(p.id, p.lp_version);
+        if (rows.length < 2) return null;
+        const matched = rows.some((r) => r.html && r.html === lp.page?.html);
+        const cands = rows.map((r) => {
+          const c = r.check_json ? (JSON.parse(r.check_json) as { issues?: string[]; shots?: string[]; pc?: string }) : {};
+          return {
+            id: r.id, at: r.at, withRefs: !!r.with_refs, score: r.score, aiPick: !!r.selected,
+            current: matched ? r.html === lp.page?.html : !!r.selected, canSwitch: !!r.html,
+            issues: c.issues ?? [], shots: c.shots ?? [], pc: c.pc,
+          };
+        });
+        return <PageCandidatesCard id={p.id} reason={rows[0].reason} cands={cands} isPublic={!!p.public_slug && p.public_version === p.lp_version} />;
+      })()}
 
       {isTool && lp?.tool && (
         <ToolTestCard

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -62,6 +62,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       case "test-tool":
         return NextResponse.json(await retestTool(requireProject(body).id));
+      case "use-page":
+        await switchPageCandidate(requireProject(body).id, Number(body.candidateId));
+        return NextResponse.json({ ok: true });
       case "use-candidate":
         await switchLpCandidate(Number(body.candidateId));
         return NextResponse.json({ ok: true });

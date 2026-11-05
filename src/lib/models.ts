@@ -52,7 +52,7 @@ export function modelInfo(id: string): Pick<ModelDef, "id" | "label" | "provider
   if (m) return m;
   if (id === "gpt-image-2") return { id, label: "GPT Image 2（画像）", provider: "openai", tier: "top" };
   if (id === "gemini-3.1-flash-image") return { id, label: "Gemini（画像）", provider: "google", tier: "light" };
-  if (id === "x-api") return { id, label: "X API（自動投稿）", provider: "openai", tier: "light" };
+  if (id === "x-api") return { id, label: "X API（投稿・検索）", provider: "openai", tier: "light" };
   if (id === "threads-api") return { id, label: "Threads API（自動投稿）", provider: "openai", tier: "light" };
   if (id === "bluesky-api") return { id, label: "Bluesky（自動投稿）", provider: "openai", tier: "light" };
   const provider: Provider = id.startsWith("claude") ? "anthropic" : id.startsWith("gemini") ? "google" : "openai";

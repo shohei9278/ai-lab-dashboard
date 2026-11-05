@@ -1,3 +1,4 @@
+import { viralHints } from "./viralPosts";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright-core";
@@ -76,7 +77,7 @@ async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: string; i
     projectId: p.id,
     system: SYSTEM,
     content: [
-      { type: "text", text: `${material(p, lp)}${opts.prevHtml ? `\n\n今のページ:\n${opts.prevHtml}` : ""}${instr}${fix}` },
+      { type: "text", text: `${material(p, lp)}${opts.prevHtml ? `\n\n今のページ:\n${opts.prevHtml}` : viralHints("page")}${instr}${fix}` },
       // 参考のLP（雰囲気と質の水準を上げるため。配置・文言・画像はまねしない）
       ...(opts.refs?.length && !opts.issues?.length
         ? [
