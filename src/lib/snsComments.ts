@@ -1,7 +1,7 @@
 import { callJson, isObj } from "./ai";
 import { db, getSettings, type ProjectRow } from "./db";
 import { getProject, logEvent, type Lp } from "./loop";
-import { AUTO_PLATFORMS, blueskySession, threadsCall, threadsToken } from "./snsApi";
+import { AUTO_PLATFORMS, blueskySession, threadsPost, threadsToken } from "./snsApi";
 
 // 自分の投稿（Threads・Bluesky）についたコメントを取り込み、AIが返信の案を書く。返信するのは、人が「送る」を押したときだけ
 // X はコメントを読むのに費用がかかるので、今は取り込まない
@@ -132,10 +132,7 @@ export async function sendReply(id: number, text: string): Promise<string> {
   let url: string;
   if (c.platform === "threads") {
     if (body.length > 500) throw new Error("Threads の返信は500文字までです");
-    const made = await threadsCall("me/threads", { media_type: "TEXT", text: body, reply_to_id: c.ext_id });
-    const pub = await threadsCall("me/threads_publish", { creation_id: made.id });
-    const info = (await fetch(`https://graph.threads.net/v1.0/${pub.id}?fields=permalink&access_token=${encodeURIComponent(threadsToken())}`).then((r) => r.json()).catch(() => ({}))) as { permalink?: string };
-    url = info.permalink ?? "";
+    url = (await threadsPost({ text: body, reply_to_id: c.ext_id })).url;
   } else {
     if ([...new Intl.Segmenter("ja", { granularity: "grapheme" }).segment(body)].length > 300) throw new Error("Bluesky の返信は300文字までです");
     const s = await blueskySession();

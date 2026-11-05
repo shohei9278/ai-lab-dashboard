@@ -36,6 +36,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     { href: "/approvals", label: "判断待ち", badge: pending },
     { href: "/growth", label: "集客" },
     { href: "/lab", label: "実験結果" },
+    { href: "/refs", label: "デザインの参考" },
     { href: "/settings", label: "設定" },
   ];
   return (

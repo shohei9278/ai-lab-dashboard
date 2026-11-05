@@ -1,6 +1,7 @@
 import { db, getSettings, monthSpendUsd } from "./db";
 import { costUsd, getModel, hasKey } from "./models";
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import { callModel } from "./providers";
 
 export class GuardError extends Error {}
@@ -49,12 +50,12 @@ export function claudeModelId(): string | null {
 
 export type ClaudeContent = ({ type: "text"; text: string } | { type: "image"; source: { type: "base64"; media_type: "image/png" | "image/jpeg"; data: string } })[];
 
-export async function callClaude(opts: { purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number }): Promise<string> {
+export async function callClaude(opts: { purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number; modelId?: string }): Promise<string> {
   const s = getSettings();
   if (s.killSwitch) throw new GuardError("緊急停止中のため、AIを呼び出せません");
   if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) throw new GuardError("今月のAI予算の上限に達しています");
-  const id = claudeModelId();
-  if (!id) throw new GuardError("Claude のAPIキーがありません");
+  const id = opts.modelId ?? claudeModelId();
+  if (!id || !hasKey("anthropic")) throw new GuardError("Claude のAPIキーがありません");
   const model = getModel(id);
   const log = (inTok: number, outTok: number, error: string | null) =>
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
@@ -76,6 +77,38 @@ export async function callClaude(opts: { purpose: string; projectId?: number; sy
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
     if (!/refusal|途中で切れました/.test(m)) log(0, 0, m.slice(0, 500));
+    throw new Error(`AIの呼び出しに失敗しました: ${m.slice(0, 200)}`);
+  }
+}
+
+// 長い出力（ツールのHTMLなど）を、決めたAIで最後まで受け取る。Claude と OpenAI に対応（文字のまま返す）
+export async function callLong(opts: { modelId: string; purpose: string; projectId?: number; system: string; user: string; maxTokens: number }): Promise<string> {
+  const model = getModel(opts.modelId);
+  if (model.provider === "anthropic") {
+    return callClaude({ purpose: opts.purpose, projectId: opts.projectId, system: opts.system, content: [{ type: "text", text: opts.user }], maxTokens: opts.maxTokens, modelId: model.id });
+  }
+  if (model.provider !== "openai") throw new Error(`${model.label} では長い出力に対応していません`);
+  const s = getSettings();
+  if (s.killSwitch) throw new GuardError("緊急停止中のため、AIを呼び出せません");
+  if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) throw new GuardError("今月のAI予算の上限に達しています");
+  if (!hasKey("openai")) throw new GuardError(`${model.label} のAPIキーがありません`);
+  const log = (inTok: number, outTok: number, error: string | null) =>
+    db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(opts.projectId ?? null, opts.purpose, model.id, inTok, outTok, costUsd(model, inTok, outTok), error);
+  try {
+    // 出力が長いので、待ち時間の上限を長めにとる
+    const res = await new OpenAI({ timeout: 15 * 60 * 1000, maxRetries: 1 }).responses.create({
+      model: model.id, instructions: opts.system, input: opts.user, max_output_tokens: opts.maxTokens,
+    });
+    const inTok = res.usage?.input_tokens ?? 0;
+    const outTok = res.usage?.output_tokens ?? 0;
+    const error = res.status === "incomplete" ? "出力が長すぎて途中で切れました" : null;
+    log(inTok, outTok, error);
+    if (error) throw new Error(error);
+    return res.output_text;
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (!/途中で切れました/.test(m)) log(0, 0, m.slice(0, 500));
     throw new Error(`AIの呼び出しに失敗しました: ${m.slice(0, 200)}`);
   }
 }

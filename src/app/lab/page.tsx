@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getSettings } from "@/lib/db";
 import { getModel } from "@/lib/models";
 import { KIND_LABEL, MODE_LABEL, activeLessons, modeComparison } from "@/lib/loop";
-import { endReasons, headline, kindComparison, overallRanking, rankings, type Ranking } from "@/lib/experiment";
+import { endReasons, headline, kindComparison, overallRanking, rankings, refEffect, type Ranking } from "@/lib/experiment";
 import { pct, yen } from "@/lib/format";
 import { PageIntro } from "@/components/PageIntro";
 import { LabTabs } from "@/components/LabTabs";
@@ -28,6 +28,7 @@ export default function LabPage() {
   const lessons = activeLessons();
   const badRate = h.auto.reviewed ? h.auto.bad / h.auto.reviewed : null;
   const ends = endReasons();
+  const refs = refEffect();
   const endTotal = ends.reduce((n, e) => n + e.n, 0);
 
   return (
@@ -119,6 +120,23 @@ export default function LabPage() {
               <span className="num">{h.auto.reviewed - h.auto.bad} / {h.auto.reviewed}件</span>
             </div>
             <Bar value={(h.auto.reviewed - h.auto.bad) / h.auto.reviewed} color="var(--good)" />
+          </div>
+        )}
+      </section>
+
+      {/* デザインの参考の効果 */}
+      <section className="card space-y-2 p-4">
+        <div>
+          <h2 className="font-bold">デザインの参考の効果</h2>
+          <p className="text-xs text-muted">事前登録LPのページは、「参考なし」と「参考あり（デザインの参考から選んだLPを見せる）」の2案を作り、画面を見たAIが作り方を伏せて採点して、高い方を公開します。</p>
+        </div>
+        {refs.n === 0 ? (
+          <p className="text-sm text-ink-2">まだ比べた回がありません。デザインの参考が2件以上たまると、LPを作るたびに比べ始めます。</p>
+        ) : (
+          <div className="grid gap-3 text-sm sm:grid-cols-3">
+            <Num label="参考ありが選ばれた割合" value={`${pct(refs.refsWon / refs.n, 0)}（${refs.refsWon}/${refs.n}回）`} />
+            <Num label="参考なしの平均点" value={refs.avgPlain === null ? "—" : `${refs.avgPlain.toFixed(1)}点`} />
+            <Num label="参考ありの平均点" value={refs.avgRefs === null ? "—" : `${refs.avgRefs.toFixed(1)}点`} />
           </div>
         )}
       </section>

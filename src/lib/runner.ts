@@ -15,7 +15,7 @@ export type RunConfig = {
 
 const CONCURRENCY = 4;
 // 実測がないときの、思考トークン込みの出力量の見込み（多めに見積もる）
-const EST_THINK_TOKENS = { top: 200, light: 100 } as const;
+const EST_THINK_TOKENS = { top: 200, mid: 150, light: 100 } as const;
 // 実測があるときも、プロンプトや問題の違いで増えることがあるので余裕を持たせる
 const MEASURED_MARGIN = 1.5;
 

@@ -244,6 +244,33 @@ CREATE TABLE IF NOT EXISTS sns_comments (
   replied_at TEXT,
   UNIQUE (platform, ext_id)
 );
+-- デザインの参考のライブラリ: あなたが選んだLPのURLから、画面を撮ってAIがタグを付ける（ページを作るときの参考にだけ使う。公開はしない）
+CREATE TABLE IF NOT EXISTS design_refs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  url TEXT NOT NULL UNIQUE,
+  title TEXT,
+  status TEXT NOT NULL DEFAULT 'queued', -- queued / ok / error
+  error TEXT,
+  shot_pc TEXT, -- dataDir("refs") の中のファイル名
+  shot_sp TEXT,
+  tags TEXT, -- JSON: { mood, industry, layout, palette, typography }
+  note TEXT, -- どこが良いか（AIのメモ）
+  used INTEGER NOT NULL DEFAULT 0 -- ページ作りで参考にした回数
+);
+-- 自由なデザインのページの候補（参考なし・参考ありの2案を作り、画面を見たAIの採点で1つを公開する）
+CREATE TABLE IF NOT EXISTS page_candidates (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  version INTEGER NOT NULL,
+  with_refs INTEGER NOT NULL DEFAULT 0,
+  ref_ids TEXT, -- JSON: 見せた参考の番号
+  score REAL,
+  reason TEXT,
+  selected INTEGER NOT NULL DEFAULT 0,
+  check_json TEXT -- PageCheck（撮った画面など）
+);
 -- ページの中での動き（公開サイトの lp_events から、取り込むたびに作り直す）。版ごと・イベントごとの人数
 CREATE TABLE IF NOT EXISTS lp_funnel (
   project_id INTEGER NOT NULL REFERENCES projects(id),
@@ -346,6 +373,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "notify_status", "TEXT"], // 撤退したときの登録者への連絡: pending = まだ / done = 連絡してメールアドレスを削除した // 動くツールの、ブラウザでの自動テストの結果（JSON） // 出し方: lp = 事前登録LP / tool = 動くツール
   ["metrics", "shares", "INTEGER NOT NULL DEFAULT 0"], // 動くツールがシェアされた数
   ["projects", "sns_paused", "INTEGER NOT NULL DEFAULT 0"],
+  ["lp_versions", "tool_model", "TEXT"],
+  ["lp_versions", "tool_rewrites", "INTEGER"], // チェックやテストで問題が出て、書き直した回数 // その版のツールのコードを書いたAI（ツール作成のAIの比較用）
   ["idea_candidates", "practice", "INTEGER NOT NULL DEFAULT 0"], // ライブ画面の「アイデア出しだけ見る」で出したもの（案件にしない・成績に数えない）
   ["projects", "end_reason", "TEXT"], // 撤退した理由の分類: unreached / unused / unspread / stopped
   ["projects", "first_channel", "TEXT"], // 企画のときに決めた、最初の利用者がいる場所

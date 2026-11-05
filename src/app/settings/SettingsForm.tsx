@@ -11,8 +11,8 @@ const MODES: { id: ApprovalMode; label: string; body: string }[] = [
   { id: "confidence", label: "AIの自信で決める", body: "AIの自信が基準以上の案件だけ自動で進め、それ以外は毎回承認にします。「AIの自信は当たるのか」を確かめられます。" },
 ];
 
-export function SettingsForm({ initial, models, publishing, snsReady, notifyReady }: {
-  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { label: string; ok: boolean; free: boolean }[]; notifyReady: boolean;
+export function SettingsForm({ initial, models, publishing, snsReady, notifyReady, backups }: {
+  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { label: string; ok: boolean; free: boolean }[]; notifyReady: boolean; backups: string[];
 }) {
   const router = useRouter();
   const [v, setV] = useState({
@@ -223,6 +223,11 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
                 <input type="number" min={1} max={10} {...num("autoPostPerDay")} className={input} />
               </Field>
             )}
+          </div>
+          <div className="space-y-1 rounded-lg bg-surface-2 p-3 sm:col-span-2">
+            <div className="text-sm font-medium">データベースのバックアップ</div>
+            <p className="text-xs text-muted">毎日1回、data/backups/ に日付つきの写しを取り、14日分残します（Dropbox の中なので、PCの外にも同期されます）。戻すときは、サーバーを止めて、戻したい日の写しを data/ai-lab.db に置き換えます。</p>
+            <p className="text-xs">{backups.length ? `最近の写し: ${backups.join("・")}` : "まだ写しはありません（次の自動の確認で取ります）"}</p>
           </div>
           <div className="space-y-2 rounded-lg bg-surface-2 p-3 sm:col-span-2">
             <div className="text-sm font-medium">スマホへの1日のまとめ</div>

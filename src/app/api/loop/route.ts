@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  addMetrics, changeIllustration, redesignPage, removePage, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -49,6 +49,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ deleted: await finishNotify(requireProject(body).id) });
       case "illustration":
         await changeIllustration(requireProject(body).id, body.mode === "remove" ? "remove" : "redraw");
+        return NextResponse.json({ ok: true });
+      case "auto-fix":
+        await autoFixPublish(Number(body.approvalId), typeof body.instruction === "string" ? body.instruction.slice(0, 2000) : undefined);
         return NextResponse.json({ ok: true });
       case "human-review":
         await reviewAutoPublished(requireProject(body).id, body.verdict === "bad" ? "bad" : "ok", typeof body.note === "string" ? body.note.trim().slice(0, 500) : "", body.stop === true);

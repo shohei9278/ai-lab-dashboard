@@ -78,6 +78,7 @@ export function rankings(): Ranking[] {
         return { modelId: s.modelId, value: v, n: human ? s.agreeInitialN : s.agreePrimaryN, display: `${pc(v)}${human ? "（人と）" : ""}` };
       }), "high"),
     },
+    ...toolRankings(),
     {
       key: "test", title: "基礎テストの正答率", question: "答えが決まった問題（問い合わせ分類・請求書抽出）での正答率", better: "high", max: 1,
       empty: "実APIで基礎テストを実行すると、出ます",
@@ -154,4 +155,50 @@ export function endReasons() {
     lp: rows.filter((x) => (x.r ?? "unreached") === key && x.kind === "lp").reduce((a, x) => a + x.n, 0),
     tool: rows.filter((x) => (x.r ?? "unreached") === key && x.kind === "tool").reduce((a, x) => a + x.n, 0),
   })).filter((x) => x.n > 0);
+}
+
+// ツールのコードを書くAIの比べ合い（Opus・Sonnet・GPT を順番に使っている）
+function toolRankings(): Ranking[] {
+  const s = getSettings();
+  // 各ツールの最初の版（その案件で最初にコードを書いたAIと、その出来）
+  const firsts = db().prepare(
+    `SELECT v.project_id, v.tool_model, v.tool_rewrites, v.review FROM lp_versions v
+     JOIN projects p ON p.id = v.project_id
+     WHERE p.demo = 0 AND p.kind = 'tool' AND v.tool_model IS NOT NULL
+       AND v.version = (SELECT MIN(version) FROM lp_versions w WHERE w.project_id = v.project_id AND w.tool_model IS NOT NULL)`,
+  ).all() as { project_id: number; tool_model: string; tool_rewrites: number | null; review: string | null }[];
+  const models = [...new Set(firsts.map((f) => f.tool_model))];
+  const pass = models.map((m) => {
+    const mine = firsts.filter((f) => f.tool_model === m);
+    const ok = mine.filter((f) => (f.tool_rewrites ?? 0) === 0 && (JSON.parse(f.review ?? "{}") as { ok?: boolean }).ok).length;
+    return { modelId: m, value: ok / mine.length, n: mine.length, display: `${Math.round((ok / mine.length) * 100)}%（${ok}/${mine.length}）` };
+  });
+  const use = models.map((m) => {
+    const t = firsts.filter((f) => f.tool_model === m).map((f) => projectTotals(f.project_id)).filter((x) => x.visits > 0);
+    const v = t.reduce((n, x) => n + x.visits, 0);
+    const c = t.reduce((n, x) => n + x.signups, 0);
+    return v ? { modelId: m, value: c / v, n: t.length, display: `${(c / v * 100).toFixed(1)}%（${t.length}件）` } : null;
+  }).filter((x): x is NonNullable<typeof x> => !!x);
+  const cost = (db().prepare("SELECT model_id AS m, SUM(cost_usd) AS usd FROM ai_calls WHERE purpose = 'ツール作成' AND error IS NULL GROUP BY model_id").all() as { m: string; usd: number }[])
+    .map((r) => {
+      const n = firsts.filter((f) => f.tool_model === r.m).length;
+      return n ? { modelId: r.m, value: (r.usd * s.usdJpy) / n, n, display: `${Math.round((r.usd * s.usdJpy) / n)}円` } : null;
+    }).filter((x): x is NonNullable<typeof x> => !!x);
+  return [
+    { key: "tool-pass", title: "ツールの出来", question: "最初に書いたコードが、手直しなしで自動テストとAIのチェックを通った割合", better: "high", max: 1, empty: "ツールを作ると、たまっていきます", rows: rank(pass, "high") },
+    { key: "tool-use", title: "ツールの利用率", question: "そのAIがコードを書いたツールで、訪問者のうち実際に使った人の割合", better: "high", empty: "公開したツールに訪問者が来ると、たまっていきます", rows: rank(use, "high") },
+    { key: "tool-cost", title: "ツール1件のコードの費用", question: "ツールのコードを書く（直す分も含む）のにかかった費用の平均（安いほど上）", better: "low", empty: "ツールを作ると、たまっていきます", rows: rank(cost, "low") },
+  ];
+}
+
+// デザインの参考の効果: 参考なし・参考ありの2案を作って、どちらが選ばれたか
+export function refEffect() {
+  const rows = db().prepare(
+    `SELECT a.score AS plain, b.score AS refs, b.selected AS refsWon FROM page_candidates a
+     JOIN page_candidates b ON b.project_id = a.project_id AND b.version = a.version AND b.with_refs = 1
+     WHERE a.with_refs = 0`,
+  ).all() as { plain: number | null; refs: number | null; refsWon: number }[];
+  const n = rows.length;
+  const avg = (k: "plain" | "refs") => (n ? rows.reduce((s, r) => s + (r[k] ?? 0), 0) / n : null);
+  return { n, refsWon: rows.filter((r) => r.refsWon).length, avgPlain: avg("plain"), avgRefs: avg("refs") };
 }

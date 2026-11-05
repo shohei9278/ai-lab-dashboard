@@ -67,12 +67,25 @@ export async function threadsCall(path: string, params: Record<string, string>):
   return data as Record<string, string>;
 }
 
-async function postToThreads(text: string, link: string): Promise<{ url: string }> {
+// Threads の投稿は「下書き（コンテナ）を作る → 公開する」の2段階。下書きの準備ができる前に公開すると
+// 「The requested resource does not exist」になるので、準備ができたのを確かめてから公開する（返信も同じ）
+export async function threadsPost(params: Record<string, string>): Promise<{ url: string }> {
   await refreshThreadsToken();
-  const made = await threadsCall("me/threads", { media_type: "TEXT", text: `${text}\n${link}` });
+  const made = await threadsCall("me/threads", { media_type: "TEXT", ...params });
+  const token = encodeURIComponent(threadsToken());
+  for (let i = 0; i < 10; i++) {
+    await new Promise((r) => setTimeout(r, i === 0 ? 3000 : 5000));
+    const st = (await fetch(`https://graph.threads.net/v1.0/${made.id}?fields=status,error_message&access_token=${token}`).then((r) => r.json()).catch(() => ({}))) as { status?: string; error_message?: string };
+    if (st.status === "FINISHED") break;
+    if (st.status === "ERROR" || st.status === "EXPIRED") throw new Error(`Threads の下書きの準備に失敗: ${st.error_message ?? st.status}`);
+  }
   const pub = await threadsCall("me/threads_publish", { creation_id: made.id });
-  const info = await fetch(`https://graph.threads.net/v1.0/${pub.id}?fields=permalink&access_token=${encodeURIComponent(threadsToken())}`).then((r) => r.json()).catch(() => ({})) as { permalink?: string };
-  return { url: info.permalink ?? `https://www.threads.net/` };
+  const info = (await fetch(`https://graph.threads.net/v1.0/${pub.id}?fields=permalink&access_token=${token}`).then((r) => r.json()).catch(() => ({}))) as { permalink?: string };
+  return { url: info.permalink ?? "https://www.threads.net/" };
+}
+
+async function postToThreads(text: string, link: string): Promise<{ url: string }> {
+  return threadsPost({ text: `${text}\n${link}` });
 }
 
 // ---- Bluesky（AT Protocol。無料） ----

@@ -100,6 +100,9 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
           <Link href={`/lp/${a.project.id}`} target="_blank" className="inline-block text-sm text-accent underline">
             {a.project.kind === "tool" ? "ツールを実際に触って確かめる ↗" : "作成されたLPを見る ↗"}
           </Link>
+          {a.review && !a.review.ok && a.review.issues.length > 0 && (
+            <AutoFix approvalId={a.id} issues={a.review.issues} isTool={a.project.kind === "tool"} />
+          )}
         </div>
       )}
 
@@ -155,6 +158,38 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
     <div>
       <dt className="text-xs text-muted">{label}</dt>
       <dd>{children}</dd>
+    </div>
+  );
+}
+
+// チェックの指摘に沿って、AIに直させる（そのまま直させるか、直す内容を確認・書き足してから送る）
+function AutoFix({ approvalId, issues, isTool }: { approvalId: number; issues: string[]; isTool: boolean }) {
+  const { run, busy, error } = useLoopAction();
+  const draft = `AIのチェックで見つかった次の問題だけを直すこと。それ以外（世界観・見た目・文言・機能）は今のまま残す。\n${issues.map((x, i) => `${i + 1}. ${x.replace(/^デザイン: /, "")}`).join("\n")}`;
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(draft);
+  const label = isTool ? "AIがツールと紹介ページを直しています（数分かかります）…" : "AIがLPを直しています（数分かかります）…";
+  return (
+    <div className="space-y-2 rounded-lg bg-surface-2 p-3">
+      <div className="text-sm font-medium">指摘に沿って直させる</div>
+      <p className="text-xs text-muted">チェックで出た問題だけを直させます。直した版はもう一度チェックし、通れば全自動の案件はそのまま公開されます。通らなければ、またここに戻ってきます（1回 約50〜200円）。</p>
+      {editing && (
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} maxLength={2000} className="block w-full rounded-lg border border-line bg-surface p-2 text-sm" />
+      )}
+      <div className="flex flex-wrap gap-2">
+        {editing ? (
+          <>
+            <ActionButton variant="primary" disabled={!!busy || !text.trim()} onClick={() => run(label, { action: "auto-fix", approvalId, instruction: text })}>この指示で直させる</ActionButton>
+            <ActionButton disabled={!!busy} onClick={() => { setEditing(false); setText(draft); }}>やめる</ActionButton>
+          </>
+        ) : (
+          <>
+            <ActionButton variant="primary" disabled={!!busy} onClick={() => run(label, { action: "auto-fix", approvalId })}>指摘どおりに直させる</ActionButton>
+            <ActionButton disabled={!!busy} onClick={() => setEditing(true)}>直す内容を確認してから</ActionButton>
+          </>
+        )}
+      </div>
+      <BusyNote busy={busy} error={error} />
     </div>
   );
 }

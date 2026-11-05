@@ -6,7 +6,7 @@
 // モデルIDが実在するかは scripts/check-models.mts で確認できる。
 
 export type Provider = "anthropic" | "openai" | "google";
-export type Tier = "top" | "light";
+export type Tier = "top" | "mid" | "light"; // mid = 上位と同じ会社の、安くて速いモデル（アイデア出しの3社には入れない）
 
 export type ModelDef = {
   id: string;
@@ -20,6 +20,7 @@ export type ModelDef = {
 
 export const MODELS: ModelDef[] = [
   { id: "claude-opus-5-5", label: "Claude Opus 5.5", provider: "anthropic", tier: "top", inputPerM: 4, outputPerM: 20, verified: true },
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5", provider: "anthropic", tier: "mid", inputPerM: 2, outputPerM: 10, verified: true },
   { id: "claude-haiku-5-5", label: "Claude Haiku 5.5", provider: "anthropic", tier: "light", inputPerM: 0.1, outputPerM: 0.5, verified: true },
   { id: "gpt-5.6-sol", label: "GPT-5.6 Sol", provider: "openai", tier: "top", inputPerM: 4, outputPerM: 20, verified: true },
   { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", provider: "openai", tier: "light", inputPerM: 0.2, outputPerM: 1.2, verified: true },

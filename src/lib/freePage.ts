@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright-core";
 import { callClaude, isObj, isStr, type ClaudeContent } from "./ai";
-import { dataDir, type ProjectRow } from "./db";
+import { refImages, type DesignRef } from "./designRefs";
+import { dataDir, getSettings, type ProjectRow } from "./db";
 import { PAGE_HTML_MAX, type Lp } from "../../lp-site/src/lp/content";
 import { PAGE_RULES, imgOriginsOf, wrapPageHtml } from "../../lp-site/src/lp/pageHtml";
 
@@ -63,7 +64,7 @@ function extractHtml(text: string): string {
   return start >= 0 ? t.slice(start) : t;
 }
 
-async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: string; instruction?: string; issues?: string[]; keepCore?: boolean }): Promise<string> {
+async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: string; instruction?: string; issues?: string[]; keepCore?: boolean; refs?: DesignRef[] }): Promise<string> {
   const fix = opts.issues?.length
     ? `\n\n今のページに次の問題が見つかった。これを直したページ全体を出力すること（直す所以外はそのまま）:\n- ${opts.issues.join("\n- ")}`
     : "";
@@ -74,7 +75,16 @@ async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: string; i
     purpose: opts.issues?.length ? "LPのデザイン修正" : "LPのデザイン",
     projectId: p.id,
     system: SYSTEM,
-    content: [{ type: "text", text: `${material(p, lp)}${opts.prevHtml ? `\n\n今のページ:\n${opts.prevHtml}` : ""}${instr}${fix}` }],
+    content: [
+      { type: "text", text: `${material(p, lp)}${opts.prevHtml ? `\n\n今のページ:\n${opts.prevHtml}` : ""}${instr}${fix}` },
+      // 参考のLP（雰囲気と質の水準を上げるため。配置・文言・画像はまねしない）
+      ...(opts.refs?.length && !opts.issues?.length
+        ? [
+            { type: "text" as const, text: `\n参考にするLPの最初の画面（PC幅・スマホ幅）を${opts.refs.length}件見せます。プロのデザイナーが作った水準の例です。余白の取り方・文字の強弱・配色の絞り方・画面の密度など「質」を参考にし、このサービスの世界観に合わせて自分のデザインを作ること。配置・文言・画像・ロゴをそのまままねしないこと。\n${opts.refs.map((r, i) => `参考${i + 1}: ${r.note ?? ""}`).join("\n")}` },
+            ...refImages(opts.refs),
+          ]
+        : []),
+    ],
     maxTokens: 64000,
   });
   return extractHtml(text);
@@ -120,6 +130,12 @@ async function launch(): Promise<Browser | string> {
 
 type Shot = { file: string; data: string };
 
+// 運営者名は、公開サイトで表示するときに外から入れる。確認の画面でも同じように入れてから撮る（空欄の誤検知を防ぐ）
+async function fillOperator(page: import("playwright-core").Page) {
+  const name = getSettings().operatorName || "Hitoride";
+  await page.evaluate((n) => document.querySelectorAll('[data-lab="operator"]').forEach((el) => { el.textContent = `運営: ${n}`; }), name);
+}
+
 // 本物のブラウザで開いて、スマホ幅で上から順に、PC幅で一番上を撮る
 async function shootPage(html: string, imgOrigins: string[], name: string): Promise<{ skipped?: string; sp: Shot[]; pc?: Shot; errors: string[]; overflow: boolean; text: string }> {
   const browser = await launch();
@@ -136,6 +152,7 @@ async function shootPage(html: string, imgOrigins: string[], name: string): Prom
     const page = await ctx.newPage();
     page.on("pageerror", (e) => errors.push(`エラー: ${e.message}`));
     await page.setContent(wrapPageHtml(html, { imgOrigins }), { waitUntil: "networkidle", timeout: 20_000 });
+    await fillOperator(page);
     await page.waitForTimeout(800);
     const height = await page.evaluate(() => document.documentElement.scrollHeight);
     const sp: Shot[] = [];
@@ -149,6 +166,7 @@ async function shootPage(html: string, imgOrigins: string[], name: string): Prom
     const text = (await page.evaluate(() => document.body.innerText)).slice(0, 6000);
     const pcPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
     await pcPage.setContent(wrapPageHtml(html, { imgOrigins }), { waitUntil: "networkidle", timeout: 20_000 });
+    await fillOperator(pcPage);
     await pcPage.waitForTimeout(800);
     const pc = save(await pcPage.screenshot({ type: "jpeg", quality: 70 }), `${base}-pc.jpg`);
     return { sp, pc, errors: [...new Set(errors)].slice(0, 5).map((e) => e.slice(0, 200)), overflow, text };
@@ -199,7 +217,7 @@ async function check(p: ProjectRow, html: string, imgOrigins: string[], name: st
 }
 
 // ページを書いて確かめ、問題があれば1回だけ直す。外部との通信などの決まりを守れていなければ使わない（例外を投げる）
-export async function buildPage(p: ProjectRow, lp: Lp, name: string, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean } = {}): Promise<{ html: string; check: PageCheck }> {
+export async function buildPage(p: ProjectRow, lp: Lp, name: string, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean; refs?: DesignRef[] } = {}): Promise<{ html: string; check: PageCheck }> {
   let html = await writePageHtml(p, lp, opts);
   let r = await check(p, html, imgOriginsOf(lp.design?.illustration?.url, html), name);
   if (r.issues.length) {
@@ -227,4 +245,31 @@ export function pageTexts(html: string): { headline?: string; subheadline?: stri
     headline: headline.length >= 4 && headline.length <= 120 ? headline : undefined,
     subheadline: subheadline.length >= 4 && subheadline.length <= 240 ? subheadline : undefined,
   };
+}
+
+// 2つのページの画面を、どちらがどの作り方か伏せてAIに見比べさせる（スマホの最初の4画面とPCの最初の画面）
+export async function judgePages(p: ProjectRow, a: PageCheck, b: PageCheck): Promise<{ winner: "a" | "b"; scoreA: number; scoreB: number; reason: string }> {
+  const dir = dataDir("screenshots");
+  const imgs = (c: PageCheck): ClaudeContent =>
+    [...c.shots.slice(0, 4), ...(c.pc ? [c.pc] : [])]
+      .filter((f) => fs.existsSync(path.join(dir, f)))
+      .map((f) => ({ type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: fs.readFileSync(path.join(dir, f)).toString("base64") } }));
+  const flip = Math.random() < 0.5; // 並び順で見抜かれないように
+  const [x, y] = flip ? [b, a] : [a, b];
+  const out = await callClaude({
+    purpose: "LPのデザインの採点",
+    projectId: p.id,
+    system: `あなたは経験豊富なアートディレクターです。同じサービスの事前登録LPを、別々に作った2案（X と Y）の画面で見比べます。作り方は伏せてあります。
+観点: 一目で何のサービスか分かるか / 対象読者（${p.target}）が自分ごとと感じて登録したくなるか / プロが作ったような質（余白・文字の強弱・配色・密度）か / 崩れや読みにくさがないか / テンプレートっぽさ・AIっぽさがないか
+それぞれ1〜10点で、甘くしないこと（平凡なら5点前後）。
+出力はJSONのみ: {"x":点数,"y":点数,"reason":"どちらがなぜ良いかを1〜2文で"}`,
+    content: [{ type: "text", text: "案X:" }, ...imgs(x), { type: "text", text: "案Y:" }, ...imgs(y)],
+    maxTokens: 6000,
+  });
+  const t = out.replace(/```(?:json)?/g, "");
+  const v = JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)) as { x?: number; y?: number; reason?: string };
+  const sx = Math.max(1, Math.min(10, Number(v.x) || 5));
+  const sy = Math.max(1, Math.min(10, Number(v.y) || 5));
+  const [scoreA, scoreB] = flip ? [sy, sx] : [sx, sy];
+  return { winner: scoreB > scoreA ? "b" : "a", scoreA, scoreB, reason: String(v.reason ?? "").slice(0, 300) };
 }

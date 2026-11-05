@@ -1,11 +1,12 @@
-import { callClaude, callJson, claudeModelId, isObj, isStr } from "./ai";
+import { callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
 import { MODELS, hasKey, modelInfo } from "./models";
 import { testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
 import { trendsText } from "./trends";
 import { withIllustration } from "./illustration";
-import { buildPage, pageTexts, type PageCheck } from "./freePage";
+import { buildPage, judgePages, pageTexts, type PageCheck } from "./freePage";
+import { markRefsUsed, pickRefs } from "./designRefs";
 import { funnelText } from "./funnel";
 import { budgetState } from "./budget";
 import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
@@ -379,7 +380,7 @@ function staticToolIssues(html: string): string[] {
   return issues;
 }
 
-async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string): Promise<string> {
+export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string, modelId?: string): Promise<string> {
   const system = `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
 守ること:
 - 1つのHTMLの断片だけを書く（<style> と <script> を含めてよい。<html><head><body> は書かない）
@@ -395,13 +396,15 @@ async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: str
 - 全体で40,000文字以内。読みやすく、動作の確かなコードにする
 `;
   const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : ""}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`;
-  // ツールのHTMLは長く、JSONに包むと出力の上限で途中で切れやすい。Claude が使えるときは、HTMLをそのまま最後まで受け取る
-  if (claudeModelId()) {
-    const text = await callClaude({
+  // ツールのHTMLは長く、JSONに包むと出力の上限で途中で切れやすい。HTMLをそのまま最後まで受け取る
+  const author = modelId ?? claudeModelId();
+  if (author) {
+    const text = await callLong({
+      modelId: author,
       purpose: "ツール作成",
       projectId: p.id,
       system: `${system}出力はHTMLの断片だけ。説明やコードブロックは付けない。`,
-      content: [{ type: "text", text: user }],
+      user,
       maxTokens: 64000,
     });
     return text.replace(/^\s*```(?:html)?\s*/i, "").replace(/```\s*$/, "").trim();
@@ -437,8 +440,22 @@ async function reviewTool(p: ProjectRow, html: string): Promise<Review> {
 
 // ツール本体を書いてチェックし、問題があれば1回だけ直す
 // チェックは3つ: コードの決まりごと、AIによるコードの確認、本物のブラウザ（スマホ幅）で動かすテスト
-async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review; test: ToolTest }> {
-  let html = await writeToolHtml(p, instruction, prevHtml);
+// ツールのコードを書くAI。新しいツールは、使える候補のうち作った数が一番少ないものに順番に任せる（作り比べのため）
+// 直すときは、今のツールを書いたAIがそのまま直す
+export const TOOL_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-5.6-sol"];
+
+function toolModelFor(p: ProjectRow): string {
+  const usable = TOOL_MODELS.filter((id) => hasKey(modelInfo(id).provider));
+  const current = (db().prepare("SELECT tool_model FROM lp_versions WHERE project_id = ? AND tool_model IS NOT NULL ORDER BY version DESC LIMIT 1").get(p.id) as { tool_model: string } | undefined)?.tool_model;
+  if (current && usable.includes(current)) return current;
+  if (!usable.length) return getSettings().loopModel;
+  const counts = new Map((db().prepare("SELECT tool_model AS m, COUNT(DISTINCT project_id) AS n FROM lp_versions WHERE tool_model IS NOT NULL GROUP BY tool_model").all() as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
+}
+
+async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review; test: ToolTest; model: string; rewrites: number }> {
+  const model = toolModelFor(p);
+  let html = await writeToolHtml(p, instruction, prevHtml, model);
   const check = async (h: string): Promise<{ review: Review; test: ToolTest }> => {
     const [ai, test] = await Promise.all([reviewTool(p, h), testTool(h, shotName)]);
     const issues = [...staticToolIssues(h), ...ai.issues, ...testIssues(test)];
@@ -447,10 +464,11 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
   let r = await check(html);
   if (!r.review.ok) {
     logEvent(p.id, "ai", "review", `ツールのチェックで問題が見つかったため書き直し: ${r.review.issues.join(" / ")}`);
-    html = await writeToolHtml(p, `次の問題を直すこと: ${r.review.issues.join(" / ")}`, html);
+    html = await writeToolHtml(p, `次の問題を直すこと: ${r.review.issues.join(" / ")}`, html, model);
     r = await check(html);
+    return { html, ...r, model, rewrites: 1 };
   }
-  return { html, ...r };
+  return { html, ...r, model, rewrites: 0 };
 }
 
 // 今の版のツールを、もう一度ブラウザで自動テストする（案件の画面のボタンから）
@@ -620,10 +638,35 @@ async function buildLpVersionNow(projectId: number, opts: { instruction?: string
 
 // AIにページ全体を自由にデザインさせる。失敗したら、部品で作ったLPのまま返す
 async function withPage(p: ProjectRow, lp: Lp, version: number, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean } = {}): Promise<{ lp: Lp; check: PageCheck | null }> {
+  const done = (html: string, check: PageCheck, note: string) => {
+    logEvent(p.id, "ai", "page", `ページ全体をデザイン（${(html.length / 1000).toFixed(1)}千文字）${note}${check.ok ? "" : `。確認で残った指摘: ${check.issues.join(" / ")}`}`);
+    return { lp: { ...lp, ...pageTexts(html), page: { html } }, check };
+  };
   try {
-    const made = await buildPage(p, lp, `p${p.id}-v${version}-page`, opts);
-    logEvent(p.id, "ai", "page", `ページ全体をデザイン（${(made.html.length / 1000).toFixed(1)}千文字）${made.check.ok ? "" : `。確認で残った指摘: ${made.check.issues.join(" / ")}`}`);
-    return { lp: { ...lp, ...pageTexts(made.html), page: { html: made.html } }, check: made.check };
+    // 新しく作るときは「参考なし」と「参考あり」の2案を作り、画面を見たAIの採点で選ぶ（直すときは今のページを直す1案だけ）
+    const refs = opts.prevHtml || opts.instruction ? [] : pickRefs(`${p.target} ${p.solution} ${lp.design?.theme ?? ""}`, 3);
+    if (!refs.length) {
+      const made = await buildPage(p, lp, `p${p.id}-v${version}-page`, opts);
+      return done(made.html, made.check, "");
+    }
+    markRefsUsed(refs.map((r) => r.id));
+    const [plain, withRefs] = await Promise.allSettled([
+      buildPage(p, lp, `p${p.id}-v${version}-pageA`, opts),
+      buildPage(p, lp, `p${p.id}-v${version}-pageB`, { ...opts, refs }),
+    ]);
+    const ok = [plain, withRefs].filter((x) => x.status === "fulfilled");
+    if (!ok.length) throw (plain as PromiseRejectedResult).reason;
+    const save = db().prepare("INSERT INTO page_candidates (project_id, version, with_refs, ref_ids, score, reason, selected, check_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    if (plain.status === "fulfilled" && withRefs.status === "fulfilled") {
+      const j = await judgePages(p, plain.value.check, withRefs.value.check);
+      const pick = j.winner === "b" ? withRefs.value : plain.value;
+      save.run(p.id, version, 0, null, j.scoreA, j.reason, j.winner === "a" ? 1 : 0, JSON.stringify(plain.value.check));
+      save.run(p.id, version, 1, JSON.stringify(refs.map((r) => r.id)), j.scoreB, j.reason, j.winner === "b" ? 1 : 0, JSON.stringify(withRefs.value.check));
+      logEvent(p.id, "ai", "page-select", `デザインを2案作り、画面で見比べて「${j.winner === "b" ? "参考あり" : "参考なし"}」を選びました（参考なし ${j.scoreA}点・参考あり ${j.scoreB}点）: ${j.reason}`);
+      return done(pick.html, pick.check, `・${j.winner === "b" ? "参考あり" : "参考なし"}の案`);
+    }
+    const one = (ok[0] as PromiseFulfilledResult<{ html: string; check: PageCheck }>).value;
+    return done(one.html, one.check, `・${withRefs.status === "fulfilled" ? "参考あり" : "参考なし"}の案（もう一方は作れなかった）`);
   } catch (e) {
     logEvent(p.id, "system", "page-error", `自由なデザインのページを作れなかったため、部品で作ったLPを使います: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
     return { lp: { ...lp, page: undefined }, check: null };
@@ -670,9 +713,9 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   if (drawn.note) logEvent(p.id, "system", "illustration", drawn.note);
   const conn = db();
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, p.id);
-  conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model, test) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(p.id, version, JSON.stringify(lp), opts.note, JSON.stringify(review), getSettings().loopModel, JSON.stringify(tool.test));
-  logEvent(p.id, "ai", "lp", `ツールと紹介ページを作成（第${version}版・${(tool.html.length / 1000).toFixed(1)}千文字）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
+  conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model, test, tool_model, tool_rewrites) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(p.id, version, JSON.stringify(lp), opts.note, JSON.stringify(review), getSettings().loopModel, JSON.stringify(tool.test), tool.model, tool.rewrites);
+  logEvent(p.id, "ai", "lp", `ツールと紹介ページを作成（第${version}版・${(tool.html.length / 1000).toFixed(1)}千文字・コードは${modelLabel(tool.model)}${tool.rewrites ? "・1回直した" : ""}）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
   return { lp, review, version };
 }
 
@@ -1260,6 +1303,25 @@ function rejectPublish(pid: number) {
 }
 
 // 案件の画面から、今のLP・ツールへの修正を指示する。作った版は、承認されるまで公開しない
+// AIのチェックの指摘から、直すための指示文を作る（AIは使わない。指摘そのものが具体的なので、そのまま渡す）
+export function fixInstruction(issues: string[]): string {
+  return `AIのチェックで見つかった次の問題だけを直すこと。それ以外（世界観・見た目・文言・機能）は今のまま残す。\n${issues.map((x, i) => `${i + 1}. ${x.replace(/^デザイン: /, "")}`).join("\n")}`;
+}
+
+// 判断待ちの公開を、チェックの指摘に沿ってAIに直させる。直した版がチェックを通り、全自動の案件なら、そのまま公開する
+export async function autoFixPublish(approvalId: number, instruction?: string) {
+  const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
+  if (!a || a.kind !== "publish" || a.status !== "pending") throw new Error("直せる公開の承認待ちが見つかりません");
+  const review = (JSON.parse(a.payload ?? "{}") as { review?: Review }).review;
+  const text = instruction?.trim() || (review?.issues.length ? fixInstruction(review.issues) : "");
+  if (!text) throw new Error("直す内容がありません（チェックの指摘がないため）");
+  db().prepare("UPDATE approvals SET status = 'revised', comment = ?, decided_at = datetime('now') WHERE id = ?").run(text.slice(0, 1000), approvalId);
+  logEvent(a.project_id, "human", "auto-fix", `チェックの指摘に沿って、AIに直させました${instruction?.trim() ? "（指示を確認して送信）" : ""}`);
+  const p = getProject(a.project_id)!;
+  // まだ一度も公開していない全自動の案件は、直した版がチェックを通れば、最初に作ったときと同じように自動で公開する
+  await prepareLp(a.project_id, text, { keepCore: true, byHuman: true, auto: p.mode === "auto" && !p.public_slug });
+}
+
 export async function requestRevision(projectId: number, instruction: string, keepCore: boolean) {
   const p = getProject(projectId);
   if (!p?.lp) throw new Error("まだLPやツールがありません");
