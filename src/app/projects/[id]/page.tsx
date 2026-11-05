@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db, getSettings, type EventRow } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
-import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, buildingNow, getProject, lpCandidates, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
+import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, buildingNow, getProject, lpCandidates, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
 import { LpCandidates } from "@/components/LpCandidates";
 import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
@@ -75,6 +75,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-bold">{p.title}</h1>
           <span className="rounded border border-line px-1.5 py-0.5 text-xs">{STAGE_LABEL[p.stage]}</span>
+          {p.stage === "killed" && p.end_reason && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">撤退の理由: {END_REASON_LABEL[p.end_reason] ?? p.end_reason}</span>}
           {!!p.growth_phase && <span className="rounded px-1.5 py-0.5 text-xs font-medium" style={{ background: "var(--surface-2)", color: "var(--good)" }}>育てる段階（実験 {p.growth_count}回）</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{KIND_LABEL[p.kind]}</span>
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{MODE_LABEL[p.mode]}モード</span>

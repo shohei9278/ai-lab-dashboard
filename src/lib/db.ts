@@ -346,6 +346,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "notify_status", "TEXT"], // 撤退したときの登録者への連絡: pending = まだ / done = 連絡してメールアドレスを削除した // 動くツールの、ブラウザでの自動テストの結果（JSON） // 出し方: lp = 事前登録LP / tool = 動くツール
   ["metrics", "shares", "INTEGER NOT NULL DEFAULT 0"], // 動くツールがシェアされた数
   ["projects", "sns_paused", "INTEGER NOT NULL DEFAULT 0"],
+  ["idea_candidates", "practice", "INTEGER NOT NULL DEFAULT 0"], // ライブ画面の「アイデア出しだけ見る」で出したもの（案件にしない・成績に数えない）
+  ["projects", "end_reason", "TEXT"], // 撤退した理由の分類: unreached / unused / unspread / stopped
   ["projects", "first_channel", "TEXT"], // 企画のときに決めた、最初の利用者がいる場所
   ["projects", "first_test", "TEXT"], // 企画のときに決めた、最初の1週間の検証
   ["projects", "published_at", "TEXT"], // 最初に公開した日時
@@ -445,6 +447,8 @@ export type Settings = {
   autoPost: boolean; // 集客中の案件を、AIが X に自動で投稿する（X のAPIキーが必要）
   autoPostPerDay: number; // 自動投稿の上限（直近24時間）
   judgeAfterDays: number; // 訪問が少なくても、公開（または前の判断）からこの日数がたったらAIに判断させる
+  digestHour: number; // 1日のまとめをスマホに送る時刻（日本時間）
+  lastDigest: string; // 最後に1日のまとめを送った日（日本時間の YYYY-MM-DD）
 };
 
 export type ApprovalMode = "manual" | "auto" | "alternate" | "confidence";
@@ -475,6 +479,8 @@ const DEFAULTS: Settings = {
   autoPost: false,
   autoPostPerDay: 2,
   judgeAfterDays: 7,
+  digestHour: 21,
+  lastDigest: "",
   dailyEnabled: false,
   dailyHour: 9,
   dailyIdeaCount: 2,
@@ -490,7 +496,7 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount"]);
+const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest"]);
 const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost"]);
 
 export function getSettings(): Settings {
@@ -568,6 +574,7 @@ export type ProjectRow = {
   notify_status: "pending" | "done" | null;
   auto_published: number;
   sns_paused: number;
+  end_reason: string | null;
   first_channel: string | null;
   first_test: string | null;
   published_at: string | null;

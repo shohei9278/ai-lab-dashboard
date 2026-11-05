@@ -26,7 +26,7 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
           <h2 className="font-bold">公開中</h2>
           <a href={publicUrl} target="_blank" rel="noreferrer" className="text-sm text-accent underline">{publicUrl} ↗</a>
           <p className="mt-1 text-xs text-muted">
-            訪問と{convNoun}の数は15分ごとに自動で取り込みます。訪問が{judgeMinVisits}人を超えるか、広告費が上限に達すると、AIが判断して承認待ちに出します。
+            訪問と{convNoun}の数は5分ごとに自動で取り込みます。訪問が{judgeMinVisits}人を超えるか、広告費が上限に達すると、AIが判断して承認待ちに出します。
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">

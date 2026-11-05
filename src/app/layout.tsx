@@ -3,6 +3,7 @@ import Link from "next/link";
 import { M_PLUS_Rounded_1c, Noto_Sans_JP, Noto_Serif_JP } from "next/font/google";
 import { headers } from "next/headers";
 import { pendingCount } from "@/lib/views";
+import { ActivityBadge } from "@/components/ActivityBadge";
 import "./globals.css";
 
 const noto = Noto_Sans_JP({ variable: "--font-noto", subsets: ["latin"], weight: ["400", "500", "700"] });
@@ -31,6 +32,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const pending = pendingCount();
   const nav = [
     { href: "/", label: "ホーム" },
+    { href: "/live", label: "ライブ" },
     { href: "/approvals", label: "判断待ち", badge: pending },
     { href: "/growth", label: "集客" },
     { href: "/lab", label: "実験結果" },
@@ -52,6 +54,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
                 </Link>
               ))}
             </nav>
+            <ActivityBadge />
           </div>
         </header>
         <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>

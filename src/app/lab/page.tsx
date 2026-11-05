@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getSettings } from "@/lib/db";
 import { getModel } from "@/lib/models";
 import { KIND_LABEL, MODE_LABEL, activeLessons, modeComparison } from "@/lib/loop";
-import { headline, kindComparison, overallRanking, rankings, type Ranking } from "@/lib/experiment";
+import { endReasons, headline, kindComparison, overallRanking, rankings, type Ranking } from "@/lib/experiment";
 import { pct, yen } from "@/lib/format";
 import { PageIntro } from "@/components/PageIntro";
 import { LabTabs } from "@/components/LabTabs";
@@ -27,6 +27,8 @@ export default function LabPage() {
   const modes = modeComparison().filter((m) => m.projects > 0);
   const lessons = activeLessons();
   const badRate = h.auto.reviewed ? h.auto.bad / h.auto.reviewed : null;
+  const ends = endReasons();
+  const endTotal = ends.reduce((n, e) => n + e.n, 0);
 
   return (
     <div className="space-y-6">
@@ -119,6 +121,30 @@ export default function LabPage() {
             <Bar value={(h.auto.reviewed - h.auto.bad) / h.auto.reviewed} color="var(--good)" />
           </div>
         )}
+      </section>
+
+      {/* 撤退した理由 */}
+      <section className="card space-y-3 p-4">
+        <div>
+          <h2 className="font-bold">撤退した理由（{endTotal}件）</h2>
+          <p className="text-xs text-muted">撤退した案件を、数字から3つに分けたものです。どこで止まることが多いかで、AIが苦手なところ（届ける・使ってもらう・広める）が分かります。</p>
+        </div>
+        {endTotal === 0 ? (
+          <p className="text-sm text-ink-2">まだ撤退した案件はありません。</p>
+        ) : (
+          <ul className="space-y-2">
+            {ends.map((e) => (
+              <li key={e.key}>
+                <div className="flex justify-between text-sm">
+                  <span>{e.label}</span>
+                  <span className="num"><b>{e.n}件</b><span className="ml-2 text-xs text-ink-2">{pct(e.n / endTotal, 0)}・LP {e.lp}・ツール {e.tool}</span></span>
+                </div>
+                <Bar value={e.n / endTotal} color="var(--accent)" />
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="text-xs text-muted">分け方: 訪問が判断の目安の3割（最低20人）未満なら「届かなかった」、成果の率が目標の半分未満なら「届いたが使われなかった」、それ以外は「使われたが広まらなかった」。あなたが公開を止めたものは「人が止めた」。</p>
       </section>
 
       {/* 出し方の比較 */}

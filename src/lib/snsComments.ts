@@ -103,7 +103,7 @@ async function draftReplies() {
   }
 }
 
-// 15分ごとの取り込みから呼ぶ
+// 5分ごとの取り込みから呼ぶ
 export async function syncComments(): Promise<number> {
   if (getSettings().killSwitch) return 0;
   const n = (await fetchThreads().catch(() => 0)) + (await fetchBluesky().catch(() => 0));

@@ -79,12 +79,16 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
           </div>
 
           <section className="card space-y-2 p-4">
-            <h2 className="font-bold">Xの投稿の下書き</h2>
+            <h2 className="font-bold">実験ログの下書き（あなたの個人アカウント用）</h2>
+            <p className="text-xs text-muted">「AIにプロダクト作りを任せる実験」として、あなたが自分のアカウントで投稿する文です。「Xで投稿」を押すと、投稿の画面が開きます（送るのはあなたです）。</p>
             <ul className="space-y-2">
               {r.xPosts.map((x) => (
                 <li key={x} className="flex items-start justify-between gap-3 rounded-lg bg-surface-2 p-3 text-sm">
                   <span className="whitespace-pre-wrap">{x}</span>
-                  <CopyButton text={x} />
+                  <span className="flex shrink-0 flex-col items-end gap-1">
+                    <CopyButton text={x} />
+                    <a href={`https://x.com/intent/post?text=${encodeURIComponent(x)}`} target="_blank" rel="noreferrer" className="text-xs text-accent underline">Xで投稿 ↗</a>
+                  </span>
                 </li>
               ))}
             </ul>

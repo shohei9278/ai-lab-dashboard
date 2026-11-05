@@ -5,23 +5,37 @@ import { maybeWeeklyReport } from "./report";
 import { maybeRefreshTrends } from "./trends";
 import { maybeAutoPost } from "./sns";
 import { syncComments } from "./snsComments";
+import { maybeDailyDigest } from "./notify";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
-const CHECK_EVERY_MS = 15 * 60 * 1000;
+const CHECK_EVERY_MS = 5 * 60 * 1000;
 
-const g = globalThis as unknown as { __aiLabScheduler?: NodeJS.Timeout };
+const g = globalThis as unknown as { __aiLabScheduler?: NodeJS.Timeout; __aiLabNextTick?: number; __aiLabTicking?: boolean };
 
 export function startScheduler() {
   if (g.__aiLabScheduler) return;
   g.__aiLabScheduler = setInterval(tick, CHECK_EVERY_MS);
+  g.__aiLabNextTick = Date.now() + 60 * 1000;
   setTimeout(tick, 60 * 1000); // 起動直後に1回確認する
 }
 
 export function schedulerStatus() {
-  return { running: Boolean(g.__aiLabScheduler), checkEveryMinutes: CHECK_EVERY_MS / 60000 };
+  return { running: Boolean(g.__aiLabScheduler), checkEveryMinutes: CHECK_EVERY_MS / 60000, nextTick: g.__aiLabNextTick ?? null };
 }
 
 async function tick() {
+  g.__aiLabNextTick = Date.now() + CHECK_EVERY_MS;
+  // 前の回の処理（アイデア出しや作成は数分かかる）がまだ終わっていなければ、この回は休む（同じ案件を二重に判断しないように）
+  if (g.__aiLabTicking) return;
+  g.__aiLabTicking = true;
+  try {
+    await tickNow();
+  } finally {
+    g.__aiLabTicking = false;
+  }
+}
+
+async function tickNow() {
   // 公開中のLPの本物の数字は、毎回取り込む
   try {
     if (publishingConfigured()) await syncAndJudge();
@@ -38,6 +52,11 @@ async function tick() {
     await maybeWeeklyReport();
   } catch (e) {
     logEvent(null, "system", "report-error", `週のレポートの作成でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
+  }
+  try {
+    await maybeDailyDigest();
+  } catch (e) {
+    logEvent(null, "system", "notify-error", `1日のまとめを送れませんでした: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
   }
   try {
     await syncComments();

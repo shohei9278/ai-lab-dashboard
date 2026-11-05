@@ -69,6 +69,7 @@ export async function POST(req: Request) {
     ["autoPublishPerWeek", 0, 50],
     ["autoPostPerDay", 1, 10],
     ["judgeAfterDays", 1, 60],
+    ["digestHour", 0, 23],
     ["staleDays", 1, 90],
     ["autoConfidence", 0, 1],
     ["targetUseRate", 0.001, 1],

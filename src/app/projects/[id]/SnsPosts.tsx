@@ -134,7 +134,7 @@ export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl, account 
             </table>
           </div>
           <p className="text-xs text-muted">
-            訪問と{convNoun}は15分ごとに自動で入ります（そのリンクから来た人を、ブラウザ単位で数えます）。表示回数は、Xのアナリティクスで見た数を入れると、クリック率の目安が出ます（任意）。
+            訪問と{convNoun}は5分ごとに自動で入ります（そのリンクから来た人を、ブラウザ単位で数えます）。表示回数は、Xのアナリティクスで見た数を入れると、クリック率の目安が出ます（任意）。
           </p>
         </div>
       )}

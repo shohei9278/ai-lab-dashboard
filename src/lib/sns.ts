@@ -170,7 +170,7 @@ export async function maybeAutoPost(): Promise<string[]> {
 
 async function autoPostTo(platform: AutoPlatform, perDay: number): Promise<string | null> {
   const apiId = `${platform}-api`;
-  // 失敗した直後は、2時間あけてから試す（クレジット切れなどで、15分ごとに失敗し続けないように）
+  // 失敗した直後は、2時間あけてから試す（クレジット切れなどで、5分ごとに失敗し続けないように）
   if (db().prepare("SELECT 1 FROM ai_calls WHERE model_id = ? AND error IS NOT NULL AND at >= datetime('now', '-2 hours') AND id = (SELECT MAX(id) FROM ai_calls WHERE model_id = ?)").get(apiId, apiId)) return null;
   const recent = db().prepare("SELECT COUNT(*) AS n, MAX(posted_at) AS last FROM sns_posts WHERE platform = ? AND status = 'posted' AND author = 'ai' AND post_url IS NOT NULL AND posted_at >= datetime('now', '-24 hours')").get(platform) as { n: number; last: string | null };
   if (recent.n >= perDay) return null;

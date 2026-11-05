@@ -1,5 +1,5 @@
 import { db, getSettings, type ProjectRow } from "./db";
-import { autoPublishStats, designAuthorStats, ideaAuthorStats, projectTotals, shadowScores } from "./loop";
+import { END_REASON_LABEL, autoPublishStats, designAuthorStats, ideaAuthorStats, projectTotals, shadowScores } from "./loop";
 import { costEfficiency } from "./cost";
 import { modelInfo } from "./models";
 import { runStats } from "./stats";
@@ -143,4 +143,15 @@ export function kindComparison() {
       killed: mine.filter((p) => p.stage === "killed").length,
     };
   });
+}
+
+// 撤退した理由の内訳（AIが苦手なのは、届けるところか・使ってもらうところか・広めるところか）
+export function endReasons() {
+  const rows = db().prepare("SELECT end_reason AS r, kind, COUNT(*) AS n FROM projects WHERE demo = 0 AND stage = 'killed' GROUP BY end_reason, kind").all() as { r: string | null; kind: string; n: number }[];
+  return Object.keys(END_REASON_LABEL).map((key) => ({
+    key, label: END_REASON_LABEL[key],
+    n: rows.filter((x) => (x.r ?? "unreached") === key).reduce((a, x) => a + x.n, 0),
+    lp: rows.filter((x) => (x.r ?? "unreached") === key && x.kind === "lp").reduce((a, x) => a + x.n, 0),
+    tool: rows.filter((x) => (x.r ?? "unreached") === key && x.kind === "tool").reduce((a, x) => a + x.n, 0),
+  })).filter((x) => x.n > 0);
 }

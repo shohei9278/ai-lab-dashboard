@@ -81,7 +81,7 @@ export default function GrowthPage() {
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <h2 className="font-bold">コメント（返信待ち {open.length}件）</h2>
-            <p className="text-xs text-muted">Threads・Bluesky の自分の投稿についたコメントを15分ごとに取り込み、AIが返信の案を書きます。返信は「この文で返信する」を押したときだけ送ります。X のコメントは、読むのに費用がかかるので取り込んでいません。</p>
+            <p className="text-xs text-muted">Threads・Bluesky の自分の投稿についたコメントを5分ごとに取り込み、AIが返信の案を書きます。返信は「この文で返信する」を押したときだけ送ります。X のコメントは、読むのに費用がかかるので取り込んでいません。</p>
           </div>
           <SyncComments />
         </div>
@@ -187,7 +187,7 @@ export default function GrowthPage() {
       <section className="space-y-2">
         <div>
           <h2 className="font-bold">投稿済み（{posted.length}件）</h2>
-          <p className="text-xs text-muted">訪問・成果は、投稿ごとの専用リンクから来た人の数です（15分ごとに取り込みます）。SNSの側で投稿を消したときは「記録から外す」を押してください。</p>
+          <p className="text-xs text-muted">訪問・成果は、投稿ごとの専用リンクから来た人の数です（5分ごとに取り込みます）。SNSの側で投稿を消したときは「記録から外す」を押してください。</p>
         </div>
         {posted.length === 0 ? (
           <div className="card p-4 text-sm text-ink-2">まだ投稿はありません。</div>

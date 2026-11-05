@@ -11,8 +11,8 @@ const MODES: { id: ApprovalMode; label: string; body: string }[] = [
   { id: "confidence", label: "AIの自信で決める", body: "AIの自信が基準以上の案件だけ自動で進め、それ以外は毎回承認にします。「AIの自信は当たるのか」を確かめられます。" },
 ];
 
-export function SettingsForm({ initial, models, publishing, snsReady }: {
-  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { label: string; ok: boolean; free: boolean }[];
+export function SettingsForm({ initial, models, publishing, snsReady, notifyReady }: {
+  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { label: string; ok: boolean; free: boolean }[]; notifyReady: boolean;
 }) {
   const router = useRouter();
   const [v, setV] = useState({
@@ -187,7 +187,7 @@ export function SettingsForm({ initial, models, publishing, snsReady }: {
           </span>
         </div>
         <p className="text-xs text-muted">
-          公開を承認すると、LPがこのURLの下に「/p案件番号」で公開されます。訪問と登録の数は15分ごとに自動で取り込みます。
+          公開を承認すると、LPがこのURLの下に「/p案件番号」で公開されます。訪問と登録の数は5分ごとに自動で取り込みます。
           接続には <code>.env.local</code> に SUPABASE_URL と SUPABASE_SERVICE_ROLE_KEY が必要です（手順は docs/SETUP-LP.md）。
         </p>
         <Field label="LPサイトのURL（独自ドメイン）">
@@ -223,6 +223,19 @@ export function SettingsForm({ initial, models, publishing, snsReady }: {
                 <input type="number" min={1} max={10} {...num("autoPostPerDay")} className={input} />
               </Field>
             )}
+          </div>
+          <div className="space-y-2 rounded-lg bg-surface-2 p-3 sm:col-span-2">
+            <div className="text-sm font-medium">スマホへの1日のまとめ</div>
+            <p className="text-xs text-muted">
+              {notifyReady ? "✓ 送り先が入っています。" : "送り先が入っていないため、送られません（.env.local に NOTIFY_WEBHOOK_URL を入れて、サーバーを再起動してください。手順は docs/SETUP-NOTIFY.md）。"}
+              毎日1回、新しい案件・公開・判断・投稿・失敗・あなたの確認待ち・費用をまとめて送ります。
+            </p>
+            <div className="flex flex-wrap items-end gap-3">
+              <Field label="送る時刻（日本時間）" note="">
+                <input type="number" min={0} max={23} {...num("digestHour")} className={input} />
+              </Field>
+              <TestNotify disabled={!notifyReady} />
+            </div>
           </div>
           <Field label="問い合わせ先のメールアドレス" note="同じく、登録者へ送るメールに載せます（プライバシーポリシーの連絡先と同じものがおすすめ）。">
             <input type="email" value={v.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />
@@ -288,5 +301,28 @@ function Field({ label, note, children }: { label: string; note?: string; childr
       {children}
       {note && <span className="block text-xs text-muted">{note}</span>}
     </label>
+  );
+}
+
+// 1日のまとめを、今すぐ試しに送る
+function TestNotify({ disabled }: { disabled: boolean }) {
+  const [msg, setMsg] = useState<string | null>(null);
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <button
+        type="button"
+        disabled={disabled}
+        className="rounded-lg border border-line px-3 py-1 disabled:opacity-50"
+        onClick={async () => {
+          setMsg("送っています…");
+          const res = await fetch("/api/notify", { method: "POST" }).catch(() => null);
+          const data = res ? await res.json().catch(() => ({})) : {};
+          setMsg(res?.ok ? "送りました。スマホを確認してください" : (data.error ?? "送れませんでした"));
+        }}
+      >
+        今すぐ試しに送る
+      </button>
+      {msg && <span className="text-ink-2">{msg}</span>}
+    </div>
   );
 }

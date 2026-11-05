@@ -3,6 +3,7 @@ import { db, getSettings, saveSettings, type ProjectRow } from "./db";
 import { CONV, KIND_LABEL, STAGE_LABEL, ideaAuthorStats, logEvent } from "./loop";
 import { modelInfo } from "./models";
 import { costEfficiency } from "./cost";
+import { headline, endReasons, rankings } from "./experiment";
 
 // 週ごとのレポート: 1週間の数字と動きをAIがまとめ、発信用の下書き（Xの投稿・記事）と、実験メモの追加案も作る
 
@@ -11,7 +12,7 @@ export type Report = {
   numbers: { label: string; value: string }[];
   highlights: string[]; // 今週あったこと
   noteIdeas: { title: string; body: string; topic: string }[]; // 実験メモに足すとよい気づき
-  xPosts: string[]; // 発信用のXの投稿の下書き
+  xPosts: string[]; // あなたの個人アカウントで投稿する「実験ログ」の下書き
   article: string; // note などに載せる記事の下書き（Markdown）
   next: string[]; // 来週やるとよいこと
 };
@@ -41,7 +42,13 @@ function gather(start: string) {
   const posts = db().prepare("SELECT s.text, s.visits, s.conversions, p.title FROM sns_posts s JOIN projects p ON p.id = s.project_id WHERE s.posted_at >= ?").all(since) as { text: string; visits: number; conversions: number; title: string }[];
   const authors = ideaAuthorStats().map((a) => `- ${modelInfo(a.author).label}: 候補${a.candidates} 選ばれた${a.selected} 他社からの点${a.scoreFromOthers?.toFixed(1) ?? "-"} 自分の案への点${a.scoreFromSelf?.toFixed(1) ?? "-"}`);
   const ce = costEfficiency().all;
+  const h = headline();
+  const ends = endReasons();
+  const tops = rankings().filter((r) => r.rows.length > 1).map((r) => `- ${r.title}: 1位 ${r.rows[0].label}（${r.rows[0].display}）`);
   return [
+    `実験の累計: AIが作った案件 ${h.projects}件・公開 ${h.published}件・育てる段階 ${h.continued}件・撤退 ${h.killed}件 / AIだけで公開 ${h.auto.published}件（人が確認 ${h.auto.reviewed}件・ダメ ${h.auto.bad}件）/ 人が操作した回数 ${h.humanActs}回 / AIの費用の累計 ${Math.round(h.aiJpy)}円`,
+    `撤退した理由の内訳: ${ends.map((e) => `${e.label} ${e.n}件`).join("・") || "まだなし"}`,
+    `AIのランキング（部門ごとの1位）:\n${tops.join("\n") || "（まだ比べられない）"}`,
     `期間: ${start} から今日まで`,
     `案件（実案件のみ）:\n${lines.join("\n") || "（なし）"}`,
     `今週の出来事:\n${events.map((e) => `- ${e.at.slice(5, 16)} [${e.actor}] ${e.message}`).join("\n").slice(0, 6000) || "（なし）"}`,
@@ -66,7 +73,7 @@ export async function createReport(): Promise<number> {
 - 盛らない。うまくいかなかったことも正直に書く（失敗も実験の成果）
 - 記事やXの下書きでは、サービス名は出してよいが、URLは書かない（載せるかは運営者が決める）
 - 記事（article）は note に載せる想定の Markdown。見出し・箇条書きを使い、800〜1500文字。「AIに何を任せ、人は何を判断したか」「数字」「気づき」「来週」の流れにする
-- xPosts は日本語で1件120文字以内を2〜3件。実験の進み具合や気づきを、興味を持ってもらえる言い方で
+- xPosts は、運営者が自分の個人アカウントで投稿する「実験ログ」。日本語で1件120文字以内を2〜3件。一人称で「AIにプロダクト作りを丸ごと任せる実験をしている人」として、今週AIが作ったもの・撤退したもの・数字・意外だったことを書く。1件目は「今週の実験ログ」として数字の要約、2件目以降は気づきを1つずつ。サービスの宣伝にはしない
 - noteIdeas は、実験メモに残す価値がある気づき（数字の根拠つき）を0〜3件。topic は idea / design / tool / judge / cost / other のどれか
 形式: {"summary":"3行ほどのまとめ","numbers":[{"label":"項目","value":"値"}],"highlights":["今週あったこと"],"noteIdeas":[{"title":"気づき","body":"根拠","topic":"idea"}],"xPosts":["投稿"],"article":"記事のMarkdown","next":["来週やるとよいこと"]}`,
     user: material,
