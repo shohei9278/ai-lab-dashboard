@@ -1,3 +1,4 @@
+import { HIDDEN, maskEventMessage, maskHandles } from "./viewer";
 import { db, getSettings } from "./db";
 import { activityList, buildingList, ideaRunning, liveNotesList } from "./loop";
 import { modelInfo } from "./models";
@@ -69,7 +70,14 @@ function feed(): FeedItem[] {
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, 40);
 }
 
-export function liveSnapshot() {
+// 来た人には、SNSのコメントの相手と本文を伏せる（AIの返信の案は、@アカウント名を伏せて出す）
+function maskFeedForGuest(f: FeedItem): FeedItem {
+  if (f.kind === "コメント") return { ...f, who: "（デモ表示）", text: HIDDEN };
+  if (f.kind === "返信の案") return { ...f, text: maskHandles(f.text) };
+  return f;
+}
+
+export function liveSnapshot({ guest = false } = {}) {
   const s = getSettings();
   const calls = db().prepare(
     `SELECT c.id, c.at, c.purpose, c.model_id, c.cost_usd, c.error, p.title FROM ai_calls c LEFT JOIN projects p ON p.id = c.project_id ORDER BY c.id DESC LIMIT 30`,
@@ -101,8 +109,8 @@ export function liveSnapshot() {
       postsToday, live,
     },
     calls: calls.map((c) => ({ id: c.id, at: c.at, purpose: c.purpose, model: label(c.model_id), provider: provider(c.model_id), jpy: c.cost_usd * s.usdJpy, error: c.error, project: c.title })),
-    events: events.map((e) => ({ id: e.id, at: e.at, actor: e.actor, kind: e.kind, message: e.message, project: e.title })),
-    feed: feed(),
+    events: events.map((e) => ({ id: e.id, at: e.at, actor: e.actor, kind: e.kind, message: guest ? maskEventMessage(e.kind, e.message) : e.message, project: e.title })),
+    feed: guest ? feed().map(maskFeedForGuest) : feed(),
   };
 }
 

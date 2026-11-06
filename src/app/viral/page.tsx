@@ -1,3 +1,4 @@
+import { HIDDEN, isOwner } from "@/lib/viewer";
 import { PageIntro } from "@/components/PageIntro";
 import { getSettings } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
@@ -12,13 +13,15 @@ export const dynamic = "force-dynamic";
 const num = (n: number | null) => (n === null ? "—" : n >= 10_000 ? `${(n / 10_000).toFixed(1)}万` : n.toLocaleString("ja-JP"));
 
 // 話題の個人開発の投稿
-export default function ViralPage() {
+export default async function ViralPage() {
   const s = getSettings();
   const ready = xConfigured();
-  const rows = listViral();
+  const owner = await isOwner();
+  // 来た人には、他人の投稿の本文と「欲しい」の声の元の投稿を伏せる（AIのまとめと数字は出す）
+  const rows = listViral().map((r) => (owner ? r : { ...r, text: r.text ? HIDDEN : r.text }));
   const ok = rows.filter((r) => r.status === "ok");
   const waiting = rows.filter((r) => r.status === "queued").length;
-  const wants = listWants();
+  const wants = listWants().map((w) => (owner ? w : { ...w, text: HIDDEN, url: "" }));
   return (
     <div className="space-y-6">
       <PageIntro title="話題の投稿">
@@ -66,7 +69,7 @@ export default function ViralPage() {
                     <td className="num px-3 py-2 text-right">{num(w.likes)}</td>
                     <td className="px-3 py-2 text-xs">{w.project_id ? <Link href={`/projects/${w.project_id}`} className="text-accent underline">#{w.project_id} {w.project_title}</Link> : <span className="text-muted">まだ</span>}</td>
                     <td className="whitespace-nowrap px-3 py-2 text-xs">
-                      <a href={w.url} target="_blank" rel="noreferrer" className="text-accent underline">投稿 ↗</a>{" "}
+                      {w.url && <><a href={w.url} target="_blank" rel="noreferrer" className="text-accent underline">投稿 ↗</a>{" "}</>}
                       {!w.project_id && <DeleteWant id={w.id} />}
                     </td>
                   </tr>
@@ -104,6 +107,7 @@ export default function ViralPage() {
                 {r.status === "error" && <p className="text-xs" style={{ color: "var(--critical)" }}>{r.error}</p>}
                 {r.a && r.status === "ok" && (
                   <dl className="grid grid-cols-[5.5em_1fr] gap-x-2 gap-y-1 border-t border-line pt-2 text-xs">
+                    <dt className="text-muted">種類</dt><dd>{r.a.type === "share" ? "使った人の結果のシェア" : "作った人の紹介"}</dd>
                     <dt className="text-muted">分野・形</dt><dd>{r.a.genre}・{r.a.format}</dd>
                     <dt className="text-muted">伸びた理由</dt><dd>{r.a.why}</dd>
                     <dt className="text-muted">言葉の型</dt><dd>{r.a.hook}</dd>

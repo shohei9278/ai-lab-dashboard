@@ -1,3 +1,4 @@
+import { isOwner } from "@/lib/viewer";
 import { listRefs, type RefTags } from "@/lib/designRefs";
 import { PageIntro } from "@/components/PageIntro";
 import { RefActions, Bookmarklet, BulkAdd, MakeNeeds } from "./RefActions";
@@ -6,7 +7,8 @@ import { savedNeeds } from "@/lib/refNeeds";
 export const dynamic = "force-dynamic";
 
 // デザインの参考のライブラリ
-export default function RefsPage() {
+export default async function RefsPage() {
+  const owner = await isOwner();
   const refs = listRefs();
   const ok = refs.filter((r) => r.status === "ok");
   const waiting = refs.filter((r) => r.status === "queued").length;
@@ -16,6 +18,8 @@ export default function RefsPage() {
       <PageIntro title="デザインの参考">
         AIがページをデザインするときに見せる、参考のLPです。あなたが選んだページの最初の画面を撮り、AIが雰囲気・業種・構成・配色のタグを付けます。
         参考は「雰囲気と質」のためだけに使い、配置や文言はまねさせません。公開サイトには載りません。
+        <br />
+        <b>今は使っていません。</b>参考あり・なしで作り比べても差がはっきりしなかったため、LPのデザインは「Claude と別の会社のAIの作り比べ」に変えました。集めた参考は残してあります。
       </PageIntro>
 
       <section className="card space-y-3 p-4">
@@ -72,7 +76,9 @@ export default function RefsPage() {
               const t = r.tags ? (JSON.parse(r.tags) as RefTags) : null;
               return (
                 <li key={r.id} className="card space-y-2 p-3 text-sm">
-                  {r.shot_pc ? (
+                  {r.shot_pc && !owner ? (
+                    <div className="flex aspect-[16/10] items-center justify-center rounded-lg bg-surface-2 px-3 text-center text-xs text-muted">（デモ表示）他人のサイトの画面のため、伏せています</div>
+                  ) : r.shot_pc ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={`/api/refs/${r.shot_pc}`} alt={r.title ?? r.url} className="aspect-[16/10] w-full rounded-lg border border-line object-cover object-top" />
                   ) : (

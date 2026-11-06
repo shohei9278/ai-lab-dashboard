@@ -1,3 +1,4 @@
+import { isOwner, maskEventsForGuest } from "@/lib/viewer";
 import Link from "next/link";
 import { db, getSettings, type ProjectRow, type Stage } from "@/lib/db";
 import { getModel } from "@/lib/models";
@@ -12,6 +13,9 @@ import { DailyCard } from "@/components/DailyCard";
 import { Stat } from "@/components/ui";
 import { AUTO_PLATFORMS, autoPlatforms } from "@/lib/snsApi";
 import { budgetState } from "@/lib/budget";
+import { planProgress, todayPlan } from "@/lib/plan";
+import { PlanSummary, PlanTasks } from "./plan/PlanView";
+import { Replan } from "./plan/PlanActions";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +29,9 @@ const COLUMNS: { stages: Stage[]; title: string; who: string }[] = [
 
 const ACTOR = { ai: "AI", human: "あなた", system: "システム" } as const;
 
-export default function Home() {
+export default async function Home() {
   const s = getSettings();
+  const plan = s.dailyPlan ? todayPlan() : undefined;
   const projects = db().prepare("SELECT * FROM projects ORDER BY updated_at DESC").all() as ProjectRow[];
   const pendingByProject = new Set(
     (db().prepare("SELECT DISTINCT project_id FROM approvals WHERE status = 'pending'").all() as { project_id: number }[]).map((r) => r.project_id),
@@ -53,6 +58,8 @@ export default function Home() {
       : MODE_LABEL[s.approvalMode];
 
   const o = overview();
+  const owner = await isOwner();
+  o.events = maskEventsForGuest(o.events, owner);
   const waiting = waitingItems();
   const autoStats = autoPublishStats();
   const waitingAt = (stage: Stage) => waiting.filter((w) => w.stage === stage).length;
@@ -164,6 +171,30 @@ export default function Home() {
           </p>
         )}
       </section>
+
+      {/* 今日のAIの計画 */}
+      {s.dailyPlan && (
+        <section id="plan" className="card scroll-mt-4 space-y-3 p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-bold">今日のAIの計画</h2>
+            <span className="flex flex-wrap items-center gap-3 text-sm">
+              {owner && <Replan label={plan ? "作り直す（約10〜20円）" : "今日の計画を作る（約10〜20円）"} />}
+              <Link href="/plan" className="text-accent underline">AIの見立て・これまでの達成度</Link>
+            </span>
+          </div>
+          {plan ? (
+            <>
+              <PlanSummary plan={plan} />
+              <details className="group border-t border-line pt-2">
+                <summary className="cursor-pointer text-sm text-ink-2">今日の予定を開く（{planProgress(plan).done}/{planProgress(plan).total}件 済み）</summary>
+                <div className="mt-2"><PlanTasks plan={plan} owner={owner} /></div>
+              </details>
+            </>
+          ) : (
+            <p className="text-sm text-ink-2">今日の計画はまだありません。毎朝{Math.min(s.dailyHour, 8)}時以降の自動の見回り（5分ごと）で、AIが全案件を振り返って作ります。</p>
+          )}
+        </section>
+      )}
 
       {/* 推移と処理ログ */}
       <div className="grid gap-4 lg:grid-cols-3">

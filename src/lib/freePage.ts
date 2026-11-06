@@ -2,7 +2,8 @@ import { viralHints } from "./viralPosts";
 import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright-core";
-import { callClaude, isObj, isStr, type ClaudeContent } from "./ai";
+import { callClaude, callLong, callVision, isObj, isStr, type ClaudeContent } from "./ai";
+import { getModel, hasKey } from "./models";
 import { refImages, type DesignRef } from "./designRefs";
 import { dataDir, getSettings, type ProjectRow } from "./db";
 import { PAGE_HTML_MAX, type Lp } from "../../lp-site/src/lp/content";
@@ -65,19 +66,26 @@ function extractHtml(text: string): string {
   return start >= 0 ? t.slice(start) : t;
 }
 
-async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: string; instruction?: string; issues?: string[]; keepCore?: boolean; refs?: DesignRef[] }): Promise<string> {
+// modelId を指定すると、そのAIが書く（別の会社のAIとの作り比べ用。指定しなければ Claude）
+async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: string; instruction?: string; issues?: string[]; keepCore?: boolean; refs?: DesignRef[]; modelId?: string }): Promise<string> {
   const fix = opts.issues?.length
     ? `\n\n今のページに次の問題が見つかった。これを直したページ全体を出力すること（直す所以外はそのまま）:\n- ${opts.issues.join("\n- ")}`
     : "";
   const instr = opts.instruction
     ? `\n\n今回の修正指示: ${opts.instruction}\n${opts.keepCore ? "指示された所だけ直し、それ以外（世界観・見た目・文言）は今のページのまま残すこと。" : "世界観は保ったまま、指示に合わせて直すこと。"}ページ全体を出力すること。`
     : "";
+  const purpose = opts.issues?.length ? "LPのデザイン修正" : "LPのデザイン";
+  const user = `${material(p, lp)}${opts.prevHtml ? `\n\n今のページ:\n${opts.prevHtml}` : viralHints("page")}${instr}${fix}`;
+  if (opts.modelId && getModel(opts.modelId).provider !== "anthropic") {
+    return extractHtml(await callLong({ modelId: opts.modelId, purpose, projectId: p.id, system: SYSTEM, user, maxTokens: 64000 }));
+  }
   const text = await callClaude({
-    purpose: opts.issues?.length ? "LPのデザイン修正" : "LPのデザイン",
+    purpose,
     projectId: p.id,
     system: SYSTEM,
+    modelId: opts.modelId,
     content: [
-      { type: "text", text: `${material(p, lp)}${opts.prevHtml ? `\n\n今のページ:\n${opts.prevHtml}` : viralHints("page")}${instr}${fix}` },
+      { type: "text", text: user },
       // 参考のLP（雰囲気と質の水準を上げるため。配置・文言・画像はまねしない）
       ...(opts.refs?.length && !opts.issues?.length
         ? [
@@ -218,11 +226,12 @@ async function check(p: ProjectRow, html: string, imgOrigins: string[], name: st
 }
 
 // ページを書いて確かめ、問題があれば1回だけ直す。外部との通信などの決まりを守れていなければ使わない（例外を投げる）
-export async function buildPage(p: ProjectRow, lp: Lp, name: string, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean; refs?: DesignRef[] } = {}): Promise<{ html: string; check: PageCheck }> {
+// 直すときも、書いたのと同じAIが直す（作り比べの結果がそのAIの出来になるように）
+export async function buildPage(p: ProjectRow, lp: Lp, name: string, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean; refs?: DesignRef[]; modelId?: string } = {}): Promise<{ html: string; check: PageCheck }> {
   let html = await writePageHtml(p, lp, opts);
   let r = await check(p, html, imgOriginsOf(lp.design?.illustration?.url, html), name);
   if (r.issues.length) {
-    html = await writePageHtml(p, lp, { prevHtml: html, issues: r.issues });
+    html = await writePageHtml(p, lp, { prevHtml: html, issues: r.issues, modelId: opts.modelId });
     r = await check(p, html, imgOriginsOf(lp.design?.illustration?.url, html), name);
   }
   if (r.fixed.length) throw new Error(`自由なデザインのページが決まりを守れていません: ${r.fixed.join(" / ")}`);
@@ -248,29 +257,47 @@ export function pageTexts(html: string): { headline?: string; subheadline?: stri
   };
 }
 
-// 2つのページの画面を、どちらがどの作り方か伏せてAIに見比べさせる（スマホの最初の4画面とPCの最初の画面）
-export async function judgePages(p: ProjectRow, a: PageCheck, b: PageCheck): Promise<{ winner: "a" | "b"; scoreA: number; scoreB: number; reason: string }> {
+// 採点するAI（3社）。作ったAIの会社の採点役が両方の案に1人ずつ付くので、身内びいきが打ち消し合う
+export const PAGE_JUDGES = ["claude-opus-5-5", "gpt-5.6-sol", "gemini-3.1-pro-preview"];
+
+export type PageJudge = { modelId: string; a: number; b: number; reason: string };
+
+// 2つのページの画面を、どちらがどのAIの作か伏せて、3社のAIに別々に見比べさせる（スマホの最初の4画面とPCの最初の画面）。平均点の高い方を選ぶ
+// names は理由の文の中の呼び名（X・Y は採点役ごとに並びが違うので、作ったAIの名前に置き換える）
+export async function judgePages(p: ProjectRow, a: PageCheck, b: PageCheck, names = { a: "案A", b: "案B" }): Promise<{ winner: "a" | "b"; scoreA: number; scoreB: number; reason: string; judges: PageJudge[] }> {
   const dir = dataDir("screenshots");
   const imgs = (c: PageCheck): ClaudeContent =>
     [...c.shots.slice(0, 4), ...(c.pc ? [c.pc] : [])]
       .filter((f) => fs.existsSync(path.join(dir, f)))
       .map((f) => ({ type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: fs.readFileSync(path.join(dir, f)).toString("base64") } }));
-  const flip = Math.random() < 0.5; // 並び順で見抜かれないように
-  const [x, y] = flip ? [b, a] : [a, b];
-  const out = await callClaude({
-    purpose: "LPのデザインの採点",
-    projectId: p.id,
-    system: `あなたは経験豊富なアートディレクターです。同じサービスの事前登録LPを、別々に作った2案（X と Y）の画面で見比べます。作り方は伏せてあります。
+  const [ia, ib] = [imgs(a), imgs(b)];
+  const system = `あなたは経験豊富なアートディレクターです。同じサービスの事前登録LPを、別々に作った2案（X と Y）の画面で見比べます。作り方は伏せてあります。
 観点: 一目で何のサービスか分かるか / 対象読者（${p.target}）が自分ごとと感じて登録したくなるか / プロが作ったような質（余白・文字の強弱・配色・密度）か / 崩れや読みにくさがないか / テンプレートっぽさ・AIっぽさがないか
 それぞれ1〜10点で、甘くしないこと（平凡なら5点前後）。
-出力はJSONのみ: {"x":点数,"y":点数,"reason":"どちらがなぜ良いかを1〜2文で"}`,
-    content: [{ type: "text", text: "案X:" }, ...imgs(x), { type: "text", text: "案Y:" }, ...imgs(y)],
-    maxTokens: 6000,
-  });
-  const t = out.replace(/```(?:json)?/g, "");
-  const v = JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)) as { x?: number; y?: number; reason?: string };
-  const sx = Math.max(1, Math.min(10, Number(v.x) || 5));
-  const sy = Math.max(1, Math.min(10, Number(v.y) || 5));
-  const [scoreA, scoreB] = flip ? [sy, sx] : [sx, sy];
-  return { winner: scoreB > scoreA ? "b" : "a", scoreA, scoreB, reason: String(v.reason ?? "").slice(0, 300) };
+出力はJSONのみ: {"x":点数,"y":点数,"reason":"どちらがなぜ良いかを1〜2文で"}`;
+  const ask = async (modelId: string): Promise<PageJudge> => {
+    const flip = Math.random() < 0.5; // 並び順で見抜かれないように（採点役ごとに決める）
+    const [x, y] = flip ? [ib, ia] : [ia, ib];
+    const out = await callVision({
+      modelId, purpose: "LPのデザインの採点", projectId: p.id, system, maxTokens: 16000,
+      content: [{ type: "text", text: "案X:" }, ...x, { type: "text", text: "案Y:" }, ...y],
+    });
+    const t = out.replace(/```(?:json)?/g, "");
+    const v = JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)) as { x?: number; y?: number; reason?: string };
+    const sx = Math.max(1, Math.min(10, Number(v.x) || 5));
+    const sy = Math.max(1, Math.min(10, Number(v.y) || 5));
+    const [sa, sb] = flip ? [sy, sx] : [sx, sy];
+    const [nx, ny] = flip ? [names.b, names.a] : [names.a, names.b];
+    const reason = String(v.reason ?? "").replace(/案\s*([XY])|(?<![A-Za-z])([XY])(?![A-Za-z])/g, (_, c1, c2) => `「${(c1 ?? c2) === "X" ? nx : ny}」`);
+    return { modelId, a: sa, b: sb, reason: reason.slice(0, 400) };
+  };
+  const usable = PAGE_JUDGES.filter((id) => hasKey(getModel(id).provider));
+  const judges = (await Promise.allSettled(usable.map(ask))).flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
+  if (!judges.length) throw new Error("どのAIも採点できませんでした");
+  const avg = (k: "a" | "b") => Math.round((judges.reduce((n, j) => n + j[k], 0) / judges.length) * 10) / 10;
+  const [scoreA, scoreB] = [avg("a"), avg("b")];
+  // 同点なら、どちらにも偏らないようくじで決める
+  const winner = scoreA === scoreB ? (Math.random() < 0.5 ? "a" : "b") : scoreB > scoreA ? "b" : "a";
+  const reason = judges.map((j) => `${getModel(j.modelId).label}: ${j.reason}`).join(" / ").slice(0, 900);
+  return { winner, scoreA, scoreB, reason, judges };
 }

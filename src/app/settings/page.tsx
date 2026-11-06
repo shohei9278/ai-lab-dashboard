@@ -1,3 +1,4 @@
+import { HIDDEN, isOwner } from "@/lib/viewer";
 import { getSettings } from "@/lib/db";
 import { MODELS, PROVIDER_ENV, PROVIDER_LABEL, hasKey, type Provider } from "@/lib/models";
 import { SettingsForm } from "./SettingsForm";
@@ -9,13 +10,15 @@ import { PageIntro } from "@/components/PageIntro";
 
 export const dynamic = "force-dynamic";
 
-export default function SettingsPage() {
-  const s = getSettings();
+export default async function SettingsPage() {
+  const owner = await isOwner();
+  // 来た人には、連絡先や運営者名は伏せる（何を決められるかは見せる）
+  const s = owner ? getSettings() : { ...getSettings(), contactEmail: HIDDEN, operatorName: HIDDEN };
   const providers = [...new Set(MODELS.map((m) => m.provider))] as Provider[];
   return (
     <div className="space-y-6">
       <PageIntro title="設定">AIが使えるお金の上限、案件を判断する基準、製品ループで使うAIを決めます。</PageIntro>
-      <SettingsForm initial={s} models={MODELS.map((m) => ({ id: m.id, label: m.label, ok: hasKey(m.provider) }))} publishing={publishingConfigured()} notifyReady={notifyConfigured()} backups={backupList().slice(0, 3).map((b) => b.file)} snsReady={Object.values(AUTO_PLATFORMS).map((d) => ({ label: d.label, ok: d.configured(), free: d.costUsd === 0 }))} />
+      <SettingsForm initial={s} models={MODELS.map((m) => ({ id: m.id, label: m.label, ok: hasKey(m.provider) }))} publishing={publishingConfigured()} notifyReady={notifyConfigured()} backups={owner ? backupList().slice(0, 3).map((b) => b.file) : []} snsReady={Object.values(AUTO_PLATFORMS).map((d) => ({ label: d.label, ok: d.configured(), free: d.costUsd === 0 }))} />
 
       <section className="space-y-2">
         <h2 className="font-bold">APIキー</h2>

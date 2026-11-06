@@ -1,0 +1,9 @@
+node_modules
+.next
+data
+.env*
+!.env.example
+lp-site/node_modules
+lp-site/.next
+lp-site/.vercel
+*.tsbuildinfo

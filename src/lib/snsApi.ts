@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { db } from "./db";
-import { X_POST_COST_USD, postToX, xConfigured } from "./xPost";
+import { X_PLAIN_POST_COST_USD, X_POST_COST_USD, postToX, xConfigured } from "./xPost";
 
 // AIが自動で投稿できる場所（X・Threads・Bluesky）。キーは .env.local（サーバーでは環境変数）に入れる。手順は docs/SETUP-SNS.md
 // どこも、運営のアカウントとして自分の投稿をするだけ。返信・フォロー・いいねなど、他人への働きかけはしない
@@ -14,6 +14,11 @@ type Def = {
   fits: (text: string, link: string) => boolean; // 本文＋リンクが文字数の上限に収まるか
   bodyHint: string; // 下書きを書くAIに伝える長さの目安
   post: (text: string, link: string) => Promise<{ url: string }>;
+  // リンクのない普通の投稿（宣伝ではない投稿）
+  plainCostUsd: number;
+  plainFits: (text: string) => boolean;
+  plainHint: string;
+  postPlain: (text: string) => Promise<{ url: string }>;
 };
 
 // X の文字数の数え方: 日本語などは1文字を2と数え、URLは長さに関係なく23と数える。上限は280
@@ -102,18 +107,8 @@ export async function blueskySession(): Promise<{ accessJwt: string; did: string
   return { accessJwt: s.accessJwt, did: s.did, handle: s.handle ?? "" };
 }
 
-async function postToBluesky(text: string, link: string): Promise<{ url: string }> {
+async function blueskyRecord(record: Record<string, unknown>): Promise<{ url: string }> {
   const s = await blueskySession();
-  const full = `${text}\n${link}`;
-  // リンクを押せるようにする（位置はバイト数で指定する）
-  const start = Buffer.byteLength(`${text}\n`);
-  const record = {
-    $type: "app.bsky.feed.post",
-    text: full,
-    createdAt: new Date().toISOString(),
-    langs: ["ja"],
-    facets: [{ index: { byteStart: start, byteEnd: start + Buffer.byteLength(link) }, features: [{ $type: "app.bsky.richtext.facet#link", uri: link }] }],
-  };
   const res = await fetch("https://bsky.social/xrpc/com.atproto.repo.createRecord", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${s.accessJwt}` },
@@ -124,24 +119,44 @@ async function postToBluesky(text: string, link: string): Promise<{ url: string 
   return { url: `https://bsky.app/profile/${s.did}/post/${data.uri.split("/").pop()}` };
 }
 
+async function postToBluesky(text: string, link: string): Promise<{ url: string }> {
+  const full = `${text}\n${link}`;
+  // リンクを押せるようにする（位置はバイト数で指定する）
+  const start = Buffer.byteLength(`${text}\n`);
+  const record = {
+    $type: "app.bsky.feed.post",
+    text: full,
+    createdAt: new Date().toISOString(),
+    langs: ["ja"],
+    facets: [{ index: { byteStart: start, byteEnd: start + Buffer.byteLength(link) }, features: [{ $type: "app.bsky.richtext.facet#link", uri: link }] }],
+  };
+  return blueskyRecord(record);
+}
+
 export const AUTO_PLATFORMS: Record<AutoPlatform, Def> = {
   x: {
     label: "X", costUsd: X_POST_COST_USD, configured: xConfigured,
     fits: (text) => xWeightedLength(text) <= 280,
     bodyHint: "日本語で110文字以内",
     post: (text, link) => postToX(`${text}\n${link}`),
+    plainCostUsd: X_PLAIN_POST_COST_USD, plainFits: (text) => xWeightedLength(text, false) <= 280, plainHint: "日本語で130文字以内",
+    postPlain: postToX,
   },
   threads: {
     label: "Threads", costUsd: 0, configured: () => !!process.env.THREADS_ACCESS_TOKEN,
     fits: (text, link) => [...`${text}\n${link}`].length <= 500,
     bodyHint: "日本語で250文字以内（会話のような、問いかけや体験談の書き方が向く）",
     post: postToThreads,
+    plainCostUsd: 0, plainFits: (text) => [...text].length <= 500, plainHint: "日本語で250文字以内（会話のような書き方が向く）",
+    postPlain: (text) => threadsPost({ text }),
   },
   bluesky: {
     label: "Bluesky", costUsd: 0, configured: () => !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD),
     fits: (text, link) => graphemes(`${text}\n${link}`) <= 300,
     bodyHint: "日本語で140文字以内",
     post: postToBluesky,
+    plainCostUsd: 0, plainFits: (text) => graphemes(text) <= 300, plainHint: "日本語で140文字以内",
+    postPlain: (text) => blueskyRecord({ $type: "app.bsky.feed.post", text, createdAt: new Date().toISOString(), langs: ["ja"] }),
   },
 };
 

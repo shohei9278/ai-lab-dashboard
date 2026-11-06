@@ -5,6 +5,7 @@ import { modelInfo } from "./models";
 import { costEfficiency } from "./cost";
 import { headline, endReasons, rankings } from "./experiment";
 import { jstDateTime } from "./format";
+import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, recentPlans } from "./plan";
 
 // 週ごとのレポート: 1週間の数字と動きをAIがまとめ、発信用の下書き（Xの投稿・記事）と、実験メモの追加案も作る
 
@@ -57,6 +58,7 @@ function gather(start: string) {
     `成果1件あたりの費用（累計）: ${ce.perConversion === null ? "成果なし" : `${Math.round(ce.perConversion)}円`}（AI ${Math.round(ce.aiJpy)}円＋広告 ${Math.round(ce.adJpy)}円、成果 ${ce.conversions}件）`,
     `アイデア出しのAI別の成績（累計）:\n${authors.join("\n") || "（なし）"}`,
     `今週のSNS投稿:\n${posts.map((x) => `- ${x.title}: 「${x.text.slice(0, 50)}…」訪問${x.visits} 成果${x.conversions}`).join("\n") || "（なし）"}`,
+    `毎日の計画（AIが毎朝決めたネックと、予定・目標の達成）:\n${recentPlans(7).map((pl) => { const g = planProgress(pl); return `- ${pl.day}: ${BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}・${g.content.focus}・予定 ${g.done}/${g.total}件・目標 ${g.goals.map((x) => `${GOAL_LABEL[x.metric]} ${x.actual}/${x.target}`).join("・")}`; }).join("\n") || "（なし）"}`,
     `今週書かれた実験メモ:\n${notes.map((n) => `- ${n.title}（${n.certainty}）`).join("\n") || "（なし）"}`,
   ].join("\n\n");
 }

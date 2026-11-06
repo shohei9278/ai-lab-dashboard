@@ -205,6 +205,31 @@ CREATE TABLE IF NOT EXISTS sns_posts (
   visits INTEGER NOT NULL DEFAULT 0,
   conversions INTEGER NOT NULL DEFAULT 0
 );
+-- 毎日の計画: 毎朝AIが全案件を振り返り、今のネックと今日やること（投稿・ページの改善など）を決める
+CREATE TABLE IF NOT EXISTS daily_plans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  day TEXT NOT NULL UNIQUE, -- 日本時間の YYYY-MM-DD
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  model_id TEXT NOT NULL,
+  content TEXT NOT NULL, -- JSON: PlanContent（ネック・根拠・目標・昨日の振り返りなど）
+  pause_new INTEGER NOT NULL DEFAULT 0, -- 今日は新しい案件づくりを休む
+  idea_note TEXT -- 次のアイデア出しに伝える、今の課題
+);
+-- 計画の中の1つ1つの予定。5分ごとの見回りで、時刻が来たものから実行する
+CREATE TABLE IF NOT EXISTS plan_tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL REFERENCES daily_plans(id),
+  at_time TEXT NOT NULL, -- 日本時間の HH:MM
+  kind TEXT NOT NULL, -- promo = 案件の宣伝の投稿 / plain = 宣伝ではない普通の投稿 / improve = ページを直す
+  platform TEXT, -- x / threads / bluesky（投稿のとき）
+  project_id INTEGER, -- 宣伝・改善する案件
+  angle TEXT, -- 投稿の切り口・直す内容
+  reason TEXT,
+  status TEXT NOT NULL DEFAULT 'pending', -- pending / done / failed / skipped / cancelled
+  result TEXT, -- 投稿した文・結果・失敗の理由
+  result_url TEXT,
+  done_at TEXT
+);
 -- 週ごとのレポート（AIが1週間の数字と動きをまとめ、発信用の下書きも作る）
 CREATE TABLE IF NOT EXISTS reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -287,7 +312,7 @@ CREATE TABLE IF NOT EXISTS user_wants (
   problem TEXT, -- 何に困っている・何が欲しい
   note TEXT -- AIのメモ（外した理由など）
 );
--- 自由なデザインのページの候補（参考なし・参考ありの2案を作り、画面を見たAIの採点で1つを公開する）
+-- 自由なデザインのページの候補（Claude と別の会社のAIの2案を作り、画面を見たAIの採点で1つを公開する。以前は参考なし・参考ありの2案）
 CREATE TABLE IF NOT EXISTS page_candidates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -410,6 +435,19 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "first_test", "TEXT"], // 企画のときに決めた、最初の1週間の検証
   ["projects", "want_id", "INTEGER"], // 元になった「欲しい」の声（user_wants）
   ["page_candidates", "html", "TEXT"], // その案のページ（あとから人が入れ替えられるように残す）
+  ["page_candidates", "judges", "TEXT"],
+  // 投稿の反応（投稿の翌日と3日後に取り込む）と、切り口の型（効いた手の集計用）
+  ["sns_posts", "likes", "INTEGER"],
+  ["sns_posts", "replies", "INTEGER"],
+  ["sns_posts", "reposts", "INTEGER"],
+  ["sns_posts", "reactions_at", "TEXT"],
+  ["sns_posts", "angle_type", "TEXT"],
+  ["plan_tasks", "likes", "INTEGER"],
+  ["plan_tasks", "replies", "INTEGER"],
+  ["plan_tasks", "reposts", "INTEGER"],
+  ["plan_tasks", "reactions_at", "TEXT"],
+  ["plan_tasks", "angle_type", "TEXT"], // JSON: 採点したAIごとの点数 [{modelId, a, b, reason}]（a が先に作った案）
+  ["page_candidates", "model", "TEXT"], // その案のページを書いたAI（空なら、参考のあり・なしで比べていたころの案で、Claude が書いた）
   ["lessons", "fact", "TEXT"], // 観測した事実（数字など）
   ["lessons", "interpretation", "TEXT"], // 仮の解釈
   ["lessons", "unknown", "TEXT"], // まだ判断できないこと
@@ -518,6 +556,8 @@ export type Settings = {
   viralSearchCount: number; // 1回の検索で読む投稿の数（100件ずつ）
   lastViralSearch: string; // 最後に検索した日時（ISO）
   wantsSearchCount: number; // 同じ検索のときに、「欲しい」の声を読む数（100件ずつ。0 なら探さない）
+  dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
+  postSafetyPerDay: number; // 毎日の計画で投稿するときの安全装置（場所ごと・直近24時間）。AIの目標ではなく、異常を止めるための値
 };
 
 export type ApprovalMode = "manual" | "auto" | "alternate" | "confidence";
@@ -554,6 +594,8 @@ const DEFAULTS: Settings = {
   viralSearchCount: 300,
   lastViralSearch: "",
   wantsSearchCount: 200,
+  dailyPlan: true,
+  postSafetyPerDay: 10,
   dailyEnabled: false,
   dailyHour: 9,
   dailyIdeaCount: 2,
@@ -570,7 +612,7 @@ const DEFAULTS: Settings = {
 };
 
 const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];

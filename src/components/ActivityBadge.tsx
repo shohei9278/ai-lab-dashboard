@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 type Item = { key: string; title: string; detail: string; since: number };
@@ -11,14 +12,29 @@ export function ActivityBadge() {
   const [done, setDone] = useState<string[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const prev = useRef(new Map<string, string>());
+  const router = useRouter();
+  const version = useRef<string | null>(null);
+  const lastRefresh = useRef(0);
 
   useEffect(() => {
     let stop = false;
     const poll = async () => {
       if (document.hidden) return;
       const res = await fetch("/api/activity", { cache: "no-store" }).catch(() => null);
-      const data = res?.ok ? ((await res.json().catch(() => null)) as { items: Item[] } | null) : null;
+      const data = res?.ok ? ((await res.json().catch(() => null)) as { items: Item[]; version?: string } | null) : null;
       if (stop || !data) return;
+      // 裏の作業でデータが変わったら、開いている画面を新しくする（リロードしなくても反映される）
+      // 文字を入力している最中は待つ。続けて変わるときは、5秒に1回までにする
+      if (data.version) {
+        const typing = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement;
+        if (version.current !== null && version.current !== data.version && !typing && Date.now() - lastRefresh.current > 5000) {
+          lastRefresh.current = Date.now();
+          version.current = data.version;
+          router.refresh();
+        } else if (version.current === null) {
+          version.current = data.version;
+        }
+      }
       // さっきまであって、今はないもの＝終わった作業。少しの間「終わりました」と出す
       const ended = [...prev.current.entries()].filter(([k]) => !data.items.some((i) => i.key === k)).map(([, t]) => t);
       if (ended.length) {
@@ -32,7 +48,7 @@ export function ActivityBadge() {
     const p = setInterval(poll, 3000);
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => { stop = true; clearInterval(p); clearInterval(t); };
-  }, []);
+  }, [router]);
 
   const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
   if (!items.length && !done.length) return null;

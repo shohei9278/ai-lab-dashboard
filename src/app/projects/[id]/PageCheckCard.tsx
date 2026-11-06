@@ -21,14 +21,14 @@ export function PageCheckCard({ id, version, hasPage, isPublic, check }: { id: n
           <h2 className="font-bold">ページ全体のデザイン（第{version}版）</h2>
           <p className="text-xs text-muted">
             {hasPage
-              ? "AIが世界観を決めて、ページを丸ごと書いています。スマホとPCの画面を撮って、AIが崩れや内容の問題を確かめました。"
+              ? "選ばれた文章と構成をもとに、AIが世界観を決めて、ページの見た目を丸ごと書いています。スマホとPCの画面を撮って、AIが崩れや内容の問題を確かめました。"
               : "今は決まった部品の組み合わせで表示しています。"}
             {isPublic ? "デザインし直す・やめると、公開中のページにもすぐ反映されます。" : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <ActionButton disabled={!!busy} onClick={() => run("AIがページをデザインしています（3〜6分ほど）…", { action: "page", projectId: id })}>
-            {hasPage ? "デザインし直す（約100〜150円）" : "自由なデザインで作る（約100〜150円）"}
+          <ActionButton disabled={!!busy} onClick={() => run("AIがページをデザインしています（2案を作って比べるので、5〜10分ほど）…", { action: "page", projectId: id })}>
+            {hasPage ? "デザインし直す（2案で約200〜300円）" : "自由なデザインで作る（2案で約200〜300円）"}
           </ActionButton>
           {hasPage && (
             <ActionButton disabled={!!busy} onClick={() => run("戻しています…", { action: "page", projectId: id, mode: "remove" })}>

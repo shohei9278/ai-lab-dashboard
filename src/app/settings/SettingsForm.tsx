@@ -136,7 +136,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <input type="checkbox" className="mt-1" checked={v.freePage} onChange={(e) => set("freePage", e.target.checked)} />
           <span>
             事前登録LPのページ全体を、AIに自由にデザインさせる
-            <span className="block text-xs text-muted">決まった部品の組み合わせではなく、AIがサービスごとの世界観を決めてページを丸ごと書きます。スマホとPCの画面を撮ってAIが崩れを確かめ、問題があれば1回直します（1件 約100〜150円）。うまく作れなかったときは部品のLPを使います。動くツールの案件には使いません。</span>
+            <span className="block text-xs text-muted">決まった部品の組み合わせではなく、AIがサービスごとの世界観を決めてページを丸ごと書きます。スマホとPCの画面を撮ってAIが崩れを確かめ、問題があれば1回直します。Claude と別の会社のAIで2案作り、3社のAIの採点で選びます（1件 約200〜300円）。うまく作れなかったときは部品のLPを使います。動くツールの案件には使いません。</span>
           </span>
         </label>
         <Field
@@ -203,27 +203,6 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <Field label="運営者名（屋号）" note="撤退したときに、登録者へ送るメールの差出人に使います。">
             <input value={v.operatorName} onChange={(e) => set("operatorName", e.target.value)} maxLength={60} className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />
           </Field>
-          <Field label="LP・ツールを紹介する X のアカウント" note="「SNSで広める」の欄に、どのアカウントで投稿するかを表示します（@なしで入力）。">
-            <input value={v.snsAccount} onChange={(e) => set("snsAccount", e.target.value)} maxLength={16} placeholder="hitoride_app" className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />
-          </Field>
-          <div className="space-y-2 sm:col-span-2">
-            <label className="flex items-start gap-2 text-sm">
-              <input type="checkbox" className="mt-1" checked={v.autoPost} disabled={!snsReady.some((x) => x.ok)} onChange={(e) => set("autoPost", e.target.checked)} />
-              <span>
-                公開中の案件を、AIがSNSに自動で投稿する
-                <span className="block text-xs text-muted">
-                  使える場所: {snsReady.map((x) => `${x.label} ${x.ok ? "✓" : "—（キー未設定）"}`).join("　")}（キーの入れ方は docs/SETUP-SNS.md）。
-                  集客の作戦の「投稿の型」に沿って書き、日本時間の8〜22時に、場所ごとに間隔をあけて投稿します。1つの案件は20時間に1回まで。返信・フォロー・いいねなど、他人への働きかけはしません。
-                  X はリンク付きの投稿が1件 約30円（$0.20）かかり、AIの月の予算に含めて数えます。Threads と Bluesky は無料です。自動で投稿するアカウントには、各サービスで「自動化されたアカウント」のラベルを付けてください。
-                </span>
-              </span>
-            </label>
-            {v.autoPost && (
-              <Field label="自動投稿の上限（場所ごと・直近24時間）" note="">
-                <input type="number" min={1} max={10} {...num("autoPostPerDay")} className={input} />
-              </Field>
-            )}
-          </div>
           <div className="space-y-1 rounded-lg bg-surface-2 p-3 sm:col-span-2">
             <div className="text-sm font-medium">データベースのバックアップ</div>
             <p className="text-xs text-muted">毎日1回、data/backups/ に日付つきの写しを取り、14日分残します（Dropbox の中なので、PCの外にも同期されます）。戻すときは、サーバーを止めて、戻したい日の写しを data/ai-lab.db に置き換えます。</p>
@@ -258,6 +237,53 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
             </a>
           </div>
         )}
+      </section>
+
+      <section className="card space-y-3 p-4">
+        <div>
+          <h2 className="font-bold">SNSと毎日の計画</h2>
+          <p className="text-xs text-muted">SNSへの自動投稿と、AIが毎朝決める「今日の計画」の設定です。計画の中身と達成度は、ホームの「今日のAIの計画」で見られます（これまでの達成度は<a href="/plan" className="underline">毎日の計画</a>の画面）。</p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="LP・ツールを紹介する X のアカウント" note="「SNSで広める」の欄に、どのアカウントで投稿するかを表示します（@なしで入力）。">
+            <input value={v.snsAccount} onChange={(e) => set("snsAccount", e.target.value)} maxLength={16} placeholder="hitoride_app" className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />
+          </Field>
+          <div className="space-y-2 sm:col-span-2">
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={v.autoPost} disabled={!snsReady.some((x) => x.ok)} onChange={(e) => set("autoPost", e.target.checked)} />
+              <span>
+                公開中の案件を、AIがSNSに自動で投稿する
+                <span className="block text-xs text-muted">
+                  使える場所: {snsReady.map((x) => `${x.label} ${x.ok ? "✓" : "—（キー未設定）"}`).join("　")}（キーの入れ方は docs/SETUP-SNS.md）。
+                  集客の作戦の「投稿の型」に沿って書き、日本時間の8〜22時に、場所ごとに間隔をあけて投稿します。1つの案件は20時間に1回まで。返信・フォロー・いいねなど、他人への働きかけはしません。
+                  X はリンク付きの投稿が1件 約30円（$0.20）かかり、AIの月の予算に含めて数えます。Threads と Bluesky は無料です。自動で投稿するアカウントには、各サービスで「自動化されたアカウント」のラベルを付けてください。
+                </span>
+              </span>
+            </label>
+            {v.autoPost && !v.dailyPlan && (
+              <Field label="自動投稿の上限（場所ごと・直近24時間）" note="">
+                <input type="number" min={1} max={10} {...num("autoPostPerDay")} className={input} />
+              </Field>
+            )}
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={v.dailyPlan} onChange={(e) => set("dailyPlan", e.target.checked)} />
+              <span>
+                毎日の計画（AIが毎朝、全案件を振り返って今日やることを決め、自動で動く）
+                <span className="block text-xs text-muted">
+                  今のネック（届かない・使われない など）を1つ決めて、宣伝の投稿・宣伝ではない普通の投稿・ページを直す（1日1件まで）・新しい案件づくりを休む、などを決めます。投稿の回数・時刻・場所・切り口もAIが決めます（自動投稿がオンのときだけ投稿します）。
+                  計画を作るのは1日1回で約10〜20円、普通の投稿は X で1件 約2円です。計画がある日は、上の「決まった間隔での自動投稿」は止まり、計画に任せます。結果はホームの「今日のAIの計画」で見られます。
+                </span>
+              </span>
+            </label>
+            {v.dailyPlan && (
+              <Field label="投稿の安全装置（場所ごと・直近24時間）" note="AIの目標ではなく、不具合や行き過ぎを止めるための値です。宣伝と普通の投稿の合計で数えます。届いた日は、処理ログに記録します。">
+                <input type="number" min={1} max={50} {...num("postSafetyPerDay")} className={input} />
+              </Field>
+            )}
+          </div>
+        </div>
       </section>
 
       <section className="card space-y-3 p-4">

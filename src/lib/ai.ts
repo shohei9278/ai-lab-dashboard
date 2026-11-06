@@ -2,6 +2,7 @@ import { db, getSettings, monthSpendUsd } from "./db";
 import { costUsd, getModel, hasKey } from "./models";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
+import { GoogleGenAI } from "@google/genai";
 import { callModel } from "./providers";
 
 export class GuardError extends Error {}
@@ -81,20 +82,37 @@ export async function callClaude(opts: { purpose: string; projectId?: number; sy
   }
 }
 
-// 長い出力（ツールのHTMLなど）を、決めたAIで最後まで受け取る。Claude と OpenAI に対応（文字のまま返す）
+// 長い出力（ツールやページのHTMLなど）を、決めたAIで最後まで受け取る。Claude・OpenAI・Gemini に対応（文字のまま返す）
 export async function callLong(opts: { modelId: string; purpose: string; projectId?: number; system: string; user: string; maxTokens: number }): Promise<string> {
   const model = getModel(opts.modelId);
   if (model.provider === "anthropic") {
     return callClaude({ purpose: opts.purpose, projectId: opts.projectId, system: opts.system, content: [{ type: "text", text: opts.user }], maxTokens: opts.maxTokens, modelId: model.id });
   }
-  if (model.provider !== "openai") throw new Error(`${model.label} では長い出力に対応していません`);
   const s = getSettings();
   if (s.killSwitch) throw new GuardError("緊急停止中のため、AIを呼び出せません");
   if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) throw new GuardError("今月のAI予算の上限に達しています");
-  if (!hasKey("openai")) throw new GuardError(`${model.label} のAPIキーがありません`);
+  if (!hasKey(model.provider)) throw new GuardError(`${model.label} のAPIキーがありません`);
   const log = (inTok: number, outTok: number, error: string | null) =>
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(opts.projectId ?? null, opts.purpose, model.id, inTok, outTok, costUsd(model, inTok, outTok), error);
+  if (model.provider === "google") {
+    try {
+      const res = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: 15 * 60 * 1000 } }).models.generateContent({
+        model: model.id, contents: opts.user, config: { systemInstruction: opts.system, maxOutputTokens: opts.maxTokens },
+      });
+      const u = res.usageMetadata;
+      const reason = res.candidates?.[0]?.finishReason;
+      const error = reason === "MAX_TOKENS" ? "出力が長すぎて途中で切れました" : !res.text ? `出力が空でした（${reason ?? "理由不明"}）` : null;
+      // 思考トークンも出力として課金される
+      log(u?.promptTokenCount ?? 0, (u?.candidatesTokenCount ?? 0) + (u?.thoughtsTokenCount ?? 0), error);
+      if (error) throw new Error(error);
+      return res.text ?? "";
+    } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      if (!/途中で切れました|出力が空でした/.test(m)) log(0, 0, m.slice(0, 500));
+      throw new Error(`AIの呼び出しに失敗しました: ${m.slice(0, 200)}`);
+    }
+  }
   try {
     // 出力が長いので、待ち時間の上限を長めにとる
     const res = await new OpenAI({ timeout: 15 * 60 * 1000, maxRetries: 1 }).responses.create({
@@ -106,6 +124,50 @@ export async function callLong(opts: { modelId: string; purpose: string; project
     log(inTok, outTok, error);
     if (error) throw new Error(error);
     return res.output_text;
+  } catch (e) {
+    const m = e instanceof Error ? e.message : String(e);
+    if (!/途中で切れました/.test(m)) log(0, 0, m.slice(0, 500));
+    throw new Error(`AIの呼び出しに失敗しました: ${m.slice(0, 200)}`);
+  }
+}
+
+// 画像を見せて短い答えをもらう（LPの画面の採点など）。Claude・OpenAI・Gemini に対応（文字のまま返す）
+export async function callVision(opts: { modelId: string; purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number }): Promise<string> {
+  const model = getModel(opts.modelId);
+  if (model.provider === "anthropic") return callClaude({ ...opts, modelId: model.id });
+  const s = getSettings();
+  if (s.killSwitch) throw new GuardError("緊急停止中のため、AIを呼び出せません");
+  if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) throw new GuardError("今月のAI予算の上限に達しています");
+  if (!hasKey(model.provider)) throw new GuardError(`${model.label} のAPIキーがありません`);
+  const log = (inTok: number, outTok: number, error: string | null) =>
+    db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run(opts.projectId ?? null, opts.purpose, model.id, inTok, outTok, costUsd(model, inTok, outTok), error);
+  try {
+    if (model.provider === "openai") {
+      const res = await new OpenAI({ timeout: 6 * 60 * 1000, maxRetries: 1 }).responses.create({
+        model: model.id, instructions: opts.system, max_output_tokens: opts.maxTokens,
+        input: [{
+          role: "user",
+          content: opts.content.map((c) => c.type === "text"
+            ? { type: "input_text" as const, text: c.text }
+            : { type: "input_image" as const, image_url: `data:${c.source.media_type};base64,${c.source.data}`, detail: "auto" as const }),
+        }],
+      });
+      const error = res.status === "incomplete" ? "出力が長すぎて途中で切れました" : null;
+      log(res.usage?.input_tokens ?? 0, res.usage?.output_tokens ?? 0, error);
+      if (error) throw new Error(error);
+      return res.output_text;
+    }
+    const res = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: 6 * 60 * 1000 } }).models.generateContent({
+      model: model.id,
+      contents: [{ role: "user", parts: opts.content.map((c) => (c.type === "text" ? { text: c.text } : { inlineData: { mimeType: c.source.media_type, data: c.source.data } })) }],
+      config: { systemInstruction: opts.system, maxOutputTokens: opts.maxTokens },
+    });
+    const u = res.usageMetadata;
+    const error = res.candidates?.[0]?.finishReason === "MAX_TOKENS" ? "出力が長すぎて途中で切れました" : null;
+    log(u?.promptTokenCount ?? 0, (u?.candidatesTokenCount ?? 0) + (u?.thoughtsTokenCount ?? 0), error);
+    if (error) throw new Error(error);
+    return res.text ?? "";
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
     if (!/途中で切れました/.test(m)) log(0, 0, m.slice(0, 500));

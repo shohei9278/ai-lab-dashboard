@@ -1,9 +1,18 @@
 import { db, getSettings, saveSettings } from "./db";
 import { budgetState } from "./budget";
 import { waitingItems } from "./overview";
+import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, todayPlan } from "./plan";
 
 // 1日1回、「今日あったこと・失敗・あなたの確認待ち」をまとめてスマホに届ける
 // 送り先は NOTIFY_WEBHOOK_URL（.env.local）。Discord の Webhook URL がおすすめ（Slack の Incoming Webhook でも届く）
+
+// 今日の計画の達成度（計画がある日だけ）
+function planLine(): string[] {
+  const plan = todayPlan();
+  if (!plan) return [];
+  const g = planProgress(plan);
+  return [`・今日の計画: ネック「${BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}」予定 ${g.done}/${g.total}件 済み${g.failed ? `（失敗${g.failed}件）` : ""}・目標 ${g.goals.map((x) => `${GOAL_LABEL[x.metric]} ${x.actual}/${x.target}`).join("・") || "なし"}`];
+}
 
 export const notifyConfigured = () => !!process.env.NOTIFY_WEBHOOK_URL;
 
@@ -46,6 +55,7 @@ export function buildDigest(): string {
     `・新しい案件: ${ideas.length ? ideas.join("、") : "なし"}`,
     `・公開: ${published.length ? published.join("、") : "なし"}`,
     `・判断: ${decisions.length ? decisions.map((d) => `${d.title}（${d.message.slice(0, 40)}）`).join(" / ") : "なし"}`,
+    ...planLine(),
     `・SNSへの投稿: ${posts.length ? posts.map((p) => `${label[p.platform] ?? p.platform} ${p.n}件`).join("・") : "なし"}`,
     `・今日の訪問 ${visits.v}人・登録/利用 ${visits.c}人`,
     `・AIの費用: 今月 約${Math.round(b.spent).toLocaleString("ja-JP")}円 / 予算 ${s.monthlyBudgetJpy.toLocaleString("ja-JP")}円（月末の見込み 約${Math.round(b.projected).toLocaleString("ja-JP")}円）`,

@@ -1,3 +1,4 @@
+import { HIDDEN, isOwner, maskHandles } from "@/lib/viewer";
 import Link from "next/link";
 import { getSettings } from "@/lib/db";
 import { accounts, projectSns, snsPosts } from "@/lib/snsOverview";
@@ -14,7 +15,7 @@ const jst = (iso: string) => new Date(iso).toLocaleString("ja-JP", { timeZone: "
 const jstUtc = (s: string) => jst(s.replace(" ", "T") + "Z");
 
 // SNSの管理: 場所ごとの状態、これから出る下書き、投稿済みの成績、案件ごとの止め方
-export default function GrowthPage() {
+export default async function GrowthPage() {
   const s = getSettings();
   const acc = accounts();
   const posts = snsPosts();
@@ -22,7 +23,9 @@ export default function GrowthPage() {
   const posted = posts.filter((p) => p.status === "posted");
   const projects = projectSns();
   const shown = acc.filter((a) => a.configured);
-  const comments = listComments();
+  const owner = await isOwner();
+  // 来た人には、コメントの相手と本文を伏せる（AIの返信の案は、@アカウント名を伏せて出す）
+  const comments = listComments().map((c) => (owner ? c : { ...c, author: "（デモ表示）", text: HIDDEN, draft: c.draft ? maskHandles(c.draft) : c.draft, reply_url: null }));
   const open = comments.filter((c) => c.status === "new");
   const done = comments.filter((c) => c.status !== "new").slice(0, 10);
 

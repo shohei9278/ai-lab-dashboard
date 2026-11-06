@@ -1,8 +1,10 @@
+import { isOwner, maskEventsForGuest } from "@/lib/viewer";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db, getSettings, type EventRow } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
-import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, buildingNow, getProject, lpCandidates, pageCandidates, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
+import type { PageJudge } from "@/lib/freePage";
+import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, buildingNow, getProject, lpCandidates, pageCandidates, pageCandidateLabel, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
 import { LpCandidates } from "@/components/LpCandidates";
 import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
@@ -40,7 +42,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const want = p.want_id ? getWant(p.want_id) : undefined;
   const t = projectTotals(p.id);
   const approvals = pendingApprovals(p.id);
-  const events = maskEvents(db().prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id DESC").all(p.id) as EventRow[]);
+  const events = maskEventsForGuest(maskEvents(db().prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id DESC").all(p.id) as EventRow[]), await isOwner());
   const aiCost = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s, COUNT(*) AS n FROM ai_calls WHERE project_id = ?").get(p.id) as { s: number; n: number });
   const lp = p.lp ? (JSON.parse(p.lp) as Lp) : null;
   const ended = ["continued", "killed", "rejected"].includes(p.stage);
@@ -135,7 +137,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
           <div className="text-sm text-ink-2">{lp.subheadline}</div>
           {lp.design && <IllustrationControls id={p.id} url={lp.design.illustration?.url ?? null} isPublic={!!p.public_slug && p.public_version === p.lp_version} />}
           {candidateViews.length > 1 && (
-            <LpCandidates projectId={p.id} version={p.lp_version} items={candidateViews} canSwitch={publishPending && p.stage === "lp"} />
+            <LpCandidates projectId={p.id} version={p.lp_version} items={candidateViews} canSwitch={publishPending && p.stage === "lp"} isTool={isTool} />
           )}
           {versions.length > 1 && (
             <div className="space-y-2 border-t border-line pt-3">
@@ -217,12 +219,13 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         const cands = rows.map((r) => {
           const c = r.check_json ? (JSON.parse(r.check_json) as { issues?: string[]; shots?: string[]; pc?: string }) : {};
           return {
-            id: r.id, at: r.at, withRefs: !!r.with_refs, score: r.score, aiPick: !!r.selected,
+            id: r.id, at: r.at, label: pageCandidateLabel(r), byModel: !!r.model, score: r.score, aiPick: !!r.selected,
             current: matched ? r.html === lp.page?.html : !!r.selected, canSwitch: !!r.html,
             issues: c.issues ?? [], shots: c.shots ?? [], pc: c.pc,
           };
         });
-        return <PageCandidatesCard id={p.id} reason={rows[0].reason} cands={cands} isPublic={!!p.public_slug && p.public_version === p.lp_version} />;
+        const judges = rows[0].judges ? (JSON.parse(rows[0].judges) as PageJudge[]).map((j) => ({ label: modelInfo(j.modelId).label, scores: [j.a, j.b], reason: j.reason })) : null;
+        return <PageCandidatesCard id={p.id} reason={rows[0].reason} judges={judges} cands={cands} isPublic={!!p.public_slug && p.public_version === p.lp_version} />;
       })()}
 
       {isTool && lp?.tool && (

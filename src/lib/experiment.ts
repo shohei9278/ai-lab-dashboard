@@ -52,6 +52,11 @@ export function rankings(): Ranking[] {
       rows: rank(designs.filter((s) => s.scoreFromOthers !== null).map((s) => ({ modelId: s.author, value: s.scoreFromOthers!, n: s.candidates, display: pt(s.scoreFromOthers!) })), "high"),
     },
     {
+      key: "visual", title: "見た目のデザイン力", question: "LPのページを作り比べた画面に、他社のAIが作者を伏せて付けた点（10点満点）", better: "high", max: 10,
+      empty: "事前登録LPのページを、Claude と別の会社のAIで作り比べると、たまっていきます",
+      rows: rank(designModelEffect().filter((d) => d.neutral !== null).map((d) => ({ modelId: d.modelId, value: d.neutral!, n: d.n, display: `${pt(d.neutral!)}（選ばれた ${d.won}/${d.n}回）` })), "high"),
+    },
+    {
       key: "result", title: "アイデアの実績", question: "そのAIのアイデアの案件で、訪問者のうち登録・利用した割合", better: "high",
       empty: "公開した案件に訪問者が来ると、たまっていきます",
       rows: rank(ideas.filter((s) => s.rate !== null).map((s) => ({ modelId: s.author, value: s.rate!, n: s.projectsWithTraffic, display: `${(s.rate! * 100).toFixed(1)}%（${s.projectsWithTraffic}件）` })), "high"),
@@ -191,12 +196,40 @@ function toolRankings(): Ranking[] {
   ];
 }
 
-// デザインの参考の効果: 参考なし・参考ありの2案を作って、どちらが選ばれたか
+// LPのデザインのAIの作り比べ: 2案を作った回ごとに、各AIが選ばれた回数・3社の採点の平均点・作っていない会社の採点だけの平均点
+export function designModelEffect(): { modelId: string; n: number; won: number; avg: number | null; neutral: number | null }[] {
+  const rows = db().prepare(
+    `SELECT c.project_id, c.version, c.id, c.model, c.selected, c.score, c.judges FROM page_candidates c
+     JOIN projects p ON p.id = c.project_id
+     WHERE c.model IS NOT NULL AND p.demo = 0 ORDER BY c.id`,
+  ).all() as { project_id: number; version: number; id: number; model: string; selected: number; score: number | null; judges: string | null }[];
+  const rounds = new Map<string, typeof rows>();
+  for (const r of rows) rounds.set(`${r.project_id}-${r.version}`, [...(rounds.get(`${r.project_id}-${r.version}`) ?? []), r]);
+  const acc = new Map<string, { n: number; won: number; scores: number[]; neutral: number[] }>();
+  for (const pair of rounds.values()) {
+    if (pair.length !== 2) continue;
+    const judges = pair[0].judges ? (JSON.parse(pair[0].judges) as { modelId: string; a: number; b: number }[]) : [];
+    pair.forEach((c, i) => {
+      const m = acc.get(c.model) ?? { n: 0, won: 0, scores: [], neutral: [] };
+      m.n++;
+      m.won += c.selected;
+      if (c.score !== null) m.scores.push(c.score);
+      const company = modelInfo(c.model).provider;
+      for (const j of judges) if (modelInfo(j.modelId).provider !== company) m.neutral.push(i === 0 ? j.a : j.b);
+      acc.set(c.model, m);
+    });
+  }
+  const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  return [...acc].map(([modelId, m]) => ({ modelId, n: m.n, won: m.won, avg: mean(m.scores), neutral: mean(m.neutral) }))
+    .sort((x, y) => y.won / y.n - x.won / x.n || (y.avg ?? 0) - (x.avg ?? 0));
+}
+
+// 以前の比べ方（参考なし・参考ありの2案）の結果
 export function refEffect() {
   const rows = db().prepare(
     `SELECT a.score AS plain, b.score AS refs, b.selected AS refsWon FROM page_candidates a
      JOIN page_candidates b ON b.project_id = a.project_id AND b.version = a.version AND b.with_refs = 1
-     WHERE a.with_refs = 0`,
+     WHERE a.with_refs = 0 AND a.model IS NULL`,
   ).all() as { plain: number | null; refs: number | null; refsWon: number }[];
   const n = rows.length;
   const avg = (k: "plain" | "refs") => (n ? rows.reduce((s, r) => s + (r[k] ?? 0), 0) / n : null);

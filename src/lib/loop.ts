@@ -8,8 +8,8 @@ import { seasonalContext } from "./season";
 import { trendsText } from "./trends";
 import { withIllustration } from "./illustration";
 import { buildPage, judgePages, pageTexts, type PageCheck } from "./freePage";
-import { markRefsUsed, pickRefs } from "./designRefs";
 import { funnelText } from "./funnel";
+import { planIdeaNote, planPausesNew } from "./plan";
 import { budgetState } from "./budget";
 import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
@@ -246,7 +246,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
 形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
-    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}`,
+    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
   return out.ideas.slice(0, count);
@@ -413,7 +413,7 @@ export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtm
 - 実在の人物・団体のデータは、正確だと確信できるものだけを使う。不確かなら使わない
 - 全体で40,000文字以内。読みやすく、動作の確かなコードにする
 `;
-  const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : ""}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`;
+  const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : viralHints("tool")}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`;
   // ツールのHTMLは長く、JSONに包むと出力の上限で途中で切れやすい。HTMLをそのまま最後まで受け取る
   const author = modelId ?? claudeModelId();
   if (author) {
@@ -654,6 +654,16 @@ async function buildLpVersionNow(projectId: number, opts: { instruction?: string
   return { lp, review, version };
 }
 
+// ページのデザインで Claude と作り比べる、別の会社のAI。使える候補のうち、比べた回数が少ない方に順番に任せる
+export const PAGE_RIVALS = ["gpt-5.6-sol", "gemini-3.1-pro-preview"];
+
+function pageRivalFor(): string | null {
+  const usable = PAGE_RIVALS.filter((id) => hasKey(modelInfo(id).provider));
+  if (!usable.length) return null;
+  const counts = new Map((db().prepare("SELECT model AS m, COUNT(*) AS n FROM page_candidates WHERE model IS NOT NULL GROUP BY model").all() as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
+}
+
 // AIにページ全体を自由にデザインさせる。失敗したら、部品で作ったLPのまま返す
 async function withPage(p: ProjectRow, lp: Lp, version: number, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean } = {}): Promise<{ lp: Lp; check: PageCheck | null }> {
   const done = (html: string, check: PageCheck, note: string) => {
@@ -661,30 +671,32 @@ async function withPage(p: ProjectRow, lp: Lp, version: number, opts: { prevHtml
     return { lp: { ...lp, ...pageTexts(html), page: { html } }, check };
   };
   try {
-    // 新しく作るときは「参考なし」と「参考あり」の2案を作り、画面を見たAIの採点で選ぶ（直すときは今のページを直す1案だけ）
-    const refs = opts.prevHtml || opts.instruction ? [] : pickRefs(`${p.target} ${p.solution} ${lp.design?.theme ?? ""}`, 3);
-    if (!refs.length) {
+    // 新しく作るときは、Claude と別の会社のAIで2案を作り、画面を見たAIの採点で選ぶ（直すときは今のページを直す1案だけ）
+    const main = claudeModelId();
+    const rival = opts.prevHtml || opts.instruction || !main ? null : pageRivalFor();
+    if (!rival) {
       const made = await buildPage(p, lp, `p${p.id}-v${version}-page`, opts);
       return done(made.html, made.check, "");
     }
-    markRefsUsed(refs.map((r) => r.id));
-    const [plain, withRefs] = await Promise.allSettled([
-      buildPage(p, lp, `p${p.id}-v${version}-pageA`, opts),
-      buildPage(p, lp, `p${p.id}-v${version}-pageB`, { ...opts, refs }),
+    const label = (id: string) => modelInfo(id).label;
+    const [a, b] = await Promise.allSettled([
+      buildPage(p, lp, `p${p.id}-v${version}-pageA`, { ...opts, modelId: main! }),
+      buildPage(p, lp, `p${p.id}-v${version}-pageB`, { ...opts, modelId: rival }),
     ]);
-    const ok = [plain, withRefs].filter((x) => x.status === "fulfilled");
-    if (!ok.length) throw (plain as PromiseRejectedResult).reason;
-    const save = db().prepare("INSERT INTO page_candidates (project_id, version, with_refs, ref_ids, score, reason, selected, check_json, html) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    if (plain.status === "fulfilled" && withRefs.status === "fulfilled") {
-      const j = await judgePages(p, plain.value.check, withRefs.value.check);
-      const pick = j.winner === "b" ? withRefs.value : plain.value;
-      save.run(p.id, version, 0, null, j.scoreA, j.reason, j.winner === "a" ? 1 : 0, JSON.stringify(plain.value.check), plain.value.html);
-      save.run(p.id, version, 1, JSON.stringify(refs.map((r) => r.id)), j.scoreB, j.reason, j.winner === "b" ? 1 : 0, JSON.stringify(withRefs.value.check), withRefs.value.html);
-      logEvent(p.id, "ai", "page-select", `デザインを2案作り、画面で見比べて「${j.winner === "b" ? "参考あり" : "参考なし"}」を選びました（参考なし ${j.scoreA}点・参考あり ${j.scoreB}点）: ${j.reason}`);
-      return done(pick.html, pick.check, `・${j.winner === "b" ? "参考あり" : "参考なし"}の案`);
+    const save = db().prepare("INSERT INTO page_candidates (project_id, version, with_refs, model, score, reason, selected, check_json, html, judges) VALUES (?, ?, 0, ?, ?, ?, ?, ?, ?, ?)");
+    if (a.status === "fulfilled" && b.status === "fulfilled") {
+      const j = await judgePages(p, a.value.check, b.value.check, { a: label(main!), b: label(rival) });
+      const pick = j.winner === "b" ? b.value : a.value;
+      const won = j.winner === "b" ? rival : main!;
+      save.run(p.id, version, main, j.scoreA, j.reason, j.winner === "a" ? 1 : 0, JSON.stringify(a.value.check), a.value.html, JSON.stringify(j.judges));
+      save.run(p.id, version, rival, j.scoreB, j.reason, j.winner === "b" ? 1 : 0, JSON.stringify(b.value.check), b.value.html, JSON.stringify(j.judges));
+      logEvent(p.id, "ai", "page-select", `デザインを${label(main!)}と${label(rival)}で2案作り、${j.judges.length}社のAIが画面で見比べて「${label(won)}」の案を選びました（平均 ${label(main!)} ${j.scoreA}点・${label(rival)} ${j.scoreB}点。${j.judges.map((x) => `${label(x.modelId)}の採点 ${x.a}対${x.b}`).join("・")}）`);
+      return done(pick.html, pick.check, `・${label(won)}の案`);
     }
-    const one = (ok[0] as PromiseFulfilledResult<{ html: string; check: PageCheck }>).value;
-    return done(one.html, one.check, `・${withRefs.status === "fulfilled" ? "参考あり" : "参考なし"}の案（もう一方は作れなかった）`);
+    if (a.status === "rejected" && b.status === "rejected") throw a.reason;
+    const [one, by, failed] = a.status === "fulfilled" ? [a.value, main!, b] : [(b as PromiseFulfilledResult<{ html: string; check: PageCheck }>).value, rival, a];
+    const why = failed.status === "rejected" ? (failed.reason instanceof Error ? failed.reason.message : String(failed.reason)).slice(0, 120) : "";
+    return done(one.html, one.check, `・${label(by)}の案（もう一方は作れなかった: ${why}）`);
   } catch (e) {
     logEvent(p.id, "system", "page-error", `自由なデザインのページを作れなかったため、部品で作ったLPを使います: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
     return { lp: { ...lp, page: undefined }, check: null };
@@ -706,14 +718,19 @@ export async function redesignPage(projectId: number) {
 }
 
 export type PageCandidateRow = {
-  id: number; at: string; project_id: number; version: number; with_refs: number; ref_ids: string | null;
-  score: number | null; reason: string | null; selected: number; check_json: string | null; html: string | null;
+  id: number; at: string; project_id: number; version: number; with_refs: number; ref_ids: string | null; model: string | null;
+  score: number | null; reason: string | null; selected: number; check_json: string | null; html: string | null; judges: string | null;
 };
 
-// 今の版で最後に作った2案（参考なし・参考あり）。selected は「AIが選んだ方」のまま残し、人が入れ替えても変えない（成績の集計に使うため）
+// 案の呼び名。以前の案は、参考のあり・なしで呼ぶ
+export function pageCandidateLabel(c: Pick<PageCandidateRow, "model" | "with_refs">): string {
+  return c.model ? modelInfo(c.model).label : c.with_refs ? "参考あり" : "参考なし";
+}
+
+// 今の版で最後に作った2案（作った順。Claude の案が先）。selected は「AIが選んだ方」のまま残し、人が入れ替えても変えない（成績の集計に使うため）
 export function pageCandidates(projectId: number, version: number): PageCandidateRow[] {
   return (db().prepare("SELECT * FROM page_candidates WHERE project_id = ? AND version = ? ORDER BY id DESC LIMIT 2").all(projectId, version) as PageCandidateRow[])
-    .sort((a, b) => a.with_refs - b.with_refs);
+    .sort((a, b) => a.id - b.id);
 }
 
 // 2案のうち、もう一方のページに入れ替える（人が押したとき）。公開中の版なら公開サイトにも反映する
@@ -725,7 +742,7 @@ export async function switchPageCandidate(projectId: number, candidateId: number
   const lp: Lp = { ...(JSON.parse(p.lp) as Lp), ...pageTexts(c.html), page: { html: c.html } };
   db().prepare("UPDATE projects SET lp = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), projectId);
   db().prepare("UPDATE lp_versions SET lp = ?, test = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(lp), c.check_json, projectId, p.lp_version);
-  logEvent(projectId, "human", "page", `デザインを「${c.with_refs ? "参考あり" : "参考なし"}」の案に入れ替えました`);
+  logEvent(projectId, "human", "page", `デザインを「${pageCandidateLabel(c)}」の案に入れ替えました`);
   const now = getProject(projectId)!;
   if (now.public_slug && now.public_version === now.lp_version && now.stage !== "killed") await announcePublish(projectId);
 }
@@ -1255,6 +1272,15 @@ export function debateStats() {
   };
 }
 
+// 毎日の計画から呼ぶ: 集客中の案件のページ（ツールなら画面）を、決めた内容で直して差し替える（チェックを通らなければ人に回す）
+export async function planImprove(projectId: number, instruction: string) {
+  const p = getProject(projectId);
+  if (!p || p.demo || p.stage !== "live") throw new Error("集客中の案件ではありません");
+  if (buildingNow(projectId)) throw new Error("この案件は、いま作業中です");
+  if (db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(projectId)) throw new Error("この案件には承認待ちがあります");
+  await autoImprove(projectId, { next_action: instruction } as Decision);
+}
+
 async function autoImprove(projectId: number, d: Decision) {
   const built = await buildLpVersion(projectId, { instruction: d.next_action, note: `自動改善: ${d.next_action}`, keepCore: true });
   const { version } = built;
@@ -1594,6 +1620,8 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     const live = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0 AND growth_phase = 0").get() as { n: number }).n;
     if (pending >= s.maxPending) return skip(`承認待ちが${pending}件たまっているため、アイデア出しを休みました（上限${s.maxPending}件）`);
     if (live >= s.maxLive) return skip(`集客中の案件が${live}件あるため、アイデア出しを休みました（上限${s.maxLive}件）`);
+    const paused = planPausesNew();
+    if (paused) return skip(`今日の計画で、新しい案件づくりを休むと決めたため休みました（${paused}）`);
 
     // 月の予算のペースに合わせて、今日新しく作る案件の数を決める（1件ごとの作り方は変えない）
     const b = budgetState();

@@ -5,8 +5,8 @@ import { ideaRunning, logEvent, practiceIdeas, simulateDays } from "@/lib/loop";
 export const dynamic = "force-dynamic";
 
 // ライブ画面が数秒ごとに読みに来る
-export async function GET() {
-  return NextResponse.json(liveSnapshot(), { headers: { "Cache-Control": "no-store" } });
+export async function GET(req: Request) {
+  return NextResponse.json(liveSnapshot({ guest: req.headers.get("x-viewer") !== "owner" }), { headers: { "Cache-Control": "no-store" } });
 }
 
 // ライブ画面から、アイデア出しだけを始める（終わるまで待たずにすぐ返す。進み具合はライブ画面に流れる）

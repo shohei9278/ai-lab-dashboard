@@ -2,8 +2,10 @@ import { NextResponse } from "next/server";
 import { getSettings, saveSettings } from "@/lib/db";
 import { MODELS } from "@/lib/models";
 
-export async function GET() {
-  return NextResponse.json(getSettings());
+export async function GET(req: Request) {
+  const s = getSettings();
+  if (req.headers.get("x-viewer") !== "owner") return NextResponse.json({ ...s, contactEmail: "", operatorName: "" });
+  return NextResponse.json(s);
 }
 
 export async function POST(req: Request) {
@@ -28,6 +30,7 @@ export async function POST(req: Request) {
   if (typeof body.freePage === "boolean") patch.freePage = body.freePage;
   if (typeof body.fullAuto === "boolean") patch.fullAuto = body.fullAuto;
   if (typeof body.autoPost === "boolean") patch.autoPost = body.autoPost;
+  if (typeof body.dailyPlan === "boolean") patch.dailyPlan = body.dailyPlan;
   if (typeof body.viralSearch === "boolean") patch.viralSearch = body.viralSearch;
   if (typeof body.showcaseEnabled === "boolean") patch.showcaseEnabled = body.showcaseEnabled;
   if (typeof body.showcaseShowLinks === "boolean") patch.showcaseShowLinks = body.showcaseShowLinks;
@@ -69,6 +72,7 @@ export async function POST(req: Request) {
     ["maxAutoImprove", 0, 10],
     ["autoPublishPerWeek", 0, 50],
     ["autoPostPerDay", 1, 10],
+    ["postSafetyPerDay", 1, 50],
     ["viralSearchCount", 100, 1000],
     ["wantsSearchCount", 0, 1000],
     ["judgeAfterDays", 1, 60],

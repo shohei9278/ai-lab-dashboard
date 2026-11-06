@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { getSettings } from "@/lib/db";
-import { getModel } from "@/lib/models";
+import { getModel, modelInfo } from "@/lib/models";
 import { CERTAINTY_LABEL, KIND_LABEL, MODE_LABEL, activeLessons, modeComparison } from "@/lib/loop";
-import { endReasons, headline, kindComparison, overallRanking, rankings, refEffect, type Ranking } from "@/lib/experiment";
+import { endReasons, headline, kindComparison, overallRanking, rankings, refEffect, designModelEffect, type Ranking } from "@/lib/experiment";
 import { pct, yen } from "@/lib/format";
 import { PageIntro } from "@/components/PageIntro";
 import { LabTabs } from "@/components/LabTabs";
@@ -29,6 +29,7 @@ export default function LabPage() {
   const badRate = h.auto.reviewed ? h.auto.bad / h.auto.reviewed : null;
   const ends = endReasons();
   const refs = refEffect();
+  const design = designModelEffect();
   const endTotal = ends.reduce((n, e) => n + e.n, 0);
 
   return (
@@ -124,20 +125,33 @@ export default function LabPage() {
         )}
       </section>
 
-      {/* デザインの参考の効果 */}
+      {/* LPのデザインのAI */}
       <section className="card space-y-2 p-4">
         <div>
-          <h2 className="font-bold">デザインの参考の効果</h2>
-          <p className="text-xs text-muted">事前登録LPのページは、「参考なし」と「参考あり（デザインの参考から選んだLPを見せる）」の2案を作り、画面を見たAIが作り方を伏せて採点して、高い方を公開します。</p>
+          <h2 className="font-bold">LPのデザインのAI</h2>
+          <p className="text-xs text-muted">
+            事前登録LPのページは、Claude と別の会社のAI（GPT か Gemini を順番に）が同じ材料で1案ずつ作り、どのAIが作ったかを伏せて3社のAIが別々に採点し、平均点の高い方を公開します。
+            「他社の採点」は、作ったAIと違う会社の採点役がつけた点だけの平均です（身内びいきを除いた見方）。あなたが案件の画面で入れ替えた回は、ここには数えていません。
+          </p>
         </div>
-        {refs.n === 0 ? (
-          <p className="text-sm text-ink-2">まだ比べた回がありません。デザインの参考が2件以上たまると、LPを作るたびに比べ始めます。</p>
+        {design.length === 0 ? (
+          <p className="text-sm text-ink-2">まだ比べた回がありません。次にLPを作るときから比べ始めます。</p>
         ) : (
-          <div className="grid gap-3 text-sm sm:grid-cols-3">
-            <Num label="参考ありが選ばれた割合" value={`${pct(refs.refsWon / refs.n, 0)}（${refs.refsWon}/${refs.n}回）`} />
-            <Num label="参考なしの平均点" value={refs.avgPlain === null ? "—" : `${refs.avgPlain.toFixed(1)}点`} />
-            <Num label="参考ありの平均点" value={refs.avgRefs === null ? "—" : `${refs.avgRefs.toFixed(1)}点`} />
+          <div className="space-y-1 text-sm">
+            {design.map((d) => (
+              <div key={d.modelId} className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5">
+                <span className="w-44 font-medium">{modelInfo(d.modelId).label}</span>
+                <span className="num">選ばれた {pct(d.won / d.n, 0)}（{d.won}/{d.n}回）</span>
+                <span className="num text-ink-2">平均 {d.avg === null ? "—" : `${d.avg.toFixed(1)}点`}</span>
+                <span className="num text-ink-2">他社の採点 {d.neutral === null ? "—" : `${d.neutral.toFixed(1)}点`}</span>
+              </div>
+            ))}
           </div>
+        )}
+        {refs.n > 0 && (
+          <p className="text-xs text-muted">
+            以前の比べ方（Claude が参考のLPを見る・見ないで2案）: 参考ありが選ばれたのは {refs.refsWon}/{refs.n}回、平均点は参考なし {refs.avgPlain?.toFixed(1) ?? "—"}点・参考あり {refs.avgRefs?.toFixed(1) ?? "—"}点でした。差がはっきりしなかったため、別の会社のAIとの作り比べに変えました。
+          </p>
         )}
       </section>
 

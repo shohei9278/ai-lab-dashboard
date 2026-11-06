@@ -154,6 +154,8 @@ function jstHour(): number {
 export async function maybeAutoPost(): Promise<string[]> {
   const s = getSettings();
   if (!s.autoPost || s.killSwitch) return [];
+  // 今日の計画があれば、投稿の回数・時刻・切り口は計画に任せる（計画を作れなかった日だけ、決まった間隔で投稿する）
+  if (s.dailyPlan && db().prepare("SELECT 1 FROM daily_plans WHERE day = ?").get(jstDay())) return [];
   const h = jstHour();
   if (h < 8 || h >= 22) return [];
   const done: string[] = [];
@@ -206,13 +208,33 @@ export async function postOnPublish(projectId: number): Promise<void> {
   }
 }
 
-async function postProject(p: ProjectRow, platform: AutoPlatform): Promise<string | null> {
+// 毎日の計画から呼ぶ: 決めた切り口で1件書いて投稿する。投稿のURLを返す（見送ったときは null）
+export async function postPromo(projectId: number, platform: AutoPlatform, hint: string): Promise<string | null> {
+  const p = getProject(projectId);
+  if (!p?.public_slug || !publicUrl(p.id)) throw new Error("公開中の案件ではありません");
+  if (p.human_review === "bad" || p.sns_paused) throw new Error("この案件は投稿を止めています");
+  return postProject(p, platform, hint);
+}
+
+// 日本時間の YYYY-MM-DD
+export function jstDay(d = new Date()): string {
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(d);
+}
+
+// 場所ごとの、直近24時間のAIの投稿の数（宣伝と普通の投稿の合計。毎日の計画の安全装置に使う）
+export function aiPostsLast24h(platform: string): number {
+  const a = (db().prepare("SELECT COUNT(*) AS n FROM sns_posts WHERE platform = ? AND status = 'posted' AND author = 'ai' AND posted_at >= datetime('now', '-24 hours')").get(platform) as { n: number }).n;
+  const b = (db().prepare("SELECT COUNT(*) AS n FROM plan_tasks WHERE platform = ? AND kind = 'plain' AND status = 'done' AND done_at >= datetime('now', '-24 hours')").get(platform) as { n: number }).n;
+  return a + b;
+}
+
+async function postProject(p: ProjectRow, platform: AutoPlatform, hint?: string): Promise<string | null> {
   const def = AUTO_PLATFORMS[platform];
   const apiId = `${platform}-api`;
-  // まだ投稿していないAIの下書きがあれば使い、なければ1件書かせる
-  let draft = db().prepare("SELECT * FROM sns_posts WHERE project_id = ? AND status = 'draft' AND author = 'ai' AND platform = ? ORDER BY id LIMIT 1").get(p.id, platform) as SnsPost | undefined;
+  // 切り口の指定があれば新しく書かせる。なければ、まだ投稿していないAIの下書きを使い、なければ1件書かせる
+  let draft = hint ? undefined : db().prepare("SELECT * FROM sns_posts WHERE project_id = ? AND status = 'draft' AND author = 'ai' AND platform = ? ORDER BY id LIMIT 1").get(p.id, platform) as SnsPost | undefined;
   if (!draft) {
-    const [id] = await draftPosts(p.id, 1, undefined, platform);
+    const [id] = await draftPosts(p.id, 1, hint, platform);
     draft = getPost(id);
   }
   const link = postLink(p.id, draft.code)!;
@@ -230,6 +252,7 @@ async function postProject(p: ProjectRow, platform: AutoPlatform): Promise<strin
     const msg = (e instanceof Error ? e.message : String(e)).slice(0, 300);
     record(0, msg);
     logEvent(p.id, "system", "sns-auto-error", msg);
+    if (hint) throw new Error(msg);
     return null;
   }
   db().prepare("UPDATE sns_posts SET status = 'posted', posted_at = datetime('now'), post_url = ? WHERE id = ?").run(posted.url, draft.id);

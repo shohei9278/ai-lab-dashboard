@@ -2,6 +2,7 @@
 //   npx tsx scripts/push-db.mts https://〇〇.up.railway.app [--force]
 // パスワードは実行中に聞く（画面には表示しない）。--force はサーバーに実案件があっても上書きする
 import Database from "better-sqlite3";
+import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 
@@ -39,6 +40,33 @@ const res = await fetch(`${url}/api/admin/import-db${force ? "?force=1" : ""}`, 
 const text = await res.text();
 let data: { ok?: boolean; error?: string; projects?: number } = {};
 try { data = JSON.parse(text); } catch {}
-if (res.status === 401) console.error("パスワードが違います");
-else if (!res.ok) console.error(`失敗しました（${res.status}）: ${data.error ?? text.slice(0, 200)}`);
-else console.log(`完了しました。サーバーの案件: ${data.projects}件`);
+if (res.status === 401 || (res.status === 403 && /公開中のデモ/.test(text))) {
+  console.error("パスワードが違います");
+  process.exit(1);
+}
+if (!res.ok) {
+  console.error(`失敗しました（${res.status}）: ${data.error ?? text.slice(0, 200)}`);
+  process.exit(1);
+}
+console.log(`DBを移しました。サーバーの案件: ${data.projects}件`);
+
+// DB の外にあるファイル（ツールのテストやページの画面の写真・デザインの参考の画面・ブランドの画像）も送る
+const dataRoot = path.dirname(file);
+let sent = 0;
+let failed = 0;
+for (const dir of ["screenshots", "refs", "brand"]) {
+  const full = path.join(dataRoot, dir);
+  if (!fs.existsSync(full)) continue;
+  for (const name of fs.readdirSync(full)) {
+    if (!/^[A-Za-z0-9._-]+$/.test(name) || !fs.statSync(path.join(full, name)).isFile()) continue;
+    const r = await fetch(`${url}/api/admin/import-file`, {
+      method: "POST",
+      headers: { Authorization: `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`, "Content-Type": "application/octet-stream", "x-file-path": `${dir}/${name}` },
+      body: fs.readFileSync(path.join(full, name)),
+    });
+    if (r.ok) sent++;
+    else failed++;
+  }
+}
+console.log(`画面の写真などのファイルを ${sent}件送りました${failed ? `（失敗 ${failed}件）` : ""}`);
+console.log("完了しました");

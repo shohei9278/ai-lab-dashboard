@@ -4,12 +4,14 @@ import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 import { jstDateTime } from "@/lib/format";
 
 export type PageCand = {
-  id: number; at: string; withRefs: boolean; score: number | null; aiPick: boolean; current: boolean; canSwitch: boolean;
+  id: number; at: string; label: string; byModel: boolean; score: number | null; aiPick: boolean; current: boolean; canSwitch: boolean;
   issues: string[]; shots: string[]; pc?: string;
 };
 
-// AIが作った2案（参考なし・参考あり）の画面を並べて見比べ、もう一方に入れ替えられるようにする
-export function PageCandidatesCard({ id, reason, cands, isPublic }: { id: number; reason: string | null; cands: PageCand[]; isPublic: boolean }) {
+// AIが作った2案（Claude と別の会社のAI。以前は参考なし・参考あり）の画面を並べて見比べ、もう一方に入れ替えられるようにする
+export type CandJudge = { label: string; scores: number[]; reason: string }; // scores は cands と同じ順
+
+export function PageCandidatesCard({ id, reason, judges, cands, isPublic }: { id: number; reason: string | null; judges: CandJudge[] | null; cands: PageCand[]; isPublic: boolean }) {
   const { run, busy, error } = useLoopAction();
   const img = (file: string, alt: string) => (
     <a key={file} href={`/api/screenshots/${file}`} target="_blank" rel="noreferrer" className="block shrink-0">
@@ -22,17 +24,30 @@ export function PageCandidatesCard({ id, reason, cands, isPublic }: { id: number
       <div>
         <h2 className="font-bold">デザインの2案</h2>
         <p className="text-xs text-muted">
-          参考なし・参考ありの2案を作り、作り方を伏せてAIが画面で見比べました（{jstDateTime(cands[0]?.at)}）。
+          {cands.every((c) => c.byModel)
+            ? `${cands.map((c) => c.label).join(" と ")} が同じ材料で1案ずつ作り、どのAIが作ったかを伏せて、${judges ? `${judges.length}社のAIが別々に画面を見比べ、平均点で選びました` : "AIが画面で見比べました"}`
+            : "参考なし・参考ありの2案を作り、作り方を伏せてAIが画面で見比べました"}（{jstDateTime(cands[0]?.at)}）。
           {isPublic ? "入れ替えると、公開中のページにもすぐ反映されます。" : ""}
         </p>
-        {reason && <p className="mt-1 text-sm text-ink-2">AIの理由: {reason}</p>}
+        {judges ? (
+          <ul className="mt-1 space-y-0.5 text-sm text-ink-2">
+            {judges.map((j) => (
+              <li key={j.label}>
+                <span className="font-medium text-ink">{j.label}</span>
+                <span className="num ml-1">（{cands.map((c, i) => `${c.label} ${j.scores[i]}点`).join("・")}）</span>: {j.reason}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          reason && <p className="mt-1 text-sm text-ink-2">AIの理由: {reason}</p>
+        )}
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         {cands.map((c) => (
           <div key={c.id} className="space-y-2 rounded-lg border p-3" style={{ borderColor: c.current ? "var(--accent)" : "var(--line)" }}>
             <div className="flex flex-wrap items-center gap-2 text-sm">
-              <span className="font-medium">{c.withRefs ? "参考あり" : "参考なし"}</span>
-              <span className="num text-ink-2">{c.score ?? "—"}点</span>
+              <span className="font-medium">{c.label}</span>
+              <span className="num text-ink-2">{c.score ?? "—"}点{judges ? "（平均）" : ""}</span>
               {c.aiPick && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">AIが選んだ案</span>}
               {c.current && <span className="rounded px-1.5 py-0.5 text-xs text-accent-ink" style={{ background: "var(--accent)" }}>いま使っている</span>}
             </div>

@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 //   X_API_KEY / X_API_SECRET … アプリの Consumer Key と Secret
 //   X_ACCESS_TOKEN / X_ACCESS_SECRET … 運営のアカウントの Access Token と Secret
 export const X_POST_COST_USD = 0.2;
+export const X_PLAIN_POST_COST_USD = 0.015; // リンクのない投稿
 
 const env = () => ({
   key: process.env.X_API_KEY ?? "",
@@ -69,4 +70,19 @@ export async function searchRecent(query: string, nextToken?: string): Promise<{
   const data = (await res.json().catch(() => ({}))) as { data?: XSearchPost[]; meta?: { next_token?: string }; detail?: string; title?: string };
   if (!res.ok) throw new Error(`X の検索に失敗（${res.status}）: ${(data.detail ?? data.title ?? "").slice(0, 200)}`);
   return { posts: data.data ?? [], next: data.meta?.next_token };
+}
+
+// 自分の投稿の反応（いいね・返信・リポスト）を読む。1件ごとに読む費用がかかる（X_READ_COST_USD）
+export async function tweetMetrics(ids: string[]): Promise<Map<string, { likes: number; replies: number; reposts: number }>> {
+  if (!xConfigured()) throw new Error("X のAPIキーが設定されていません");
+  const url = "https://api.x.com/2/tweets";
+  const params: Record<string, string> = { ids: ids.slice(0, 100).join(","), "tweet.fields": "public_metrics" };
+  const qs = Object.entries(params).map(([k, v]) => `${enc(k)}=${enc(v)}`).join("&");
+  const res = await fetch(`${url}?${qs}`, { headers: { Authorization: authHeader("GET", url, params) } });
+  const data = (await res.json().catch(() => ({}))) as { data?: { id: string; public_metrics?: { like_count: number; reply_count: number; retweet_count: number; quote_count: number } }[]; detail?: string; title?: string };
+  if (!res.ok) throw new Error(`X の投稿の反応を読めません（${res.status}）: ${(data.detail ?? data.title ?? "").slice(0, 200)}`);
+  return new Map((data.data ?? []).map((t) => [t.id, {
+    likes: t.public_metrics?.like_count ?? 0, replies: t.public_metrics?.reply_count ?? 0,
+    reposts: (t.public_metrics?.retweet_count ?? 0) + (t.public_metrics?.quote_count ?? 0),
+  }]));
 }

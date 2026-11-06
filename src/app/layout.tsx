@@ -4,6 +4,9 @@ import { M_PLUS_Rounded_1c, Noto_Sans_JP, Noto_Serif_JP } from "next/font/google
 import { headers } from "next/headers";
 import { pendingCount } from "@/lib/views";
 import { ActivityBadge } from "@/components/ActivityBadge";
+import { GuestGuard } from "@/components/GuestGuard";
+import { isOwner } from "@/lib/viewer";
+import { LogoutButton } from "./login/LoginForm";
 import "./globals.css";
 
 const noto = Noto_Sans_JP({ variable: "--font-noto", subsets: ["latin"], weight: ["400", "500", "700"] });
@@ -30,6 +33,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     );
   }
   const pending = pendingCount();
+  const owner = await isOwner();
+  const loginEnabled = !!process.env.DASHBOARD_PASSWORD;
   const nav = [
     { href: "/", label: "ホーム" },
     { href: "/live", label: "ライブ" },
@@ -57,8 +62,19 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               ))}
             </nav>
             <ActivityBadge />
+            <span className="ml-auto text-xs">
+              {owner ? (loginEnabled && <LogoutButton />) : <Link href="/login" className="text-muted underline">運営者のログイン</Link>}
+            </span>
           </div>
+          {!owner && (
+            <div className="border-t border-line bg-surface-2">
+              <p className="mx-auto max-w-6xl px-4 py-1.5 text-xs text-ink-2">
+                公開中のデモです。AIが実際に動かしている実験の、本物の画面と数字を見られます（閲覧のみ。ボタンは押せません。個人の情報や他人の投稿は伏せています）。
+              </p>
+            </div>
+          )}
         </header>
+        {!owner && <GuestGuard />}
         <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
       </body>
     </html>
