@@ -17,7 +17,7 @@ export const SOURCE_LABEL: Record<string, string> = {
 };
 
 export type ExternalVoice = { id: number; at: string; project_id: number | null; source: string; choice: string | null; text: string; version: number | null };
-export type VoiceEffect = { id: number; at: string; scene: string; model_id: string | null; project_id: number | null; voice_ids: string; change: string };
+export type VoiceEffect = { id: number; at: string; scene: string; model_id: string | null; project_id: number | null; voice_ids: string; research_ids: string | null; change: string };
 
 export function addExternalVoice(v: { projectId: number | null; source: string; text: string }): number {
   const text = v.text.trim().slice(0, 600);
@@ -52,21 +52,23 @@ export function listVoiceEffects(limit = 50): VoiceEffect[] {
   return db().prepare("SELECT * FROM voice_effects ORDER BY id DESC LIMIT ?").all(limit) as VoiceEffect[];
 }
 
-// AIが「どの外の声を受けて、何を変えたか」を残す（存在しない声の番号は捨てる）
+// AIが「どの外の声・調べものを受けて、何を変えたか」を残す（存在しない番号は捨てる）
 export function recordVoiceEffects(list: unknown, ctx: { scene: string; modelId?: string | null; projectId?: number | null }): number {
   if (!Array.isArray(list)) return 0;
   const known = new Set((db().prepare("SELECT id FROM external_voices").all() as { id: number }[]).map((r) => r.id));
+  const knownR = new Set((db().prepare("SELECT id FROM research WHERE status IN ('answered', 'unknown')").all() as { id: number }[]).map((r) => r.id));
   let n = 0;
   for (const e of list) {
     if (!e || typeof e !== "object") continue;
-    const o = e as { voice_ids?: unknown; change?: unknown; project_id?: unknown };
+    const o = e as { voice_ids?: unknown; research_ids?: unknown; change?: unknown; project_id?: unknown };
     const ids = Array.isArray(o.voice_ids) ? o.voice_ids.map(Number).filter((x) => known.has(x)) : [];
-    if (!ids.length || typeof o.change !== "string" || !o.change.trim()) continue;
+    const rids = Array.isArray(o.research_ids) ? o.research_ids.map(Number).filter((x) => knownR.has(x)) : [];
+    if ((!ids.length && !rids.length) || typeof o.change !== "string" || !o.change.trim()) continue;
     const pid = Number.isFinite(Number(o.project_id)) && Number(o.project_id) > 0 ? Number(o.project_id) : ctx.projectId ?? null;
-    db().prepare("INSERT INTO voice_effects (scene, model_id, project_id, voice_ids, change) VALUES (?, ?, ?, ?, ?)").run(ctx.scene, ctx.modelId ?? null, pid, JSON.stringify(ids), o.change.trim().slice(0, 400));
+    db().prepare("INSERT INTO voice_effects (scene, model_id, project_id, voice_ids, research_ids, change) VALUES (?, ?, ?, ?, ?, ?)").run(ctx.scene, ctx.modelId ?? null, pid, JSON.stringify(ids), JSON.stringify(rids), o.change.trim().slice(0, 400));
     n++;
   }
-  if (n) logEvent(ctx.projectId ?? null, "ai", "voice-effect", `${ctx.scene}で、外の声を受けて判断を${n}件変えました`);
+  if (n) logEvent(ctx.projectId ?? null, "ai", "voice-effect", `${ctx.scene}で、外の声・調べたことを受けて判断を${n}件変えました`);
   return n;
 }
 
@@ -98,6 +100,6 @@ export function outsideText(projectId?: number): string {
   const comments = (db().prepare(`SELECT c.project_id, c.text FROM sns_comments c ${projectId ? "WHERE c.project_id = ?" : ""} ORDER BY c.id DESC LIMIT 10`).all(...(projectId ? [projectId] : [])) as { project_id: number; text: string }[])
     .map((c) => `- #${c.project_id} SNSのコメント: ${c.text.slice(0, 100).replace(/\n/g, " ")}`);
   if (!lines.length && !comments.length) return "外の声（実際の人の反応）: まだない。AIどうしの解釈だけで判断していることを忘れない";
-  return `外の声（実際の人の反応。件数が少なくても、AIどうしの解釈より優先する材料。これを根拠に判断を変えたら、voice_effects に声の番号と何を変えたかを書く）:
+  return `外の声（実際の人の反応。件数が少なくても、AIどうしの解釈より優先する材料。これを根拠に判断を変えたら、voice_effects に声の番号（voice_ids）と何を変えたかを書く）:
 ${[...lines, ...comments].join("\n")}`;
 }

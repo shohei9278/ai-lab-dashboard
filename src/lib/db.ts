@@ -253,6 +253,24 @@ CREATE TABLE IF NOT EXISTS external_voices (
   remote_id INTEGER UNIQUE, -- 公開ページの質問のとき、Supabase の feedback の id
   version INTEGER
 );
+-- 調べもの: 朝会のAIが「分からないこと」を1つ決め、Webの公開情報で調べた結果（出典つき）。分からなければ保留のまま残す
+CREATE TABLE IF NOT EXISTS research (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  plan_id INTEGER,
+  project_id INTEGER,
+  question TEXT NOT NULL, -- 分からないこと
+  why TEXT, -- 分かると、どの判断が変わるか
+  how TEXT, -- どう調べるか
+  asked_by TEXT, -- 問いを決めたAI
+  status TEXT NOT NULL DEFAULT 'pending', -- pending / running / answered / unknown / failed
+  summary TEXT, -- 分かったこと
+  findings TEXT, -- JSON: [{point, url, title}]
+  unknown TEXT, -- 調べても分からなかったこと
+  model_id TEXT,
+  searches INTEGER,
+  done_at TEXT
+);
 -- 外の声で変わった判断: AIが外の声を根拠に、何を変えたか
 CREATE TABLE IF NOT EXISTS voice_effects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -513,6 +531,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["plan_requests", "ai_reply", "TEXT"], // あなたが入れた提案への、AIの返事
   ["meetings", "kind", "TEXT NOT NULL DEFAULT 'weekly'"], // weekly = 週の定例会議 / adhoc = あなたが議題を出した臨時会議
   ["meetings", "topic", "TEXT"], // 臨時会議の議題
+  ["voice_effects", "research_ids", "TEXT"], // JSON: 判断を変えた根拠になった調べもの（research の id）
   ["sns_posts", "human_review", "TEXT"],
   ["sns_posts", "human_note", "TEXT"],
   ["plan_tasks", "human_review", "TEXT"],

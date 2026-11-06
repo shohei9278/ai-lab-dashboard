@@ -9,6 +9,7 @@ import { followUpOf, type WeeklyContent } from "./meetings";
 import type { AdhocContent } from "./adhoc";
 import { addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
+import { researchText } from "./research";
 
 // 週の定例会議（毎週月曜）
 // 1. 3社のAIが、同じ材料（1週間の数字・計画と達成度・提案箱の返事など）から、それぞれ振り返りと改善案を出す
@@ -39,6 +40,7 @@ export function meetingMaterial(start: string): string {
   return `${gather(start)}
 
 ${outsideText()}
+${researchText()}
 
 毎朝の計画（日替わりの担当）:
 ${plans.join("\n") || "（なし）"}
@@ -71,7 +73,7 @@ export async function createWeeklyMeeting(): Promise<number> {
   3. AIは何を変えたか（ページ・投稿の切り口・場所・作るものなど）
   4. 人間はどこで助けたか（運営者が手でやったこと・提案箱でやったこと）
   5. まだ分からないことは何か
-- voice_effects: 外の声を根拠に、提案や考えを変えたときだけ [{"voice_ids":[声の番号],"change":"何をどう変えたか"}]
+- voice_effects: 外の声や調べたことを根拠に、提案や考えを変えたときだけ [{"voice_ids":[声の番号],"research_ids":[調べものの番号],"change":"何をどう変えたか"}]
 - proposals: 改善案を0〜3件（本当に効きそうなものがなければ空の配列でよい。数を埋めるための案は出さない）。target は次のどちらか
   - human: 運営者（人）にやってほしいこと（AIは他人への働きかけ・アカウントの設定・コミュニティへの参加などができない）
   - system: この会社の仕組み（AIへの指示・集計のしかた・自動化の決まり・作るものの選び方など）を変える案

@@ -12,6 +12,7 @@ import { ANGLE_TYPES, badPostsText, classifyUntyped, isAngleType, postStatsText 
 import { hasKey, modelInfo } from "./models";
 import { addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
+import { addResearch, researchText, runResearch } from "./research";
 
 // 毎日の計画: 毎朝AIが全案件を振り返り、今のネック（届かない・使われない など）を1つ決めて、今日やることを決める
 // - やること: 案件の宣伝の投稿 / 宣伝ではない普通の投稿 / ページを直す / 新しい案件づくりを休む / 次のアイデア出しに課題を伝える
@@ -229,6 +230,7 @@ function planMaterial(): string {
     `実験の累計: 案件${h.projects}件・公開${h.published}件・育てる段階${h.continued}件・撤退${h.killed}件 / 撤退の理由: ${ends.map((e) => `${e.label}${e.n}件`).join("・") || "まだなし"}`,
     `全案件の1日ごとの数字（直近7日）: ${daily}`,
     outsideText(),
+    researchText() || "調べたこと: まだない",
     `公開中の案件:\n${projectLines.join("\n") || "（なし）"}`,
     `自動で投稿できる場所: ${platforms.map((p) => `${AUTO_PLATFORMS[p].label}（宣伝は${postAllowed(p, "promo") ? `1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}・普通の投稿は${postAllowed(p, "plain") ? `約${Math.round(AUTO_PLATFORMS[p].plainCostUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}。直近24時間の投稿 ${aiPostsLast24h(p)}件・安全装置 ${s.postSafetyPerDay}件）`).join(" / ") || "なし（自動投稿がオフ、またはキーがない。投稿の予定は入れない）"}`,
     `投稿してよい時間: ${POST_START}〜${POST_END}時`,
@@ -250,6 +252,7 @@ type PlanOut = PlanContent & {
   voice?: string;
   replies?: { id: number; reply: string }[];
   voice_effects?: unknown;
+  research?: { question?: unknown; why?: unknown; how?: unknown; project_id?: unknown } | null;
   tasks: { time: string; kind: TaskKind; platform?: string; project_id?: number; type?: string; angle: string; reason: string }[];
 };
 
@@ -286,7 +289,8 @@ export async function createPlan({ force = false } = {}): Promise<number> {
 - prediction: 目標とは別に、この計画を実行したら、今日の訪問と登録・利用は実際にいくつになると思うか（願望ではなく予想。目標と同じでなくてよい）と、その理由。最近の計画の「予想→実測」のずれを見て、楽観・悲観に偏っていたら直す
 - review: 最近の計画の予定と目標が、実際どうだったか。効いた手・効かなかった手と、今日それをどう変えるか（最初の計画なら、今の状況のまとめ）。運営者に頼んだことをやってもらえた場合は、その前後で数字がどう変わったかも見る
 - voice: 社員としてのひとこと（つぶやき程度、60文字以内）。感想・気づき・心配・ダメ出し・試したいことなど何でもよい。数字や出来事は材料にあるものだけを使い、体験談は作らない
-- voice_effects: 外の声（実際の人の反応）を根拠に、今日の計画で何かを変えたときだけ。[{"voice_ids":[声の番号],"project_id":案件の番号,"change":"何をどう変えたか"}]。外の声はAIどうしの解釈より優先する
+- research: 今の判断に効くのに分からないことがあれば、Webの公開情報で調べてもらう問いを1件だけ（例: 「#35 が使われない原因が分からない。類似の無料ツールを調べ、すでに無料でできることと、#35 に足りないことを確かめる」）。{"question":"分からないこと","why":"分かるとどの判断が変わるか","how":"どう調べるか","project_id":案件の番号（全体についてなら null）}。調べなくても決められる日・Webでは分からないこと（自社の利用者の気持ちなど）・最近調べたことと同じ問いは null。結果は翌朝の材料に出典つきで入る
+- voice_effects: 外の声（実際の人の反応）や調べたことを根拠に、今日の計画で何かを変えたときだけ。[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"project_id":案件の番号,"change":"何をどう変えたか"}]。外の声はAIどうしの解釈より優先する
 - replies: 運営者が提案箱に入れた提案（材料の「運営者からの提案」）それぞれへの返事。どう受け止め、今日の計画にどう反映したか（反映できないなら理由）を1〜2文で
 - requests: あなた（AI）は自分ではできないが、運営者（人）がやると効きそうなことを0〜2件頼める。例: 対象の人が集まるコミュニティに参加して自分の言葉で紹介する / アカウントのプロフィールの文や固定の投稿を変える / 知り合いに見てもらって感想を聞く。title は短く、how は具体的な手順、why は数字の根拠。返事がまだのお願い・断られたお願いと同じものは出さない。なければ空の配列
 守ること:
@@ -295,7 +299,7 @@ export async function createPlan({ force = false } = {}): Promise<number> {
 - 切り口どうしを比べるときは、場所と時間帯をそろえる（例: 同じ場所・同じ時間帯で、完成見本の切り口と共感の切り口を別の日に出す）。場所も時間帯も切り口も同時に変えると、どれが効いたか分からなくなる
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
-形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"replies":[{"id":提案の番号,"reply":"返事"}],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
+形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
     user: planMaterial(),
     validate: isPlanOut,
   });
@@ -361,6 +365,13 @@ export async function createPlan({ force = false } = {}): Promise<number> {
     .filter((r) => addProposal({ title: r.title, how: String(r.how ?? ""), why: String(r.why ?? ""), target: "human", source: "plan", proposer: model, scene: "朝会", planId: id }));
   if (isStr(out.voice)) addVoice({ modelId: model, scene: "朝会", text: out.voice });
   recordVoiceEffects(out.voice_effects, { scene: "朝会", modelId: model });
+  // 調べもの（1件だけ）。画面を待たせないよう、裏で調べる
+  const rq = out.research;
+  if (rq && isStr(rq.question)) {
+    const pid = Number(rq.project_id);
+    const rid = addResearch({ planId: id, projectId: Number.isFinite(pid) && pid > 0 ? pid : null, question: rq.question, why: isStr(rq.why) ? rq.why : "", how: isStr(rq.how) ? rq.how : "", askedBy: model });
+    void runResearch(rid);
+  }
   for (const r of Array.isArray(out.replies) ? out.replies : []) {
     if (isObj(r) && isStr(r.reply)) conn.prepare("UPDATE plan_requests SET ai_reply = ? WHERE id = ? AND source = 'human'").run(`${modelInfo(model).label}（${now.day}の朝会）: ${r.reply.slice(0, 400)}`, Number(r.id));
   }

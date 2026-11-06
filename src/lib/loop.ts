@@ -12,6 +12,7 @@ import { funnelText } from "./funnel";
 import { planIdeaNote, planPausesNew } from "./plan";
 import { EXTRAS_RULE, addProposal, takeExtras } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
+import { researchText } from "./research";
 import { budgetState } from "./budget";
 import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
@@ -256,7 +257,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
 形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
-    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）`,
+    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
   return out.ideas.slice(0, count);
@@ -910,8 +911,8 @@ improve は「今すぐ変える」場合だけに使う。「もう少し様子
 「ページの中での動き」があれば、どこで離脱しているか（読まれていない・ボタンが押されない・入力したのに登録しない など）を理由と next_action に活かすこと。
 improve の場合、next_action には「どこを、どう変えるか」を1か所だけ、条件を付けずに具体的に書くこと（一度に複数を変えると、何が効いたか分からなくなるため）。
 rethink の場合、next_action には「どこで（具体的な場所・ハッシュタグ・検索される言葉）、誰に、どんな切り口で届けるか」を具体的に書くこと。これまでの届け方と同じことは書かない。自動で投稿できるのは X・Threads・Bluesky の自分の投稿だけで、それ以外の場所は運営者の手作業になるので、自分の投稿の切り口を中心にする。他人の投稿やQ&Aサイトに宣伝のための返信・回答をする案は出さない。${slowNote}
-外の声（実際の人の反応）があれば、数字と同じかそれ以上に重く見る。外の声を根拠に判断や next_action を変えたら、voice_effects に声の番号と、何をどう変えたかを書く（なければ空の配列）。
-形式: {"decision":"${growing ? "improve|rethink|collect|kill" : "continue|improve|collect|rethink|kill"}","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること","voice_effects":[{"voice_ids":[声の番号],"change":"何をどう変えたか"}]}`,
+外の声（実際の人の反応）があれば、数字と同じかそれ以上に重く見る。外の声や調べたことを根拠に判断や next_action を変えたら、voice_effects に声の番号（voice_ids）・調べものの番号（research_ids）と、何をどう変えたかを書く（なければ空の配列）。
+形式: {"decision":"${growing ? "improve|rethink|collect|kill" : "continue|improve|collect|rethink|kill"}","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること","voice_effects":[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"change":"何をどう変えたか"}]}`,
     user: `サービス: ${p.title}（対象: ${p.target}）
 仮説: ${p.hypothesis}
 企画のときに決めた最初の届け方: ${p.first_channel ?? "（なし）"}
@@ -925,7 +926,8 @@ ${funnelText(p)}
 これまでの経過:
 ${history}
 
-${outsideText(p.id)}`,
+${outsideText(p.id)}
+${researchText(p.id)}`,
   };
 }
 
