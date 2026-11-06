@@ -14,7 +14,7 @@ import { Stat } from "@/components/ui";
 import { AUTO_PLATFORMS, autoPlatforms } from "@/lib/snsApi";
 import { budgetState } from "@/lib/budget";
 import { planProgress, todayPlan } from "@/lib/plan";
-import { PlanSummary, PlanTasks } from "./plan/PlanView";
+import { OpenRequests, PlanSummary, PlanTasks, unreviewedPostCount } from "./plan/PlanView";
 import { Replan } from "./plan/PlanActions";
 
 export const dynamic = "force-dynamic";
@@ -185,6 +185,13 @@ export default async function Home() {
           {plan ? (
             <>
               <PlanSummary plan={plan} />
+              <OpenRequests owner={owner} />
+              {owner && unreviewedPostCount() > 0 && (
+                <p className="text-sm">
+                  AIだけで出した投稿のうち、まだ見ていないもの <b className="num">{unreviewedPostCount()}件</b>（直近3日）
+                  <Link href="/plan#posts" className="ml-2 text-accent underline">確かめる</Link>
+                </p>
+              )}
               <details className="group border-t border-line pt-2">
                 <summary className="cursor-pointer text-sm text-ink-2">今日の予定を開く（{planProgress(plan).done}/{planProgress(plan).total}件 済み）</summary>
                 <div className="mt-2"><PlanTasks plan={plan} owner={owner} /></div>

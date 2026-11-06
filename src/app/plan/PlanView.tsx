@@ -3,7 +3,10 @@ import { db } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
 import { AUTO_PLATFORMS, type AutoPlatform } from "@/lib/snsApi";
 import { BOTTLENECK_LABEL, GOAL_LABEL, TASK_KIND_LABEL, certaintyLabel, planProgress, type PlanRow, type TaskRow } from "@/lib/plan";
-import { CancelTask } from "./PlanActions";
+import { AnswerRequest, CancelTask, ReviewPost } from "./PlanActions";
+import { modelInfo } from "@/lib/models";
+import { openRequests, recentRequests } from "@/lib/plan";
+import { recentAiPosts, unreviewedPostCount } from "@/lib/postStats";
 import { postStats, type StatRow } from "@/lib/postStats";
 
 // 今日の計画の「どこまで達成したか」を、予定の消化と目標の数字の2つの棒で見せる
@@ -54,6 +57,7 @@ export function PlanSummary({ plan }: { plan: PlanRow }) {
           今のネック: {BOTTLENECK_LABEL[g.content.bottleneck]}
         </span>
         <span className="text-xs text-muted">確かさ {certaintyLabel(g.content.certainty)}</span>
+        <span className="text-xs text-muted">・計画の担当: <span style={{ color: `var(--series-${modelInfo(plan.model_id).provider})` }}>{modelInfo(plan.model_id).label}</span></span>
       </div>
       <p className="font-medium">{g.content.focus}</p>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -103,6 +107,12 @@ export function PlanTasks({ plan, owner }: { plan: PlanRow; owner: boolean }) {
                   {x.result}
                   {x.result_url && <> <a href={x.result_url} target="_blank" rel="noreferrer" className="underline">投稿を見る ↗</a></>}
                   {x.done_at && <span className="ml-2 text-muted">{jstDateTime(x.done_at)}</span>}
+                  {owner && x.status === "done" && x.kind !== "improve" && x.result_url && (() => {
+                    const ref = x.kind === "plain"
+                      ? { table: "plan_tasks" as const, id: x.id, current: x.human_review }
+                      : (() => { const r = db().prepare("SELECT id, human_review FROM sns_posts WHERE post_url = ?").get(x.result_url) as { id: number; human_review: string | null } | undefined; return r ? { table: "sns_posts" as const, id: r.id, current: r.human_review } : null; })();
+                    return ref ? <span className="ml-2"><ReviewPost table={ref.table} id={ref.id} current={ref.current} /></span> : null;
+                  })()}
                   {x.status === "done" && x.kind !== "improve" && (
                     <span className="ml-2 text-muted">
                       {x.reactions_at ? `反応: いいね${x.likes ?? 0}・返信${x.replies ?? 0}・リポスト${x.reposts ?? 0}` : "反応は翌日に取り込みます"}
@@ -125,7 +135,7 @@ export function PlanHistory({ plans }: { plans: PlanRow[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="text-left text-xs text-muted">
-          <tr><th className="py-1 pr-3 font-normal">日</th><th className="py-1 pr-3 font-normal">ネック</th><th className="py-1 pr-3 font-normal">予定</th><th className="py-1 pr-3 font-normal">目標</th></tr>
+          <tr><th className="py-1 pr-3 font-normal">日</th><th className="py-1 pr-3 font-normal">担当</th><th className="py-1 pr-3 font-normal">ネック</th><th className="py-1 pr-3 font-normal">予定</th><th className="py-1 pr-3 font-normal">目標</th></tr>
         </thead>
         <tbody>
           {plans.map((p) => {
@@ -133,6 +143,7 @@ export function PlanHistory({ plans }: { plans: PlanRow[] }) {
             return (
               <tr key={p.id} className="border-t border-line align-top">
                 <td className="num whitespace-nowrap py-2 pr-3">{dayLabel(p.day)}</td>
+                <td className="whitespace-nowrap py-2 pr-3 text-xs" style={{ color: `var(--series-${modelInfo(p.model_id).provider})` }}>{modelInfo(p.model_id).label}</td>
                 <td className="py-2 pr-3">{BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}<div className="text-xs text-muted">{g.content.focus}</div></td>
                 <td className="num whitespace-nowrap py-2 pr-3">{g.done}/{g.total}件 <span className="text-xs text-ink-2">{Math.round(g.taskRate * 100)}%</span></td>
                 <td className="num whitespace-nowrap py-2 pr-3">
@@ -196,4 +207,72 @@ export function PostStatsView() {
   );
 }
 
+// AIからのお願い（返事がまだのもの）
+export function OpenRequests({ owner }: { owner: boolean }) {
+  const rows = openRequests();
+  if (!rows.length) return null;
+  return (
+    <div className="space-y-2 rounded-lg p-3" style={{ background: "var(--surface-2)" }}>
+      <div className="text-sm font-medium">AIからのお願い（{rows.length}件）<span className="ml-2 text-xs font-normal text-muted">AIが自分ではできないけれど、やると効きそうだと考えたこと</span></div>
+      <ul className="space-y-2">
+        {rows.map((r) => (
+          <li key={r.id} className="space-y-0.5 text-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-medium">{r.title}</span>
+              {owner && <AnswerRequest id={r.id} />}
+            </div>
+            {r.how && <div className="text-ink-2">{r.how}</div>}
+            {r.why && <div className="text-xs text-muted">理由: {r.why}</div>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+// これまでのお願いと返事
+export function RequestHistory() {
+  const rows = recentRequests(20).filter((r) => r.status !== "open");
+  if (!rows.length) return <p className="text-sm text-ink-2">まだ返事をしたお願いはありません。</p>;
+  return (
+    <ul className="space-y-1 text-sm">
+      {rows.map((r) => (
+        <li key={r.id}>
+          <span style={{ color: r.status === "done" ? "var(--good)" : "var(--muted)" }}>{r.status === "done" ? "✓ やった" : "– やらない"}</span>
+          <span className="ml-2">{r.title}</span>
+          {r.note && <span className="ml-2 text-xs text-ink-2">（{r.note}）</span>}
+          {r.decided_at && <span className="ml-2 text-xs text-muted">{jstDateTime(r.decided_at)}</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// AIだけで出した投稿（直近3日）を、あとから確かめる
+export function AiPostsReview({ owner }: { owner: boolean }) {
+  const rows = recentAiPosts(3);
+  if (!rows.length) return <p className="text-sm text-ink-2">直近3日のAIの投稿はありません。</p>;
+  const t = titles();
+  return (
+    <ul className="space-y-2">
+      {rows.map((p) => (
+        <li key={`${p.table}${p.id}`} className="space-y-1 rounded-lg border p-3 text-sm" style={{ borderColor: p.human_review === "bad" ? "var(--critical)" : "var(--line)" }}>
+          <div className="flex flex-wrap items-center gap-x-2 text-xs text-ink-2">
+            <span className="num">{jstDateTime(p.at)}</span>
+            <span>{AUTO_PLATFORMS[p.platform as AutoPlatform]?.label ?? p.platform}</span>
+            <span className="rounded bg-surface-2 px-1.5">{p.kind === "promo" ? "宣伝" : "普通の投稿"}</span>
+            {p.project_id && <span>{t.get(p.project_id)}</span>}
+            {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="underline">投稿を見る ↗</a>}
+            <span className="text-muted">{p.reactions_at ? `反応: いいね${p.likes ?? 0}・返信${p.replies ?? 0}・リポスト${p.reposts ?? 0}` : "反応は翌日に取り込みます"}</span>
+            {owner && <span className="ml-auto"><ReviewPost table={p.table} id={p.id} current={p.human_review} /></span>}
+          </div>
+          <div className="whitespace-pre-wrap">{p.text}</div>
+          {p.human_review === "bad" && p.human_note && <div className="text-xs" style={{ color: "var(--critical)" }}>あなたのひとこと: {p.human_note}</div>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export { unreviewedPostCount };
 export { dayLabel };

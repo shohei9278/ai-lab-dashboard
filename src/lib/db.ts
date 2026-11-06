@@ -230,6 +230,18 @@ CREATE TABLE IF NOT EXISTS plan_tasks (
   result_url TEXT,
   done_at TEXT
 );
+-- AIからのお願い: 毎日の計画でAIが「自分ではできないが、やると効く」と考えたことを、人に頼む
+CREATE TABLE IF NOT EXISTS plan_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL REFERENCES daily_plans(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  title TEXT NOT NULL,
+  how TEXT, -- 具体的にどうしてほしいか
+  why TEXT, -- なぜ効くと考えたか
+  status TEXT NOT NULL DEFAULT 'open', -- open / done / declined
+  note TEXT, -- あなたのひとこと（やった結果・やらない理由）
+  decided_at TEXT
+);
 -- 週ごとのレポート（AIが1週間の数字と動きをまとめ、発信用の下書きも作る）
 CREATE TABLE IF NOT EXISTS reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -446,7 +458,12 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["plan_tasks", "replies", "INTEGER"],
   ["plan_tasks", "reposts", "INTEGER"],
   ["plan_tasks", "reactions_at", "TEXT"],
-  ["plan_tasks", "angle_type", "TEXT"], // JSON: 採点したAIごとの点数 [{modelId, a, b, reason}]（a が先に作った案）
+  ["plan_tasks", "angle_type", "TEXT"],
+  // AIだけで出した投稿を、人があとから見て付ける印（ok / bad）とひとこと。bad の書き方は次の計画で避けさせる
+  ["sns_posts", "human_review", "TEXT"],
+  ["sns_posts", "human_note", "TEXT"],
+  ["plan_tasks", "human_review", "TEXT"],
+  ["plan_tasks", "human_note", "TEXT"], // JSON: 採点したAIごとの点数 [{modelId, a, b, reason}]（a が先に作った案）
   ["page_candidates", "model", "TEXT"], // その案のページを書いたAI（空なら、参考のあり・なしで比べていたころの案で、Claude が書いた）
   ["lessons", "fact", "TEXT"], // 観測した事実（数字など）
   ["lessons", "interpretation", "TEXT"], // 仮の解釈

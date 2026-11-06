@@ -3,6 +3,7 @@ import { END_REASON_LABEL, autoPublishStats, designAuthorStats, ideaAuthorStats,
 import { costEfficiency } from "./cost";
 import { modelInfo } from "./models";
 import { runStats } from "./stats";
+import { planModelStats } from "./plan";
 
 // 実験結果のページ用: プロダクトそのものではなく、「AIに任せるとどうなるか」の結果を、数字とランキングにまとめる
 
@@ -55,6 +56,11 @@ export function rankings(): Ranking[] {
       key: "visual", title: "見た目のデザイン力", question: "LPのページを作り比べた画面に、他社のAIが作者を伏せて付けた点（10点満点）", better: "high", max: 10,
       empty: "事前登録LPのページを、Claude と別の会社のAIで作り比べると、たまっていきます",
       rows: rank(designModelEffect().filter((d) => d.neutral !== null).map((d) => ({ modelId: d.modelId, value: d.neutral!, n: d.n, display: `${pt(d.neutral!)}（選ばれた ${d.won}/${d.n}回）` })), "high"),
+    },
+    {
+      key: "plan", title: "運営の計画力", question: "毎日の計画を担当した日に、その日の目標（訪問・登録・利用）にどこまで届いたかの平均（3社で日ごとに交代）", better: "high", max: 1,
+      empty: "毎日の計画を3社が担当すると、1日ごとにたまっていきます",
+      rows: rank(planModelStats().filter((m) => m.goalRate !== null).map((m) => ({ modelId: m.modelId, value: m.goalRate!, n: m.days, display: `${pc(m.goalRate!)}（${m.days}日・予定の消化 ${pc(m.taskRate)}）` })), "high"),
     },
     {
       key: "result", title: "アイデアの実績", question: "そのAIのアイデアの案件で、訪問者のうち登録・利用した割合", better: "high",

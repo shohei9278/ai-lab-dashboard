@@ -5,7 +5,7 @@ import { getSettings } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
 import { autoPlatforms } from "@/lib/snsApi";
 import { planProgress, recentPlans, todayPlan } from "@/lib/plan";
-import { PlanHistory, PlanSummary, PlanTasks, PostStatsView, dayLabel } from "./PlanView";
+import { AiPostsReview, OpenRequests, PlanHistory, PlanSummary, PlanTasks, PostStatsView, RequestHistory, dayLabel } from "./PlanView";
 import { Replan } from "./PlanActions";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +39,7 @@ export default async function PlanPage() {
               <span className="text-xs text-muted">{jstDateTime(plan.created_at)} に作成</span>
             </div>
             <PlanSummary plan={plan} />
+            <OpenRequests owner={owner} />
           </section>
 
           <section className="card space-y-2 p-4">
@@ -60,6 +61,14 @@ export default async function PlanPage() {
         </section>
       )}
 
+      <section id="posts" className="card scroll-mt-4 space-y-3 p-4">
+        <div>
+          <h2 className="font-bold">AIだけで出した投稿の確認（直近3日）</h2>
+          <p className="text-xs text-muted">人が見ないまま出た投稿です。「出すべきでなかった」を付けると、その投稿と理由を次の計画・投稿を書くAIに渡し、同じ書き方を避けさせます（投稿そのものは消しません。消すときは各サービスで消してください）。</p>
+        </div>
+        <AiPostsReview owner={owner} />
+      </section>
+
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">これまでの計画と達成度</h2>
         <PlanHistory plans={past} />
@@ -74,6 +83,13 @@ export default async function PlanPage() {
           </p>
         </div>
         <PostStatsView />
+      </section>
+      <section className="card space-y-3 p-4">
+        <div>
+          <h2 className="font-bold">AIからのお願いへの返事</h2>
+          <p className="text-xs text-muted">返事（やった・やらない、ひとこと）は、次の計画でAIが見ます。やってもらったことの前後で数字がどう変わったかも振り返ります。</p>
+        </div>
+        <RequestHistory />
       </section>
       <p className="text-xs text-muted">普通の投稿にはリンクがないため、そこから何人来たかは分かりません。反応の数と、全体の訪問の増え方で、効いたかどうかを見ます。設定は<Link href="/settings" className="underline">設定</Link>で変えられます。</p>
     </div>

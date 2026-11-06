@@ -8,6 +8,8 @@ import { publicUrl } from "@/lib/publish";
 import { NOTE_CERTAINTY, NOTE_TOPICS, type NoteRow } from "@/lib/notes";
 import { listReports, type Report } from "@/lib/report";
 import { jstDate, pct } from "@/lib/format";
+import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, recentPlans } from "@/lib/plan";
+import { jstDay } from "@/lib/sns";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -18,6 +20,7 @@ export const metadata: Metadata = {
 // 実験の様子を外に見せる、見るだけのページ（パスワードなしで開ける）
 // 載せるのは、実案件のうち公開したもの・終わったものだけ。まだ公開していないアイデアや、承認待ちの中身は出さない
 export default function Showcase() {
+  const plans = recentPlans(7);
   const s = getSettings();
   if (!s.showcaseEnabled) notFound();
 
@@ -56,6 +59,36 @@ export default function Showcase() {
           <h2 className="font-bold">今週のまとめ（AIが作成）</h2>
           <p className="whitespace-pre-wrap text-sm">{report.summary}</p>
           <p className="text-xs text-muted">{latest!.period_start}〜{latest!.period_end}</p>
+        </section>
+      )}
+
+      {/* AIの日報: 毎朝AIが決めたネック・方針と、その日どこまで届いたか（あなたへのお願いは載せない） */}
+      {plans.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="font-bold">AIの日報</h2>
+          <p className="text-xs text-muted">毎朝、Claude・GPT・Gemini が日替わりで全案件を振り返り、今のネックと今日やること（SNSへの投稿・ページの改善など）を決めて、自分で実行しています。</p>
+          <div className="space-y-2">
+            {plans.map((p) => {
+              const g = planProgress(p);
+              const m = modelInfo(p.model_id);
+              const live = p.day === jstDay();
+              return (
+                <article key={p.id} className="card space-y-1.5 p-4 text-sm">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                    <span className="num font-bold">{p.day.slice(5).replace("-", "/")}</span>
+                    <span className="text-xs" style={{ color: `var(--series-${m.provider})` }}>担当 {m.label}</span>
+                    <span className="text-xs text-ink-2">ネック: {BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}</span>
+                    <span className="num ml-auto text-xs text-ink-2">
+                      予定 {g.done}/{g.total}件{live ? "（進行中）" : ""}
+                      {g.goals.map((x) => `・${GOAL_LABEL[x.metric]} ${x.actual}/${x.target}${x.rate >= 1 ? " ✓" : ""}`).join("")}
+                    </span>
+                  </div>
+                  <p className="font-medium">{g.content.focus}</p>
+                  <p className="line-clamp-3 text-ink-2">{g.content.review}</p>
+                </article>
+              );
+            })}
+          </div>
         </section>
       )}
 

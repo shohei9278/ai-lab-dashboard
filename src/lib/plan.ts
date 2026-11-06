@@ -8,7 +8,8 @@ import { aiPostsLast24h, jstDay, postPromo } from "./sns";
 import { viralHints } from "./viralPosts";
 import { budgetState } from "./budget";
 import { jstDateTime } from "./format";
-import { ANGLE_TYPES, classifyUntyped, isAngleType, postStatsText } from "./postStats";
+import { ANGLE_TYPES, badPostsText, classifyUntyped, isAngleType, postStatsText } from "./postStats";
+import { hasKey, modelInfo } from "./models";
 
 // 毎日の計画: 毎朝AIが全案件を振り返り、今のネック（届かない・使われない など）を1つ決めて、今日やることを決める
 // - やること: 案件の宣伝の投稿 / 宣伝ではない普通の投稿 / ページを直す / 新しい案件づくりを休む / 次のアイデア出しに課題を伝える
@@ -43,8 +44,52 @@ export type TaskRow = {
   id: number; plan_id: number; at_time: string; kind: TaskKind; platform: string | null; project_id: number | null;
   angle: string | null; reason: string | null; status: TaskStatus; result: string | null; result_url: string | null; done_at: string | null;
   angle_type: string | null; likes: number | null; replies: number | null; reposts: number | null; reactions_at: string | null;
+  human_review: string | null; human_note: string | null;
 };
 export const TASK_KIND_LABEL: Record<TaskKind, string> = { promo: "宣伝の投稿", plain: "普通の投稿", improve: "ページを直す" };
+
+// 計画を書くAI。3社で日ごとに交代し、どのAIの計画が目標に届いたかを比べる（使える候補のうち、担当した日が少ないものに任せる）
+export const PLAN_MODELS = ["claude-opus-5-5", "gpt-5.6-sol", "gemini-3.1-pro-preview"];
+
+function planModelFor(): string {
+  const usable = PLAN_MODELS.filter((id) => hasKey(modelInfo(id).provider));
+  if (!usable.length) return getSettings().loopModel;
+  const counts = new Map((db().prepare("SELECT model_id AS m, COUNT(*) AS n FROM daily_plans GROUP BY model_id").all() as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
+}
+
+// 計画のAIの成績: 終わった日の計画ごとの、目標の達成度と予定の消化（今日の分は数えない）
+export function planModelStats(): { modelId: string; days: number; goalRate: number | null; taskRate: number }[] {
+  const today = jstNow().day;
+  const by = new Map<string, { days: number; goal: number[]; task: number[] }>();
+  for (const p of db().prepare("SELECT * FROM daily_plans WHERE day < ?").all(today) as PlanRow[]) {
+    const g = planProgress(p);
+    const m = by.get(p.model_id) ?? { days: 0, goal: [], task: [] };
+    m.days++;
+    if (g.goalRate !== null) m.goal.push(g.goalRate);
+    m.task.push(g.taskRate);
+    by.set(p.model_id, m);
+  }
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  return [...by].map(([modelId, m]) => ({ modelId, days: m.days, goalRate: avg(m.goal), taskRate: avg(m.task) ?? 0 }));
+}
+
+// ---- AIからのお願い ----
+
+export type RequestRow = { id: number; plan_id: number; created_at: string; title: string; how: string | null; why: string | null; status: "open" | "done" | "declined"; note: string | null; decided_at: string | null };
+
+export function openRequests(): RequestRow[] {
+  return db().prepare("SELECT * FROM plan_requests WHERE status = 'open' ORDER BY id DESC").all() as RequestRow[];
+}
+export function recentRequests(limit = 20): RequestRow[] {
+  return db().prepare("SELECT * FROM plan_requests ORDER BY id DESC LIMIT ?").all(limit) as RequestRow[];
+}
+export function answerRequest(id: number, status: "done" | "declined", note: string) {
+  const r = db().prepare("SELECT * FROM plan_requests WHERE id = ?").get(id) as RequestRow | undefined;
+  if (!r || r.status !== "open") throw new Error("まだ答えていないお願いだけ答えられます");
+  db().prepare("UPDATE plan_requests SET status = ?, note = ?, decided_at = datetime('now') WHERE id = ?").run(status, note.trim().slice(0, 300) || null, id);
+  logEvent(null, "human", "plan-request", `AIからのお願い「${r.title}」: ${status === "done" ? "やった" : "やらない"}${note.trim() ? `（${note.trim().slice(0, 80)}）` : ""}`);
+}
 
 const POST_START = 8; // 投稿してよい時間（日本時間）
 const POST_END = 22;
@@ -162,13 +207,15 @@ function planMaterial(): string {
     `最近の普通の投稿（リンクがないので、訪問の数は分からない。反応は投稿の翌日と3日後に取り込む）:\n${plains.join("\n") || "（なし）"}`,
     `最近の計画と結果:\n${past.join("\n") || "（まだなし。今日が最初の計画）"}`,
     postStatsText() || "効いた手の集計: まだ投稿がない",
+    `あなた（AI）から運営者へのお願い（直近30日）:\n${(db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-30 days') ORDER BY id DESC").all() as RequestRow[]).map((r) => `- 「${r.title}」→ ${r.status === "open" ? "まだ返事なし" : r.status === "done" ? `やった${r.decided_at ? `（${jstDateTime(r.decided_at)}）` : ""}` : "やらない"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`).join("\n") || "（まだなし）"}`,
     `教訓:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
-  ].join("\n\n") + viralHints("sns");
+  ].join("\n\n") + viralHints("sns") + badPostsText();
 }
 
 type PlanOut = PlanContent & {
   pause_new: boolean;
   idea_note: string;
+  requests?: { title: string; how: string; why: string }[];
   tasks: { time: string; kind: TaskKind; platform?: string; project_id?: number; type?: string; angle: string; reason: string }[];
 };
 
@@ -182,9 +229,12 @@ export async function createPlan({ force = false } = {}): Promise<number> {
   const existing = planFor(now.day);
   if (existing && !force) return existing.id;
   // 集計の前に、型がまだない投稿に型を付けておく（失敗しても計画は作る）
-  await classifyUntyped().catch((e) => logEvent(null, "system", "plan-error", `投稿の切り口の分類でエラー: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
+  await classifyUntyped().catch((e) => logEvent(null, "system", "classify-error", `投稿の切り口の分類でエラー: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
+  // 作り直すときは、同じAIに作り直させる（比べ合いを公平にするため）
+  const model = existing && PLAN_MODELS.includes(existing.model_id) && hasKey(modelInfo(existing.model_id).provider) ? existing.model_id : planModelFor();
   const out = await callJson<PlanOut>({
     purpose: "毎日の計画",
+    modelId: model,
     system: `あなたは「AIが自動でプロダクトを作る実験」の運営責任者です。毎朝、公開中の全案件と最近の結果を振り返り、今いちばんのネックを1つ決めて、今日1日にやることを決めます。決めたことは、そのまま自動で実行されます。
 ネック（bottleneck）は次から1つ: reach（届かない・訪問が少ない）/ use（訪問はあるが登録・利用されない）/ spread（使われるがシェアされない）/ pace（作るペースが合っていない）/ other
 今日できること（tasks）:
@@ -199,13 +249,14 @@ export async function createPlan({ force = false } = {}): Promise<number> {
 - pause_new: ネックが「届かない」なのに新しい案件を増やしても届かない案件が増えるだけ、のようなときは true にして、今日は新しい案件づくりを休む
 - idea_note: 次のアイデア出しに伝えたい、今の課題（例: 最初の利用者に届けやすい場所がはっきりした案を優先する）。なければ空
 - goals: 今日の目標の数字（visits = 全案件の訪問の合計、conversions = 登録・利用の合計）。直近の数字から、背伸びすれば届く値にする
-- review: 最近の計画の予定と目標が、実際どうだったか。効いた手・効かなかった手と、今日それをどう変えるか（最初の計画なら、今の状況のまとめ）
+- review: 最近の計画の予定と目標が、実際どうだったか。効いた手・効かなかった手と、今日それをどう変えるか（最初の計画なら、今の状況のまとめ）。運営者に頼んだことをやってもらえた場合は、その前後で数字がどう変わったかも見る
+- requests: あなた（AI）は自分ではできないが、運営者（人）がやると効きそうなことを0〜2件頼める。例: 対象の人が集まるコミュニティに参加して自分の言葉で紹介する / アカウントのプロフィールの文や固定の投稿を変える / 知り合いに見てもらって感想を聞く。title は短く、how は具体的な手順、why は数字の根拠。返事がまだのお願い・断られたお願いと同じものは出さない。なければ空の配列
 守ること:
 - 材料にある数字だけを使う。件数が少ないときは certainty を low にし、「まだ偶然の可能性が高い」と書く
 - 効かなかった手を同じように繰り返さない。回数を増やすより、切り口・場所・時刻を変えることを先に試す
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
-形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
+形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
     user: planMaterial(),
     validate: isPlanOut,
   });
@@ -249,20 +300,26 @@ export async function createPlan({ force = false } = {}): Promise<number> {
       // 作り直すとき: まだ実行していない予定は、取りやめにする
       conn.prepare("UPDATE plan_tasks SET status = 'cancelled', result = '計画を作り直したため取りやめ' WHERE plan_id = ? AND status = 'pending'").run(existing.id);
       conn.prepare("UPDATE daily_plans SET content = ?, pause_new = ?, idea_note = ?, model_id = ?, created_at = datetime('now') WHERE id = ?")
-        .run(JSON.stringify(content), out.pause_new ? 1 : 0, out.idea_note?.trim().slice(0, 300) || null, s.loopModel, existing.id);
+        .run(JSON.stringify(content), out.pause_new ? 1 : 0, out.idea_note?.trim().slice(0, 300) || null, model, existing.id);
       return existing.id;
     }
     return Number(conn.prepare("INSERT INTO daily_plans (day, model_id, content, pause_new, idea_note) VALUES (?, ?, ?, ?, ?)")
-      .run(now.day, s.loopModel, JSON.stringify(content), out.pause_new ? 1 : 0, out.idea_note?.trim().slice(0, 300) || null).lastInsertRowid);
+      .run(now.day, model, JSON.stringify(content), out.pause_new ? 1 : 0, out.idea_note?.trim().slice(0, 300) || null).lastInsertRowid);
   })();
   const ins = conn.prepare("INSERT INTO plan_tasks (plan_id, at_time, kind, platform, project_id, angle, reason, angle_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
   for (const t of tasks) {
     const type = t.kind === "improve" ? null : isAngleType(t.type) ? t.type : "other";
     ins.run(id, t.time, t.kind, t.kind === "improve" ? null : t.platform, t.kind === "plain" ? null : Number(t.project_id), String(t.angle ?? "").slice(0, 300), String(t.reason ?? "").slice(0, 300), type);
   }
+  // お願い（返事がまだのものと同じ題は入れない）
+  const open = new Set(openRequests().map((r) => r.title));
+  const reqs = (Array.isArray(out.requests) ? out.requests : []).filter((r) => isObj(r) && isStr(r.title) && !open.has(r.title.trim())).slice(0, 2);
+  for (const r of reqs) {
+    conn.prepare("INSERT INTO plan_requests (plan_id, title, how, why) VALUES (?, ?, ?, ?)").run(id, r.title.trim().slice(0, 80), String(r.how ?? "").slice(0, 500), String(r.why ?? "").slice(0, 300));
+  }
   // 前の日までの、実行されずに残った予定は見送りにする
   conn.prepare("UPDATE plan_tasks SET status = 'skipped', result = '時間内に実行できなかった' WHERE status = 'pending' AND plan_id IN (SELECT id FROM daily_plans WHERE day < ?)").run(now.day);
-  logEvent(null, "ai", "plan", `今日の計画${existing ? "を作り直しました" : ""}: ネック「${BOTTLENECK_LABEL[bottleneck]}」${content.focus}（予定${tasks.length}件${out.pause_new ? "・新しい案件は休み" : ""}）`);
+  logEvent(null, "ai", "plan", `今日の計画${existing ? "を作り直しました" : ""}: ネック「${BOTTLENECK_LABEL[bottleneck]}」${content.focus}（担当 ${modelInfo(model).label}・予定${tasks.length}件${out.pause_new ? "・新しい案件は休み" : ""}${reqs.length ? `・あなたへのお願い${reqs.length}件` : ""}）`);
   return id;
 }
 
@@ -301,7 +358,7 @@ async function writePlain(platform: AutoPlatform, angle: string): Promise<string
 - 宣伝にしない（サービスへの誘導や「ぜひ使って」は書かない）。問いかけは、気軽に答えられるものにする
 - 最近の普通の投稿と、同じ話題・同じ書き出しにしない
 形式: {"text":"本文"}`,
-    user: `今日の話題: ${angle}\n\n実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n最近の出来事:\n${events || "（なし）"}\n\n最近の普通の投稿:\n${past || "（なし）"}`,
+    user: `今日の話題: ${angle}${badPostsText("plain")}\n\n実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n最近の出来事:\n${events || "（なし）"}\n\n最近の普通の投稿:\n${past || "（なし）"}`,
     validate: (v): v is { text: string } => isObj(v) && isStr(v.text),
   });
   return out.text.trim();

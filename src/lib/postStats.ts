@@ -114,3 +114,44 @@ export async function classifyUntyped(): Promise<number> {
   }
   return n;
 }
+
+// ---- AIだけで出した投稿を、人があとから確かめる ----
+
+export type AiPost = {
+  table: "sns_posts" | "plan_tasks"; id: number; platform: string; kind: "promo" | "plain"; text: string; url: string | null; at: string;
+  project_id: number | null; human_review: string | null; human_note: string | null;
+  likes: number | null; replies: number | null; reposts: number | null; reactions_at: string | null;
+};
+
+// 直近 days 日のAIの投稿（宣伝・普通の投稿）。新しい順
+export function recentAiPosts(days = 3): AiPost[] {
+  const a = db().prepare(
+    `SELECT 'sns_posts' AS "table", id, platform, 'promo' AS kind, text, post_url AS url, posted_at AS at, project_id, human_review, human_note, likes, replies, reposts, reactions_at
+     FROM sns_posts WHERE status = 'posted' AND author = 'ai' AND post_url IS NOT NULL AND posted_at >= datetime('now', ?)`,
+  ).all(`-${days} days`) as AiPost[];
+  const b = db().prepare(
+    `SELECT 'plan_tasks' AS "table", id, platform, 'plain' AS kind, result AS text, result_url AS url, done_at AS at, NULL AS project_id, human_review, human_note, likes, replies, reposts, reactions_at
+     FROM plan_tasks WHERE kind = 'plain' AND status = 'done' AND result_url IS NOT NULL AND done_at >= datetime('now', ?)`,
+  ).all(`-${days} days`) as AiPost[];
+  return [...a, ...b].sort((x, y) => y.at.localeCompare(x.at));
+}
+
+export function unreviewedPostCount(days = 3): number {
+  return recentAiPosts(days).filter((p) => !p.human_review).length;
+}
+
+export function reviewPost(table: AiPost["table"], id: number, verdict: "ok" | "bad", note: string) {
+  if (table !== "sns_posts" && table !== "plan_tasks") throw new Error("投稿が分かりません");
+  const n = db().prepare(`UPDATE ${table} SET human_review = ?, human_note = ? WHERE id = ?`).run(verdict, note.trim().slice(0, 300) || null, id).changes;
+  if (!n) throw new Error("投稿が見つかりません");
+}
+
+// 人が「ダメ」とした投稿（次の計画・投稿を書くAIに、同じ書き方を避けさせる）
+export function badPostsText(kind?: "promo" | "plain"): string {
+  const rows = [
+    ...(kind !== "plain" ? db().prepare("SELECT text, human_note FROM sns_posts WHERE human_review = 'bad' ORDER BY id DESC LIMIT 10").all() as { text: string; human_note: string | null }[] : []),
+    ...(kind !== "promo" ? db().prepare("SELECT result AS text, human_note FROM plan_tasks WHERE human_review = 'bad' ORDER BY id DESC LIMIT 10").all() as { text: string; human_note: string | null }[] : []),
+  ];
+  if (!rows.length) return "";
+  return `\n\n運営者が「出すべきでなかった」と判断した投稿（同じ書き方・同じ内容を避ける）:\n${rows.map((r) => `- 「${r.text.slice(0, 80).replace(/\n/g, " ")}」${r.human_note ? `→ 理由: ${r.human_note}` : ""}`).join("\n")}`;
+}
