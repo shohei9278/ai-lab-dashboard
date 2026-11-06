@@ -649,6 +649,8 @@ export type Settings = {
   judgeAfterDays: number; // 訪問が少なくても、公開（または前の判断）からこの日数がたったらAIに判断させる
   digestHour: number; // 1日のまとめをスマホに送る時刻（日本時間）
   lastDigest: string; // 最後に1日のまとめを送った日（日本時間の YYYY-MM-DD）
+  notifyLive: boolean; // AIが何かを始めた・終えたときに、その場で通知する（1日のまとめとは別）
+  notifyOff: string; // その場の通知で送らない種類（カンマ区切り。liveNotify.ts の NOTIFY_KINDS）
   viralSearch: boolean; // 週1回、Xで話題の個人開発の投稿を検索して取り込む（X のAPIキーが必要。読んだ投稿1件ごとに費用がかかる）
   viralSearchCount: number; // 1回の検索で読む投稿の数（100件ずつ）
   lastViralSearch: string; // 最後に検索した日時（ISO）
@@ -690,6 +692,8 @@ const DEFAULTS: Settings = {
   judgeAfterDays: 7,
   digestHour: 21,
   lastDigest: "",
+  notifyLive: true,
+  notifyOff: "",
   viralSearch: true,
   viralSearchCount: 300,
   lastViralSearch: "",
@@ -713,8 +717,8 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "promoOff", "plainOff"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "showcaseVoices"]);
+const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "promoOff", "plainOff", "notifyOff"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "showcaseVoices", "notifyLive"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];

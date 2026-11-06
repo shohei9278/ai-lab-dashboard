@@ -31,6 +31,8 @@ export async function POST(req: Request) {
   if (typeof body.fullAuto === "boolean") patch.fullAuto = body.fullAuto;
   if (typeof body.autoPost === "boolean") patch.autoPost = body.autoPost;
   if (typeof body.dailyPlan === "boolean") patch.dailyPlan = body.dailyPlan;
+  if (typeof body.notifyLive === "boolean") patch.notifyLive = body.notifyLive;
+  if (typeof body.notifyOff === "string") patch.notifyOff = body.notifyOff.split(",").map((x: string) => x.trim()).filter((x: string) => /^[a-z]+$/.test(x)).join(",");
   for (const k of ["promoOff", "plainOff"] as const) {
     if (typeof body[k] === "string") patch[k] = body[k].split(",").map((x: string) => x.trim()).filter((x: string) => ["x", "threads", "bluesky"].includes(x)).join(",");
   }

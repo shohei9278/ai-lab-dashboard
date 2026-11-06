@@ -1,5 +1,6 @@
 "use client";
 
+import { NOTIFY_KINDS } from "@/lib/notifyKinds";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ApprovalMode, Settings } from "@/lib/db";
@@ -220,6 +221,31 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
               </Field>
               <TestNotify disabled={!notifyReady} />
             </div>
+            <label className="flex items-start gap-2 text-sm">
+              <input type="checkbox" className="mt-1" checked={v.notifyLive} onChange={(e) => set("notifyLive", e.target.checked)} />
+              <span>
+                その場の通知（AIが何かを始めたとき・終えたときに、同じ送り先へすぐ送る）
+                <span className="block text-xs text-muted">短い間に続いたものは、まとめて1回で送ります。あなたが自分で操作したことは送りません。</span>
+              </span>
+            </label>
+            {v.notifyLive && (
+              <div className="grid gap-1 pl-6 text-sm sm:grid-cols-2">
+                {Object.entries(NOTIFY_KINDS).map(([k, label]) => (
+                  <label key={k} className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={!v.notifyOff.split(",").includes(k)}
+                      onChange={(e) => {
+                        const list = v.notifyOff.split(",").map((y) => y.trim()).filter((y) => y && y !== k);
+                        set("notifyOff", (e.target.checked ? list : [...list, k]).join(","));
+                      }}
+                    />
+                    <span className="text-xs">{label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
           <Field label="問い合わせ先のメールアドレス" note="同じく、登録者へ送るメールに載せます（プライバシーポリシーの連絡先と同じものがおすすめ）。">
             <input type="email" value={v.contactEmail} onChange={(e) => set("contactEmail", e.target.value)} className="block w-full rounded-lg border border-line bg-surface px-2 py-1" />

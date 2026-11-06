@@ -12,6 +12,7 @@ import { funnelText } from "./funnel";
 import { planIdeaNote, planPausesNew } from "./plan";
 import { EXTRAS_RULE, addProposal, takeExtras } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
+import { notifyEvent, notifyHuman, notifyStart } from "./liveNotify";
 import { researchText } from "./research";
 import { budgetState } from "./budget";
 import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
@@ -93,6 +94,13 @@ const isReview = (v: unknown): v is Review => isObj(v) && typeof v.ok === "boole
 
 export function logEvent(projectId: number | null, actor: "ai" | "human" | "system", kind: string, message: string) {
   db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (?, ?, ?, ?)").run(projectId, actor, kind, message);
+  notifyEvent(kind, actor, projectId ? `${projectTitle(projectId)}${message}` : message);
+}
+
+// 通知の頭に付ける案件の名前
+function projectTitle(id: number): string {
+  const t = (db().prepare("SELECT title FROM projects WHERE id = ?").get(id) as { title: string } | undefined)?.title;
+  return t ? `【${t}】` : "";
 }
 
 function setStage(projectId: number, stage: Stage) {
@@ -101,6 +109,7 @@ function setStage(projectId: number, stage: Stage) {
 
 // どのLPの版について聞いたかも残す（人が却下した版で、AIが勝手に変えないようにするため）
 function addApproval(projectId: number, kind: ApprovalRow["kind"], proposal: string, reason: string, payload?: unknown): number {
+  notifyHuman(`${projectTitle(projectId)}あなたの判断待ち: ${proposal}（${reason.slice(0, 120)}）`);
   return Number(
     db()
       .prepare(
@@ -1673,6 +1682,7 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     // ほかのアイデア出しが動いていたら、今回は見送って次の確認（5分後）に回す（実行済みの印は付けない）
     const busy = ideaRunning();
     if (busy) return { ran: false, message: `いま「${busy}」が動いているため、終わってから実行します`, projectIds: [] };
+    notifyStart(`毎日のアイデア出しを始めます（3社が案を出して採点し、${b.newToday}件まで案件にします）`);
     const { candidates, kept } = await withIdeaLock("毎日のアイデア出し", () => gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday));
     if (!candidates.length) return skip("どのAIからもアイデアを得られなかったため休みました");
     const ids: number[] = [];

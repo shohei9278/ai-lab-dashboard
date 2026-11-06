@@ -9,6 +9,7 @@ import { followUpOf, type WeeklyContent } from "./meetings";
 import type { AdhocContent } from "./adhoc";
 import { addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
+import { notifyStart } from "./liveNotify";
 import { researchText } from "./research";
 
 // 週の定例会議（毎週月曜）
@@ -60,6 +61,7 @@ export async function createWeeklyMeeting(): Promise<number> {
   const end = new Date();
   const start = day(new Date(end.getTime() - 7 * 86_400_000));
   const mat = meetingMaterial(start);
+  notifyStart(`週の定例会議を始めます（${list.map((m) => modelInfo(m).label).join("・")}）`);
 
   // 1. それぞれが振り返りと改善案を出す
   const outs = await Promise.allSettled(list.map((modelId) => callJson<MemberOut>({
