@@ -16,7 +16,8 @@ export async function GET() {
     `SELECT (SELECT COALESCE(MAX(id), 0) FROM events) || '.' || (SELECT COUNT(*) FROM approvals WHERE status = 'pending')
        || '.' || (SELECT COALESCE(MAX(id), 0) FROM lp_versions) || '.' || (SELECT COUNT(*) FROM viral_posts WHERE status != 'queued')
        || '.' || (SELECT COUNT(*) FROM design_refs WHERE status != 'queued') || '.' || (SELECT COUNT(*) FROM user_wants)
-       || '.' || (SELECT COUNT(*) FROM sns_comments) || '.' || (SELECT COUNT(*) FROM sns_posts) || '.' || (SELECT COALESCE(SUM(visits), 0) FROM metrics) AS v`,
+       || '.' || (SELECT COUNT(*) FROM sns_comments) || '.' || (SELECT COUNT(*) FROM sns_posts) || '.' || (SELECT COALESCE(SUM(visits), 0) FROM metrics)
+       || '.' || (SELECT COALESCE(MAX(id), 0) FROM meetings) || '.' || (SELECT COUNT(*) FROM voices) || '.' || (SELECT COUNT(*) FROM plan_requests WHERE status = 'open') AS v`,
   ).get() as { v: string };
   return NextResponse.json({ items, ideaBusy: ideaRunning(), version: v.v }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -81,3 +81,20 @@ create table if not exists lp_events (
 );
 create index if not exists lp_events_slug on lp_events (slug, version);
 alter table lp_events enable row level security;
+
+-- ---- 追加（利用者の声）。ここから下だけを実行すればよい ----
+-- LP・ツールの右下の「ひとこと聞かせてください」から届く、匿名の声（名前・メールは聞かない）
+-- 訪問者ごとに、同じページの同じ版へは1回だけ
+create table if not exists feedback (
+  id bigserial primary key,
+  slug text not null references lps(slug),
+  version integer not null,
+  visitor_id text not null,
+  kind text not null check (kind in ('lp', 'tool')),
+  choice text not null check (choice in ('useful', 'confusing', 'not_what_i_want', 'not_now', 'unclear', 'distrust', 'other')),
+  text text not null default '' check (char_length(text) <= 300),
+  created_at timestamptz not null default now(),
+  unique (slug, version, visitor_id)
+);
+create index if not exists feedback_slug on feedback (slug);
+alter table feedback enable row level security;

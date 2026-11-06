@@ -27,7 +27,7 @@ const isReport = (v: unknown): v is Report =>
 const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // AIに渡す材料（デモは除く）
-function gather(start: string) {
+export function gather(start: string) {
   const s = getSettings();
   const since = `${start} 00:00:00`;
   const projects = db().prepare("SELECT * FROM projects WHERE demo = 0").all() as ProjectRow[];
@@ -63,13 +63,15 @@ function gather(start: string) {
   ].join("\n\n");
 }
 
-export async function createReport(): Promise<number> {
+// 定例会議から呼ぶ: extra（会議の振り返りと採用した提案）も材料に入れ、議長のAIがまとめる。next には採用した提案を入れる
+export async function createReport(opts: { extra?: string; modelId?: string; next?: string[] } = {}): Promise<number> {
   const s = getSettings();
   const end = new Date();
   const startDate = new Date(end.getTime() - 7 * 86_400_000);
-  const material = gather(day(startDate));
+  const material = gather(day(startDate)) + (opts.extra ?? "");
   const r = await callJson<Report>({
     purpose: "週のレポート",
+    modelId: opts.modelId,
     system: `あなたは「AIが自動でプロダクトを作る実験」の記録係です。1週間の材料から、運営者向けのレポートと、外に発信するための下書きを作ります。
 守ること:
 - 材料にある数字だけを使い、推測で数字を作らない。件数が少ないときは「まだ偶然の可能性が高い」とはっきり書く
@@ -82,12 +84,13 @@ export async function createReport(): Promise<number> {
     user: material,
     validate: isReport,
   });
+  if (opts.next) r.next = opts.next;
   const id = Number(
     db().prepare("INSERT INTO reports (period_start, period_end, model_id, content) VALUES (?, ?, ?, ?)")
-      .run(day(startDate), day(end), s.loopModel, JSON.stringify(r)).lastInsertRowid,
+      .run(day(startDate), day(end), opts.modelId ?? s.loopModel, JSON.stringify(r)).lastInsertRowid,
   );
   saveSettings({ lastWeeklyReport: day(end) });
-  logEvent(null, "ai", "report", `週のレポートを作成しました（${day(startDate)}〜${day(end)}）`);
+  logEvent(null, "ai", "report", `発信の下書きを作成しました（${day(startDate)}〜${day(end)}）`);
   return id;
 }
 
@@ -95,18 +98,3 @@ export function listReports(): ReportRow[] {
   return db().prepare("SELECT * FROM reports ORDER BY id DESC").all() as ReportRow[];
 }
 
-// 毎週月曜（設定の時刻以降）に1回だけ作る
-export async function maybeWeeklyReport() {
-  const s = getSettings();
-  const now = new Date();
-  if (!s.weeklyReport || s.killSwitch || now.getDay() !== 1 || now.getHours() < s.dailyHour || s.lastWeeklyReport === day(now)) return;
-  await createReport();
-  // 集客の作戦も、前の週の結果をふまえて作り直す（公開中の案件がないときは何もしない）
-  try {
-    const { createGrowthPlan } = await import("./growth");
-    await createGrowthPlan({ followers: null, wish: "" });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (!/公開中の案件がありません/.test(msg)) logEvent(null, "system", "growth-error", `集客の作戦の作り直しでエラー: ${msg}`.slice(0, 500));
-  }
-}

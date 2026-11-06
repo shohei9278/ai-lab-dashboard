@@ -1,5 +1,6 @@
 import { HIDDEN, isOwner } from "@/lib/viewer";
 import { PageIntro } from "@/components/PageIntro";
+import { GrowthTabs } from "@/components/LabTabs";
 import { getSettings } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
 import { listViral } from "@/lib/viralPosts";
@@ -28,6 +29,7 @@ export default async function ViralPage() {
         Xでよく伸びた個人開発の投稿と、「こういうの欲しい」という声を集めます。伸びた投稿は、AIが「なぜ伸びたか」をまとめ、SNSの投稿の書き方・LPの見せ方・アイデア出しの切り口に使います（題材はまねさせません）。
         「欲しい」の声は、そのままアイデア出しに渡し、声から生まれた案件には元の声を残します。どちらも拾うだけで、投稿者への返信やメンションはしません。画像は保存しません。
       </PageIntro>
+      <GrowthTabs current="/viral" />
 
       <div className="grid gap-4 md:grid-cols-2">
         <section className="card space-y-3 p-4">

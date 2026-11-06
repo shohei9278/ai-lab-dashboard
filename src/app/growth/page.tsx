@@ -3,7 +3,7 @@ import Link from "next/link";
 import { getSettings } from "@/lib/db";
 import { accounts, projectSns, snsPosts } from "@/lib/snsOverview";
 import { PageIntro } from "@/components/PageIntro";
-import { GrowthTabs } from "@/components/GrowthTabs";
+import { GrowthTabs } from "@/components/LabTabs";
 import { DraftControls, ForgetPost, PauseToggle, ReplyControls, SyncComments } from "./SnsActions";
 import { listComments } from "@/lib/snsComments";
 
@@ -32,9 +32,12 @@ export default async function GrowthPage() {
   return (
     <div className="space-y-6">
       <PageIntro title="集客">
-        AIがSNSに投稿した内容と、その成績をまとめて見られます。
+        人を呼ぶための取り組みをまとめています。ここではAIがSNSに投稿した内容と、その成績・ついたコメントを見られます。どの手が効いたかは「効いた手」、よく伸びた他人の投稿は「話題の投稿」で見られます。
         {s.autoPost ? " 自動投稿はオンです。" : " 自動投稿はオフです（設定でオンにできます）。"}
-        投稿は日本時間の8〜22時に、場所ごとに1日{s.autoPostPerDay}件まで、間隔をあけて出ます。公開したばかりの案件は、Threads・Bluesky にはその場で投稿します。
+        {s.dailyPlan
+          ? ` 投稿の回数・時刻・切り口は、毎朝の計画でAIが決めます（場所ごとに直近24時間で${s.postSafetyPerDay}件の安全装置あり）。どの手が効いたかは「効いた手」のタブで見られます。`
+          : ` 投稿は日本時間の8〜22時に、場所ごとに1日${s.autoPostPerDay}件まで、間隔をあけて出ます。`}
+        公開したばかりの案件は、Threads・Bluesky にはその場で投稿します。
       </PageIntro>
       <GrowthTabs current="/growth" />
 

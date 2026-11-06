@@ -5,7 +5,7 @@ import { getSettings } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
 import { autoPlatforms } from "@/lib/snsApi";
 import { planProgress, recentPlans, todayPlan } from "@/lib/plan";
-import { AiPostsReview, OpenRequests, PlanHistory, PlanSummary, PlanTasks, PostStatsView, RequestHistory, dayLabel } from "./PlanView";
+import { AiPostsReview, OpenRequests, PlanHistory, PlanSummary, PlanTasks, RequestHistory, dayLabel } from "./PlanView";
 import { Replan } from "./PlanActions";
 
 export const dynamic = "force-dynamic";
@@ -74,19 +74,10 @@ export default async function PlanPage() {
         <PlanHistory plans={past} />
       </section>
 
+      <p className="text-sm">どの投稿の手が効いたかは、<a href="/growth/stats" className="text-accent underline">集客 → 効いた手</a>で見られます。</p>
       <section className="card space-y-3 p-4">
         <div>
-          <h2 className="font-bold">効いた手の集計</h2>
-          <p className="text-xs text-muted">
-            これまでのAIの投稿を、場所・時間帯・切り口の型ごとにまとめたものです。毎朝の計画で、AIがこれを見て、訪問や反応が多い手を多めに使い、まだ試していない手も少し混ぜます。
-            反応は「いいね＋返信＋リポスト」で、投稿の翌日と3日後に取り込みます（X は翌日の1回だけ。1件 約0.75円）。件数が少ないうちは、偶然の差が大きいです。
-          </p>
-        </div>
-        <PostStatsView />
-      </section>
-      <section className="card space-y-3 p-4">
-        <div>
-          <h2 className="font-bold">AIからのお願いへの返事</h2>
+          <h2 className="font-bold">提案箱への返事</h2>
           <p className="text-xs text-muted">返事（やった・やらない、ひとこと）は、次の計画でAIが見ます。やってもらったことの前後で数字がどう変わったかも振り返ります。</p>
         </div>
         <RequestHistory />

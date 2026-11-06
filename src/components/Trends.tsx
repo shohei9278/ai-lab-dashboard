@@ -2,7 +2,7 @@ import { latestTrends } from "@/lib/trends";
 import { RefreshTrends } from "./RefreshTrends";
 import { jstDateTime } from "@/lib/format";
 
-// いま世の中で話題のこと（毎日自動で取得して、アイデア出しと集客の作戦に渡している）
+// いま世の中で話題のこと（毎日自動で取得して、アイデア出しに渡している）
 export function Trends() {
   const { fetchedAt, items } = latestTrends();
   const google = items.filter((x) => x.source === "google");
@@ -13,7 +13,7 @@ export function Trends() {
         <div>
           <h2 className="font-bold">いま世の中で話題のこと</h2>
           <p className="text-xs text-muted">
-            Googleトレンドの急上昇ワードと、はてなブックマークの人気記事を毎日1回取り、AIのアイデア出しと集客の作戦に渡しています（無料）。
+            Googleトレンドの急上昇ワードと、はてなブックマークの人気記事を毎日1回取り、AIのアイデア出しに渡しています（無料）。
             事件や事故など、人の不幸に乗った企画はしないようAIに指示しています。
             {fetchedAt ? `最後に取得: ${jstDateTime(fetchedAt)}` : "まだ取得していません。"}
           </p>

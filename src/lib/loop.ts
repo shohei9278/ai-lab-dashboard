@@ -10,6 +10,8 @@ import { withIllustration } from "./illustration";
 import { buildPage, judgePages, pageTexts, type PageCheck } from "./freePage";
 import { funnelText } from "./funnel";
 import { planIdeaNote, planPausesNew } from "./plan";
+import { EXTRAS_RULE, addProposal, takeExtras } from "./voices";
+import { outsideText, recordVoiceEffects } from "./outside";
 import { budgetState } from "./budget";
 import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
@@ -136,6 +138,13 @@ function setStep(key: string, title: string, step: string, status: string) {
   activities.set(key, a);
 }
 
+// ほかのファイル（臨時会議など）から、ライブ画面に途中経過を出すとき用
+export const liveStep = setStep;
+export const liveSay = liveNote;
+export function liveEnd(key: string) {
+  activities.delete(key);
+}
+
 export function buildingList(): { id: number; what: string; since: number }[] {
   return [...building.entries()].map(([id, b]) => ({ id, ...b }));
 }
@@ -242,11 +251,12 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 - 実在の人物・団体のデータを使う tool は、正確なデータをコードに書けるものだけにする
 - 季節や世の中の話題に頼りすぎない。件数のうち半分以上（1件だけなら、その1件）は、季節や話題が過ぎても1年中ある困りごと（evergreen）にする。季節もの（seasonal）を出すなら、その季節が終わっても使われる理由があるものを選ぶ
 - 時期のネタや世の中の話題は、使ってもよいヒントにすぎない（必ず使う材料ではない）。事件・事故・災害・訃報・個人の不祥事など、人の不幸や特定の個人に乗った企画はしない
-- 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案は出さない（スパム扱いされやすいため）。自分の投稿で見つけてもらう形にする
+- 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案や、知らない人へのDM・個別の勧誘は出さない（スパム扱いされやすいため）
+- 自分の投稿だけ（フォロワーほぼ0では、ほとんど表示されない）にせず、運営者が手でできる直接の接点を最低1つ、数つきで入れる。例: 対象の人が集まるコミュニティ・グループの管理者に、紹介してよいか相談する（2か所）/ 対象に当てはまる知人に使ってもらい、感想を聞く（3人）/ ルールで紹介が認められている場（自己紹介・成果物の共有の場など）に1回だけ載せる
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
 形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
-    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}`,
+    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
   return out.ideas.slice(0, count);
@@ -362,7 +372,7 @@ ${(Object.keys(DESIGN_OPTIONS) as (keyof typeof DESIGN_OPTIONS)[]).map((k) => `-
 
 // 公開前に、別の観点のAIが問題がないかを確認する
 async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp): Promise<Review> {
-  return callJson<Review>({
+  const out = await callJson<Review>({
     purpose: "LPチェック",
     projectId: p.id,
     system: `あなたはLPの公開前チェック担当です。次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
@@ -374,10 +384,13 @@ ${p.kind === "tool"
 - 画面イメージ（preview）や使う前後の比較（beforeAfter）に、実在の会社名・個人を特定できる名前・効果の数字の断言が入っている
 - 想定の対象読者からずれている${before ? "\n- 前の版から、対象読者やサービスの中身まで変わっている（改善は文言の調整にとどめるべき）" : ""}
 問題がなければ {"ok":true,"issues":[]}。
-形式: {"ok":true または false,"issues":["問題点"]}`,
+形式: {"ok":true または false,"issues":["問題点"]}
+${EXTRAS_RULE}`,
     user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(before)}` : ""}`,
     validate: isReview,
   });
+  takeExtras(out, { modelId: getSettings().loopModel, scene: "LPのチェック", projectId: p.id });
+  return { ok: out.ok, issues: out.issues };
 }
 
 // ---- 動くツールの本体 ----
@@ -439,7 +452,7 @@ export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtm
 
 // ツール本体をAIが読んで、動かない箇所や問題のある内容がないかを確かめる
 async function reviewTool(p: ProjectRow, html: string): Promise<Review> {
-  return callJson<Review>({
+  const out = await callJson<Review>({
     purpose: "ツールチェック",
     projectId: p.id,
     system: `あなたはWebツールの公開前チェック担当です。コードを読んで、次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
@@ -449,11 +462,15 @@ async function reviewTool(p: ProjectRow, html: string): Promise<Review> {
 - 架空の統計を事実のように書いている、医療・法律・お金の助言をしている、誰かを傷つける・差別的な内容がある
 - 実在の人物・団体について、不正確そうなデータを使っている
 - 「${p.solution}」というツールの目的からずれている
+- 使う前と後・改善前と後などの比較を出すとき、利用者が条件を変えても、比較の基準（前の値）が同じ条件で計算されていない（条件によって改善率がマイナスになる・表示が崩れる など）
 問題がなければ {"ok":true,"issues":[]}。
-形式: {"ok":true または false,"issues":["問題点"]}`,
+形式: {"ok":true または false,"issues":["問題点"]}
+${EXTRAS_RULE}`,
     user: html,
     validate: isReview,
   });
+  takeExtras(out, { modelId: getSettings().loopModel, scene: "ツールのチェック", projectId: p.id });
+  return { ok: out.ok, issues: out.issues };
 }
 
 // ツール本体を書いてチェックし、問題があれば1回だけ直す
@@ -893,7 +910,8 @@ improve は「今すぐ変える」場合だけに使う。「もう少し様子
 「ページの中での動き」があれば、どこで離脱しているか（読まれていない・ボタンが押されない・入力したのに登録しない など）を理由と next_action に活かすこと。
 improve の場合、next_action には「どこを、どう変えるか」を1か所だけ、条件を付けずに具体的に書くこと（一度に複数を変えると、何が効いたか分からなくなるため）。
 rethink の場合、next_action には「どこで（具体的な場所・ハッシュタグ・検索される言葉）、誰に、どんな切り口で届けるか」を具体的に書くこと。これまでの届け方と同じことは書かない。自動で投稿できるのは X・Threads・Bluesky の自分の投稿だけで、それ以外の場所は運営者の手作業になるので、自分の投稿の切り口を中心にする。他人の投稿やQ&Aサイトに宣伝のための返信・回答をする案は出さない。${slowNote}
-形式: {"decision":"${growing ? "improve|rethink|collect|kill" : "continue|improve|collect|rethink|kill"}","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること"}`,
+外の声（実際の人の反応）があれば、数字と同じかそれ以上に重く見る。外の声を根拠に判断や next_action を変えたら、voice_effects に声の番号と、何をどう変えたかを書く（なければ空の配列）。
+形式: {"decision":"${growing ? "improve|rethink|collect|kill" : "continue|improve|collect|rethink|kill"}","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること","voice_effects":[{"voice_ids":[声の番号],"change":"何をどう変えたか"}]}`,
     user: `サービス: ${p.title}（対象: ${p.target}）
 仮説: ${p.hypothesis}
 企画のときに決めた最初の届け方: ${p.first_channel ?? "（なし）"}
@@ -905,14 +923,18 @@ SNSへの投稿: ${posts}${split}
 ${funnelText(p)}
 目標の${c.rate}: ${(targetRate(p.kind, s) * 100).toFixed(1)}% / 1案件の広告費上限: ${s.adBudgetPerProjectJpy}円 / 上限を超えたあと改善に使える追加の広告費: ${s.improveExtraBudgetJpy}円 / これまでの改善回数: ${p.improve_count}回
 これまでの経過:
-${history}`,
+${history}
+
+${outsideText(p.id)}`,
   };
 }
 
 export async function judge(projectId: number, trigger: JudgeTrigger = "visits") {
   const p = getProject(projectId)!;
   const prompt = judgePrompt(p, trigger);
-  const d = await callJson<Decision>({ purpose: "判断", projectId, system: prompt.system, user: prompt.user, validate: isDecision });
+  const d = await callJson<Decision>({ purpose: "判断", projectId, system: `${prompt.system}\n${EXTRAS_RULE}`, user: prompt.user, validate: isDecision });
+  takeExtras(d, { modelId: getSettings().loopModel, scene: "撤退・継続の判断", projectId });
+  recordVoiceEffects((d as { voice_effects?: unknown }).voice_effects, { scene: "撤退・継続の判断", modelId: getSettings().loopModel, projectId });
   logEvent(projectId, "ai", "judge", `判断を提案: ${DECISION_LABEL[d.decision]}`);
   // 同じ数字で何度も判断し直さないよう、判断した時点の訪問数と広告費を覚えておく
   db().prepare("UPDATE projects SET judged_visits = ?, judged_ad_jpy = ?, judged_at = datetime('now') WHERE id = ?").run(prompt.all.visits, prompt.all.adSpendJpy, projectId);
@@ -943,6 +965,29 @@ async function startGrowth(projectId: number, reason: string) {
   await writeLesson(projectId, `続ける（育てる段階へ）。理由: ${reason}`);
 }
 
+// 人の承認なしで改善してよいか（判断からの改善・朝会からの改善で共通）。だめなら理由を返す
+// budget: 今月の予算の残りが少ない（作り直さずに今のまま集客を続ける扱いにする）
+export function improveBlocked(p: ProjectRow, adSpendJpy = projectTotals(p.id).adSpendJpy): { reason: string; budget?: boolean } | null {
+  const s = getSettings();
+  // 今の版になってから人が改善を却下していたら、その意思を優先して自動では変えない
+  const humanSaidNo = db()
+    .prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'decision' AND status = 'rejected' AND proposal = ? AND lp_version = ?")
+    .get(p.id, DECISION_LABEL.improve, p.lp_version);
+  const reason =
+    p.mode !== "auto" ? "承認モードの案件は、人の承認なしでは変えないため"
+    : p.kind === "tool" && !s.fullAuto ? "ツールのプログラムの変更は、人が動作を確かめてから公開するため"
+    : humanSaidNo ? "この版では人が改善を却下しているため"
+    : p.improve_count >= s.maxAutoImprove ? `自動での改善は${s.maxAutoImprove}回までのため`
+    : adSpendJpy >= s.adBudgetPerProjectJpy + s.improveExtraBudgetJpy
+      ? s.improveExtraBudgetJpy > 0
+        ? "広告費が改善用の追加分も含めて上限に達しているため"
+        : "広告費が上限に達していて、上限を超えたあとの改善は設定で認められていないため"
+    : null;
+  if (reason) return { reason };
+  if (!budgetState().creativeOk) return { reason: "今月の予算の残りが少ないため", budget: true };
+  return null;
+}
+
 async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Promise<number | null> {
   const s = getSettings();
   const projectId = p.id;
@@ -956,29 +1001,18 @@ async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Pr
 
   // 自動モードでは、条件を満たす改善だけ人の承認なしで進める
   if (d.decision === "improve" && p.mode === "auto") {
-    // 今の版になってから人が改善を却下していたら、その意思を優先して自動では変えない
-    const humanSaidNo = db()
-      .prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'decision' AND status = 'rejected' AND proposal = ? AND lp_version = ?")
-      .get(projectId, DECISION_LABEL.improve, p.lp_version);
-    const blocked =
-      p.kind === "tool" && !s.fullAuto ? "ツールのプログラムの変更は、人が動作を確かめてから公開するため"
-      : humanSaidNo ? "この版では人が改善を却下しているため"
-      : p.improve_count >= s.maxAutoImprove ? `自動での改善は${s.maxAutoImprove}回までのため`
-      : adSpendJpy >= s.adBudgetPerProjectJpy + s.improveExtraBudgetJpy
-        ? s.improveExtraBudgetJpy > 0
-          ? "広告費が改善用の追加分も含めて上限に達しているため"
-          : "広告費が上限に達していて、上限を超えたあとの改善は設定で認められていないため"
-      : null;
-    if (!blocked && !budgetState().creativeOk) {
+    const gate = improveBlocked(p, adSpendJpy);
+    if (gate?.budget) {
       // 予算の残りが少ないときは、作り直さずに今のまま集客を続ける（投稿と判断の分を残す）
       setStage(projectId, "live");
       logEvent(projectId, "system", "collect", `改善の判断でしたが、今月の予算の残りが少ないため、作り直さずに今のまま集客を続けます: ${d.next_action}`);
       return null;
     }
-    if (!blocked) {
+    if (!gate) {
       await autoImprove(projectId, d);
       return null;
     }
+    const blocked = gate.reason;
     logEvent(projectId, "system", "auto-blocked", `${blocked}、人の判断に回します`);
     setStage(projectId, "deciding");
     return addApproval(projectId, "decision", DECISION_LABEL[d.decision], `${d.reason}\n（${blocked}、自動では進めずに判断をお願いしています）`, d);
@@ -1273,15 +1307,19 @@ export function debateStats() {
 }
 
 // 毎日の計画から呼ぶ: 集客中の案件のページ（ツールなら画面）を、決めた内容で直して差し替える（チェックを通らなければ人に回す）
-export async function planImprove(projectId: number, instruction: string) {
+// 判断からの改善と同じ条件（improveBlocked）を通す。結果: published = 直して公開した / held = チェックで問題が残り承認待ちにした / blocked = 条件に合わず直さなかった
+export type ImproveOutcome = { kind: "published" | "held" | "blocked"; detail: string };
+export async function planImprove(projectId: number, instruction: string): Promise<ImproveOutcome> {
   const p = getProject(projectId);
-  if (!p || p.demo || p.stage !== "live") throw new Error("集客中の案件ではありません");
-  if (buildingNow(projectId)) throw new Error("この案件は、いま作業中です");
-  if (db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(projectId)) throw new Error("この案件には承認待ちがあります");
-  await autoImprove(projectId, { next_action: instruction } as Decision);
+  if (!p || p.demo || p.stage !== "live") return { kind: "blocked", detail: "集客中の案件ではないため" };
+  if (buildingNow(projectId)) return { kind: "blocked", detail: "この案件は、いま作業中のため" };
+  if (db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(projectId)) return { kind: "blocked", detail: "この案件には承認待ちがあるため" };
+  const gate = improveBlocked(p);
+  if (gate) return { kind: "blocked", detail: gate.reason };
+  return autoImprove(projectId, { next_action: instruction } as Decision);
 }
 
-async function autoImprove(projectId: number, d: Decision) {
+async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutcome> {
   const built = await buildLpVersion(projectId, { instruction: d.next_action, note: `自動改善: ${d.next_action}`, keepCore: true });
   const { version } = built;
   let review = built.review;
@@ -1295,13 +1333,14 @@ async function autoImprove(projectId: number, d: Decision) {
     // チェックを通らない改善は公開せず、人に回す
     setStage(projectId, "lp");
     addApproval(projectId, "publish", getProject(projectId)!.kind === "tool" ? "改善したツールを公開する" : "改善したLPを公開する", `AIのチェックで問題が残ったため、自動公開を止めました: ${review.issues.join(" / ")}`, { review });
-    return;
+    return { kind: "held", detail: `第${version}版を作ったが、チェックで問題が残ったため公開せず承認待ちにした: ${review.issues.join(" / ").slice(0, 200)}` };
   }
   db().prepare("UPDATE projects SET improve_count = improve_count + 1, growth_count = growth_count + growth_phase WHERE id = ?").run(projectId);
   setStage(projectId, "live");
   logEvent(projectId, "system", "auto-improve", `自動で${getProject(projectId)!.kind === "tool" ? "ツール" : "LP"}を改善し、第${version}版で集客を再開（人の承認なし）`);
   // すでに公開中なら、新しい版に差し替える
   if (getProject(projectId)!.public_slug) await announcePublish(projectId);
+  return { kind: "published", detail: `第${version}版に直して公開した` };
 }
 
 // ---- 4. 教訓メモ ----
@@ -1329,10 +1368,12 @@ async function writeLesson(projectId: number, outcome: string) {
 守ること:
 - 訪問が判断の基準（${s.judgeMinVisits}人）に届いていなければ、certainty は必ず low。需要の有無・対象者の良し悪しについて結論を出さない
 - ほとんど人に届いていない（「届かなかった」）場合、学べるのは届け方のことだけ。「この対象には需要がない」「この題材は弱い」とは書かない
-形式: {"fact":"","interpretation":"","unknown":"","certainty":"low"}`,
+形式: {"fact":"","interpretation":"","unknown":"","certainty":"low"}
+${EXTRAS_RULE}`,
     user: `サービス: ${p.title}（対象: ${p.target}）\n結果: ${outcome}\n形: ${KIND_LABEL[p.kind]}\n訪問 ${t.visits}人（判断の基準 ${s.judgeMinVisits}人${enough ? "に届いている" : "に届いていない"}） / ${CONV[p.kind].noun} ${t.signups}人 / ${CONV[p.kind].rate} ${(t.rate * 100).toFixed(1)}% / 改善 ${p.improve_count}回 / 集客の見直し ${p.rethink_count}回 / SNSへの投稿 ${posts}件\n終わり方の分類: ${END_REASON_LABEL[reach] ?? reach}\n最初の届け方: ${p.first_channel ?? "（なし）"}${p.growth_focus ? `\n最後の集客の方針: ${p.growth_focus}` : ""}`,
     validate: (v): v is { fact: string; interpretation: string; unknown: string; certainty: Certainty } => isObj(v) && isStr(v.fact) && isStr(v.interpretation),
   });
+  takeExtras(out, { modelId: s.loopModel, scene: "教訓を書くとき", projectId });
   const certainty: Certainty = !enough ? "low" : (["low", "mid", "high"] as const).includes(out.certainty) ? out.certainty : "low";
   const unknown = isStr(out.unknown) ? out.unknown.slice(0, 400) : "";
   db().prepare("INSERT INTO lessons (project_id, text, fact, interpretation, unknown, certainty) VALUES (?, ?, ?, ?, ?, ?)")
@@ -1736,18 +1777,19 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
           modelId: scorer,
           system: `あなたは事業アイデアの審査員です。作者が誰かは分かりません。次の観点で各アイデアを1〜10点で採点します。
 - 対象者が具体的で、その人に安く届けられるか
-- 「最初の届け方」が具体的で現実的か（広告なし・フォロワーほぼ0のアカウントと手作業で、本当に最初の利用者に会えるか）。曖昧なもの・書かれていないものは大きく減点する
+- 「最初の届け方」が具体的で現実的か（広告なし・フォロワーほぼ0のアカウントと手作業で、本当に最初の利用者に会えるか）。曖昧なもの・書かれていないものは大きく減点する。自分の投稿（タグ付け）だけで、運営者が手でできる直接の接点（コミュニティの管理者への相談・知人に使ってもらう など）が入っていないものも減点する。他人の投稿への宣伝の返信・知らない人へのDMを使う案は大きく減点する
 - 困りごと・欲しい気持ちが強く、事前登録したくなるか（形が tool なら、使ってシェアしたくなるか）
 - 選んだ形（lp=事前登録LP / tool=1ページで完結する動くツール）が、そのアイデアに合っているか。tool なら外部の通信なしで本当に作れるか
 - プロダクトの種類（Webサービス・スマホアプリ・拡張機能・ボット・デジタル商品など）では差をつけない。lp は作る前に需要を確かめるものなので、作るのが大変なことでは減点しない
 - 既存の無料サービスとの違いがはっきりしているか
 - 季節が過ぎても需要が残るか。季節もの（その時期だけ使われるもの）は、時期が過ぎたあとも使われる理由がなければ減点する（公開から判断まで1〜3週間かかり、育てる時間もいるため）
 点数は甘くしないこと（平凡なものは5点前後）。
-形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]}`,
+形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]}${practice ? "" : `\n${EXTRAS_RULE}`}`,
           user: opts.theme ? `依頼されたテーマ: ${opts.theme}（テーマから外れたものは減点する）\n\n${sheet}` : sheet,
           validate: (v): v is { scores: { label: string; score: number; reason: string }[] } =>
             isObj(v) && Array.isArray(v.scores) && v.scores.every((x) => isObj(x) && isStr(x.label) && typeof x.score === "number"),
         });
+        if (!practice) takeExtras(out, { modelId: scorer, scene: "アイデア会議の採点" });
         for (const sc of out.scores) {
           const c = candidates.find((x) => x.label === sc.label.trim().replace(/[【】]/g, ""));
           if (c) scoreRow.run(c.id, scorer, Math.max(1, Math.min(10, sc.score)), typeof sc.reason === "string" ? sc.reason : null);
@@ -1777,12 +1819,48 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
     kept.push(pick);
     rest.splice(rest.indexOf(pick), 1);
   }
+  if (!practice) proposeRevival(candidates.filter((c) => !kept.includes(c)));
   const best = [...candidates].sort((a, b) => b.avg - a.avg)[0];
   if (best) liveNote({ who: "システム", provider: null, kind: "採点の結果", text: `1位は「${best.idea.title}」（${modelLabel(best.author)}の案・平均${best.avg.toFixed(1)}点）${practice ? "。見るだけなので、案件にはしません" : kept.length ? `。上位${kept.length}件を案件にします` : ""}`, batch: batchId });
   return { candidates, kept };
   } finally {
     activities.delete(act);
   }
+}
+
+// 敗者復活: 選ばれなかった案のうち、平均7点以上か、作者ではない会社のAIが9点以上を付けた案を、1日1件まで提案箱に入れる
+// （自分の案を推すのではなく、他社が「これは良い」と言った案が復活する形）
+function proposeRevival(losers: Candidate[]) {
+  if (db().prepare("SELECT 1 FROM plan_requests WHERE source = 'revival' AND created_at >= datetime('now', '-1 day')").get()) return;
+  const best = losers
+    .map((c) => ({ c, top: db().prepare("SELECT scorer_model, score, reason FROM idea_scores WHERE candidate_id = ? AND scorer_model != ? ORDER BY score DESC LIMIT 1").get(c.id, c.author) as { scorer_model: string; score: number; reason: string | null } | undefined }))
+    .filter((x) => x.c.avg >= 7 || (x.top && x.top.score >= 9))
+    .sort((a, b) => b.c.avg - a.c.avg)[0];
+  if (!best) return;
+  const { c, top } = best;
+  addProposal({
+    title: `敗者復活「${c.idea.title}」`,
+    how: `対象: ${c.idea.target} / 困りごと: ${c.idea.problem} / 解決策: ${c.idea.solution}（形: ${c.idea.kind === "tool" ? "動くツール" : "事前登録LP"}）`,
+    why: `${top ? `${modelLabel(top.scorer_model)}が${top.score}点（${top.reason ?? ""}）。` : ""}平均 ${c.avg.toFixed(1)}点で、作る件数の枠から漏れた（作者は ${modelLabel(c.author)}）`,
+    target: "human", source: "revival", proposer: top?.scorer_model ?? c.author, scene: "アイデア会議", refId: c.id,
+  });
+}
+
+// 敗者復活の案で、案件を作る（提案箱のボタンから。ふだんの作り方で作る）
+export async function reviveIdea(requestId: number): Promise<number> {
+  const r = db().prepare("SELECT * FROM plan_requests WHERE id = ? AND source = 'revival' AND status = 'open'").get(requestId) as { ref_id: number | null; title: string } | undefined;
+  if (!r?.ref_id) throw new Error("敗者復活の提案が見つかりません");
+  const row = db().prepare("SELECT * FROM idea_candidates WHERE id = ?").get(r.ref_id) as { id: number; author_model: string; payload: string; avg_score: number | null; selected: number } | undefined;
+  if (!row || row.selected) throw new Error("この案は、すでに案件になっています");
+  const idea = JSON.parse(row.payload) as Idea;
+  const peer = db().prepare("SELECT AVG(score) AS a FROM idea_scores WHERE candidate_id = ? AND scorer_model != ?").get(row.id, row.author_model) as { a: number | null };
+  const conf = peer.a !== null ? { value: peer.a / 10, source: "他社のAIによる採点の平均" } : selfConfidence(idea);
+  const id = insertProject(idea, "", { ...nextMode(conf), confidence: conf.value }, "manual", row.author_model);
+  db().prepare("UPDATE idea_candidates SET selected = 1, project_id = ? WHERE id = ?").run(id, row.id);
+  db().prepare("UPDATE plan_requests SET status = 'done', note = ?, decided_at = datetime('now') WHERE id = ?").run(`案件 #${id} を作った`, requestId);
+  logEvent(id, "human", "select", `敗者復活: 提案箱から「${idea.title}」を案件にしました（平均 ${row.avg_score?.toFixed(1) ?? "—"}点）`);
+  void startProject(id).catch((e) => logEvent(id, "system", "lp-error", `作成に失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
+  return id;
 }
 
 // 採点の表に載せる、元になった声（実際にXで欲しいと言われているか）

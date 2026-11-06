@@ -3,9 +3,9 @@ import { END_REASON_LABEL, autoPublishStats, designAuthorStats, ideaAuthorStats,
 import { costEfficiency } from "./cost";
 import { modelInfo } from "./models";
 import { runStats } from "./stats";
-import { planModelStats } from "./plan";
+import { planModelStats, predictionStats } from "./plan";
 
-// 実験結果のページ用: プロダクトそのものではなく、「AIに任せるとどうなるか」の結果を、数字とランキングにまとめる
+// AIの成績のページ用: プロダクトそのものではなく、「AIに任せるとどうなるか」の結果を、数字とランキングにまとめる
 
 export type RankRow = { modelId: string; label: string; provider: string; value: number; n: number; display: string };
 export type Ranking = {
@@ -61,6 +61,14 @@ export function rankings(): Ranking[] {
       key: "plan", title: "運営の計画力", question: "毎日の計画を担当した日に、その日の目標（訪問・登録・利用）にどこまで届いたかの平均（3社で日ごとに交代）", better: "high", max: 1,
       empty: "毎日の計画を3社が担当すると、1日ごとにたまっていきます",
       rows: rank(planModelStats().filter((m) => m.goalRate !== null).map((m) => ({ modelId: m.modelId, value: m.goalRate!, n: m.days, display: `${pc(m.goalRate!)}（${m.days}日・予定の消化 ${pc(m.taskRate)}）` })), "high"),
+    },
+    {
+      key: "predict", title: "予想の正確さ", question: "朝会で「今日の訪問は実際にいくつになるか」を予想し、実測とどれだけずれたかの平均（小さいほど上。目標の立て方に左右されない）", better: "low",
+      empty: "朝会を担当した日の翌日から、たまっていきます",
+      rows: rank(predictionStats().map((m) => ({
+        modelId: m.modelId, value: m.mae, n: m.days,
+        display: `ずれ ${m.mae.toFixed(1)}人（${Math.abs(m.bias) < 0.5 ? "偏りなし" : m.bias > 0 ? `慎重め・実際が平均${m.bias.toFixed(1)}人多い` : `楽観的・実際が平均${(-m.bias).toFixed(1)}人少ない`}）`,
+      })), "low"),
     },
     {
       key: "result", title: "アイデアの実績", question: "そのAIのアイデアの案件で、訪問者のうち登録・利用した割合", better: "high",

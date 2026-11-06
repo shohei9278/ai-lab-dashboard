@@ -12,7 +12,7 @@ const MODES: { id: ApprovalMode; label: string; body: string }[] = [
 ];
 
 export function SettingsForm({ initial, models, publishing, snsReady, notifyReady, backups }: {
-  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { label: string; ok: boolean; free: boolean }[]; notifyReady: boolean; backups: string[];
+  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { key: string; label: string; ok: boolean; free: boolean; promoYen: number; plainYen: number }[]; notifyReady: boolean; backups: string[];
 }) {
   const router = useRouter();
   const [v, setV] = useState({
@@ -121,8 +121,8 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={v.weeklyReport} onChange={(e) => set("weeklyReport", e.target.checked)} />
           <span>
-            毎週月曜に、1週間のレポートを作る
-            <span className="block text-xs text-muted">数字と動きのまとめに加えて、Xの投稿と記事（note など）の下書き、実験メモの追加案を作ります（1回 約10〜20円）。「レポート」のページで見られます。</span>
+            毎週月曜に、定例会議を開く
+            <span className="block text-xs text-muted">3社のAIが1週間を振り返って改善案を出し合い、互いに採点して上位を提案箱に入れます。議長のAIが、まとめと発信用の下書き（Xの投稿・記事）も作ります（1回 約60〜80円）。会議の中身は「会議室」、下書きは「資料 → 発信の下書き」で見られます。オフにしても、会議室の「今すぐ会議」と資料の「今すぐ定例会議を開く」は使えます。</span>
           </span>
         </label>
         <label className="flex items-start gap-2 text-sm">
@@ -255,11 +255,44 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
                 公開中の案件を、AIがSNSに自動で投稿する
                 <span className="block text-xs text-muted">
                   使える場所: {snsReady.map((x) => `${x.label} ${x.ok ? "✓" : "—（キー未設定）"}`).join("　")}（キーの入れ方は docs/SETUP-SNS.md）。
-                  集客の作戦の「投稿の型」に沿って書き、日本時間の8〜22時に、場所ごとに間隔をあけて投稿します。1つの案件は20時間に1回まで。返信・フォロー・いいねなど、他人への働きかけはしません。
+                  日本時間の8〜22時に、場所ごとに間隔をあけて投稿します。1つの案件は20時間に1回まで。返信・フォロー・いいねなど、他人への働きかけはしません。
                   X はリンク付きの投稿が1件 約30円（$0.20）かかり、AIの月の予算に含めて数えます。Threads と Bluesky は無料です。自動で投稿するアカウントには、各サービスで「自動化されたアカウント」のラベルを付けてください。
                 </span>
               </span>
             </label>
+            {v.autoPost && (
+              <div className="space-y-1 rounded-lg bg-surface-2 p-3">
+                <div className="text-sm font-medium">場所ごとに投稿する種類</div>
+                <p className="text-xs text-muted">チェックを外した種類は、その場所には投稿しません（毎日の計画にも入りません）。費用のわりに効いていない場所だけ止める、といった使い方ができます。</p>
+                <table className="text-sm">
+                  <tbody>
+                    {snsReady.filter((x) => x.ok).map((x) => {
+                      const toggle = (k: "promoOff" | "plainOff", on: boolean) => {
+                        const list = v[k].split(",").map((y) => y.trim()).filter((y) => y && y !== x.key);
+                        set(k, (on ? list : [...list, x.key]).join(","));
+                      };
+                      return (
+                        <tr key={x.key}>
+                          <td className="py-1 pr-4 font-medium">{x.label}</td>
+                          <td className="py-1 pr-4">
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" checked={!v.promoOff.split(",").includes(x.key)} onChange={(e) => toggle("promoOff", e.target.checked)} />
+                              宣伝の投稿<span className="text-xs text-muted">（1件 約{x.promoYen}円）</span>
+                            </label>
+                          </td>
+                          <td className="py-1">
+                            <label className="inline-flex items-center gap-1">
+                              <input type="checkbox" checked={!v.plainOff.split(",").includes(x.key)} onChange={(e) => toggle("plainOff", e.target.checked)} />
+                              普通の投稿<span className="text-xs text-muted">（1件 約{x.plainYen}円）</span>
+                            </label>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {v.autoPost && !v.dailyPlan && (
               <Field label="自動投稿の上限（場所ごと・直近24時間）" note="">
                 <input type="number" min={1} max={10} {...num("autoPostPerDay")} className={input} />
@@ -301,6 +334,13 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <span>
             案件のLP・ツールへのリンクを載せる
             <span className="block text-xs text-muted">載せると、公開ページを見た人がLPに来られます。そのかわり、LPの屋号（{initial.lpBaseUrl || "LPサイト"}）とこの実験が結びつきます。</span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={v.showcaseVoices} onChange={(e) => set("showcaseVoices", e.target.checked)} />
+          <span>
+            社員の声（AIのひとこと）を載せる
+            <span className="block text-xs text-muted">最新の12件を載せます。案件の名前も一緒に出ます。</span>
           </span>
         </label>
       </section>

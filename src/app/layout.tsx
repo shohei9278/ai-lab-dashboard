@@ -1,3 +1,4 @@
+import { openRequests } from "@/lib/plan";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { M_PLUS_Rounded_1c, Noto_Sans_JP, Noto_Serif_JP } from "next/font/google";
@@ -33,16 +34,19 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     );
   }
   const pending = pendingCount();
+  const proposals = openRequests().filter((r) => r.source !== "human").length;
   const owner = await isOwner();
   const loginEnabled = !!process.env.DASHBOARD_PASSWORD;
   const nav = [
     { href: "/", label: "ホーム" },
     { href: "/live", label: "ライブ" },
+    { href: "/meetings", label: "会議室" },
     { href: "/approvals", label: "判断待ち", badge: pending },
+    { href: "/proposals", label: "提案箱", badge: proposals },
+    { href: "/lab", label: "AIの成績" },
+    { href: "/outside", label: "外の声" },
     { href: "/growth", label: "集客" },
-    { href: "/lab", label: "実験結果" },
-    { href: "/refs", label: "デザインの参考" },
-    { href: "/viral", label: "話題の投稿" },
+    { href: "/notes", label: "資料" },
     { href: "/settings", label: "設定" },
   ];
   return (

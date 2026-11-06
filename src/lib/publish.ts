@@ -1,3 +1,4 @@
+import { importSiteFeedback } from "./outside";
 import { createClient } from "@supabase/supabase-js";
 import { db, getSettings, type ProjectRow } from "./db";
 import { attributePosts } from "./sns";
@@ -56,15 +57,30 @@ async function fetchAll(table: keyof typeof COLUMNS, slug: string, columns: stri
   const rows: Row[] = [];
   const page = 1000;
   for (let from = 0; ; from += page) {
-    const { data, error } = await sb().from(table).select(columns).eq("slug", slug).order("id").range(from, from + page - 1);
+    const get = () => sb().from(table).select(columns).eq("slug", slug).order("id").range(from, from + page - 1);
+    let { data, error } = await get();
+    // 通信の一時的な失敗（fetch failed など）は、少し待って1回だけやり直す
+    if (error && /fetch failed|network|timeout|ECONN|ETIMEDOUT/i.test(error.message)) {
+      await new Promise((r) => setTimeout(r, 3000));
+      ({ data, error } = await get());
+    }
     if (error) {
       // 投稿ごとの計測（source 列）を Supabase に追加する前でも、訪問は数えられるようにする
       if (table === "lp_views" && columns.includes("source") && /source/.test(error.message)) return fetchAll(table, slug, "version, day, visitor_id");
       throw new Error(`集計の取得に失敗しました（${table}）: ${error.message}`);
     }
-    rows.push(...(data as unknown as Row[]));
-    if (data.length < page) return rows;
+    const got = (data ?? []) as unknown as Row[];
+    rows.push(...got);
+    if (got.length < page) return rows;
   }
+}
+
+// 公開ページの「ひとこと聞かせてください」に届いた声を取り込む（表をまだ作っていなければ何もしない）
+async function syncFeedback(projectId: number, slug: string) {
+  const last = (db().prepare("SELECT COALESCE(MAX(remote_id), 0) AS m FROM external_voices WHERE project_id = ? AND source = 'site'").get(projectId) as { m: number }).m;
+  const { data, error } = await sb().from("feedback").select("id, version, choice, text, created_at").eq("slug", slug).gt("id", last).order("id").limit(500);
+  if (error || !data?.length) return;
+  importSiteFeedback(projectId, data as { id: number; version: number; choice: string; text: string | null; created_at: string }[]);
 }
 
 // 公開中のLPの訪問と成果（事前登録LPは登録、動くツールは使った人）を、日付と版ごとに数えてダッシュボードに取り込む
@@ -77,6 +93,7 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
   for (const p of projects) {
     const slug = p.public_slug!;
     const views = await fetchAll("lp_views", slug);
+    await syncFeedback(p.id, slug);
     const isTool = p.kind === "tool";
     const events = isTool ? await fetchAll("tool_events", slug) : [];
     const conv = isTool ? events.filter((e) => e.kind === "use") : await fetchAll("signups", slug);

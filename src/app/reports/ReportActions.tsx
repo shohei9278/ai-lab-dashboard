@@ -23,7 +23,7 @@ export function CreateReportButton() {
         }}
         className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-ink disabled:opacity-50"
       >
-        {busy ? "AIがまとめています（30秒ほど）…" : "今すぐレポートを作る（約10〜20円）"}
+        {busy ? "3社が会議をしています（2〜4分）…" : "今すぐ定例会議を開く（約40〜80円）"}
       </button>
       {error && <p className="text-sm" style={{ color: "var(--critical)" }} role="alert">{error}</p>}
     </div>

@@ -31,9 +31,13 @@ export async function POST(req: Request) {
   if (typeof body.fullAuto === "boolean") patch.fullAuto = body.fullAuto;
   if (typeof body.autoPost === "boolean") patch.autoPost = body.autoPost;
   if (typeof body.dailyPlan === "boolean") patch.dailyPlan = body.dailyPlan;
+  for (const k of ["promoOff", "plainOff"] as const) {
+    if (typeof body[k] === "string") patch[k] = body[k].split(",").map((x: string) => x.trim()).filter((x: string) => ["x", "threads", "bluesky"].includes(x)).join(",");
+  }
   if (typeof body.viralSearch === "boolean") patch.viralSearch = body.viralSearch;
   if (typeof body.showcaseEnabled === "boolean") patch.showcaseEnabled = body.showcaseEnabled;
   if (typeof body.showcaseShowLinks === "boolean") patch.showcaseShowLinks = body.showcaseShowLinks;
+  if (typeof body.showcaseVoices === "boolean") patch.showcaseVoices = body.showcaseVoices;
   if (typeof body.lpBaseUrl === "string") {
     const v = body.lpBaseUrl.trim();
     if (v && !/^https:\/\/[^\s/]+(\/[^\s]*)?$/.test(v)) return NextResponse.json({ error: "LPサイトのURLは https:// から始めてください" }, { status: 400 });

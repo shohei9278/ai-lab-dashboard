@@ -8,6 +8,7 @@ import { CtaLink } from "./CtaLink";
 import { LpView } from "@/lp/LpView";
 import { ShareButtons, ToolSection } from "./ToolSection";
 import { FreePage } from "./FreePage";
+import { FeedbackWidget } from "./FeedbackWidget";
 import { imgOriginsOf } from "@/lp/pageHtml";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +47,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
       <main>
         <Tracker slug={lp.slug} version={lp.version} />
         <FreePage slug={lp.slug} version={lp.version} html={lp.content.page.html} title={lp.title} imgOrigins={imgOriginsOf(lp.content.design?.illustration?.url, lp.content.page.html)} operator={`運営: ${SITE_NAME}`} />
+        <FeedbackWidget slug={lp.slug} version={lp.version} kind="lp" />
       </main>
     );
   }
@@ -64,6 +66,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
         }
         tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} /> : undefined}
       />
+      <FeedbackWidget slug={lp.slug} version={lp.version} kind={lp.content.tool ? "tool" : "lp"} />
     </main>
   );
 }

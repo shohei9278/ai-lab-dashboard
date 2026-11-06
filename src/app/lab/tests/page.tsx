@@ -23,7 +23,7 @@ export default function TestsPage() {
   return (
     <div className="space-y-6">
       <PageIntro
-        title="実験結果"
+        title="基礎テスト"
         actions={
           <>
             <Link href="/datasets" className="rounded-lg border border-line px-3 py-2 text-sm">問題データ</Link>

@@ -1,4 +1,8 @@
-import { isOwner, maskEventsForGuest } from "@/lib/viewer";
+import { HIDDEN, isOwner, maskEventsForGuest } from "@/lib/viewer";
+import { CHOICE_LABEL, SOURCE_LABEL, listExternalVoices } from "@/lib/outside";
+import { AddOutsideVoice } from "@/app/outside/OutsideActions";
+import { listVoices } from "@/lib/voices";
+import { VoiceList } from "@/components/VoiceList";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db, getSettings, type EventRow } from "@/lib/db";
@@ -42,7 +46,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const want = p.want_id ? getWant(p.want_id) : undefined;
   const t = projectTotals(p.id);
   const approvals = pendingApprovals(p.id);
-  const events = maskEventsForGuest(maskEvents(db().prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id DESC").all(p.id) as EventRow[]), await isOwner());
+  const owner = await isOwner();
+  const events = maskEventsForGuest(maskEvents(db().prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id DESC").all(p.id) as EventRow[]), owner);
+  const projectVoices = listVoices({ projectId: p.id, limit: 20 });
+  const outside = listExternalVoices({ projectId: p.id, limit: 20 });
   const aiCost = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s, COUNT(*) AS n FROM ai_calls WHERE project_id = ?").get(p.id) as { s: number; n: number });
   const lp = p.lp ? (JSON.parse(p.lp) as Lp) : null;
   const ended = ["continued", "killed", "rejected"].includes(p.stage);
@@ -318,6 +325,34 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       )}
 
       <ShadowJudgments projectId={p.id} hidePending />
+
+      {/* 外の声（実際の人の反応） */}
+      {p.public_slug && (
+        <section className="card space-y-3 p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-bold">外の声（{outside.length}件）</h2>
+            <Link href="/outside" className="text-sm text-accent underline">外の声をすべて見る</Link>
+          </div>
+          {outside.length ? (
+            <ul className="space-y-1 text-sm">
+              {outside.map((v) => (
+                <li key={v.id} className="flex gap-2">
+                  <span className="shrink-0 text-xs text-muted">{SOURCE_LABEL[v.source]}{v.choice ? `「${CHOICE_LABEL[v.choice]}」` : ""}</span>
+                  <span>{owner || !v.text ? v.text : HIDDEN}</span>
+                </li>
+              ))}
+            </ul>
+          ) : <p className="text-sm text-ink-2">まだありません。公開ページの「ひとこと聞かせてください」に届くか、あなたが聞いた声を記録すると、ここに出ます。</p>}
+          {owner && <AddOutsideVoice projects={[{ id: p.id, title: p.title }]} defaultProjectId={p.id} />}
+        </section>
+      )}
+
+      {projectVoices.length > 0 && (
+        <section className="card space-y-3 p-4">
+          <h2 className="font-bold">この案件への社員の声</h2>
+          <VoiceList voices={projectVoices} owner={owner} />
+        </section>
+      )}
 
 
       <section className="space-y-2">

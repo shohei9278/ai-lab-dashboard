@@ -3,16 +3,15 @@ import { badPostsText } from "./postStats";
 import crypto from "node:crypto";
 import { callJson, isObj, isStr } from "./ai";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
-import { AUTO_PLATFORMS, autoPlatforms, xWeightedLength, type AutoPlatform } from "./snsApi";
-import type { GrowthPlan } from "./growth";
+import { AUTO_PLATFORMS, autoPlatforms, postAllowed, xWeightedLength, type AutoPlatform } from "./snsApi";
 import { CONV, KIND_LABEL, getProject, logEvent, type Lp } from "./loop";
 import { publicUrl } from "./publish";
 
 // SNSへの投稿。画面からXの投稿画面を開いて、あなたが投稿することもできる。
-// 設定で「自動で投稿」をオンにし、X・Threads・Bluesky のキーを入れると、AIが集客の作戦に沿って下書きし、自動で投稿する（maybeAutoPost）。
+// 設定で「自動で投稿」をオンにし、X・Threads・Bluesky のキーを入れると、AIが下書きして自動で投稿する（毎日の計画、または計画がない日は maybeAutoPost）。
 // 投稿ごとに専用のリンクを付けるので、どの投稿から何人来て、何人が登録・利用したかが分かる
 
-// status の link は、集客の作戦で場所ごとに作った専用リンク（投稿ではない）
+// status の link は、以前の「集客の作戦」で場所ごとに作った専用リンク（投稿ではない）
 export type SnsPost = {
   id: number; created_at: string; project_id: number; platform: string; code: string; angle: string | null; text: string;
   author: "ai" | "human"; status: "draft" | "posted" | "link"; posted_at: string | null; post_url: string | null;
@@ -40,22 +39,14 @@ export function addPost(projectId: number, text: string, author: "ai" | "human",
 }
 
 // AIに、切り口の違う投稿の下書きをいくつか作らせる
-// 最新の集客の作戦のうち、この案件・この場所に関わるところ（投稿の型・やり方）を、下書きを書くAIに渡す
-function planContext(projectId: number, platform: string): string {
+// この案件の集客の方針を、下書きを書くAIに渡す（どの手が効いたかは、毎日の計画が切り口として指示する）
+function planContext(projectId: number): string {
   // 案件ごとの方針: 集客の見直しで決めたもの（あれば最優先）と、企画のときに決めた最初の届け方
   const p = getProject(projectId);
   const own = p?.growth_focus
     ? `\n\nこの案件の今の集客の方針（最優先で従う）: ${p.growth_focus}`
     : p?.first_channel ? `\n\nこの案件の最初の届け方（企画のときに決めたもの）: ${p.first_channel}` : "";
-  const row = db().prepare("SELECT content FROM growth_plans ORDER BY id DESC LIMIT 1").get() as { content: string } | undefined;
-  if (!row) return own;
-  const plan = JSON.parse(row.content) as GrowthPlan;
-  const ch = plan.channels.filter((c) => c.platform === platform && c.projects.includes(projectId));
-  return `\n\n集客の作戦（これに沿って書く）:
-${ch.map((c) => `- ${c.name}: ${c.how}（気をつけること: ${c.risk}）`).join("\n") || `- 方針: ${plan.summary}`}
-届きやすい投稿の型:
-${plan.postPatterns.map((x) => `- ${x.name}: ${x.example.replace(/\n/g, " ")}`).join("\n")}
-やってはいけないこと: ${plan.avoid.join(" / ")}${own}`;
+  return own;
 }
 
 export async function draftPosts(projectId: number, count: number, hint?: string, platform: AutoPlatform = "x"): Promise<number[]> {
@@ -77,10 +68,10 @@ export async function draftPosts(projectId: number, count: number, hint?: string
 - ページに書かれている機能・特徴だけを書く（書かれていないことを、できるかのように書かない）
 - ハッシュタグは使っても1つまで。絵文字は控えめに
 - 押し付けがましい宣伝ではなく、対象の人が「自分のことだ」と思う書き出しにする
-- 投稿ごとに切り口を変える（例: 困りごとへの共感 / 使い方の具体例 / 作った理由 / 問いかけ）
+- 投稿ごとに切り口を変える（例: 困りごとへの共感 / 使い方の具体例 / 作った理由 / 問いかけ / そのまま使える文例・チェックリストを投稿の中で見せ、続きはリンク先で）
 これまでの投稿と反応がある場合は、反応が良かった切り口を参考にし、同じ文は避ける。それだけで読む価値がある内容（文例・使い方の具体例など）を入れ、宣伝だけの投稿にしない。
 形式: {"posts":[{"angle":"切り口を短く","text":"本文"}]}`,
-    user: `${KIND_LABEL[p.kind]}: ${p.title}\n対象: ${p.target}\n困りごと・動機: ${p.problem}\n中身: ${p.solution}\nページの見出し: ${lp.headline}\nページの補足: ${lp.subheadline}\nページに書かれている特徴: ${lp.features.map((f) => `${f.title}（${f.body}）`).join(" / ")}\n件数: ${count}${hint ? `\n今回の希望: ${hint}` : ""}\n\nこれまでの投稿と反応:\n${past}${planContext(projectId, platform)}${viralHints("sns")}${badPostsText("promo")}`,
+    user: `${KIND_LABEL[p.kind]}: ${p.title}\n対象: ${p.target}\n困りごと・動機: ${p.problem}\n中身: ${p.solution}\nページの見出し: ${lp.headline}\nページの補足: ${lp.subheadline}\nページに書かれている特徴: ${lp.features.map((f) => `${f.title}（${f.body}）`).join(" / ")}\n件数: ${count}${hint ? `\n今回の希望: ${hint}` : ""}\n\nこれまでの投稿と反応:\n${past}${planContext(projectId)}${viralHints("sns")}${badPostsText("promo")}`,
     validate: (v): v is { posts: { angle: string; text: string }[] } =>
       isObj(v) && Array.isArray(v.posts) && v.posts.length > 0 && v.posts.every((x) => isObj(x) && isStr(x.text)),
   });
@@ -160,7 +151,7 @@ export async function maybeAutoPost(): Promise<string[]> {
   const h = jstHour();
   if (h < 8 || h >= 22) return [];
   const done: string[] = [];
-  for (const platform of autoPlatforms()) {
+  for (const platform of autoPlatforms().filter((p) => postAllowed(p, "promo"))) {
     if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) break;
     try {
       const url = await autoPostTo(platform, s.autoPostPerDay);
@@ -199,7 +190,7 @@ export async function postOnPublish(projectId: number): Promise<void> {
   const p = getProject(projectId);
   if (!p?.public_slug || !publicUrl(p.id) || p.human_review === "bad" || p.sns_paused) return;
   for (const platform of autoPlatforms()) {
-    if (AUTO_PLATFORMS[platform].costUsd > 0) continue;
+    if (AUTO_PLATFORMS[platform].costUsd > 0 || !postAllowed(platform, "promo")) continue;
     if (db().prepare("SELECT 1 FROM sns_posts WHERE project_id = ? AND platform = ? AND status = 'posted'").get(p.id, platform)) continue;
     try {
       await postProject(p, platform);
@@ -260,23 +251,4 @@ async function postProject(p: ProjectRow, platform: AutoPlatform, hint?: string)
   record(def.costUsd, null);
   logEvent(p.id, "ai", "sns-post", `${def.label}に自動で投稿: ${draft.text.slice(0, 60)}… ${posted.url}`);
   return posted.url;
-}
-
-// 集客の作戦で、自動では投稿しない場所（note・Instagram・LINE など）に置くための専用リンクを、案件ごとに作っておく
-export function ensureChannelLinks(plan: GrowthPlan) {
-  const auto = new Set<string>(autoPlatforms());
-  for (const c of plan.channels) {
-    if (auto.has(c.platform)) continue;
-    for (const pid of c.projects) {
-      if (!getProject(pid)?.public_slug) continue;
-      const exists = db().prepare("SELECT 1 FROM sns_posts WHERE project_id = ? AND platform = ? AND status = 'link'").get(pid, c.platform);
-      if (!exists) db().prepare("INSERT INTO sns_posts (project_id, code, angle, text, author, platform, status) VALUES (?, ?, ?, ?, 'human', ?, 'link')").run(pid, newCode(), c.name.slice(0, 40), `${c.name}に置く専用リンク`, c.platform);
-    }
-  }
-}
-
-// 場所ごとの専用リンク（集客の作戦の画面に出す）
-export function channelLinks(): { projectId: number; platform: string; code: string; url: string | null; visits: number; conversions: number }[] {
-  return (db().prepare("SELECT project_id, platform, code, visits, conversions FROM sns_posts WHERE status = 'link' ORDER BY project_id, platform").all() as { project_id: number; platform: string; code: string; visits: number; conversions: number }[])
-    .map((r) => ({ projectId: r.project_id, platform: r.platform, code: r.code, url: postLink(r.project_id, r.code), visits: r.visits, conversions: r.conversions }));
 }

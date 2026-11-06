@@ -1,15 +1,17 @@
 import { callJson, isObj, isStr } from "./ai";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
-import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, lessonLine, logEvent, planImprove, projectTotals } from "./loop";
+import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, logEvent, planImprove, projectTotals } from "./loop";
 import { endReasons, headline } from "./experiment";
 import { funnelText } from "./funnel";
-import { AUTO_PLATFORMS, autoPlatforms, type AutoPlatform } from "./snsApi";
+import { AUTO_PLATFORMS, autoPlatforms, postAllowed, type AutoPlatform } from "./snsApi";
 import { aiPostsLast24h, jstDay, postPromo } from "./sns";
 import { viralHints } from "./viralPosts";
 import { budgetState } from "./budget";
 import { jstDateTime } from "./format";
 import { ANGLE_TYPES, badPostsText, classifyUntyped, isAngleType, postStatsText } from "./postStats";
 import { hasKey, modelInfo } from "./models";
+import { addProposal, addVoice } from "./voices";
+import { outsideText, recordVoiceEffects } from "./outside";
 
 // 毎日の計画: 毎朝AIが全案件を振り返り、今のネック（届かない・使われない など）を1つ決めて、今日やることを決める
 // - やること: 案件の宣伝の投稿 / 宣伝ではない普通の投稿 / ページを直す / 新しい案件づくりを休む / 次のアイデア出しに課題を伝える
@@ -36,10 +38,12 @@ export type PlanContent = {
   focus: string; // 今日の方針を1文で
   goals: { metric: GoalMetric; target: number; why: string }[];
   pause_reason: string;
+  // 目標とは別の「実際にこうなると思う」予想（控えめな目標を立てるAIが有利にならないよう、実測と並べて答え合わせする）
+  prediction?: { visits: number; conversions: number; why: string };
 };
 export type PlanRow = { id: number; day: string; created_at: string; model_id: string; content: string; pause_new: number; idea_note: string | null };
 export type TaskKind = "promo" | "plain" | "improve";
-export type TaskStatus = "pending" | "running" | "done" | "failed" | "skipped" | "cancelled";
+export type TaskStatus = "pending" | "running" | "done" | "held" | "failed" | "skipped" | "cancelled"; // held = ページを直したが、チェックで問題が残り承認待ちにした（公開していない）
 export type TaskRow = {
   id: number; plan_id: number; at_time: string; kind: TaskKind; platform: string | null; project_id: number | null;
   angle: string | null; reason: string | null; status: TaskStatus; result: string | null; result_url: string | null; done_at: string | null;
@@ -58,6 +62,23 @@ function planModelFor(): string {
   return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
 }
 
+// 予想の答え合わせ: 終わった日の計画ごとの、訪問の予想と実測のずれ（AIごと）
+// bias がプラスなら実際の方が多い（慎重な予想）、マイナスなら実際の方が少ない（楽観的な予想）
+export function predictionStats(): { modelId: string; days: number; mae: number; bias: number; rows: { day: string; predicted: number; actual: number }[] }[] {
+  const today = jstNow().day;
+  const by = new Map<string, { day: string; predicted: number; actual: number }[]>();
+  for (const p of db().prepare("SELECT * FROM daily_plans WHERE day < ? ORDER BY day").all(today) as PlanRow[]) {
+    const c = JSON.parse(p.content) as PlanContent;
+    if (!c.prediction) continue;
+    by.set(p.model_id, [...(by.get(p.model_id) ?? []), { day: p.day, predicted: c.prediction.visits, actual: dayActuals(p.day).visits }]);
+  }
+  return [...by].map(([modelId, rows]) => ({
+    modelId, days: rows.length, rows,
+    mae: rows.reduce((n, r) => n + Math.abs(r.actual - r.predicted), 0) / rows.length,
+    bias: rows.reduce((n, r) => n + (r.actual - r.predicted), 0) / rows.length,
+  }));
+}
+
 // 計画のAIの成績: 終わった日の計画ごとの、目標の達成度と予定の消化（今日の分は数えない）
 export function planModelStats(): { modelId: string; days: number; goalRate: number | null; taskRate: number }[] {
   const today = jstNow().day;
@@ -74,12 +95,16 @@ export function planModelStats(): { modelId: string; days: number; goalRate: num
   return [...by].map(([modelId, m]) => ({ modelId, days: m.days, goalRate: avg(m.goal), taskRate: avg(m.task) ?? 0 }));
 }
 
-// ---- AIからのお願い ----
+// ---- 提案箱（AIからのお願い・定例会議の提案） ----
 
-export type RequestRow = { id: number; plan_id: number; created_at: string; title: string; how: string | null; why: string | null; status: "open" | "done" | "declined"; note: string | null; decided_at: string | null };
+export type RequestRow = {
+  id: number; plan_id: number | null; created_at: string; title: string; how: string | null; why: string | null; status: "open" | "done" | "declined"; note: string | null; decided_at: string | null;
+  source: "plan" | "meeting" | "scene" | "error" | "revival" | "human" | "voice"; proposer: string | null; target: "human" | "system"; score: number | null; meeting_id: number | null;
+  scene: string | null; project_id: number | null; ref_id: number | null; ai_reply: string | null;
+};
 
-export function openRequests(): RequestRow[] {
-  return db().prepare("SELECT * FROM plan_requests WHERE status = 'open' ORDER BY id DESC").all() as RequestRow[];
+export function openRequests(target?: RequestRow["target"]): RequestRow[] {
+  return db().prepare(`SELECT * FROM plan_requests WHERE status = 'open' ${target ? "AND target = ?" : ""} ORDER BY id DESC`).all(...(target ? [target] : [])) as RequestRow[];
 }
 export function recentRequests(limit = 20): RequestRow[] {
   return db().prepare("SELECT * FROM plan_requests ORDER BY id DESC LIMIT ?").all(limit) as RequestRow[];
@@ -88,7 +113,7 @@ export function answerRequest(id: number, status: "done" | "declined", note: str
   const r = db().prepare("SELECT * FROM plan_requests WHERE id = ?").get(id) as RequestRow | undefined;
   if (!r || r.status !== "open") throw new Error("まだ答えていないお願いだけ答えられます");
   db().prepare("UPDATE plan_requests SET status = ?, note = ?, decided_at = datetime('now') WHERE id = ?").run(status, note.trim().slice(0, 300) || null, id);
-  logEvent(null, "human", "plan-request", `AIからのお願い「${r.title}」: ${status === "done" ? "やった" : "やらない"}${note.trim() ? `（${note.trim().slice(0, 80)}）` : ""}`);
+  logEvent(null, "human", "plan-request", `提案箱の「${r.title}」: ${status === "done" ? "やった" : "やらない"}${note.trim() ? `（${note.trim().slice(0, 80)}）` : ""}`);
 }
 
 const POST_START = 8; // 投稿してよい時間（日本時間）
@@ -132,10 +157,13 @@ export function planProgress(plan: PlanRow) {
   return {
     content: c, tasks, done, total: counted.length,
     failed: counted.filter((t) => t.status === "failed").length,
+    held: counted.filter((t) => t.status === "held").length,
     skipped: counted.filter((t) => t.status === "skipped").length,
     goals,
     taskRate: counted.length ? done / counted.length : 1,
     goalRate: goals.length ? goals.reduce((n, g) => n + g.rate, 0) / goals.length : null,
+    prediction: c.prediction ?? null,
+    actual,
   };
 }
 
@@ -177,7 +205,8 @@ function planMaterial(): string {
     const t = projectTotals(p.id);
     const posts = db().prepare("SELECT platform, COUNT(*) AS n, SUM(visits) AS v, MAX(posted_at) AS last FROM sns_posts WHERE project_id = ? AND status = 'posted' GROUP BY platform").all(p.id) as { platform: string; n: number; v: number; last: string }[];
     const pub = p.published_at ? Math.floor((Date.now() - Date.parse(p.published_at.replace(" ", "T") + "Z")) / 86_400_000) : null;
-    return `- #${p.id} ${p.title}（${KIND_LABEL[p.kind]}・対象: ${p.target}${pub !== null ? `・公開${pub}日目` : ""}）直近7日: 訪問${p.v7} ${CONV[p.kind].noun}${p.c7} / 累計: 訪問${t.visits} ${CONV[p.kind].noun}${t.signups}
+    const gate = improveBlocked(p);
+    return `- #${p.id} ${p.title}（${KIND_LABEL[p.kind]}・対象: ${p.target}${pub !== null ? `・公開${pub}日目` : ""}・ページの自動改善: ${gate ? `できない（${gate.reason}）` : "できる"}）直近7日: 訪問${p.v7} ${CONV[p.kind].noun}${p.c7} / 累計: 訪問${t.visits} ${CONV[p.kind].noun}${t.signups}
   投稿: ${posts.map((x) => `${AUTO_PLATFORMS[x.platform as AutoPlatform]?.label ?? x.platform} ${x.n}件（そこからの訪問${x.v ?? 0}）`).join("・") || "まだなし"}${p.growth_focus ? `\n  集客の方針: ${p.growth_focus}` : ""}${funnelText(p) ? `\n  ${funnelText(p).replace(/\n/g, "\n  ")}` : ""}`;
   });
   const recentPosts = (db().prepare(
@@ -187,8 +216,8 @@ function planMaterial(): string {
     .map((x) => `- ${jstDateTime(x.posted_at)} ${x.platform} ${x.title}「${x.angle ?? x.text.slice(0, 30)}」訪問${x.visits} 成果${x.conversions}${reactText(x)}`);
   const past = recentPlans(7).map((pl) => {
     const g = planProgress(pl);
-    return `- ${pl.day}: ネック「${BOTTLENECK_LABEL[g.content.bottleneck]}」方針「${g.content.focus}」予定 ${g.done}/${g.total}件 済み${g.failed ? `・失敗${g.failed}` : ""}${g.skipped ? `・見送り${g.skipped}` : ""}${pl.pause_new ? "・新しい案件は休み" : ""}
-  目標: ${g.goals.map((x) => `${GOAL_LABEL[x.metric]} ${x.actual}/${x.target}`).join("・") || "なし"}
+    return `- ${pl.day}: ネック「${BOTTLENECK_LABEL[g.content.bottleneck]}」方針「${g.content.focus}」予定 ${g.done}/${g.total}件 済み${g.held ? `・改善したが承認待ちで未公開${g.held}` : ""}${g.failed ? `・失敗${g.failed}` : ""}${g.skipped ? `・見送り${g.skipped}` : ""}${pl.pause_new ? "・新しい案件は休み" : ""}
+  目標: ${g.goals.map((x) => `${GOAL_LABEL[x.metric]} ${x.actual}/${x.target}`).join("・") || "なし"}${g.prediction ? ` / 予想（${modelInfo(pl.model_id).label}）: 訪問${g.prediction.visits}→実測${g.actual.visits}・登録/利用${g.prediction.conversions}→実測${g.actual.conversions}` : ""}
   やったこと: ${g.tasks.map((t) => `${t.at_time} ${TASK_KIND_LABEL[t.kind]}${t.platform ? `(${t.platform})` : ""}${t.project_id ? ` #${t.project_id}` : ""}「${(t.angle ?? "").slice(0, 30)}」→${t.status}`).join(" / ") || "なし"}`;
   });
   const plains = (db().prepare("SELECT t.platform, t.angle, t.result, t.done_at, t.reactions_at, t.likes, t.replies, t.reposts FROM plan_tasks t WHERE t.kind = 'plain' AND t.status = 'done' ORDER BY t.id DESC LIMIT 10").all() as ({ platform: string; angle: string; result: string; done_at: string } & Reacts)[])
@@ -199,15 +228,17 @@ function planMaterial(): string {
     `今: ${now.day} ${now.hm}（日本時間。以下の日時もすべて日本時間）`,
     `実験の累計: 案件${h.projects}件・公開${h.published}件・育てる段階${h.continued}件・撤退${h.killed}件 / 撤退の理由: ${ends.map((e) => `${e.label}${e.n}件`).join("・") || "まだなし"}`,
     `全案件の1日ごとの数字（直近7日）: ${daily}`,
+    outsideText(),
     `公開中の案件:\n${projectLines.join("\n") || "（なし）"}`,
-    `自動で投稿できる場所: ${platforms.map((p) => `${AUTO_PLATFORMS[p].label}（宣伝は1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円・普通の投稿は約${Math.round(AUTO_PLATFORMS[p].plainCostUsd * s.usdJpy)}円。直近24時間の投稿 ${aiPostsLast24h(p)}件・安全装置 ${s.postSafetyPerDay}件）`).join(" / ") || "なし（自動投稿がオフ、またはキーがない。投稿の予定は入れない）"}`,
+    `自動で投稿できる場所: ${platforms.map((p) => `${AUTO_PLATFORMS[p].label}（宣伝は${postAllowed(p, "promo") ? `1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}・普通の投稿は${postAllowed(p, "plain") ? `約${Math.round(AUTO_PLATFORMS[p].plainCostUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}。直近24時間の投稿 ${aiPostsLast24h(p)}件・安全装置 ${s.postSafetyPerDay}件）`).join(" / ") || "なし（自動投稿がオフ、またはキーがない。投稿の予定は入れない）"}`,
     `投稿してよい時間: ${POST_START}〜${POST_END}時`,
     `予算: 今月の残り 約${Math.max(0, Math.round(s.monthlyBudgetJpy - monthSpendUsd() * s.usdJpy))}円（月${s.monthlyBudgetJpy}円）・新しい案件1件 約${Math.round(b.perProject)}円・今日の予算のペースで作れる新しい案件 ${b.newToday}件`,
     `最近のAIの宣伝の投稿と、そこからの訪問・成果:\n${recentPosts.join("\n") || "（なし）"}`,
     `最近の普通の投稿（リンクがないので、訪問の数は分からない。反応は投稿の翌日と3日後に取り込む）:\n${plains.join("\n") || "（なし）"}`,
     `最近の計画と結果:\n${past.join("\n") || "（まだなし。今日が最初の計画）"}`,
     postStatsText() || "効いた手の集計: まだ投稿がない",
-    `あなた（AI）から運営者へのお願い（直近30日）:\n${(db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-30 days') ORDER BY id DESC").all() as RequestRow[]).map((r) => `- 「${r.title}」→ ${r.status === "open" ? "まだ返事なし" : r.status === "done" ? `やった${r.decided_at ? `（${jstDateTime(r.decided_at)}）` : ""}` : "やらない"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`).join("\n") || "（まだなし）"}`,
+    `運営者からの提案（提案箱にあなたが入れたもの。返事待ち）:\n${(db().prepare("SELECT id, title, how FROM plan_requests WHERE source = 'human' AND status = 'open' ORDER BY id DESC LIMIT 10").all() as { id: number; title: string; how: string | null }[]).map((r) => `- 【${r.id}】${r.title}${r.how ? `: ${r.how}` : ""}`).join("\n") || "（なし）"}`,
+    `提案箱（あなたたちAIからのお願い・定例会議の提案。直近30日）:\n${(db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-30 days') ORDER BY id DESC").all() as RequestRow[]).map((r) => `- 「${r.title}」→ ${r.status === "open" ? "まだ返事なし" : r.status === "done" ? `やった${r.decided_at ? `（${jstDateTime(r.decided_at)}）` : ""}` : "見送り"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`).join("\n") || "（まだなし）"}`,
     `教訓:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
   ].join("\n\n") + viralHints("sns") + badPostsText();
 }
@@ -216,6 +247,9 @@ type PlanOut = PlanContent & {
   pause_new: boolean;
   idea_note: string;
   requests?: { title: string; how: string; why: string }[];
+  voice?: string;
+  replies?: { id: number; reply: string }[];
+  voice_effects?: unknown;
   tasks: { time: string; kind: TaskKind; platform?: string; project_id?: number; type?: string; angle: string; reason: string }[];
 };
 
@@ -238,10 +272,10 @@ export async function createPlan({ force = false } = {}): Promise<number> {
     system: `あなたは「AIが自動でプロダクトを作る実験」の運営責任者です。毎朝、公開中の全案件と最近の結果を振り返り、今いちばんのネックを1つ決めて、今日1日にやることを決めます。決めたことは、そのまま自動で実行されます。
 ネック（bottleneck）は次から1つ: reach（届かない・訪問が少ない）/ use（訪問はあるが登録・利用されない）/ spread（使われるがシェアされない）/ pace（作るペースが合っていない）/ other
 今日できること（tasks）:
-- promo: 公開中の案件の宣伝の投稿（リンク付き）。project_id・platform・angle（切り口）を決める。訪問が少ない案件、まだ試していない切り口を優先する
-- plain: 宣伝ではない普通の投稿（リンクなし。運営アカウント「Hitoride」の投稿）。platform と angle（話題）を決める。話題は次のどれか: 実験の記録（本物の数字）/ 作る裏側（実際にあった出来事）/ 案件の対象の人に役立つ小ネタ / 気軽な問いかけ
+- promo: 公開中の案件の宣伝の投稿（リンク付き）。project_id・platform・angle（切り口）を決める。訪問が少ない案件、まだ試していない切り口を優先する。「すぐ使える文例・チェックリスト」（freebie）は、投稿の中で対象の人がそのまま使える文例・チェックリストを見せ、続きはツールやページで、とつなぐ切り口
+- plain: 宣伝ではない普通の投稿（リンクなし。運営アカウント「Hitoride」の投稿）。platform と angle（話題）を決める。話題は次のどれか: 実験の記録（本物の数字）/ 作る裏側（実際にあった出来事）/ 案件の対象の人に役立つ小ネタ / そのまま使える文例・チェックリスト / 気軽な問いかけ
 - promo と plain には、切り口の型（type）も付ける: ${Object.entries(ANGLE_TYPES).map(([k, v]) => `${k}（${v}）`).join(" / ")}
-- improve: 集客中の案件のページ（ツールなら画面）を直す。project_id と angle（何をどう直すか、具体的に）を決める。1日1件まで。訪問がある程度あるのに登録・利用されない案件だけ
+- improve: 集客中の案件のページ（ツールなら画面）を直す。project_id と angle（何をどう直すか、具体的に）を決める。1日1件まで。訪問がある程度あるのに登録・利用されない案件で、材料に「ページの自動改善: できる」とある案件だけ。結果が「held」（直したが承認待ちで未公開）の改善は、公開ページは変わっていないので、改善の効果として数字を読まない
 決めること:
 - 投稿の回数・時刻・場所・宣伝と普通の投稿の割合は、あなたが決める。宣伝ばかりのアカウントに見えないよう、普通の投稿も混ぜる。同じ時刻に固めず、間をあける
 - 時刻は今より後で、投稿は${POST_START}〜${POST_END}時の間（"HH:MM"）。使える場所（自動で投稿できる場所）以外には予定を入れない
@@ -249,14 +283,19 @@ export async function createPlan({ force = false } = {}): Promise<number> {
 - pause_new: ネックが「届かない」なのに新しい案件を増やしても届かない案件が増えるだけ、のようなときは true にして、今日は新しい案件づくりを休む
 - idea_note: 次のアイデア出しに伝えたい、今の課題（例: 最初の利用者に届けやすい場所がはっきりした案を優先する）。なければ空
 - goals: 今日の目標の数字（visits = 全案件の訪問の合計、conversions = 登録・利用の合計）。直近の数字から、背伸びすれば届く値にする
+- prediction: 目標とは別に、この計画を実行したら、今日の訪問と登録・利用は実際にいくつになると思うか（願望ではなく予想。目標と同じでなくてよい）と、その理由。最近の計画の「予想→実測」のずれを見て、楽観・悲観に偏っていたら直す
 - review: 最近の計画の予定と目標が、実際どうだったか。効いた手・効かなかった手と、今日それをどう変えるか（最初の計画なら、今の状況のまとめ）。運営者に頼んだことをやってもらえた場合は、その前後で数字がどう変わったかも見る
+- voice: 社員としてのひとこと（つぶやき程度、60文字以内）。感想・気づき・心配・ダメ出し・試したいことなど何でもよい。数字や出来事は材料にあるものだけを使い、体験談は作らない
+- voice_effects: 外の声（実際の人の反応）を根拠に、今日の計画で何かを変えたときだけ。[{"voice_ids":[声の番号],"project_id":案件の番号,"change":"何をどう変えたか"}]。外の声はAIどうしの解釈より優先する
+- replies: 運営者が提案箱に入れた提案（材料の「運営者からの提案」）それぞれへの返事。どう受け止め、今日の計画にどう反映したか（反映できないなら理由）を1〜2文で
 - requests: あなた（AI）は自分ではできないが、運営者（人）がやると効きそうなことを0〜2件頼める。例: 対象の人が集まるコミュニティに参加して自分の言葉で紹介する / アカウントのプロフィールの文や固定の投稿を変える / 知り合いに見てもらって感想を聞く。title は短く、how は具体的な手順、why は数字の根拠。返事がまだのお願い・断られたお願いと同じものは出さない。なければ空の配列
 守ること:
 - 材料にある数字だけを使う。件数が少ないときは certainty を low にし、「まだ偶然の可能性が高い」と書く
 - 効かなかった手を同じように繰り返さない。回数を増やすより、切り口・場所・時刻を変えることを先に試す
+- 切り口どうしを比べるときは、場所と時間帯をそろえる（例: 同じ場所・同じ時間帯で、完成見本の切り口と共感の切り口を別の日に出す）。場所も時間帯も切り口も同時に変えると、どれが効いたか分からなくなる
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
-形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
+形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"replies":[{"id":提案の番号,"reply":"返事"}],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
     user: planMaterial(),
     validate: isPlanOut,
   });
@@ -269,7 +308,9 @@ export async function createPlan({ force = false } = {}): Promise<number> {
   const tasks = out.tasks.filter((t) => {
     if (!/^\d{2}:\d{2}$/.test(t.time) || t.time <= now.hm) return false;
     if (t.kind === "improve") {
-      if (!live.has(Number(t.project_id)) || improves >= 1) return false;
+      // 判断からの改善と同じ条件（承認モード・ツールの変更・改善の回数・予算など）に合わない案件は、予定に入れない
+      const lp = liveProjects().find((x) => x.id === Number(t.project_id));
+      if (!lp || improves >= 1 || improveBlocked(lp)) return false;
       improves++;
       return true;
     }
@@ -277,6 +318,7 @@ export async function createPlan({ force = false } = {}): Promise<number> {
     const h = Number(t.time.slice(0, 2));
     if (h < POST_START || h >= POST_END || !t.platform || !platforms.has(t.platform)) return false;
     if (t.kind === "promo" && !live.has(Number(t.project_id))) return false;
+    if (!postAllowed(t.platform, t.kind)) return false;
     const n = (perPlatform.get(t.platform) ?? 0) + 1;
     if (aiPostsLast24h(t.platform) + n > s.postSafetyPerDay) return false;
     perPlatform.set(t.platform, n);
@@ -293,6 +335,9 @@ export async function createPlan({ force = false } = {}): Promise<number> {
     goals: out.goals.filter((g) => isObj(g) && (g.metric === "visits" || g.metric === "conversions") && Number(g.target) > 0)
       .slice(0, 2).map((g) => ({ metric: g.metric, target: Math.round(Number(g.target)), why: String(g.why ?? "").slice(0, 200) })),
     pause_reason: out.pause_new ? String(out.pause_reason ?? "").slice(0, 200) : "",
+    prediction: isObj(out.prediction) && Number.isFinite(Number(out.prediction.visits))
+      ? { visits: Math.max(0, Math.round(Number(out.prediction.visits))), conversions: Math.max(0, Math.round(Number(out.prediction.conversions) || 0)), why: String(out.prediction.why ?? "").slice(0, 200) }
+      : undefined,
   };
   const conn = db();
   const id = conn.transaction(() => {
@@ -312,10 +357,12 @@ export async function createPlan({ force = false } = {}): Promise<number> {
     ins.run(id, t.time, t.kind, t.kind === "improve" ? null : t.platform, t.kind === "plain" ? null : Number(t.project_id), String(t.angle ?? "").slice(0, 300), String(t.reason ?? "").slice(0, 300), type);
   }
   // お願い（返事がまだのものと同じ題は入れない）
-  const open = new Set(openRequests().map((r) => r.title));
-  const reqs = (Array.isArray(out.requests) ? out.requests : []).filter((r) => isObj(r) && isStr(r.title) && !open.has(r.title.trim())).slice(0, 2);
-  for (const r of reqs) {
-    conn.prepare("INSERT INTO plan_requests (plan_id, title, how, why) VALUES (?, ?, ?, ?)").run(id, r.title.trim().slice(0, 80), String(r.how ?? "").slice(0, 500), String(r.why ?? "").slice(0, 300));
+  const reqs = (Array.isArray(out.requests) ? out.requests : []).filter((r) => isObj(r) && isStr(r.title)).slice(0, 2)
+    .filter((r) => addProposal({ title: r.title, how: String(r.how ?? ""), why: String(r.why ?? ""), target: "human", source: "plan", proposer: model, scene: "朝会", planId: id }));
+  if (isStr(out.voice)) addVoice({ modelId: model, scene: "朝会", text: out.voice });
+  recordVoiceEffects(out.voice_effects, { scene: "朝会", modelId: model });
+  for (const r of Array.isArray(out.replies) ? out.replies : []) {
+    if (isObj(r) && isStr(r.reply)) conn.prepare("UPDATE plan_requests SET ai_reply = ? WHERE id = ? AND source = 'human'").run(`${modelInfo(model).label}（${now.day}の朝会）: ${r.reply.slice(0, 400)}`, Number(r.id));
   }
   // 前の日までの、実行されずに残った予定は見送りにする
   conn.prepare("UPDATE plan_tasks SET status = 'skipped', result = '時間内に実行できなかった' WHERE status = 'pending' AND plan_id IN (SELECT id FROM daily_plans WHERE day < ?)").run(now.day);
@@ -368,12 +415,16 @@ async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string
   const s = getSettings();
   if (t.kind === "improve") {
     if (!t.project_id) return { status: "skipped", result: "案件が決まっていない" };
-    await planImprove(t.project_id, t.angle ?? "");
-    return { status: "done", result: `ページを直しました: ${t.angle}` };
+    // 公開した・承認待ちにした・条件に合わず直さなかった、を分けて残す（翌朝のAIが「直した結果」と読み違えないように）
+    const r = await planImprove(t.project_id, t.angle ?? "");
+    return r.kind === "published" ? { status: "done", result: `ページを直して公開しました: ${r.detail}` }
+      : r.kind === "held" ? { status: "held", result: r.detail }
+      : { status: "skipped", result: `直しませんでした（${r.detail}）` };
   }
   const platform = t.platform as AutoPlatform;
   if (!s.autoPost) return { status: "skipped", result: "自動投稿がオフのため見送り" };
   if (!AUTO_PLATFORMS[platform]?.configured()) return { status: "skipped", result: "この場所のキーがないため見送り" };
+  if (!postAllowed(platform, t.kind === "promo" ? "promo" : "plain")) return { status: "skipped", result: `設定で、この場所の${t.kind === "promo" ? "宣伝" : "普通"}の投稿を止めているため見送り` };
   if (aiPostsLast24h(platform) >= s.postSafetyPerDay) {
     logEvent(null, "system", "plan-cap", `${AUTO_PLATFORMS[platform].label}の投稿が安全装置（直近24時間で${s.postSafetyPerDay}件）に届いたため、予定を見送りました`);
     return { status: "skipped", result: `安全装置（直近24時間で${s.postSafetyPerDay}件）に届いたため見送り` };
@@ -432,7 +483,7 @@ export async function runPlanTasks(): Promise<void> {
   db().prepare("UPDATE plan_tasks SET status = ?, result = ?, result_url = ?, done_at = datetime('now') WHERE id = ?").run(r.status, r.result.slice(0, 600), r.url ?? null, t.id);
   const label = `${t.at_time} ${TASK_KIND_LABEL[t.kind]}${t.platform ? `（${AUTO_PLATFORMS[t.platform as AutoPlatform]?.label ?? t.platform}）` : ""}`;
   logEvent(t.project_id, r.status === "failed" ? "system" : "ai", r.status === "failed" ? "plan-task-error" : "plan-task",
-    `今日の計画の予定「${label}」: ${r.status === "done" ? "済み" : r.status === "failed" ? `失敗（${r.result.slice(0, 120)}）` : `見送り（${r.result.slice(0, 120)}）`}`);
+    `今日の計画の予定「${label}」: ${r.status === "done" ? "済み" : r.status === "held" ? `承認待ち・未公開（${r.result.slice(0, 120)}）` : r.status === "failed" ? `失敗（${r.result.slice(0, 120)}）` : `見送り（${r.result.slice(0, 120)}）`}`);
 }
 
 // 人が予定を取りやめる

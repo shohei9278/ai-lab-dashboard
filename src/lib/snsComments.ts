@@ -1,6 +1,7 @@
 import { callJson, isObj } from "./ai";
 import { db, getSettings, type ProjectRow } from "./db";
 import { getProject, logEvent, type Lp } from "./loop";
+import { EXTRAS_RULE, takeExtras } from "./voices";
 import { AUTO_PLATFORMS, blueskySession, threadsPost, threadsToken } from "./snsApi";
 
 // 自分の投稿（Threads・Bluesky）についたコメントを取り込み、AIが返信の案を書く。返信するのは、人が「送る」を押したときだけ
@@ -90,10 +91,12 @@ async function draftReplies() {
 - 運営者の体験談を作らない。架空の数字・実績を書かない
 - リンクや宣伝を繰り返さない（相手が使い方を聞いているときだけ、短く案内する）
 - 宣伝・荒らし・攻撃的なコメント・意味の取れないコメントには返信しない。そのときは reply を空にして、reason に理由を書く
-形式: {"replies":[{"id":コメントの番号,"reply":"返信の案（返さないなら空）","reason":"返さない理由（返すなら空）"}]}`,
+形式: {"replies":[{"id":コメントの番号,"reply":"返信の案（返さないなら空）","reason":"返さない理由（返すなら空）"}]}
+${EXTRAS_RULE}`,
       user: `サービス: ${p.title}\n中身: ${p.solution}\nページの見出し: ${lp?.headline ?? ""}\nページに書かれている特徴: ${lp?.features.map((f) => f.title).join(" / ") ?? ""}\n\nコメント:\n${list.map((c) => `【${c.id}】${AUTO_PLATFORMS[c.platform as "threads"].label}の投稿「${post(c.post_id).slice(0, 120)}」への ${c.author} のコメント: ${c.text}`).join("\n")}`,
       validate: (v): v is { replies: { id: number; reply: string; reason: string }[] } => isObj(v) && Array.isArray(v.replies),
     });
+    takeExtras(out, { modelId: getSettings().loopModel, scene: "コメントへの返信の案", projectId: pid });
     const upd = db().prepare("UPDATE sns_comments SET draft = ?, draft_reason = ? WHERE id = ?");
     for (const r of out.replies) {
       if (!list.some((c) => c.id === Number(r.id))) continue;

@@ -13,6 +13,7 @@ export const ANGLE_TYPES = {
   story: "作った理由・裏側",
   log: "実験の記録",
   tip: "役立つ小ネタ",
+  freebie: "すぐ使える文例・チェックリスト",
   other: "その他",
 } as const;
 export type AngleType = keyof typeof ANGLE_TYPES;

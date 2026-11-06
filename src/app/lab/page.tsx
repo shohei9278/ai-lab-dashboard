@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { getSettings } from "@/lib/db";
 import { getModel, modelInfo } from "@/lib/models";
-import { CERTAINTY_LABEL, KIND_LABEL, MODE_LABEL, activeLessons, modeComparison } from "@/lib/loop";
+import { KIND_LABEL, MODE_LABEL, modeComparison } from "@/lib/loop";
 import { endReasons, headline, kindComparison, overallRanking, rankings, refEffect, designModelEffect, type Ranking } from "@/lib/experiment";
 import { pct, yen } from "@/lib/format";
 import { PageIntro } from "@/components/PageIntro";
@@ -11,13 +10,14 @@ import { ShadowJudgments } from "@/components/ShadowJudgments";
 import { IdeaAuthors } from "@/components/IdeaAuthors";
 import { DesignAuthors } from "@/components/DesignAuthors";
 import { CostEfficiency } from "@/components/CostEfficiency";
+import { staffList } from "@/lib/staff";
 
 export const dynamic = "force-dynamic";
 
 const MEDAL = ["1位", "2位", "3位"];
 const jpy = (x: number) => `${Math.round(x).toLocaleString("ja-JP")}円`;
 
-// AIそのものの実験結果（プロダクトの管理ではなく、「AIに任せるとどうなるか」）
+// AIの成績: 社員（AI）ごとの担当と順位、AIそのものの実験結果（プロダクトの管理ではなく、「AIに任せるとどうなるか」）
 export default function LabPage() {
   const s = getSettings();
   const h = headline();
@@ -25,20 +25,58 @@ export default function LabPage() {
   const overall = overallRanking(list);
   const kinds = kindComparison();
   const modes = modeComparison().filter((m) => m.projects > 0);
-  const lessons = activeLessons();
   const badRate = h.auto.reviewed ? h.auto.bad / h.auto.reviewed : null;
   const ends = endReasons();
   const refs = refEffect();
   const design = designModelEffect();
   const endTotal = ends.reduce((n, e) => n + e.n, 0);
+  const staff = staffList(list);
 
   return (
     <div className="space-y-6">
-      <PageIntro title="実験結果">
-        「AIに任せると、どこまでプロダクトを作れるか」の結果です。プロダクトの管理はホームで、ここではAIの成績だけを見ます。
-        いま製品ループを担当しているAIは <b>{getModel(s.loopModel).label}</b>、アイデアとLPの候補は3社のAIが競っています。
+      <PageIntro title="AIの成績">
+        この会社の社員は、Claude・GPT・Gemini のAIです。社員ごとの担当・仕事の量・部門ごとの順位と、会社全体の成績（「AIに任せると、どこまでプロダクトを作れるか」）をまとめています。
+        いま製品ループを担当しているのは <b>{getModel(s.loopModel).label}</b> です。
       </PageIntro>
       <LabTabs current="/lab" />
+
+      {/* 社員名簿 */}
+      <section className="space-y-2">
+        <div>
+          <h2 className="font-bold">社員名簿</h2>
+          <p className="text-xs text-muted">得意＝1位の部門、苦手＝3社以上で比べて最下位の部門です。件数が少ないうちは偶然の差が大きいので、下の部門別ランキングの件数（n）も見てください。</p>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {staff.map((x) => (
+            <article key={x.model.id} className="card space-y-2 p-4">
+              <div className="flex items-center gap-2">
+                <span aria-hidden className="inline-block h-3 w-3 rounded-full" style={{ background: `var(--series-${x.model.provider})` }} />
+                <h3 className="font-bold">{x.model.label}</h3>
+                <span className="num ml-auto text-xs text-muted">仕事 {x.calls.toLocaleString("ja-JP")}回・{jpy(x.costJpy)}</span>
+              </div>
+              {x.roles.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {x.roles.map((r) => <span key={r} className="rounded bg-surface-2 px-1.5 py-0.5 text-xs">{r}</span>)}
+                </div>
+              )}
+              <div className="text-sm">
+                <span className="text-muted">得意: </span>{x.strong.join("・") || "—"}
+                <span className="ml-3 text-muted">苦手: </span>{x.weak.join("・") || "—"}
+              </div>
+              {x.ranks.length > 0 && (
+                <ul className="space-y-0.5 text-xs text-ink-2">
+                  {x.ranks.map((r) => (
+                    <li key={r.title} className="flex justify-between gap-2">
+                      <span>{r.title}</span>
+                      <span className="num" style={{ color: r.place === 1 ? "var(--good)" : undefined }}>{r.place}位/{r.of}（{r.display}）</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+          ))}
+        </div>
+      </section>
 
       {/* 大きな数字 */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -95,7 +133,7 @@ export default function LabPage() {
       <section className="space-y-2">
         <div>
           <h2 className="font-bold">部門別ランキング</h2>
-          <p className="text-xs text-muted">件数（n）が少ないうちは、順位の差は偶然の可能性が高いです。</p>
+          <p className="text-xs text-muted">件数（n）が少ないうちは、順位の差は偶然の可能性が高いです。また、AIごとに担当した題材・投稿先・時期が違うので、条件をそろえた比較ではなく「条件付きの観察」として見てください（日替わりの担当には、前の日の施策の効果も引き継がれます）。</p>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {list.map((r) => <RankingCard key={r.key} r={r} />)}
@@ -234,27 +272,6 @@ export default function LabPage() {
           </div>
         </section>
       )}
-
-      {/* 教訓 */}
-      <section className="space-y-2">
-        <div>
-          <h2 className="font-bold">AIの教訓（{lessons.length}件）</h2>
-          <p className="text-xs text-muted">終わった案件からAIが学んだこと。事実・仮の解釈・まだ分からないことに分けて残し、次のアイデア出しで参照されます。訪問が判断の基準に届かなかった案件の教訓は、確かさ「低（保留）」になります。</p>
-        </div>
-        <div className="card divide-y divide-line text-sm">
-          {lessons.length ? lessons.map((l) => (
-            <div key={l.id} className="space-y-1 p-3">
-              <div>
-                {l.certainty && <span className="mr-2 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">確かさ {CERTAINTY_LABEL[l.certainty]}</span>}
-                {l.interpretation ?? l.text}
-                {l.project_id && <Link href={`/projects/${l.project_id}`} className="ml-2 text-xs text-accent underline">案件</Link>}
-              </div>
-              {l.fact && <div className="text-xs text-ink-2">事実: {l.fact}</div>}
-              {l.unknown && <div className="text-xs text-muted">まだ分からない: {l.unknown}</div>}
-            </div>
-          )) : <div className="p-3 text-ink-2">まだありません。案件が終わると、AIが教訓を書きます。</div>}
-        </div>
-      </section>
 
       {/* 詳しい表 */}
       <details className="card p-4">

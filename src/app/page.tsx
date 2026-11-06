@@ -14,6 +14,8 @@ import { Stat } from "@/components/ui";
 import { AUTO_PLATFORMS, autoPlatforms } from "@/lib/snsApi";
 import { budgetState } from "@/lib/budget";
 import { planProgress, todayPlan } from "@/lib/plan";
+import { listVoices } from "@/lib/voices";
+import { VoiceList } from "@/components/VoiceList";
 import { OpenRequests, PlanSummary, PlanTasks, unreviewedPostCount } from "./plan/PlanView";
 import { Replan } from "./plan/PlanActions";
 
@@ -59,6 +61,7 @@ export default async function Home() {
 
   const o = overview();
   const owner = await isOwner();
+  const voices = listVoices({ limit: 5 });
   o.events = maskEventsForGuest(o.events, owner);
   const waiting = waitingItems();
   const autoStats = autoPublishStats();
@@ -78,9 +81,11 @@ export default async function Home() {
         <div className="max-w-3xl space-y-1">
           <h1 className="text-xl font-bold">AIが自動でプロダクトを作る実験</h1>
           <p className="text-sm text-ink-2">
+            Claude・GPT・Gemini の3社のAIを社員にした、小さなプロダクト会社の実験です。社員どうしでアイデアを出して採点し合い、事前登録のページや動くツールを作って公開し、SNSで人を呼び、反応を見て「続ける・改善・撤退」まで決めます。
+            毎朝の朝会で今日やることを決め、週1回の定例会議で振り返ります。
             {s.fullAuto && s.approvalMode === "auto"
-              ? "AIがアイデアを考え、事前登録のページや動くツールを作って公開し、Xで人を呼び、集まった反応を見て「続ける・改善・撤退」まで決めます。あなたは、AIだけで公開したものをあとから確認します。"
-              : "AIがアイデアを考え、事前登録のページや動くツールを作って公開し、集まった反応を見て「続ける・改善・撤退」を判断します。設定によって、要所であなたの承認を待ちます。"}
+              ? "あなたは社長として、AIだけで出したものをあとから確認し、提案箱に返事をします。"
+              : "要所ではあなた（社長）の承認を待ち、提案箱の提案にも返事をします。"}
           </p>
           <p className="flex items-center gap-1.5 text-xs text-ink-2">
             <span aria-hidden style={{ color: status.c }}>●</span>{status.t}
@@ -200,6 +205,17 @@ export default async function Home() {
           ) : (
             <p className="text-sm text-ink-2">今日の計画はまだありません。毎朝{Math.min(s.dailyHour, 8)}時以降の自動の見回り（5分ごと）で、AIが全案件を振り返って作ります。</p>
           )}
+        </section>
+      )}
+
+      {/* 社員の声（最新の5件） */}
+      {voices.length > 0 && (
+        <section className="card space-y-2 p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-bold">社員の声</h2>
+            <Link href="/voices" className="text-sm text-accent underline">すべて見る</Link>
+          </div>
+          <VoiceList voices={voices} owner={owner} compact />
         </section>
       )}
 
@@ -400,7 +416,7 @@ export default async function Home() {
       </section>
 
       <p className="text-sm text-ink-2">
-        AIのランキング・全自動の成績・教訓は <Link href="/lab" className="text-accent underline">実験結果</Link> にまとめています。
+        AIの社員ごとの成績・ランキング・全自動の成績は <Link href="/lab" className="text-accent underline">AIの成績</Link>、教訓は <Link href="/notes" className="text-accent underline">資料</Link> にまとめています。
       </p>
     </div>
   );
@@ -411,14 +427,13 @@ function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; 
   const result = p.stage === "continued" ? { c: "var(--good)", i: "✓" } : p.stage === "killed" ? { c: "var(--critical)", i: "✕" } : p.stage === "rejected" ? { c: "var(--muted)", i: "–" } : null;
   return (
     <Link href={`/projects/${p.id}`} className="card block space-y-1 p-3 hover:border-accent">
-      <div className="flex items-start justify-between gap-2">
-        <div className="text-sm font-medium">{p.title}</div>
-        <span className="flex shrink-0 gap-1">
-          {p.kind === "tool" && <span className="rounded border border-line px-1 text-[10px] text-ink-2">ツール</span>}
-          <span className="rounded border border-line px-1 text-[10px] text-ink-2">{p.auto_published ? "AIだけで公開" : p.mode === "auto" ? "自動" : "承認"}</span>
-          {!!p.growth_phase && <span className="rounded border border-line px-1 text-[10px]" style={{ color: "var(--good)" }}>育成中</span>}
-          {p.demo ? <span className="rounded border border-line px-1 text-[10px] text-muted">デモ</span> : null}
-        </span>
+      {/* タイトルは幅いっぱいに使い、タグはその下に並べる（タグが多くてもタイトルが潰れないように） */}
+      <div className="line-clamp-2 text-sm font-medium">{p.title}</div>
+      <div className="flex flex-wrap gap-1">
+        {p.kind === "tool" && <span className="rounded border border-line px-1 text-[10px] text-ink-2">ツール</span>}
+        <span className="rounded border border-line px-1 text-[10px] text-ink-2">{p.auto_published ? "AIだけで公開" : p.mode === "auto" ? "自動" : "承認"}</span>
+        {!!p.growth_phase && <span className="rounded border border-line px-1 text-[10px]" style={{ color: "var(--good)" }}>育成中</span>}
+        {p.demo ? <span className="rounded border border-line px-1 text-[10px] text-muted">デモ</span> : null}
       </div>
       <div className="line-clamp-2 text-xs text-ink-2">{p.target}</div>
       {t && (

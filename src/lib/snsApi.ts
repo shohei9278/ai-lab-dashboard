@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { db } from "./db";
+import { db, getSettings } from "./db";
 import { X_PLAIN_POST_COST_USD, X_POST_COST_USD, postToX, xConfigured } from "./xPost";
 
 // AIが自動で投稿できる場所（X・Threads・Bluesky）。キーは .env.local（サーバーでは環境変数）に入れる。手順は docs/SETUP-SNS.md
@@ -159,5 +159,11 @@ export const AUTO_PLATFORMS: Record<AutoPlatform, Def> = {
     postPlain: (text) => blueskyRecord({ $type: "app.bsky.feed.post", text, createdAt: new Date().toISOString(), langs: ["ja"] }),
   },
 };
+
+// 設定で、場所ごとに宣伝の投稿・普通の投稿を止められる（例: X は宣伝の投稿が高いので止める）
+export function postAllowed(platform: string, kind: "promo" | "plain"): boolean {
+  const s = getSettings();
+  return !(kind === "promo" ? s.promoOff : s.plainOff).split(",").map((x) => x.trim()).includes(platform);
+}
 
 export const autoPlatforms = () => (Object.keys(AUTO_PLATFORMS) as AutoPlatform[]).filter((k) => AUTO_PLATFORMS[k].configured());

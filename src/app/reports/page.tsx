@@ -3,7 +3,7 @@ import { getSettings } from "@/lib/db";
 import { listReports, type Report } from "@/lib/report";
 import { NOTE_TOPICS } from "@/lib/notes";
 import { PageIntro } from "@/components/PageIntro";
-import { LabTabs } from "@/components/LabTabs";
+import { LibraryTabs } from "@/components/LabTabs";
 import { AddNoteButton, CopyButton, CreateReportButton } from "./ReportActions";
 import { jstFull } from "@/lib/format";
 
@@ -18,11 +18,12 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
   return (
     <div className="space-y-6">
-      <PageIntro title="レポート" actions={<CreateReportButton />}>
-        1週間の数字と動きを、AIがまとめたものです。外に発信するための下書き（Xの投稿・記事）と、実験メモに残すとよい気づきも作ります。
-        {s.weeklyReport ? "毎週月曜に自動で作ります。" : "自動で作るのは止めています（設定で変えられます）。"}
+      <PageIntro title="発信の下書き" actions={<CreateReportButton />}>
+        週の定例会議のあと、その週の議長のAIが、1週間の数字と会議の内容をまとめたものです。外に発信するための下書き（Xの投稿・記事）と、実験メモに残すとよい気づきも作ります。
+        会議そのもの（3社の振り返り・提案と採点）は<Link href="/meetings?kind=weekly" className="underline">会議室</Link>で見られます。
+        {s.weeklyReport ? "毎週月曜に自動で開きます。" : "自動で開くのは止めています（設定で変えられます）。"}
       </PageIntro>
-      <LabTabs current="/reports" />
+      <LibraryTabs current="/reports" />
 
       {reports.length > 1 && (
         <nav className="flex flex-wrap gap-2 text-sm" aria-label="過去のレポート">
@@ -57,7 +58,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             <section className="card space-y-2 p-4">
               <h2 className="font-bold">今週あったこと</h2>
               <ul className="list-disc space-y-1 pl-5 text-sm">{r.highlights.map((h) => <li key={h}>{h}</li>)}</ul>
-              <h2 className="pt-2 font-bold">来週やるとよいこと</h2>
+              <h2 className="pt-2 font-bold">定例会議で採用した提案 <Link href="/proposals" className="ml-2 text-sm font-normal text-accent underline">提案箱へ</Link></h2>
               <ul className="list-disc space-y-1 pl-5 text-sm">{r.next.map((h) => <li key={h}>{h}</li>)}</ul>
             </section>
             <section className="card space-y-2 p-4">

@@ -102,7 +102,7 @@ export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl, account 
 
       <details className="text-sm">
         <summary className="cursor-pointer text-xs text-accent">自分で書く（X 以外の投稿先も選べます）</summary>
-        <p className="mt-1 text-xs text-muted">投稿先ごとに専用のリンクが付くので、「集客の作戦」で出た場所から何人来たかも測れます。</p>
+        <p className="mt-1 text-xs text-muted">投稿先ごとに専用のリンクが付くので、どの場所から何人来たかも測れます。</p>
         <div className="mt-2 flex flex-wrap items-end gap-2">
           <select value={ownPlatform} onChange={(e) => setOwnPlatform(e.target.value)} className="rounded-lg border border-line bg-surface px-2 py-1 text-sm" aria-label="投稿先">
             {Object.entries(PLATFORMS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}

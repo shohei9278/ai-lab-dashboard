@@ -230,10 +230,10 @@ CREATE TABLE IF NOT EXISTS plan_tasks (
   result_url TEXT,
   done_at TEXT
 );
--- AIからのお願い: 毎日の計画でAIが「自分ではできないが、やると効く」と考えたことを、人に頼む
+-- 提案箱: 毎日の計画でAIが「自分ではできないが、やると効く」と考えたことと、週の定例会議で出た改善案
 CREATE TABLE IF NOT EXISTS plan_requests (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  plan_id INTEGER NOT NULL REFERENCES daily_plans(id),
+  plan_id INTEGER REFERENCES daily_plans(id),
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   title TEXT NOT NULL,
   how TEXT, -- 具体的にどうしてほしいか
@@ -241,6 +241,47 @@ CREATE TABLE IF NOT EXISTS plan_requests (
   status TEXT NOT NULL DEFAULT 'open', -- open / done / declined
   note TEXT, -- あなたのひとこと（やった結果・やらない理由）
   decided_at TEXT
+);
+-- 外の声: 実際の人の反応（AIの解釈ではないもの）。公開ページの「ひとこと聞かせてください」から届いたものと、運営者が聞いて記録したもの
+CREATE TABLE IF NOT EXISTS external_voices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  project_id INTEGER,
+  source TEXT NOT NULL, -- site = 公開ページの質問 / acquaintance = 知人 / community = コミュニティ / sns = SNS / other
+  choice TEXT, -- 公開ページの質問で選ばれた項目
+  text TEXT NOT NULL DEFAULT '',
+  remote_id INTEGER UNIQUE, -- 公開ページの質問のとき、Supabase の feedback の id
+  version INTEGER
+);
+-- 外の声で変わった判断: AIが外の声を根拠に、何を変えたか
+CREATE TABLE IF NOT EXISTS voice_effects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  scene TEXT NOT NULL, -- 朝会 / 判断 / 定例会議
+  model_id TEXT,
+  project_id INTEGER,
+  voice_ids TEXT NOT NULL, -- JSON: external_voices の id
+  change TEXT NOT NULL
+);
+-- 社員の声: AIの社員のつぶやき・感想・心配・ダメ出し（決めることはない。気になったものは提案箱へ昇格できる）
+CREATE TABLE IF NOT EXISTS voices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  model_id TEXT,
+  scene TEXT NOT NULL, -- 声が出た場面（判断・教訓・LPのチェック・朝会・定例会議 など）
+  project_id INTEGER,
+  text TEXT NOT NULL,
+  request_id INTEGER -- 提案箱に昇格したとき
+);
+-- 週の定例会議: 3社がそれぞれ1週間を振り返って改善案を出し、作者を伏せて採点し合う。上位の案を提案箱に入れる
+CREATE TABLE IF NOT EXISTS meetings (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  period_start TEXT NOT NULL,
+  period_end TEXT NOT NULL,
+  chair_model TEXT NOT NULL, -- 議事録と発信用の下書きをまとめたAI（週ごとに交代）
+  content TEXT NOT NULL, -- JSON: WeeklyContent
+  report_id INTEGER -- 一緒に作った発信用の下書き（reports）
 );
 -- 週ごとのレポート（AIが1週間の数字と動きをまとめ、発信用の下書きも作る）
 CREATE TABLE IF NOT EXISTS reports (
@@ -460,6 +501,18 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["plan_tasks", "reactions_at", "TEXT"],
   ["plan_tasks", "angle_type", "TEXT"],
   // AIだけで出した投稿を、人があとから見て付ける印（ok / bad）とひとこと。bad の書き方は次の計画で避けさせる
+  // 提案箱: plan_requests に、毎朝の計画のお願いと、週の定例会議の提案をまとめる
+  ["plan_requests", "source", "TEXT NOT NULL DEFAULT 'plan'"], // plan = 毎朝の計画 / meeting = 定例会議 / scene = ふだんの作業の途中 / error = エラーが続いた / revival = 敗者復活 / human = あなた / voice = 社員の声から昇格
+  ["plan_requests", "proposer", "TEXT"], // 提案したAI
+  ["plan_requests", "target", "TEXT NOT NULL DEFAULT 'human'"], // human = 運営者がやること / system = 仕組み（コード）の改善
+  ["plan_requests", "score", "REAL"], // 定例会議で、ほかのAIが付けた点の平均（10点満点）
+  ["plan_requests", "meeting_id", "INTEGER"],
+  ["plan_requests", "scene", "TEXT"], // どの場面で出た提案か（例: 判断 #42）
+  ["plan_requests", "project_id", "INTEGER"],
+  ["plan_requests", "ref_id", "INTEGER"], // 敗者復活: 元のアイデアの候補（idea_candidates）
+  ["plan_requests", "ai_reply", "TEXT"], // あなたが入れた提案への、AIの返事
+  ["meetings", "kind", "TEXT NOT NULL DEFAULT 'weekly'"], // weekly = 週の定例会議 / adhoc = あなたが議題を出した臨時会議
+  ["meetings", "topic", "TEXT"], // 臨時会議の議題
   ["sns_posts", "human_review", "TEXT"],
   ["sns_posts", "human_note", "TEXT"],
   ["plan_tasks", "human_review", "TEXT"],
@@ -484,6 +537,13 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
 ];
 
 function addColumns(conn: Database.Database) {
+  // 提案箱は、計画のない提案（定例会議）も入るので plan_id を空にできるようにした。空の表のときだけ作り直す
+  const pr = conn.prepare("PRAGMA table_info(plan_requests)").all() as { name: string; notnull: number }[];
+  if (pr.find((c) => c.name === "plan_id")?.notnull && !(conn.prepare("SELECT COUNT(*) AS n FROM plan_requests").get() as { n: number }).n) {
+    conn.exec(`DROP TABLE plan_requests;
+CREATE TABLE plan_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, plan_id INTEGER REFERENCES daily_plans(id), created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  title TEXT NOT NULL, how TEXT, why TEXT, status TEXT NOT NULL DEFAULT 'open', note TEXT, decided_at TEXT);`);
+  }
   for (const [table, column, def] of EXTRA_COLUMNS) {
     const cols = conn.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
     if (!cols.some((c) => c.name === column)) conn.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
@@ -557,6 +617,7 @@ export type Settings = {
   lastWeeklyReport: string; // 最後に週のレポートを作った日（YYYY-MM-DD）
   showcaseEnabled: boolean; // 実験の様子を見せる公開ページ（/showcase）を出す
   showcaseShowLinks: boolean; // 公開ページに、LP・ツールへのリンクを載せる
+  showcaseVoices: boolean; // 公開ページに、社員の声を載せる
   operatorName: string; // 登録者に連絡するときの差出人（屋号）
   contactEmail: string; // 登録者に連絡するときの問い合わせ先
   snsAccount: string; // LP・ツールを紹介する X のアカウント（@なし）
@@ -574,6 +635,8 @@ export type Settings = {
   lastViralSearch: string; // 最後に検索した日時（ISO）
   wantsSearchCount: number; // 同じ検索のときに、「欲しい」の声を読む数（100件ずつ。0 なら探さない）
   dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
+  promoOff: string; // 宣伝の投稿（リンク付き）をしない場所（カンマ区切り。例: x）
+  plainOff: string; // 普通の投稿（リンクなし）をしない場所（カンマ区切り）
   postSafetyPerDay: number; // 毎日の計画で投稿するときの安全装置（場所ごと・直近24時間）。AIの目標ではなく、異常を止めるための値
 };
 
@@ -595,6 +658,7 @@ const DEFAULTS: Settings = {
   lastWeeklyReport: "",
   showcaseEnabled: false,
   showcaseShowLinks: false,
+  showcaseVoices: false,
   operatorName: "",
   contactEmail: "",
   snsAccount: "",
@@ -613,6 +677,8 @@ const DEFAULTS: Settings = {
   wantsSearchCount: 200,
   dailyPlan: true,
   postSafetyPerDay: 10,
+  promoOff: "",
+  plainOff: "",
   dailyEnabled: false,
   dailyHour: 9,
   dailyIdeaCount: 2,
@@ -628,8 +694,8 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan"]);
+const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "promoOff", "plainOff"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "showcaseVoices"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];

@@ -14,6 +14,7 @@ import { postStats, type StatRow } from "@/lib/postStats";
 const STATUS: Record<TaskRow["status"], { icon: string; label: string; color: string }> = {
   done: { icon: "✓", label: "済み", color: "var(--good)" },
   running: { icon: "●", label: "実行中", color: "var(--accent)" },
+  held: { icon: "◐", label: "承認待ち（未公開）", color: "var(--warning)" },
   pending: { icon: "○", label: "予定", color: "var(--muted)" },
   failed: { icon: "✕", label: "失敗", color: "var(--critical)" },
   skipped: { icon: "–", label: "見送り", color: "var(--warning)" },
@@ -64,8 +65,15 @@ export function PlanSummary({ plan }: { plan: PlanRow }) {
         <Meter label="今日の予定" value={g.done} max={g.total} sub="件 済み" />
         {g.goals.map((x) => <Meter key={x.metric} label={`目標: ${GOAL_LABEL[x.metric]}（全案件の合計）`} value={x.actual} max={x.target} sub="人" />)}
       </div>
-      {(g.failed > 0 || g.skipped > 0) && (
-        <p className="text-xs text-ink-2">失敗 {g.failed}件・見送り {g.skipped}件（理由は下の予定に出ています）</p>
+      {g.prediction && (
+        <p className="text-sm text-ink-2">
+          <span className="text-muted">AIの予想: </span>
+          訪問 <b className="num">{g.prediction.visits}人</b>（今 <span className="num">{g.actual.visits}</span>人）・登録/利用 <b className="num">{g.prediction.conversions}人</b>（今 <span className="num">{g.actual.conversions}</span>人）
+          {g.prediction.why && <span className="text-xs text-muted">　理由: {g.prediction.why}</span>}
+        </p>
+      )}
+      {(g.failed > 0 || g.skipped > 0 || g.held > 0) && (
+        <p className="text-xs text-ink-2">{g.held > 0 ? `直したが承認待ちで未公開 ${g.held}件・` : ""}失敗 {g.failed}件・見送り {g.skipped}件（理由は下の予定に出ています）</p>
       )}
       {next && (
         <p className="text-sm text-ink-2">
@@ -135,7 +143,7 @@ export function PlanHistory({ plans }: { plans: PlanRow[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="text-left text-xs text-muted">
-          <tr><th className="py-1 pr-3 font-normal">日</th><th className="py-1 pr-3 font-normal">担当</th><th className="py-1 pr-3 font-normal">ネック</th><th className="py-1 pr-3 font-normal">予定</th><th className="py-1 pr-3 font-normal">目標</th></tr>
+          <tr><th className="py-1 pr-3 font-normal">日</th><th className="py-1 pr-3 font-normal">担当</th><th className="py-1 pr-3 font-normal">ネック</th><th className="py-1 pr-3 font-normal">予定</th><th className="py-1 pr-3 font-normal">目標</th><th className="py-1 pr-3 font-normal">予想→実測（訪問）</th></tr>
         </thead>
         <tbody>
           {plans.map((p) => {
@@ -152,6 +160,14 @@ export function PlanHistory({ plans }: { plans: PlanRow[] }) {
                       {GOAL_LABEL[x.metric]} {x.actual}/{x.target}{x.rate >= 1 ? " ✓" : ""}
                     </div>
                   ))}
+                </td>
+                <td className="num whitespace-nowrap py-2 pr-3">
+                  {g.prediction ? (
+                    <span style={{ color: Math.abs(g.actual.visits - g.prediction.visits) <= Math.max(2, g.prediction.visits * 0.2) ? "var(--good)" : undefined }}>
+                      {g.prediction.visits} → {g.actual.visits}人
+                      <span className="ml-1 text-xs text-ink-2">（{g.actual.visits - g.prediction.visits >= 0 ? "+" : ""}{g.actual.visits - g.prediction.visits}）</span>
+                    </span>
+                  ) : <span className="text-muted">—</span>}
                 </td>
               </tr>
             );
@@ -207,13 +223,17 @@ export function PostStatsView() {
   );
 }
 
-// AIからのお願い（返事がまだのもの）
+// 提案箱のうち、あなたへのお願い（返事がまだのもの）
 export function OpenRequests({ owner }: { owner: boolean }) {
-  const rows = openRequests();
+  const rows = openRequests("human");
   if (!rows.length) return null;
   return (
     <div className="space-y-2 rounded-lg p-3" style={{ background: "var(--surface-2)" }}>
-      <div className="text-sm font-medium">AIからのお願い（{rows.length}件）<span className="ml-2 text-xs font-normal text-muted">AIが自分ではできないけれど、やると効きそうだと考えたこと</span></div>
+      <div className="flex flex-wrap items-baseline gap-2 text-sm font-medium">
+        提案箱: あなたへのお願い（{rows.length}件）
+        <span className="text-xs font-normal text-muted">AIが自分ではできないけれど、やると効きそうだと考えたこと</span>
+        <Link href="/proposals" className="ml-auto text-xs font-normal text-accent underline">提案箱を開く</Link>
+      </div>
       <ul className="space-y-2">
         {rows.map((r) => (
           <li key={r.id} className="space-y-0.5 text-sm">
@@ -238,7 +258,7 @@ export function RequestHistory() {
     <ul className="space-y-1 text-sm">
       {rows.map((r) => (
         <li key={r.id}>
-          <span style={{ color: r.status === "done" ? "var(--good)" : "var(--muted)" }}>{r.status === "done" ? "✓ やった" : "– やらない"}</span>
+          <span style={{ color: r.status === "done" ? "var(--good)" : "var(--muted)" }}>{r.status === "done" ? "✓ やった" : "– 見送り"}</span>
           <span className="ml-2">{r.title}</span>
           {r.note && <span className="ml-2 text-xs text-ink-2">（{r.note}）</span>}
           {r.decided_at && <span className="ml-2 text-xs text-muted">{jstDateTime(r.decided_at)}</span>}

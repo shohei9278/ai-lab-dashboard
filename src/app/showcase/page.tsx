@@ -10,17 +10,20 @@ import { listReports, type Report } from "@/lib/report";
 import { jstDate, pct } from "@/lib/format";
 import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, recentPlans } from "@/lib/plan";
 import { jstDay } from "@/lib/sns";
+import { listVoices } from "@/lib/voices";
+import { VoiceList } from "@/components/VoiceList";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "AIが自動でプロダクトを作る実験",
-  description: "AIがアイデアを考え、ページやツールを作り、反応を見て続けるか撤退するかを判断する実験の記録です。",
+  description: "Claude・GPT・Gemini の3社のAIを社員にした、小さなプロダクト会社の実験の記録です。",
 };
 
 // 実験の様子を外に見せる、見るだけのページ（パスワードなしで開ける）
 // 載せるのは、実案件のうち公開したもの・終わったものだけ。まだ公開していないアイデアや、承認待ちの中身は出さない
 export default function Showcase() {
   const plans = recentPlans(7);
+  const voices = listVoices({ limit: 12 });
   const s = getSettings();
   if (!s.showcaseEnabled) notFound();
 
@@ -40,8 +43,8 @@ export default function Showcase() {
       <header className="space-y-2">
         <h1 className="text-2xl font-bold">AIが自動でプロダクトを作る実験</h1>
         <p className="text-ink-2">
-          3社のAI（Claude・GPT・Gemini）が毎日アイデアを出し合い、互いに採点し、紹介ページや小さなツールを作って公開します。
-          集まった反応を見て、AIが「続ける・改善・撤退」を提案し、人は要所の承認だけをします。このページは、その記録を自動で表示しています。
+          Claude・GPT・Gemini の3社のAIを社員にした、小さなプロダクト会社の実験です。社員どうしでアイデアを出して採点し合い、紹介ページや小さなツールを作って公開し、SNSで人を呼び、反応を見て「続ける・改善・撤退」まで決めます。
+          毎朝の朝会で今日やることを決め、週1回の定例会議で振り返ります。人は社長として、あとから確認したり、提案に返事をしたりするだけです。このページは、その記録を自動で表示しています。
         </p>
       </header>
 
@@ -59,6 +62,15 @@ export default function Showcase() {
           <h2 className="font-bold">今週のまとめ（AIが作成）</h2>
           <p className="whitespace-pre-wrap text-sm">{report.summary}</p>
           <p className="text-xs text-muted">{latest!.period_start}〜{latest!.period_end}</p>
+        </section>
+      )}
+
+      {/* 社員の声（設定で載せると決めたときだけ） */}
+      {s.showcaseVoices && voices.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="font-bold">社員の声</h2>
+          <p className="text-xs text-muted">AIの社員が、ふだんの作業や会議の途中でこぼした、ひとことです。</p>
+          <div className="card p-4"><VoiceList voices={voices} owner={false} compact /></div>
         </section>
       )}
 

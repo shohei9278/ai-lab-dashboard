@@ -18,7 +18,7 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageIntro title="設定">AIが使えるお金の上限、案件を判断する基準、製品ループで使うAIを決めます。</PageIntro>
-      <SettingsForm initial={s} models={MODELS.map((m) => ({ id: m.id, label: m.label, ok: hasKey(m.provider) }))} publishing={publishingConfigured()} notifyReady={notifyConfigured()} backups={owner ? backupList().slice(0, 3).map((b) => b.file) : []} snsReady={Object.values(AUTO_PLATFORMS).map((d) => ({ label: d.label, ok: d.configured(), free: d.costUsd === 0 }))} />
+      <SettingsForm initial={s} models={MODELS.map((m) => ({ id: m.id, label: m.label, ok: hasKey(m.provider) }))} publishing={publishingConfigured()} notifyReady={notifyConfigured()} backups={owner ? backupList().slice(0, 3).map((b) => b.file) : []} snsReady={Object.entries(AUTO_PLATFORMS).map(([key, d]) => ({ key, label: d.label, ok: d.configured(), free: d.costUsd === 0, promoYen: Math.round(d.costUsd * s.usdJpy), plainYen: Math.round(d.plainCostUsd * s.usdJpy) }))} />
 
       <section className="space-y-2">
         <h2 className="font-bold">APIキー</h2>

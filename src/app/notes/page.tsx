@@ -2,7 +2,8 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { NOTE_CERTAINTY, NOTE_TOPICS, listNotes, type NoteCertainty } from "@/lib/notes";
 import { PageIntro } from "@/components/PageIntro";
-import { LabTabs } from "@/components/LabTabs";
+import { LibraryTabs } from "@/components/LabTabs";
+import { CERTAINTY_LABEL, activeLessons } from "@/lib/loop";
 import { NoteActions, NoteEditor } from "./NoteEditor";
 import { jstDate } from "@/lib/format";
 
@@ -13,6 +14,7 @@ const CERTAINTY_STYLE: Record<NoteCertainty, string> = { once: "var(--muted)", t
 export default async function NotesPage({ searchParams }: { searchParams: Promise<{ topic?: string }> }) {
   const { topic } = await searchParams;
   const notes = listNotes(topic);
+  const lessons = activeLessons();
   const all = listNotes();
   const projects = db().prepare("SELECT id, title FROM projects ORDER BY id DESC").all() as { id: number; title: string }[];
   const topics = Object.entries(NOTE_TOPICS).map(([id, label]) => ({ id, label }));
@@ -20,12 +22,34 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
 
   return (
     <div className="space-y-6">
-      <PageIntro title="実験メモ">
-        実験の途中で気づいたことを残す場所です。AIが観察したことと、あなたが気づいたことの両方を書けます。
+      <PageIntro title="社内の知見">
+        実験で分かったことを残す場所です。上は案件が終わるたびにAIの社員が書く「教訓」（次のアイデア出しや計画で参照されます）、下はあなたやAIが書く「実験メモ」（発信の材料用。AIへの入力には使いません）です。
         「確からしさ」で、1回見ただけのことと、数字で確かめたことを分けておくと、あとで発信するときに使いやすくなります。
-        （AIの教訓メモとは別で、ここに書いたことはAIへの入力には使いません）
       </PageIntro>
-      <LabTabs current="/notes" />
+      <LibraryTabs current="/notes" />
+
+      {/* 教訓 */}
+      <section className="space-y-2">
+        <div>
+          <h2 className="font-bold">AIの教訓（{lessons.length}件）</h2>
+          <p className="text-xs text-muted">終わった案件からAIが学んだこと。事実・仮の解釈・まだ分からないことに分けて残し、次のアイデア出しで参照されます。訪問が判断の基準に届かなかった案件の教訓は、確かさ「低（保留）」になります。</p>
+        </div>
+        <div className="card divide-y divide-line text-sm">
+          {lessons.length ? lessons.map((l) => (
+            <div key={l.id} className="space-y-1 p-3">
+              <div>
+                {l.certainty && <span className="mr-2 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">確かさ {CERTAINTY_LABEL[l.certainty]}</span>}
+                {l.interpretation ?? l.text}
+                {l.project_id && <Link href={`/projects/${l.project_id}`} className="ml-2 text-xs text-accent underline">案件</Link>}
+              </div>
+              {l.fact && <div className="text-xs text-ink-2">事実: {l.fact}</div>}
+              {l.unknown && <div className="text-xs text-muted">まだ分からない: {l.unknown}</div>}
+            </div>
+          )) : <div className="p-3 text-ink-2">まだありません。案件が終わると、AIが教訓を書きます。</div>}
+        </div>
+      </section>
+
+      <h2 className="font-bold">実験メモ</h2>
 
       <section className="card p-4">
         <h2 className="mb-3 font-bold">メモを追加</h2>
