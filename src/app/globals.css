@@ -78,6 +78,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
+  /* 長いURL（投稿のリンクなど）が折り返されずに、スマホで横にはみ出さないように */
+  overflow-wrap: break-word;
 }
 
 .card {
@@ -88,4 +90,10 @@ body {
 
 .num {
   font-variant-numeric: tabular-nums;
+}
+
+/* グリッドの中身（グラフ・表・横に並んだ画面の写真など）が、カードを画面より広げないようにする。
+   グリッドの子は、ふだん中身の幅より狭くならないため、スマホで横にはみ出していた */
+.grid > * {
+  min-width: 0;
 }

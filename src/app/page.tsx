@@ -140,21 +140,22 @@ export default async function Home() {
               const urgent = w.daysLeft !== null && w.daysLeft <= 1;
               return (
                 <li key={w.key}>
+                  {/* スマホでは「種類・待ち時間」を1行目に、案件の名前と、やることを2行目に幅いっぱいで出す（PCでは1行に並べる） */}
                   <Link href={w.kind === "comment" ? "/growth#comments" : `/projects/${w.projectId}`} className="group flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 hover:bg-surface-2 sm:flex-nowrap">
                     <span
-                      className="w-36 shrink-0 rounded px-1.5 py-0.5 text-center text-xs font-medium"
+                      className="order-1 shrink-0 rounded px-1.5 py-0.5 text-center text-xs font-medium sm:w-36"
                       style={w.kind === "stuck"
                         ? { background: "var(--surface-2)", color: "var(--critical)" }
                         : { background: "var(--surface-2)", color: "var(--accent)" }}
                     >
                       {w.kind === "stuck" ? "! " : ""}{label.title}
                     </span>
-                    <span className="min-w-0 flex-1">
+                    <span className="order-3 min-w-0 basis-full sm:order-2 sm:flex-1 sm:basis-auto">
                       <span className="font-medium">{w.title}</span>
                       {w.demo && <span className="ml-2 rounded border border-line px-1 text-[10px] text-muted">デモ</span>}
                       <span className="block text-xs text-ink-2">{label.action}</span>
                     </span>
-                    <span className="num shrink-0 text-xs text-ink-2">
+                    <span className="num order-2 ml-auto shrink-0 text-xs text-ink-2 sm:order-3 sm:ml-0">
                       {waitLabel(w.daysWaiting)}
                       {w.daysLeft !== null && (
                         <span className="ml-2" style={{ color: urgent ? "var(--critical)" : undefined }}>
@@ -162,7 +163,7 @@ export default async function Home() {
                         </span>
                       )}
                     </span>
-                    <span className="shrink-0 text-sm text-accent group-hover:underline">開く →</span>
+                    <span className="order-4 hidden shrink-0 text-sm text-accent group-hover:underline sm:inline">開く →</span>
                   </Link>
                 </li>
               );
