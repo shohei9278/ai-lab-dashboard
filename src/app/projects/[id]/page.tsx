@@ -214,6 +214,10 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         return <FunnelCard f={all.find((x) => x.version === fv) ?? funnel(p)} all={all} isTool={isTool} projectId={p.id} liveVersion={live} />;
       })()}
 
+      {p.index_visits > 0 && (
+        <p className="card p-3 text-sm text-ink-2">公開サイトの一覧から来た人: 訪問 <span className="num">{p.index_visits}</span>人・{conv.noun} <span className="num">{p.index_uses}</span>人（上の訪問の数に含まれています）</p>
+      )}
+
       {!!p.auto_published && (
         <AutoReviewCard id={p.id} review={p.human_review} note={p.human_review_note} at={p.human_review_at} url={publicUrl(p.id)} />
       )}

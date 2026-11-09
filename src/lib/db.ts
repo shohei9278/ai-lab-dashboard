@@ -566,6 +566,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "growth_focus_at", "TEXT"], // 集客の方針を最後に見直した日時（見直す前後の数字を分けるため）
   ["projects", "published_at", "TEXT"], // 最初に公開した日時
   ["projects", "judged_at", "TEXT"], // 最後にAIが判断した日時
+  ["projects", "index_visits", "INTEGER NOT NULL DEFAULT 0"], // 公開サイトの一覧から来た訪問者の数
+  ["projects", "index_uses", "INTEGER NOT NULL DEFAULT 0"], // そのうち登録・利用した人の数
   ["projects", "hold_reason", "TEXT"], // 保留にした理由（人が書く）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
@@ -826,6 +828,8 @@ export type ProjectRow = {
   want_id: number | null;
   published_at: string | null;
   judged_at: string | null;
+  index_visits: number;
+  index_uses: number;
   hold_reason: string | null;
   hold_until: string | null;
   resumed_at: string | null;

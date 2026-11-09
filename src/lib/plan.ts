@@ -238,6 +238,7 @@ function planMaterial(): string {
     `最近のAIの宣伝の投稿と、そこからの訪問・成果:\n${recentPosts.join("\n") || "（なし）"}`,
     `最近の普通の投稿（リンクがないので、訪問の数は分からない。反応は投稿の翌日と3日後に取り込む）:\n${plains.join("\n") || "（なし）"}`,
     `最近の計画と結果:\n${past.join("\n") || "（まだなし。今日が最初の計画）"}`,
+    `公開サイトの一覧から来た人（投稿のリンクとは別。累計）: ${(() => { const r = db().prepare("SELECT COALESCE(SUM(index_visits), 0) AS v, COALESCE(SUM(index_uses), 0) AS u FROM projects WHERE demo = 0").get() as { v: number; u: number }; return `訪問${r.v}人・登録/利用${r.u}人`; })()}`,
     postStatsText() || "効いた手の集計: まだ投稿がない",
     `運営者からの提案（提案箱にあなたが入れたもの。返事待ち）:\n${(db().prepare("SELECT id, title, how FROM plan_requests WHERE source = 'human' AND status = 'open' ORDER BY id DESC LIMIT 10").all() as { id: number; title: string; how: string | null }[]).map((r) => `- 【${r.id}】${r.title}${r.how ? `: ${r.how}` : ""}`).join("\n") || "（なし）"}`,
     `提案箱（あなたたちAIからのお願い・定例会議の提案。直近30日）:\n${(db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-30 days') ORDER BY id DESC").all() as RequestRow[]).map((r) => `- 「${r.title}」→ ${r.status === "open" ? "まだ返事なし" : r.status === "done" ? `やった${r.decided_at ? `（${jstDateTime(r.decided_at)}）` : ""}` : "見送り"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`).join("\n") || "（まだなし）"}`,

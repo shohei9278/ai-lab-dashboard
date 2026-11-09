@@ -1,6 +1,6 @@
 import { HIDDEN, isOwner, maskHandles } from "@/lib/viewer";
 import Link from "next/link";
-import { getSettings } from "@/lib/db";
+import { db, getSettings } from "@/lib/db";
 import { accounts, projectSns, snsPosts } from "@/lib/snsOverview";
 import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
@@ -25,6 +25,7 @@ export default async function GrowthPage() {
   const projects = projectSns();
   const shown = acc.filter((a) => a.configured);
   const owner = await isOwner();
+  const fromIndex = db().prepare("SELECT id, title, index_visits, index_uses FROM projects WHERE demo = 0 AND index_visits > 0 ORDER BY index_visits DESC").all() as { id: number; title: string; index_visits: number; index_uses: number }[];
   // 来た人には、コメントの相手と本文を伏せる（AIの返信の案は、@アカウント名を伏せて出す）
   const comments = listComments().map((c) => (owner ? c : { ...c, author: "（デモ表示）", text: HIDDEN, draft: c.draft ? maskHandles(c.draft) : c.draft, reply_url: null }));
   const open = comments.filter((c) => c.status === "new");
@@ -41,6 +42,17 @@ export default async function GrowthPage() {
         公開したばかりの案件は、Threads・Bluesky にはその場で投稿します。
       </PageIntro>
       <GrowthTabs current="/growth" />
+
+      {/* プロフィールなどに載せる公開サイトの一覧から来た人（投稿ごとのリンクとは別に数える） */}
+      <section className="card space-y-2 p-4">
+        <h2 className="font-bold">公開サイトの一覧から来た人</h2>
+        <p className="num text-sm">訪問 {fromIndex.reduce((n, p) => n + p.index_visits, 0)}人・登録/利用 {fromIndex.reduce((n, p) => n + p.index_uses, 0)}人</p>
+        {fromIndex.length > 0 ? (
+          <ul className="space-y-0.5 text-sm text-ink-2">
+            {fromIndex.map((p) => <li key={p.id}><Link href={`/projects/${p.id}`} className="underline">{p.title}</Link> <span className="num">訪問 {p.index_visits}人・登録/利用 {p.index_uses}人</span></li>)}
+          </ul>
+        ) : <p className="text-xs text-muted">まだいません。一覧のリンクから開いた人が、ここに数えられます。</p>}
+      </section>
 
       {/* 場所ごとの状態 */}
       <section className="grid gap-3 md:grid-cols-3">

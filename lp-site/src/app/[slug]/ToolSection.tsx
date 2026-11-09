@@ -33,7 +33,8 @@ export function ShareButtons({ slug, version, text }: { slug: string; version: n
     gaEvent("share", { lp_slug: slug, lp_version: version, method });
   };
   const [url, setUrl] = useState("");
-  useEffect(() => setUrl(window.location.href.split("#")[0]), []);
+  // シェアするリンクには、どこから来たかの目印（?s=…）を引き継がない
+  useEffect(() => setUrl(window.location.origin + window.location.pathname), []);
   return (
     <div className="flex flex-wrap justify-center gap-3">
       <a

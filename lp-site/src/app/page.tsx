@@ -26,7 +26,8 @@ export default async function Home() {
         <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {tools.map((t) => (
             <li key={t.slug}>
-              <Link href={`/${t.slug}`} className="block overflow-hidden rounded-xl border border-black/10 transition hover:border-black/30">
+              {/* s=index は「一覧から来た」の目印（ダッシュボードで分けて数える） */}
+              <Link href={`/${t.slug}?s=index`} className="block overflow-hidden rounded-xl border border-black/10 transition hover:border-black/30">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={`/${t.slug}/opengraph-image?v=${t.version}`} alt="" loading="lazy" className="aspect-[1200/630] w-full object-cover" />
                 <div className="p-3">

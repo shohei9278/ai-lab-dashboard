@@ -84,6 +84,13 @@ async function syncFeedback(projectId: number, slug: string) {
 }
 
 // 公開中のLPの訪問と成果（事前登録LPは登録、動くツールは使った人）を、日付と版ごとに数えてダッシュボードに取り込む
+// 公開サイトの一覧（?s=index）から来た人の数と、そのうち登録・利用した人の数
+export function indexCounts(views: { visitor_id: string; source?: string | null }[], conv: { visitor_id?: string | null }[]) {
+  const visitors = new Set(views.filter((v) => v.source === "index").map((v) => v.visitor_id));
+  const converted = new Set(conv.map((c) => c.visitor_id));
+  return { visits: visitors.size, uses: [...visitors].filter((v) => converted.has(v)).length };
+}
+
 export async function syncRealMetrics(): Promise<{ projects: number; visits: number; signups: number }> {
   if (!publishingConfigured()) return { projects: 0, visits: 0, signups: 0 };
   // 撤退した案件は取り込まない（登録者のメールアドレスを消したあとも、それまでの数字を残すため）
@@ -118,6 +125,8 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
       for (const a of agg.values()) ins.run(p.id, a.day, a.visits, a.signups, a.shares, a.version);
     })();
     attributePosts(p.id, views, conv);
+    const fromIndex = indexCounts(views, conv);
+    conn.prepare("UPDATE projects SET index_visits = ?, index_uses = ? WHERE id = ?").run(fromIndex.visits, fromIndex.uses, p.id);
     await syncFunnel(p.id, slug);
     visits += views.length;
     signups += conv.length;
