@@ -271,6 +271,17 @@ CREATE TABLE IF NOT EXISTS research (
   searches INTEGER,
   done_at TEXT
 );
+-- 日報: 毎晩、その日の朝会の担当AIが1日の結果を書く。運営者が自分のnoteに貼る下書きと画像も一緒に作る
+CREATE TABLE IF NOT EXISTS daily_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  day TEXT NOT NULL UNIQUE, -- 日本時間の YYYY-MM-DD
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  model_id TEXT NOT NULL,
+  content TEXT NOT NULL, -- JSON: DiaryContent
+  note_title TEXT NOT NULL,
+  note_body TEXT NOT NULL, -- note に貼る Markdown（運営者の感想を書く欄を残してある）
+  images TEXT NOT NULL DEFAULT '[]' -- JSON: [{file, label}]
+);
 -- 外の声で変わった判断: AIが外の声を根拠に、何を変えたか
 CREATE TABLE IF NOT EXISTS voice_effects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -655,6 +666,7 @@ export type Settings = {
   viralSearchCount: number; // 1回の検索で読む投稿の数（100件ずつ）
   lastViralSearch: string; // 最後に検索した日時（ISO）
   wantsSearchCount: number; // 同じ検索のときに、「欲しい」の声を読む数（100件ずつ。0 なら探さない）
+  dailyReport: boolean; // 毎晩、AIが1日の日報と note の下書きを書く
   dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
   promoOff: string; // 宣伝の投稿（リンク付き）をしない場所（カンマ区切り。例: x）
   plainOff: string; // 普通の投稿（リンクなし）をしない場所（カンマ区切り）
@@ -698,6 +710,7 @@ const DEFAULTS: Settings = {
   viralSearchCount: 300,
   lastViralSearch: "",
   wantsSearchCount: 200,
+  dailyReport: true,
   dailyPlan: true,
   postSafetyPerDay: 10,
   promoOff: "",
@@ -718,7 +731,7 @@ const DEFAULTS: Settings = {
 };
 
 const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "promoOff", "plainOff", "notifyOff"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "showcaseVoices", "notifyLive"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];

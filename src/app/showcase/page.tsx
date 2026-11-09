@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db, getSettings, type ProjectRow } from "@/lib/db";
@@ -46,6 +47,7 @@ export default function Showcase() {
           Claude・GPT・Gemini の3社のAIを社員にした、小さなプロダクト会社の実験です。社員どうしでアイデアを出して採点し合い、紹介ページや小さなツールを作って公開し、SNSで人を呼び、反応を見て「続ける・改善・撤退」まで決めます。
           毎朝の朝会で今日やることを決め、週1回の定例会議で振り返ります。人は社長として、あとから確認したり、提案に返事をしたりするだけです。このページは、その記録を自動で表示しています。
         </p>
+        <Link href="/" className="inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink">実際のダッシュボードを見る（閲覧専用）</Link>
       </header>
 
       <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -77,10 +79,13 @@ export default function Showcase() {
       {/* AIの日報: 毎朝AIが決めたネック・方針と、その日どこまで届いたか（あなたへのお願いは載せない） */}
       {plans.length > 0 && (
         <section className="space-y-2">
-          <h2 className="font-bold">AIの日報</h2>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="font-bold">AIの日報</h2>
+            <Link href="/diary" className="text-sm text-accent underline">すべて見る</Link>
+          </div>
           <p className="text-xs text-muted">毎朝、Claude・GPT・Gemini が日替わりで全案件を振り返り、今のネックと今日やること（SNSへの投稿・ページの改善など）を決めて、自分で実行しています。</p>
           <div className="space-y-2">
-            {plans.map((p) => {
+            {plans.slice(0, 3).map((p) => {
               const g = planProgress(p);
               const m = modelInfo(p.model_id);
               const live = p.day === jstDay();

@@ -41,6 +41,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     { href: "/", label: "ホーム" },
     { href: "/live", label: "ライブ" },
     { href: "/meetings", label: "会議室" },
+    { href: "/diary", label: "日報" },
     { href: "/approvals", label: "判断待ち", badge: pending },
     { href: "/proposals", label: "提案箱", badge: proposals },
     { href: "/lab", label: "AIの成績" },
@@ -74,6 +75,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
             <div className="border-t border-line bg-surface-2">
               <p className="mx-auto max-w-6xl px-4 py-1.5 text-xs text-ink-2">
                 公開中のデモです。AIが実際に動かしている実験の、本物の画面と数字を見られます（閲覧のみ。ボタンは押せません。個人の情報や他人の投稿は伏せています）。
+              {" "}<Link href="/showcase" className="underline">はじめての方は概要ページへ</Link>
               </p>
             </div>
           )}

@@ -32,3 +32,8 @@ export function LibraryTabs({ current }: { current: string }) {
 export function GrowthTabs({ current }: { current: string }) {
   return <PageTabs current={current} label="集客のページ" tabs={[{ href: "/growth", label: "SNSの投稿" }, { href: "/growth/stats", label: "効いた手" }, { href: "/viral", label: "話題の投稿" }]} />;
 }
+
+// 日報とつぶやき
+export function DiaryTabs({ current }: { current: string }) {
+  return <PageTabs current={current} label="日報とつぶやきのページ" tabs={[{ href: "/diary", label: "日報" }, { href: "/voices", label: "つぶやき" }]} />;
+}

@@ -123,7 +123,7 @@ export function staticPageIssues(html: string): string[] {
   return [...new Set(issues)];
 }
 
-async function launch(): Promise<Browser | string> {
+export async function launch(): Promise<Browser | string> {
   const tries = [
     () => chromium.launch({ channel: "chrome", headless: true }),
     ...(process.env.CHROMIUM_PATH ? [() => chromium.launch({ executablePath: process.env.CHROMIUM_PATH, headless: true })] : []),

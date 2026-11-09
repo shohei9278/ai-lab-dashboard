@@ -11,6 +11,7 @@ import { resumeRefQueue } from "./designRefs";
 import { maybeWeeklyViral, resumeViralQueue } from "./viralPosts";
 import { maybeCreatePlan, runPlanTasks } from "./plan";
 import { syncReactions } from "./postReactions";
+import { maybeDailyReport } from "./diary";
 import { proposeFromErrors } from "./voices";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
@@ -103,6 +104,7 @@ async function tickNow() {
   } catch (e) {
     logEvent(null, "system", "plan-task-error", `今日の計画の予定の実行でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
   }
+  await maybeDailyReport();
   try {
     await maybeAutoPost();
   } catch (e) {

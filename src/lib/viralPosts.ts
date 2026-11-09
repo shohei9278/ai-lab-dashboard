@@ -1,7 +1,7 @@
 import { callClaude, isObj, isStr, type ClaudeContent } from "./ai";
 import { db, getSettings, saveSettings } from "./db";
 import { logEvent } from "./loop";
-import { X_READ_COST_USD, searchRecent, xConfigured } from "./xPost";
+import { X_READ_COST_USD, searchAcross, xConfigured } from "./xPost";
 import { searchWants } from "./userWants";
 
 // 話題の個人開発の投稿
@@ -155,9 +155,14 @@ share のときは、hook に「シェア文の型」、visual に「シェア�
 
 // ---- 週1回の検索 ----
 
-const QUERY = "(個人開発 OR アプリ作った OR アプリを作りました OR リリースしました OR 作ってみた) has:images -is:retweet -is:reply lang:ja";
+// 作った人の投稿だけだと開発者どうしの話に偏るので、使った人のシェアと、便利なものの紹介も読む
+export const VIRAL_QUERIES = [
+  "(個人開発 OR アプリ作った OR アプリを作りました OR リリースしました OR 作ってみた) has:media -is:retweet -is:reply lang:ja",
+  "(診断 OR メーカー OR ジェネレーター OR シミュレーター) (やってみた OR 結果 OR 作れる OR できた) has:media -is:retweet -is:reply lang:ja",
+  "(神ツール OR 神アプリ OR これ便利 OR 便利すぎ OR 無料で使える) (アプリ OR ツール OR サイト) -is:retweet -is:reply lang:ja",
+];
 
-// 直近7日の投稿を読み、反応の大きいものを上から取り込む（いいね100以上・最大10件）
+// 直近7日の投稿を読み、反応の大きいものを上から取り込む（いいね50以上・最大10件）
 export async function searchViral(): Promise<{ read: number; added: number }> {
   if (g.__aiLabViralSearch) throw new Error("いま検索しているところです");
   g.__aiLabViralSearch = true;
@@ -165,22 +170,14 @@ export async function searchViral(): Promise<{ read: number; added: number }> {
   let read = 0;
   try {
     const all: { id: string; score: number; likes: number }[] = [];
-    let next: string | undefined;
-    for (let page = 0; page < Math.max(1, Math.round(s.viralSearchCount / 100)); page++) {
-      const r = await searchRecent(QUERY, next);
-      read += r.posts.length;
-      for (const p of r.posts) {
-        const m = p.public_metrics;
-        if (!m) continue;
-        all.push({ id: p.id, likes: m.like_count, score: m.like_count + (m.bookmark_count ?? 0) * 2 + m.retweet_count * 3 });
-      }
-      next = r.next;
-      if (!next) break;
+    for (const p of await searchAcross(VIRAL_QUERIES, Math.max(1, Math.round(s.viralSearchCount / 100)), (n) => { read += n; })) {
+      const m = p.public_metrics;
+      if (m) all.push({ id: p.id, likes: m.like_count, score: m.like_count + (m.bookmark_count ?? 0) * 2 + m.retweet_count * 3 });
     }
     const known = new Set((db().prepare("SELECT tweet_id FROM viral_posts").all() as { tweet_id: string }[]).map((x) => x.tweet_id));
-    const picks = all.filter((x) => x.likes >= 100 && !known.has(x.id)).sort((a, b) => b.score - a.score).slice(0, 10);
+    const picks = all.filter((x) => x.likes >= 50 && !known.has(x.id)).sort((a, b) => b.score - a.score).slice(0, 10);
     const added = queueViral(picks.map((x) => `https://x.com/i/web/status/${x.id}`), "search");
-    logEvent(null, "system", "viral-search", `Xで話題の個人開発の投稿を検索: ${read}件を読み、${added}件を取り込みました`);
+    logEvent(null, "system", "viral-search", `Xで話題の投稿を検索: ${read}件を読み、${added}件を取り込みました`);
     return { read, added };
   } finally {
     // 読んだ分だけ費用がかかる（失敗しても、それまでに読んだ分は記録する）

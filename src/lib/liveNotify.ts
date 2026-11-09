@@ -14,7 +14,7 @@ const ICON: Record<NotifyKind, string> = { start: "▶️", plan: "🗓️", pos
 
 // 処理の記録の種類 → 通知の種類（ここにないものは送らない）
 const EVENT_KIND: Record<string, NotifyKind> = {
-  plan: "plan", "plan-task": "plan", "plan-cap": "plan",
+  plan: "plan", "plan-task": "plan", "plan-cap": "plan", "daily-report": "plan",
   "sns-post": "post",
   select: "build", publish: "build", "auto-publish": "build", "auto-improve": "build", close: "build", revert: "build",
   judge: "decision", "auto-decision": "decision", grow: "decision", "auto-blocked": "decision",

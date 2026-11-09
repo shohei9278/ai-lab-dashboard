@@ -60,10 +60,10 @@ export type XSearchPost = {
   id: string; text: string; created_at?: string; attachments?: { media_keys?: string[] };
   public_metrics?: { like_count: number; retweet_count: number; reply_count: number; quote_count: number; bookmark_count?: number; impression_count?: number };
 };
-export async function searchRecent(query: string, nextToken?: string): Promise<{ posts: XSearchPost[]; next?: string }> {
+export async function searchRecent(query: string, nextToken?: string, maxResults = 100): Promise<{ posts: XSearchPost[]; next?: string }> {
   if (!xConfigured()) throw new Error("X のAPIキーが設定されていません");
   const url = "https://api.x.com/2/tweets/search/recent";
-  const params: Record<string, string> = { query, max_results: "100", sort_order: "relevancy", "tweet.fields": "public_metrics,created_at,attachments" };
+  const params: Record<string, string> = { query, max_results: String(maxResults), sort_order: "relevancy", "tweet.fields": "public_metrics,created_at,attachments" };
   if (nextToken) params.next_token = nextToken;
   const qs = Object.entries(params).map(([k, v]) => `${enc(k)}=${enc(v)}`).join("&");
   const res = await fetch(`${url}?${qs}`, { headers: { Authorization: authHeader("GET", url, params) } });
@@ -85,4 +85,24 @@ export async function tweetMetrics(ids: string[]): Promise<Map<string, { likes: 
     likes: t.public_metrics?.like_count ?? 0, replies: t.public_metrics?.reply_count ?? 0,
     reposts: (t.public_metrics?.retweet_count ?? 0) + (t.public_metrics?.quote_count ?? 0),
   }]));
+}
+
+// 複数の検索を順番に1ページずつ読む（合計 pages ページまで）。投稿が尽きた検索の分は、ほかの検索に回す
+// 読んだ分だけ費用がかかるので、途中で失敗しても数えられるよう onRead で件数を知らせる
+export async function searchAcross(queries: string[], pages: number, onRead: (n: number) => void): Promise<XSearchPost[]> {
+  const seen = new Map<string, XSearchPost>();
+  const active = queries.map((q) => ({ q, next: undefined as string | undefined }));
+  let left = pages;
+  while (left > 0 && active.length) {
+    for (const a of [...active]) {
+      if (left <= 0) break;
+      const r = await searchRecent(a.q, a.next);
+      left--;
+      onRead(r.posts.length);
+      for (const p of r.posts) seen.set(p.id, p);
+      a.next = r.next;
+      if (!r.next) active.splice(active.indexOf(a), 1);
+    }
+  }
+  return [...seen.values()];
 }
