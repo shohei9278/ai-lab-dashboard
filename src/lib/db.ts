@@ -555,6 +555,9 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "growth_focus_at", "TEXT"], // 集客の方針を最後に見直した日時（見直す前後の数字を分けるため）
   ["projects", "published_at", "TEXT"], // 最初に公開した日時
   ["projects", "judged_at", "TEXT"], // 最後にAIが判断した日時
+  ["projects", "hold_reason", "TEXT"], // 保留にした理由（人が書く）
+  ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
+  ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
   ["projects", "rethink_count", "INTEGER NOT NULL DEFAULT 0"], // 集客の見直しをした回数
   ["projects", "growth_focus", "TEXT"], // いまの集客の切り口・場所・対象（見直しで変わる）
   ["projects", "growth_phase", "INTEGER NOT NULL DEFAULT 0"], // 1 = 「続ける」になって、育てる段階に入った
@@ -814,6 +817,9 @@ export type ProjectRow = {
   want_id: number | null;
   published_at: string | null;
   judged_at: string | null;
+  hold_reason: string | null;
+  hold_until: string | null;
+  resumed_at: string | null;
   rethink_count: number;
   growth_focus: string | null;
   growth_focus_at: string | null;
@@ -855,5 +861,5 @@ export type MetricRow = { id: number; project_id: number; day: string; visits: n
 export type LessonRow = { id: number; at: string; project_id: number | null; text: string; active: number; fact: string | null; interpretation: string | null; unknown: string | null; certainty: "low" | "mid" | "high" | null };
 
 // 案件の段階: アイデア → LP作成 → 集客中 → 判断待ち → 継続 / 撤退（却下はアイデア段階で止めたもの）
-export type Stage = "idea" | "lp" | "live" | "deciding" | "continued" | "killed" | "rejected";
+export type Stage = "idea" | "lp" | "live" | "hold" | "deciding" | "continued" | "killed" | "rejected"; // hold = 公開は続けるが、宣伝・判断・改善を止めている
 export type ApprovalKind = "idea" | "publish" | "decision";

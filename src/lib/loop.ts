@@ -64,6 +64,7 @@ export const STAGE_LABEL: Record<Stage, string> = {
   idea: "アイデア",
   lp: "作成",
   live: "集客中",
+  hold: "保留",
   deciding: "判断待ち",
   continued: "継続",
   killed: "撤退",
@@ -423,7 +424,7 @@ function staticToolIssues(html: string): string[] {
   return issues;
 }
 
-export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string, modelId?: string): Promise<string> {
+export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string, modelId?: string, effort?: "medium"): Promise<string> {
   const system = `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
 守ること:
 - 1つのHTMLの断片だけを書く（<style> と <script> を含めてよい。<html><head><body> は書かない）
@@ -436,7 +437,7 @@ export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtm
 - 日本語。開いた瞬間に使い方が分かり、結果はすぐ画面に表示する。結果は、シェアしたくなる見せ方を工夫する
 - 架空の統計を事実のように書かない。診断・占いのような遊びのツールは、そうと分かる一言を入れる。医療・法律・お金の助言はしない
 - 実在の人物・団体のデータは、正確だと確信できるものだけを使う。不確かなら使わない
-- 全体で40,000文字以内。読みやすく、動作の確かなコードにする
+- 全体で40,000文字以内。データの一覧は代表的なものに絞り、何百件も書き連ねない。読みやすく、動作の確かなコードにする
 `;
   const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : viralHints("tool")}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`;
   // ツールのHTMLは長く、JSONに包むと出力の上限で途中で切れやすい。HTMLをそのまま最後まで受け取る
@@ -448,7 +449,9 @@ export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtm
       projectId: p.id,
       system: `${system}出力はHTMLの断片だけ。説明やコードブロックは付けない。`,
       user,
-      maxTokens: 64000,
+      // ふつうは多くても4万トークン弱。暴走したときの無駄を減らすため、少しだけ余裕を見た上限にする
+      maxTokens: 48000,
+      effort,
     });
     return text.replace(/^\s*```(?:html)?\s*/i, "").replace(/```\s*$/, "").trim();
   }
@@ -503,8 +506,21 @@ function toolModelFor(p: ProjectRow): string {
 }
 
 async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review; test: ToolTest; model: string; rewrites: number }> {
-  const model = toolModelFor(p);
-  let html = await writeToolHtml(p, instruction, prevHtml, model);
+  let model = toolModelFor(p);
+  // 長すぎて最後まで書けなかったら、別の会社のAIに規模を絞って書き直してもらう（同じAIで繰り返すと、同じ所で切れやすい）
+  const write = async (note?: string, base?: string): Promise<string> => {
+    try {
+      return await writeToolHtml(p, note, base, model);
+    } catch (e) {
+      const next = TOOL_MODELS.find((id) => id !== model && hasKey(modelInfo(id).provider));
+      if (!next || !(e instanceof Error) || !e.message.includes("途中で切れました")) throw e;
+      logEvent(p.id, "system", "tool-retry", `${modelLabel(model)}のツール作成が長くなりすぎて途中で切れたため、${modelLabel(next)}に規模を絞って書き直してもらいます`);
+      model = next;
+      const shrink = "前回は長くなりすぎて最後まで書けなかった。機能は中心の1つに絞り、データは代表的なものだけにして、全体を25,000文字以内で最後まで書き切ること";
+      return writeToolHtml(p, note ? `${note} / ${shrink}` : shrink, base, model, "medium");
+    }
+  };
+  let html = await write(instruction, prevHtml);
   const check = async (h: string): Promise<{ review: Review; test: ToolTest }> => {
     const [ai, test] = await Promise.all([reviewTool(p, h), testTool(h, shotName)]);
     const issues = [...staticToolIssues(h), ...ai.issues, ...testIssues(test)];
@@ -513,7 +529,7 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
   let r = await check(html);
   if (!r.review.ok) {
     logEvent(p.id, "ai", "review", `ツールのチェックで問題が見つかったため書き直し: ${r.review.issues.join(" / ")}`);
-    html = await writeToolHtml(p, `次の問題を直すこと: ${r.review.issues.join(" / ")}`, html, model);
+    html = await write(`次の問題を直すこと: ${r.review.issues.join(" / ")}`, html);
     r = await check(html);
     return { html, ...r, model, rewrites: 1 };
   }
@@ -1555,7 +1571,7 @@ async function announcePublish(projectId: number) {
       db().prepare("UPDATE projects SET published_at = COALESCE(published_at, datetime('now')) WHERE id = ?").run(projectId);
       // 無料の場所（Threads・Bluesky）には、公開したその場で1件投稿する（まだ投稿していない場所だけ）
       const { postOnPublish } = await import("./sns");
-      await postOnPublish(projectId);
+      if (p.stage !== "hold") await postOnPublish(projectId); // 保留中は、ページを直しても宣伝はしない
       return;
     }
   } catch (e) {
@@ -1618,11 +1634,55 @@ export async function maybeAutoJudge(projectId: number) {
   const budgetHit = lines.some((line) => all.adSpendJpy >= line && p.judged_ad_jpy < line);
   // 訪問が少なくても、公開（または前の判断）から決めた日数がたったら判断する（人が来ないまま止まり続けないように）
   const publishedAt = p.published_at ?? backfillPublishedAt(p);
-  const since = p.judged_at ?? publishedAt;
+  // 保留から戻したばかりの案件は、戻した日から数える
+  const since = [p.judged_at ?? publishedAt, p.resumed_at].filter((x): x is string => !!x).sort().at(-1);
   const slow = !!since && daysSinceUtc(since) >= s.judgeAfterDays;
   if (!enoughVisits && !budgetHit && !slow) return false;
   await judge(projectId, enoughVisits ? "visits" : budgetHit ? "budget" : "slow");
   return true;
+}
+
+// ---- 保留: 今は集客しても届かない案件（季節ものなど）を、公開したまま休ませる ----
+// 宣伝の投稿・撤退や継続の判断・ページの改善を止める（stage が live でなくなるので、それぞれの処理の対象から外れる）
+// 訪問・利用・外の声の記録は続ける。保留にできるのは人だけ（AIは提案箱で提案するだけ）
+export const HOLD_MAX_DAYS = 90;
+export const HOLD_SEASONAL_MAX_DAYS = 365;
+
+export const jstToday = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date());
+
+// 保留にする。すでに保留中なら、理由と再開日を更新する（延長）
+export function holdProject(projectId: number, reason: string, until: string, seasonal = false) {
+  const p = getProject(projectId);
+  if (!p || !["live", "hold"].includes(p.stage)) throw new Error("集客中か保留中の案件だけ保留にできます");
+  if (buildingNow(projectId)) throw new Error("この案件はAIが作業中です。終わってから保留にしてください");
+  if (db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(projectId)) throw new Error("この案件には承認待ちがあります。先に判断してください");
+  const why = reason.trim().slice(0, 200);
+  if (!why) throw new Error("保留にする理由を書いてください");
+  const day = (s: string) => Date.parse(`${s}T00:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(until) || Number.isNaN(day(until))) throw new Error("再開日の形式が正しくありません");
+  const days = Math.round((day(until) - day(jstToday())) / 86_400_000);
+  const max = seasonal ? HOLD_SEASONAL_MAX_DAYS : HOLD_MAX_DAYS;
+  if (days < 1) throw new Error("再開日は明日以降にしてください");
+  if (days > max) throw new Error(`再開日は${max}日以内にしてください${seasonal ? "" : "（季節ものは「季節もの」に印を付けると1年まで）"}`);
+  const extending = p.stage === "hold";
+  db().prepare("UPDATE projects SET stage = 'hold', hold_reason = ?, hold_until = ?, updated_at = datetime('now') WHERE id = ?").run(why, until, projectId);
+  logEvent(projectId, "human", "hold", `${extending ? "保留の期間を変更しました" : "保留にしました"}（${until}に集客へ戻します。それまで宣伝・判断・改善を止めます）`);
+}
+
+// 集客に戻す。保留中に増えた訪問では、戻った瞬間に判断しない
+export function resumeProject(projectId: number, by: "human" | "system" = "human") {
+  const p = getProject(projectId);
+  if (p?.stage !== "hold") throw new Error("保留中の案件ではありません");
+  db().prepare("UPDATE projects SET stage = 'live', hold_reason = NULL, hold_until = NULL, resumed_at = datetime('now'), judged_visits = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(projectTotals(projectId).visits, projectId);
+  logEvent(projectId, by, "resume", by === "human" ? "保留をやめて、集客に戻しました" : "再開日になったので、保留から集客に戻しました");
+}
+
+// 再開日が来た案件を、集客に戻す（毎回の定期処理から呼ぶ）
+export function resumeDueHolds(): number {
+  const due = db().prepare("SELECT id FROM projects WHERE stage = 'hold' AND hold_until <= ?").all(jstToday()) as { id: number }[];
+  for (const { id } of due) resumeProject(id, "system");
+  return due.length;
 }
 
 // 公開した日時がまだ記録されていない案件（この仕組みを入れる前に公開したもの）は、最初の公開の記録から埋める
@@ -1934,7 +1994,7 @@ export function designAuthorStats() {
     const fromSelf = db().prepare(`SELECT AVG(score) AS a FROM lp_candidate_scores WHERE candidate_id IN (${ids}) AND scorer_model = ?`).get(author) as { a: number | null };
     // 実際に使われた版（この作者が書いた版）の成果
     const used = db()
-      .prepare("SELECT v.project_id, v.version FROM lp_versions v JOIN projects p ON p.id = v.project_id WHERE p.demo = 0 AND p.kind = 'lp' AND v.author_model = ?")
+      .prepare("SELECT v.project_id, v.version FROM lp_versions v JOIN projects p ON p.id = v.project_id WHERE p.demo = 0 AND p.kind = 'lp' AND p.stage != 'hold' AND v.author_model = ?")
       .all(author) as { project_id: number; version: number }[];
     const totals = used.map((u) => projectTotals(u.project_id, u.version)).filter((t) => t.visits > 0);
     const visits = totals.reduce((n, t) => n + t.visits, 0);
@@ -1968,7 +2028,7 @@ export function ideaAuthorStats() {
     const decided = projectIds.length
       ? (db().prepare(`SELECT status FROM approvals WHERE kind = 'idea' AND status IN ('approved','rejected','revised') AND project_id IN (${projectIds.join(",")})`).all() as { status: string }[])
       : [];
-    const traffic = projectIds.map((id) => projectTotals(id)).filter((t) => t.visits > 0);
+    const traffic = projectIds.filter((id) => getProject(id)?.stage !== "hold").map((id) => projectTotals(id)).filter((t) => t.visits > 0); // 保留中の案件は割合に入れない
     const visits = traffic.reduce((s, t) => s + t.visits, 0);
     const signups = traffic.reduce((s, t) => s + t.signups, 0);
     return {
@@ -2009,7 +2069,7 @@ export function modeComparison() {
     const approvals = (db().prepare(`SELECT COUNT(*) AS n FROM approvals WHERE status IN ('approved','rejected','revised') AND project_id IN (${inList})`).get() as { n: number }).n;
     const cost = (db().prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_calls WHERE project_id IN (${inList})`).get() as { s: number }).s;
     const reviewIssues = (db().prepare(`SELECT COUNT(*) AS n FROM lp_versions WHERE project_id IN (${inList}) AND review LIKE '%"ok":false%'`).get() as { n: number }).n;
-    const withTraffic = mine.map((p) => projectTotals(p.id)).filter((t) => t.visits > 0);
+    const withTraffic = mine.filter((p) => p.stage !== "hold").map((p) => projectTotals(p.id)).filter((t) => t.visits > 0); // 保留中の案件は割合に入れない
     const visits = withTraffic.reduce((s, t) => s + t.visits, 0);
     const signups = withTraffic.reduce((s, t) => s + t.signups, 0);
     return {

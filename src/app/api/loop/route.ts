@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  holdProject, resumeProject, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -11,6 +11,12 @@ export async function POST(req: Request) {
   const body = (await req.json()) as Record<string, unknown>;
   try {
     switch (body.action) {
+      case "hold":
+        holdProject(Number(body.projectId), String(body.reason ?? ""), String(body.until ?? ""), body.seasonal === true);
+        return NextResponse.json({ ok: true });
+      case "resume":
+        resumeProject(Number(body.projectId));
+        return NextResponse.json({ ok: true });
       case "ideas": {
         const theme = typeof body.theme === "string" ? body.theme.slice(0, 200) : "";
         const count = Math.min(5, Math.max(1, Number(body.count) || 3));

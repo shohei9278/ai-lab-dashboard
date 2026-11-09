@@ -243,6 +243,7 @@ function planMaterial(): string {
     `運営者からの提案（提案箱にあなたが入れたもの。返事待ち）:\n${(db().prepare("SELECT id, title, how FROM plan_requests WHERE source = 'human' AND status = 'open' ORDER BY id DESC LIMIT 10").all() as { id: number; title: string; how: string | null }[]).map((r) => `- 【${r.id}】${r.title}${r.how ? `: ${r.how}` : ""}`).join("\n") || "（なし）"}`,
     `提案箱（あなたたちAIからのお願い・定例会議の提案。直近30日）:\n${(db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-30 days') ORDER BY id DESC").all() as RequestRow[]).map((r) => `- 「${r.title}」→ ${r.status === "open" ? "まだ返事なし" : r.status === "done" ? `やった${r.decided_at ? `（${jstDateTime(r.decided_at)}）` : ""}` : "見送り"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`).join("\n") || "（まだなし）"}`,
     `教訓:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
+    `保留中の案件（人が決めたもの。宣伝も改善も予定に入れない）:\n${(db().prepare("SELECT id, title, hold_until FROM projects WHERE stage = 'hold' AND demo = 0 ORDER BY id").all() as { id: number; title: string; hold_until: string }[]).map((p) => `- #${p.id} ${p.title}（${p.hold_until}に再開）`).join("\n") || "（なし）"}`,
   ].join("\n\n") + viralHints("sns") + badPostsText();
 }
 
@@ -293,7 +294,7 @@ export async function createPlan({ force = false } = {}): Promise<number> {
 - research: 今の判断に効くのに分からないことがあれば、Webの公開情報で調べてもらう問いを1件だけ（例: 「#35 が使われない原因が分からない。類似の無料ツールを調べ、すでに無料でできることと、#35 に足りないことを確かめる」）。{"question":"分からないこと","why":"分かるとどの判断が変わるか","how":"どう調べるか","project_id":案件の番号（全体についてなら null）}。調べなくても決められる日・Webでは分からないこと（自社の利用者の気持ちなど）・最近調べたことと同じ問いは null。結果は翌朝の材料に出典つきで入る
 - voice_effects: 外の声（実際の人の反応）や調べたことを根拠に、今日の計画で何かを変えたときだけ。[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"project_id":案件の番号,"change":"何をどう変えたか"}]。外の声はAIどうしの解釈より優先する
 - replies: 運営者が提案箱に入れた提案（材料の「運営者からの提案」）それぞれへの返事。どう受け止め、今日の計画にどう反映したか（反映できないなら理由）を1〜2文で
-- requests: あなた（AI）は自分ではできないが、運営者（人）がやると効きそうなことを0〜2件頼める。例: 対象の人が集まるコミュニティに参加して自分の言葉で紹介する / アカウントのプロフィールの文や固定の投稿を変える / 知り合いに見てもらって感想を聞く。title は短く、how は具体的な手順、why は数字の根拠。返事がまだのお願い・断られたお願いと同じものは出さない。なければ空の配列
+- requests: あなた（AI）は自分ではできないが、運営者（人）がやると効きそうなことを0〜2件頼める。季節が合わず今は集客しても届かない案件があれば「#番号を○月まで保留にしてほしい」と頼んでもよい（保留にできるのは運営者だけ）。例: 対象の人が集まるコミュニティに参加して自分の言葉で紹介する / アカウントのプロフィールの文や固定の投稿を変える / 知り合いに見てもらって感想を聞く。title は短く、how は具体的な手順、why は数字の根拠。返事がまだのお願い・断られたお願いと同じものは出さない。なければ空の配列
 守ること:
 - 材料にある数字だけを使う。件数が少ないときは certainty を low にし、「まだ偶然の可能性が高い」と書く
 - 効かなかった手を同じように繰り返さない。回数を増やすより、切り口・場所・時刻を変えることを先に試す
@@ -426,6 +427,10 @@ async function writePlain(platform: AutoPlatform, angle: string): Promise<string
 
 async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string; url?: string }> {
   const s = getSettings();
+  // 計画を立てたあとで人が保留にした案件には、宣伝も改善もしない
+  if (t.project_id && (db().prepare("SELECT stage FROM projects WHERE id = ?").get(t.project_id) as { stage: string } | undefined)?.stage === "hold") {
+    return { status: "skipped", result: "人が保留にした案件のため見送り" };
+  }
   if (t.kind === "improve") {
     if (!t.project_id) return { status: "skipped", result: "案件が決まっていない" };
     // 公開した・承認待ちにした・条件に合わず直さなかった、を分けて残す（翌朝のAIが「直した結果」と読み違えないように）

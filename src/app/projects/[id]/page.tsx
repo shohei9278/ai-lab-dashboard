@@ -8,7 +8,7 @@ import { notFound } from "next/navigation";
 import { db, getSettings, type EventRow } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
 import type { PageJudge } from "@/lib/freePage";
-import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, buildingNow, getProject, lpCandidates, pageCandidates, pageCandidateLabel, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
+import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, buildingNow, jstToday, getProject, lpCandidates, pageCandidates, pageCandidateLabel, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
 import { LpCandidates } from "@/components/LpCandidates";
 import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
@@ -16,6 +16,7 @@ import { jstDateTime, pct, yen } from "@/lib/format";
 import { ApprovalCard } from "@/components/ApprovalCard";
 import { Stat } from "@/components/ui";
 import { ProjectActions } from "./ProjectActions";
+import { HoldPanel } from "./HoldPanel";
 import { RevisionForm } from "./RevisionForm";
 import { ToolTestCard } from "./ToolTestCard";
 import { NotifyCard } from "./NotifyCard";
@@ -54,7 +55,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const aiCost = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s, COUNT(*) AS n FROM ai_calls WHERE project_id = ?").get(p.id) as { s: number; n: number });
   const lp = p.lp ? (JSON.parse(p.lp) as Lp) : null;
   const ended = ["continued", "killed", "rejected"].includes(p.stage);
-  const stepIndex = ended ? STEPS.length : STEPS.indexOf(p.stage as (typeof STEPS)[number]);
+  const stepIndex = ended ? STEPS.length : STEPS.indexOf((p.stage === "hold" ? "live" : p.stage) as (typeof STEPS)[number]);
   const adRatio = s.adBudgetPerProjectJpy ? t.adSpendJpy / s.adBudgetPerProjectJpy : 0;
   const versions = lpVersions(p.id);
   const conv = CONV[p.kind];
@@ -108,6 +109,13 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
       {approvals.map((a) => <ApprovalCard key={a.id} a={a} />)}
 
       <ProjectActions demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
+
+      {owner && !p.demo && ["live", "hold"].includes(p.stage) && (
+        <HoldPanel id={p.id} held={p.stage === "hold"} reason={p.hold_reason} until={p.hold_until} today={jstToday()} blocked={approvals.length > 0 || !!buildingNow(p.id)} />
+      )}
+      {!owner && p.stage === "hold" && (
+        <div className="card p-4 text-sm text-ink-2">⏸ 保留中です。公開は続けたまま、宣伝と判断を止めています（{p.hold_until}に再開）。</div>
+      )}
 
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">AIのアイデア</h2>
@@ -255,7 +263,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         />
       )}
 
-      {p.public_slug && ["live", "lp", "deciding", "continued"].includes(p.stage) && (
+      {p.public_slug && ["live", "hold", "lp", "deciding", "continued"].includes(p.stage) && (
         <SnsPosts
           projectId={p.id}
           convNoun={conv.noun}

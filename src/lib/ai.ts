@@ -51,7 +51,7 @@ export function claudeModelId(): string | null {
 
 export type ClaudeContent = ({ type: "text"; text: string } | { type: "image"; source: { type: "base64"; media_type: "image/png" | "image/jpeg"; data: string } })[];
 
-export async function callClaude(opts: { purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number; modelId?: string }): Promise<string> {
+export async function callClaude(opts: { purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number; modelId?: string; effort?: "low" | "medium" | "high" }): Promise<string> {
   const s = getSettings();
   if (s.killSwitch) throw new GuardError("緊急停止中のため、AIを呼び出せません");
   if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) throw new GuardError("今月のAI予算の上限に達しています");
@@ -67,11 +67,12 @@ export async function callClaude(opts: { purpose: string; projectId?: number; sy
       model: model.id,
       max_tokens: opts.maxTokens,
       thinking: { type: "adaptive" },
+      ...(opts.effort ? { output_config: { effort: opts.effort } } : {}),
       system: opts.system,
       messages: [{ role: "user", content: opts.content }],
     }).finalMessage();
     const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    const error = msg.stop_reason === "refusal" ? "refusal" : msg.stop_reason === "max_tokens" ? "出力が長すぎて途中で切れました" : null;
+    const error = msg.stop_reason === "refusal" ? "refusal" : msg.stop_reason === "max_tokens" ? `出力が長すぎて途中で切れました（本文${text.length}文字の時点。残りは考える処理に使用）` : null;
     log(msg.usage.input_tokens, msg.usage.output_tokens, error);
     if (error) throw new Error(error);
     return text;
@@ -83,10 +84,10 @@ export async function callClaude(opts: { purpose: string; projectId?: number; sy
 }
 
 // 長い出力（ツールやページのHTMLなど）を、決めたAIで最後まで受け取る。Claude・OpenAI・Gemini に対応（文字のまま返す）
-export async function callLong(opts: { modelId: string; purpose: string; projectId?: number; system: string; user: string; maxTokens: number }): Promise<string> {
+export async function callLong(opts: { modelId: string; purpose: string; projectId?: number; system: string; user: string; maxTokens: number; effort?: "low" | "medium" | "high" }): Promise<string> {
   const model = getModel(opts.modelId);
   if (model.provider === "anthropic") {
-    return callClaude({ purpose: opts.purpose, projectId: opts.projectId, system: opts.system, content: [{ type: "text", text: opts.user }], maxTokens: opts.maxTokens, modelId: model.id });
+    return callClaude({ purpose: opts.purpose, projectId: opts.projectId, system: opts.system, content: [{ type: "text", text: opts.user }], maxTokens: opts.maxTokens, modelId: model.id, effort: opts.effort });
   }
   const s = getSettings();
   if (s.killSwitch) throw new GuardError("緊急停止中のため、AIを呼び出せません");

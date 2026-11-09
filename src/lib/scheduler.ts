@@ -1,5 +1,5 @@
 import { getSettings } from "./db";
-import { logEvent, runDaily, syncAndJudge } from "./loop";
+import { logEvent, resumeDueHolds, runDaily, syncAndJudge } from "./loop";
 import { publishingConfigured } from "./publish";
 import { maybeWeeklyMeeting } from "./weekly";
 import { maybeRefreshTrends } from "./trends";
@@ -43,6 +43,7 @@ async function tick() {
 }
 
 async function tickNow() {
+  resumeDueHolds(); // 再開日が来た保留の案件を、集客に戻す
   // 公開中のLPの本物の数字は、毎回取り込む
   // 取り込みは毎回、公開からの全部の記録を読み直すので、1回失敗しても数字は消えない。
   // PCのスリープ明けなどの一時的な失敗でエラーを積まないよう、3回続けて失敗したときだけ記録する（その後は1時間ごと）

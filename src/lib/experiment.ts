@@ -1,5 +1,5 @@
 import { db, getSettings, type ProjectRow } from "./db";
-import { END_REASON_LABEL, autoPublishStats, designAuthorStats, ideaAuthorStats, projectTotals, shadowScores } from "./loop";
+import { END_REASON_LABEL, autoPublishStats, designAuthorStats, getProject, ideaAuthorStats, projectTotals, shadowScores } from "./loop";
 import { costEfficiency } from "./cost";
 import { modelInfo } from "./models";
 import { runStats } from "./stats";
@@ -129,6 +129,7 @@ export function headline() {
   const totals = projects.map((p) => projectTotals(p.id));
   const visits = totals.reduce((n, t) => n + t.visits, 0);
   const conversions = totals.reduce((n, t) => n + t.signups, 0);
+  const active = projects.reduce((a, p, i) => (p.stage === "hold" ? a : { visits: a.visits + totals[i].visits, conv: a.conv + totals[i].signups }), { visits: 0, conv: 0 });
   const allCost = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s, COUNT(*) AS n FROM ai_calls WHERE error IS NULL").get() as { s: number; n: number });
   const auto = autoPublishStats();
   const blocked = (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-blocked'").get() as { n: number }).n;
@@ -137,7 +138,7 @@ export function headline() {
   const posts = (db().prepare("SELECT COUNT(*) AS n FROM sns_posts WHERE status = 'posted'").get() as { n: number }).n;
   return {
     projects: projects.length, published, visits, conversions,
-    rate: visits ? conversions / visits : null,
+    rate: active.visits ? active.conv / active.visits : null, // 保留中の案件は割合に入れない
     aiJpy: allCost.s * s.usdJpy, aiCalls: allCost.n,
     perConversionJpy: conversions ? (allCost.s * s.usdJpy) / conversions : null,
     auto, blocked, aiDecisions, humanActs, posts,
@@ -152,7 +153,7 @@ export function kindComparison() {
   const cost = costEfficiency().byKind;
   return (["lp", "tool"] as const).map((kind) => {
     const mine = projects.filter((p) => p.kind === kind);
-    const t = mine.map((p) => projectTotals(p.id));
+    const t = mine.filter((p) => p.stage !== "hold").map((p) => projectTotals(p.id)); // 保留中の案件は割合に入れない
     const visits = t.reduce((n, x) => n + x.visits, 0);
     const conv = t.reduce((n, x) => n + x.signups, 0);
     return {
@@ -193,7 +194,7 @@ function toolRankings(): Ranking[] {
     return { modelId: m, value: ok / mine.length, n: mine.length, display: `${Math.round((ok / mine.length) * 100)}%（${ok}/${mine.length}）` };
   });
   const use = models.map((m) => {
-    const t = firsts.filter((f) => f.tool_model === m).map((f) => projectTotals(f.project_id)).filter((x) => x.visits > 0);
+    const t = firsts.filter((f) => f.tool_model === m && getProject(f.project_id)?.stage !== "hold").map((f) => projectTotals(f.project_id)).filter((x) => x.visits > 0); // 保留中の案件は割合に入れない
     const v = t.reduce((n, x) => n + x.visits, 0);
     const c = t.reduce((n, x) => n + x.signups, 0);
     return v ? { modelId: m, value: c / v, n: t.length, display: `${(c / v * 100).toFixed(1)}%（${t.length}件）` } : null;

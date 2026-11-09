@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 const COLUMNS: { stages: Stage[]; title: string; who: string }[] = [
   { stages: ["idea"], title: "① アイデア", who: "3社のAIが出して採点し、上位を進める" },
   { stages: ["lp"], title: "② 作成", who: "AIがLPやツールを作ってチェック。通れば自動で公開" },
-  { stages: ["live"], title: "③ 公開・集客中", who: "AIがSNSに投稿して人を呼ぶ。届いていなければ集客を見直し、「続ける」になった案件は育てる" },
+  { stages: ["live", "hold"], title: "③ 公開・集客中", who: "AIがSNSに投稿して人を呼ぶ。届いていなければ集客を見直し、「続ける」になった案件は育てる" },
   { stages: ["deciding"], title: "④ 判断", who: "AIが続ける・改善・集客の見直し・撤退を決める" },
   { stages: ["continued", "killed", "rejected"], title: "⑤ 結果", who: "終わった案件。AIが教訓を残す" },
 ];
@@ -402,11 +402,13 @@ export default async function Home() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {COLUMNS.map((col) => {
-              const items = projects.filter((p) => col.stages.includes(p.stage));
+              // 保留の案件は、集客中の下にまとめ、数にも入れない
+              const items = projects.filter((p) => col.stages.includes(p.stage)).sort((a, b) => Number(a.stage === "hold") - Number(b.stage === "hold"));
+              const held = items.filter((p) => p.stage === "hold").length;
               return (
                 <div key={col.title} className="space-y-2 rounded-xl bg-surface-2 p-2">
                   <div className="px-1">
-                    <div className="text-sm font-bold">{col.title} <span className="num font-normal text-muted">{items.length}</span></div>
+                    <div className="text-sm font-bold">{col.title} <span className="num font-normal text-muted">{items.length - held}{held > 0 && `・保留 ${held}`}</span></div>
                     <div className="text-xs text-muted">{col.who}</div>
                   </div>
                   <ShowMore initial={5} className="space-y-2">{items.map((p) => <ProjectCard key={p.id} p={p} pending={pendingByProject.has(p.id)} target={targetRate(p.kind, s)} />)}</ShowMore>
@@ -425,7 +427,7 @@ export default async function Home() {
 }
 
 function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; target: number }) {
-  const t = ["live", "deciding", "continued", "killed"].includes(p.stage) ? projectTotals(p.id) : null;
+  const t = ["live", "hold", "deciding", "continued", "killed"].includes(p.stage) ? projectTotals(p.id) : null;
   const result = p.stage === "continued" ? { c: "var(--good)", i: "✓" } : p.stage === "killed" ? { c: "var(--critical)", i: "✕" } : p.stage === "rejected" ? { c: "var(--muted)", i: "–" } : null;
   return (
     <Link href={`/projects/${p.id}`} className="card block space-y-1 p-3 hover:border-accent">
@@ -446,6 +448,7 @@ function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; 
       {p.improve_count > 0 && <div className="text-xs text-ink-2">改善 {p.improve_count}回（第{p.lp_version}版）</div>}
       {pending && <div className="text-xs font-medium text-accent">● あなたの判断待ち</div>}
       {!!p.auto_published && !p.human_review && <div className="text-xs font-medium text-accent">● あとから確認してください</div>}
+      {p.stage === "hold" && <div className="text-xs font-medium text-ink-2">⏸ 保留中（{p.hold_until}に再開）</div>}
       {result && <div className="text-xs font-medium" style={{ color: result.c }}>{result.i} {STAGE_LABEL[p.stage]}</div>}
     </Link>
   );
