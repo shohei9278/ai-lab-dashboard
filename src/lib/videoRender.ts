@@ -7,20 +7,34 @@ import type { Page } from "playwright-core";
 // ブラウザの画面の変化をそのまま受け取り、縦長の mp4（音なし）にする
 // page は 1080×1920・deviceScaleFactor 1 で開いておくこと（画面の受け取りは倍率を無視するため、実寸で開く）
 // release は撮り終えたあと、変換の前に呼ぶ（サーバーのメモリが少ないので、ブラウザを先に閉じる）
-export async function recordToMp4(page: Page, run: () => Promise<void>, out: string, release?: () => Promise<void>): Promise<void> {
+// run に渡す hold の間は撮らない（ページの読み込み待ちを動画に入れないため）
+export async function recordToMp4(page: Page, run: (hold: (fn: () => Promise<void>) => Promise<void>) => Promise<void>, out: string, release?: () => Promise<void>): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "video-"));
   try {
     const frames: { file: string; t: number }[] = [];
     const cdp = await page.context().newCDPSession(page);
+    let paused = false;
+    let skipped = 0;
     cdp.on("Page.screencastFrame", (e) => {
+      void cdp.send("Page.screencastFrameAck", { sessionId: e.sessionId }).catch(() => undefined);
+      if (paused) return;
       const file = path.join(dir, `f${String(frames.length).padStart(5, "0")}.jpg`);
       fs.writeFileSync(file, Buffer.from(e.data, "base64"));
-      frames.push({ file, t: e.metadata.timestamp ?? Date.now() / 1000 });
-      void cdp.send("Page.screencastFrameAck", { sessionId: e.sessionId }).catch(() => undefined);
+      frames.push({ file, t: (e.metadata.timestamp ?? Date.now() / 1000) - skipped });
     });
+    const hold = async (fn: () => Promise<void>) => {
+      paused = true;
+      const from = Date.now();
+      try {
+        await fn();
+      } finally {
+        skipped += (Date.now() - from) / 1000;
+        paused = false;
+      }
+    };
     await cdp.send("Page.startScreencast", { format: "jpeg", quality: 92, maxWidth: 1080, maxHeight: 1920 });
     await page.waitForTimeout(300);
-    await run();
+    await run(hold);
     await page.waitForTimeout(300);
     await cdp.send("Page.stopScreencast");
     if (frames.length < 2) throw new Error("画面を撮れませんでした");

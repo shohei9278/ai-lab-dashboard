@@ -25,7 +25,7 @@ export function RecordVideos({ items }: { items: Item[] }) {
     <section className="card space-y-3 p-4">
       <div>
         <h2 className="font-bold">実験の記録の動画（あなただけに見えています）</h2>
-        <p className="text-xs text-muted">本物の記録からAIが台本を書き、縦長の短い動画（音なし）を作ります。内容を確かめてから、個人のアカウントに手で投稿してください。1本 約5〜10円、1〜2分かかります。</p>
+        <p className="text-xs text-muted">本物の記録からAIが台本を書き、縦長の短い動画（音なし）を作ります。内容を確かめてから、個人のアカウントに手で投稿してください。字幕の動画は1本 約5〜10円（ダッシュボードの動画はAIを使わないので無料）、1〜2分かかります。</p>
       </div>
       <div className="flex flex-wrap gap-2">
         {(Object.keys(RECORD_VIDEO_KINDS) as RecordVideoKind[]).map((k) => (

@@ -112,6 +112,70 @@ const iv=setInterval(()=>{t.textContent=chars.slice(0,++k).join('');if(k>=chars.
 </script>`;
 }
 
+// ---- ダッシュボードを巡る動画: 本物のゲスト用の画面を、スマホ幅で順に見せる（AIは使わない）----
+const DASHBOARD = "https://ai-lab-dashboard-production-fc9e.up.railway.app";
+type Stop = { path: string; anchor: string; caption: string; scroll: number; ms: number };
+
+function tourStops(): { stops: Stop[]; hook: string; caption: string } {
+  const h = headline();
+  const yen = Math.round(h.aiJpy).toLocaleString("ja-JP");
+  return {
+    hook: "AIだけの会社の管理画面",
+    caption: `Claude・GPT・Geminiを社員にした会社の管理画面です。ここまでで案件${h.projects}件、訪問${h.visits}人、利用${h.conversions}件、AI費用は約${yen}円。 #AI #個人開発`,
+    stops: [
+      { path: "/", anchor: "今日のAIの計画", caption: "AIだけの会社の\n管理画面を見せます", scroll: 420, ms: 3000 },
+      { path: "/plan", anchor: "今日の予定", caption: "毎朝、AIが\n今日やることを決める", scroll: 560, ms: 3600 },
+      { path: "/meetings", anchor: "会議室", caption: "会議も\nAI同士でやっている", scroll: 480, ms: 3200 },
+      { path: "/voices", anchor: "日報とつぶやき", caption: "仕事の合間に\nAIがつぶやく", scroll: 620, ms: 3800 },
+      { path: "/lab", anchor: "総合ランキング", caption: "3社のAIで\n成績を競っている", scroll: 380, ms: 3200 },
+      { path: "/", anchor: "案件の一覧", caption: `案件${h.projects}件・訪問${h.visits}人\n利用${h.conversions}件・AI費用 約${yen}円`, scroll: 320, ms: 3400 },
+    ],
+  };
+}
+
+async function renderTour(stops: Stop[], out: string) {
+  const browser = await launch();
+  if (typeof browser === "string") throw new Error(browser);
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1, colorScheme: "dark", locale: "ja-JP" });
+    const page = await ctx.newPage();
+    // 同じドメインの空のページを用意して、その中の枠でダッシュボードを開く（枠はスマホ幅で開き、2倍にして映す）
+    await page.route(`${DASHBOARD}/__video`, (r) => r.fulfill({ contentType: "text/html", body: `<!doctype html><meta charset="utf-8"><style>
+*{margin:0;box-sizing:border-box}html,body{width:1080px;height:1920px;overflow:hidden;background:#101216}
+#top,#bottom{position:absolute;left:0;width:1080px;display:flex;align-items:center;justify-content:center;text-align:center;color:#fff;font-family:"Hiragino Sans","Noto Sans CJK JP",sans-serif;background:#101216;z-index:2}
+#top{top:0;height:380px;font-size:72px;font-weight:800;line-height:1.35;padding:0 48px;white-space:pre-line}#bottom{bottom:0;height:140px;font-size:38px;font-weight:700;color:#a7abb3}
+#t{transition:opacity .18s}iframe{position:absolute;top:380px;left:0;width:540px;height:700px;border:0;transform:scale(2);transform-origin:0 0;transition:opacity .2s;background:#101216}
+</style><div id="top"><span id="t"></span></div><iframe id="f"></iframe><div id="bottom">AIを社員にした会社の実験</div>` }));
+    await page.goto(`${DASHBOARD}/__video`);
+    const frame = page.frames().find((f) => f.parentFrame());
+    if (!frame) throw new Error("画面の枠を開けませんでした");
+    const open = async (s: Stop, hold: (fn: () => Promise<void>) => Promise<void> = (fn) => fn()) => {
+      await page.evaluate(`document.getElementById('f').style.opacity=0;document.getElementById('t').style.opacity=0;`);
+      await page.waitForTimeout(220);
+      await hold(async () => {
+        await frame.goto(DASHBOARD + s.path, { waitUntil: "load", timeout: 30_000 });
+        await frame.waitForTimeout(350);
+        await frame.evaluate(`(()=>{const el=[...document.querySelectorAll('h1,h2')].find(e=>e.innerText.startsWith(${JSON.stringify(s.anchor)}));if(el)scrollTo(0,el.getBoundingClientRect().top+scrollY-16);})()`);
+      });
+      await page.evaluate(`document.getElementById('t').textContent=${JSON.stringify(s.caption)};document.getElementById('t').style.opacity=1;document.getElementById('f').style.opacity=1;`);
+      await page.waitForTimeout(260);
+    };
+    const glide = (s: Stop) => frame.evaluate(`(async()=>{const from=scrollY,start=performance.now();for(;;){const k=Math.min(1,(performance.now()-start)/${s.ms});scrollTo(0,from+${s.scroll}*k);if(k>=1)break;await new Promise(r=>requestAnimationFrame(r));}})()`);
+    await open(stops[0]);
+    // 運営者の表示を映さないよう、ゲスト用の画面であることを確かめる
+    if (!(await frame.evaluate("document.body.innerText.includes('公開中のデモ')"))) throw new Error("ゲスト用の画面ではないため、動画を作るのをやめました");
+    await recordToMp4(page, async (hold) => {
+      for (let i = 0; i < stops.length; i++) {
+        if (i > 0) await open(stops[i], hold);
+        await glide(stops[i]);
+        await page.waitForTimeout(250);
+      }
+    }, out, () => browser.close());
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
+
 const g = globalThis as unknown as { __aiLabRecordVideo?: boolean };
 
 export async function createRecordVideo(kind: RecordVideoKind): Promise<number> {
@@ -119,6 +183,15 @@ export async function createRecordVideo(kind: RecordVideoKind): Promise<number> 
   if (g.__aiLabRecordVideo) throw new Error("いま別の動画を作っています。終わってから試してください");
   g.__aiLabRecordVideo = true;
   try {
+    if (kind === "tour") {
+      const t = tourStops();
+      const file = `record-${Date.now()}.mp4`;
+      await renderTour(t.stops, recordVideoPath(file)!);
+      const id = Number(db().prepare("INSERT INTO record_videos (kind, title, caption, file, model_id, script) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(kind, t.hook, t.caption, file, "none", JSON.stringify({ stops: t.stops })).lastInsertRowid);
+      logEvent(null, "ai", "record-video", `実験の記録の動画を作りました（${RECORD_VIDEO_KINDS[kind]}）`);
+      return id;
+    }
     const mat = material(kind);
     const script = await writeScript(kind, mat);
     const cards = [

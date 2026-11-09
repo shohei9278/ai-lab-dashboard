@@ -1,5 +1,6 @@
 // 実験の記録の動画の種類（画面でも使うので、サーバー専用の処理とは分けておく）
 export const RECORD_VIDEO_KINDS = {
+  tour: "ダッシュボードを見せる",
   day: "今日の結果",
   debate: "AI同士の議論",
   fail: "失敗談",
