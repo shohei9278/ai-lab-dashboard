@@ -1,8 +1,8 @@
 import { getSettings } from "./db";
 import { notifyConfigured, sendNotify } from "./notify";
 
-// その場の通知: AIが何かを始めたとき・終えたときに、Discord（NOTIFY_WEBHOOK_URL）へ送る（1日のまとめとは別）
-// - 処理の記録（logEvent）から、種類ごとに選んで送る。始めるときの通知は、それぞれの処理から notifyStart で送る
+// その場の通知: AIが何かを終えたときに、Discord（NOTIFY_WEBHOOK_URL）へ送る（1日のまとめとは別）
+// - 処理の記録（logEvent）から、種類ごとに選んで送る（やったことだけを送る。これからやることは送らない）
 // - 短い間に続いた通知は、まとめて1回で送る（Discord の回数の制限に当たらないように）
 // - 同じ種類のエラーは、1時間に1回まで
 
@@ -10,11 +10,11 @@ import { NOTIFY_KINDS } from "./notifyKinds";
 export { NOTIFY_KINDS };
 export type NotifyKind = keyof typeof NOTIFY_KINDS;
 
-const ICON: Record<NotifyKind, string> = { start: "▶️", plan: "🗓️", post: "📣", build: "🛠️", decision: "⚖️", human: "🙋", outside: "👂", meeting: "💬", error: "⚠️" };
+const ICON: Record<NotifyKind, string> = { plan: "🗓️", post: "📣", build: "🛠️", decision: "⚖️", human: "🙋", outside: "👂", meeting: "💬", error: "⚠️" };
 
 // 処理の記録の種類 → 通知の種類（ここにないものは送らない）
 const EVENT_KIND: Record<string, NotifyKind> = {
-  plan: "plan", "plan-task": "plan", "plan-cap": "plan", "daily-report": "plan",
+  plan: "plan", "plan-task": "plan", "plan-cap": "plan",
   "sns-post": "post",
   select: "build", publish: "build", "auto-publish": "build", "auto-improve": "build", close: "build", revert: "build", hold: "build", resume: "build",
   judge: "decision", "auto-decision": "decision", grow: "decision", "auto-blocked": "decision",
@@ -60,15 +60,6 @@ export function notifyEvent(kind: string, actor: string, message: string) {
     // 人が自分で操作したことは、本人に知らせなくてよい
     if (actor === "human") return;
     push(k, message);
-  } catch {
-    // 通知の失敗で、本来の処理を止めない
-  }
-}
-
-// 始めるときに、それぞれの処理から呼ぶ
-export function notifyStart(text: string) {
-  try {
-    if (enabled("start")) push("start", text);
   } catch {
     // 通知の失敗で、本来の処理を止めない
   }

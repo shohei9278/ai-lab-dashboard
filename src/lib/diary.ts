@@ -5,6 +5,7 @@ import { dataDir, db, getSettings } from "./db";
 import { launch } from "./freePage";
 import { logEvent } from "./loop";
 import { modelInfo } from "./models";
+import { NIGHTLY_HOUR, maybeDailyDigest } from "./notify";
 import { BOTTLENECK_LABEL, TASK_KIND_LABEL, planFor, planProgress } from "./plan";
 import { jstDay } from "./sns";
 
@@ -145,13 +146,22 @@ ${voices.map((v) => `- ${v.scene}: ${v.text}`).join("\n") || "（なし）"}`,
   return (db().prepare("SELECT id FROM daily_reports WHERE day = ?").get(day) as { id: number }).id;
 }
 
-// 毎晩、投稿の時間が終わる22時以降に1回だけ書く
-export async function maybeDailyReport() {
-  const s = getSettings();
+// 毎晩、投稿の時間が終わる22時以降に1回: 日報を書いて、そのまま1日のまとめとして Discord に送る
+export async function maybeNightlyReport() {
   const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Tokyo", hour: "numeric", hourCycle: "h23" }).format(new Date()));
-  if (!s.dailyReport || s.killSwitch || hour < 22) return;
+  if (hour < NIGHTLY_HOUR) return;
+  await writeDiaryIfDue();
+  try {
+    await maybeDailyDigest();
+  } catch (e) {
+    logEvent(null, "system", "notify-error", `1日のまとめを送れませんでした: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`);
+  }
+}
+
+async function writeDiaryIfDue() {
+  const s = getSettings();
   const day = jstDay();
-  if (!planFor(day) || db().prepare("SELECT 1 FROM daily_reports WHERE day = ?").get(day)) return;
+  if (!s.dailyReport || s.killSwitch || !planFor(day) || db().prepare("SELECT 1 FROM daily_reports WHERE day = ?").get(day)) return;
   // 失敗した直後は、1時間あけてから試す
   if (db().prepare("SELECT 1 FROM events WHERE kind = 'diary-error' AND at >= datetime('now', '-1 hours')").get()) return;
   try {

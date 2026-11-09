@@ -1,7 +1,9 @@
 import { db, getSettings, saveSettings } from "./db";
 import { budgetState } from "./budget";
 import { waitingItems } from "./overview";
+import { modelInfo } from "./models";
 import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, todayPlan } from "./plan";
+import type { DiaryContent } from "./diary";
 
 // 1日1回、「今日あったこと・失敗・あなたの確認待ち」をまとめてスマホに届ける
 // 送り先は NOTIFY_WEBHOOK_URL（.env.local）。Discord の Webhook URL がおすすめ（Slack の Incoming Webhook でも届く）
@@ -12,6 +14,26 @@ function planLine(): string[] {
   if (!plan) return [];
   const g = planProgress(plan);
   return [`・今日の計画: ネック「${BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}」予定 ${g.done}/${g.total}件 済み${g.failed ? `（失敗${g.failed}件）` : ""}・目標 ${g.goals.map((x) => `${GOAL_LABEL[x.metric]} ${x.actual}/${x.target}`).join("・") || "なし"}`];
+}
+
+// 投稿の時間が終わる時刻。これ以降に日報を書いて、まとめと一緒に送る（日本時間）
+export const NIGHTLY_HOUR = 22;
+
+const DIARY_URL = "https://ai-lab-dashboard-production-fc9e.up.railway.app/diary";
+const jstNow = () => new Date(Date.now() + 9 * 3_600_000);
+const todayDiary = () => db().prepare("SELECT model_id, content FROM daily_reports WHERE day = ?").get(jstNow().toISOString().slice(0, 10)) as { model_id: string; content: string } | undefined;
+
+// 今日の日報の見出し・やったこと・明日のこと（残りはリンク先で読む）
+function diaryLines(): string[] {
+  const row = todayDiary();
+  if (!row) return [];
+  const c = JSON.parse(row.content) as DiaryContent;
+  return [
+    `\n**今日の日報**（担当 ${modelInfo(row.model_id).label}）\n${c.headline}`,
+    ...c.did.map((x) => `- ${x}`),
+    ...(c.tomorrow ? [`明日: ${c.tomorrow}`] : []),
+    `続きはこちら: ${DIARY_URL}`,
+  ];
 }
 
 export const notifyConfigured = () => !!process.env.NOTIFY_WEBHOOK_URL;
@@ -59,6 +81,7 @@ export function buildDigest(): string {
     `・SNSへの投稿: ${posts.length ? posts.map((p) => `${label[p.platform] ?? p.platform} ${p.n}件`).join("・") : "なし"}`,
     `・今日の訪問 ${visits.v}人・登録/利用 ${visits.c}人`,
     `・AIの費用: 今月 約${Math.round(b.spent).toLocaleString("ja-JP")}円 / 予算 ${s.monthlyBudgetJpy.toLocaleString("ja-JP")}円（月末の見込み 約${Math.round(b.projected).toLocaleString("ja-JP")}円）`,
+    ...diaryLines(),
   ];
   if (errors.length) {
     // 同じ失敗はまとめる
@@ -76,13 +99,16 @@ export function buildDigest(): string {
   return lines.join("\n");
 }
 
-// 毎日、日本時間の夜（設定の時刻）以降に1回だけ送る
+// 1日に1回だけ送る（毎晩の日報の処理から呼ぶ）
 export async function maybeDailyDigest() {
   const s = getSettings();
   if (!notifyConfigured()) return;
-  const jst = new Date(Date.now() + 9 * 3_600_000);
+  const jst = jstNow();
   const today = jst.toISOString().slice(0, 10);
-  if (jst.getUTCHours() < s.digestHour || s.lastDigest === today) return;
+  if (s.lastDigest === today) return;
+  // 日報を書けなかったときは1時間後に書き直すので、それを待つ。23:30 を過ぎたら日報なしで送る
+  const beforeCutoff = jst.getUTCHours() * 60 + jst.getUTCMinutes() < 23 * 60 + 30;
+  if (s.dailyReport && !s.killSwitch && todayPlan() && !todayDiary() && beforeCutoff) return;
   await sendNotify(buildDigest());
   saveSettings({ lastDigest: today });
 }

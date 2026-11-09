@@ -3,7 +3,6 @@ import { db } from "./db";
 import { liveEnd, liveSay, liveStep, logEvent } from "./loop";
 import { modelInfo } from "./models";
 import { addProposal, addVoice } from "./voices";
-import { notifyStart } from "./liveNotify";
 import { chairFor, meetingMaterial, members } from "./weekly";
 
 // 臨時会議: あなたが議題を出し、AIの社員が会議をする（会議室の「今すぐ会議」から）
@@ -36,7 +35,6 @@ export function startAdhocMeeting(topic: string, picked?: string[]): void {
   const list = picked?.length ? all.filter((m) => picked.includes(m)) : all;
   if (list.length < 2) throw new Error("会議には、2社以上のAIが必要です");
   g.__aiLabAdhoc = t.slice(0, 40);
-  notifyStart(`臨時会議を始めます: 「${t.slice(0, 80)}」（${list.map((m) => modelInfo(m).label).join("・")}）`);
   void runAdhoc(t, list)
     .catch((e) => logEvent(null, "system", "meeting-error", `臨時会議「${t.slice(0, 40)}」でエラー: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`))
     .finally(() => { g.__aiLabAdhoc = undefined; });

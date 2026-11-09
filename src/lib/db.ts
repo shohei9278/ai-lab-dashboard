@@ -303,6 +303,17 @@ CREATE TABLE IF NOT EXISTS voices (
   request_id INTEGER -- 提案箱に昇格したとき
 );
 -- 週の定例会議: 3社がそれぞれ1週間を振り返って改善案を出し、作者を伏せて採点し合う。上位の案を提案箱に入れる
+CREATE TABLE IF NOT EXISTS record_videos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  caption TEXT NOT NULL,
+  file TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  script TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS meetings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -661,7 +672,6 @@ export type Settings = {
   autoPost: boolean; // 集客中の案件を、AIが X に自動で投稿する（X のAPIキーが必要）
   autoPostPerDay: number; // 自動投稿の上限（直近24時間）
   judgeAfterDays: number; // 訪問が少なくても、公開（または前の判断）からこの日数がたったらAIに判断させる
-  digestHour: number; // 1日のまとめをスマホに送る時刻（日本時間）
   lastDigest: string; // 最後に1日のまとめを送った日（日本時間の YYYY-MM-DD）
   notifyLive: boolean; // AIが何かを始めた・終えたときに、その場で通知する（1日のまとめとは別）
   notifyOff: string; // その場の通知で送らない種類（カンマ区切り。liveNotify.ts の NOTIFY_KINDS）
@@ -705,7 +715,6 @@ const DEFAULTS: Settings = {
   autoPost: false,
   autoPostPerDay: 2,
   judgeAfterDays: 7,
-  digestHour: 21,
   lastDigest: "",
   notifyLive: true,
   notifyOff: "",

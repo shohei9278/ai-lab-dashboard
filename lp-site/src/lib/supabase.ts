@@ -21,3 +21,15 @@ export async function getLp(slug: string): Promise<LpRow | null> {
   const row = data as LpRow;
   return { ...row, content: normalizeLp(row.content) };
 }
+
+// 公開中の動くツールの一覧（トップページ用。ツール本体のHTMLは重いので読まない）
+export async function listTools(): Promise<{ slug: string; title: string; version: number; sub: string | null }[]> {
+  const { data, error } = await supabase()
+    .from("lps")
+    .select("slug, title, version, project_id, sub:content->>subheadline")
+    .eq("status", "published")
+    .not("content->tool", "is", null)
+    .order("project_id", { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as unknown as { slug: string; title: string; version: number; sub: string | null }[];
+}

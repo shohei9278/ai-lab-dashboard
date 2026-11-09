@@ -11,7 +11,6 @@ import { jstDateTime } from "./format";
 import { ANGLE_TYPES, badPostsText, classifyUntyped, isAngleType, postStatsText } from "./postStats";
 import { hasKey, modelInfo } from "./models";
 import { addProposal, addVoice } from "./voices";
-import { notifyStart } from "./liveNotify";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { addResearch, researchText, runResearch } from "./research";
 
@@ -372,7 +371,6 @@ export async function createPlan({ force = false } = {}): Promise<number> {
   if (rq && isStr(rq.question)) {
     const pid = Number(rq.project_id);
     const rid = addResearch({ planId: id, projectId: Number.isFinite(pid) && pid > 0 ? pid : null, question: rq.question, why: isStr(rq.why) ? rq.why : "", how: isStr(rq.how) ? rq.how : "", askedBy: model });
-    notifyStart(`調べものを始めます: ${rq.question.slice(0, 100)}`);
     void runResearch(rid);
   }
   for (const r of Array.isArray(out.replies) ? out.replies : []) {
@@ -490,7 +488,6 @@ export async function runPlanTasks(): Promise<void> {
   db().prepare("UPDATE plan_tasks SET status = 'failed', result = '実行中にサーバーが止まった', done_at = datetime('now') WHERE status = 'running' AND done_at < datetime('now', '-30 minutes')").run();
   const t = db().prepare("SELECT * FROM plan_tasks WHERE plan_id = ? AND status = 'pending' AND at_time <= ? ORDER BY at_time, id LIMIT 1").get(plan.id, now.hm) as TaskRow | undefined;
   if (!t) return;
-  notifyStart(`これから: ${t.at_time} ${TASK_KIND_LABEL[t.kind]}${t.platform ? `（${AUTO_PLATFORMS[t.platform as AutoPlatform]?.label ?? t.platform}）` : ""}「${(t.angle ?? "").slice(0, 60)}」`);
   // 実行中に次の見回りで二重に実行しないよう、先に印を付ける
   db().prepare("UPDATE plan_tasks SET status = 'running', done_at = datetime('now') WHERE id = ? AND status = 'pending'").run(t.id);
   let r: { status: TaskStatus; result: string; url?: string };

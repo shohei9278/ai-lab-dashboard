@@ -9,7 +9,6 @@ import { followUpOf, type WeeklyContent } from "./meetings";
 import type { AdhocContent } from "./adhoc";
 import { addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
-import { notifyStart } from "./liveNotify";
 import { researchText } from "./research";
 
 // 週の定例会議（毎週月曜）
@@ -19,7 +18,8 @@ import { researchText } from "./research";
 // 4. 議長（週ごとに交代）が、議事録のまとめと発信用の下書き（Xの投稿・記事）を書く
 
 type Proposal = { title: string; how: string; why: string; target: "human" | "system" };
-type MemberOut = { review: string; proposals: Proposal[]; voice?: string };
+type MemberOut = { review: string; proposals: (Proposal & { axis?: unknown })[]; voice?: string };
+const NEW_AXIS = "別軸: "; // まだ試していない手の案に付ける（提案箱でも見分けられるように）
 
 const day = (d: Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(d);
 
@@ -61,7 +61,6 @@ export async function createWeeklyMeeting(): Promise<number> {
   const end = new Date();
   const start = day(new Date(end.getTime() - 7 * 86_400_000));
   const mat = meetingMaterial(start);
-  notifyStart(`週の定例会議を始めます（${list.map((m) => modelInfo(m).label).join("・")}）`);
 
   // 1. それぞれが振り返りと改善案を出す
   const outs = await Promise.allSettled(list.map((modelId) => callJson<MemberOut>({
@@ -80,13 +79,14 @@ export async function createWeeklyMeeting(): Promise<number> {
   - human: 運営者（人）にやってほしいこと（AIは他人への働きかけ・アカウントの設定・コミュニティへの参加などができない）
   - system: この会社の仕組み（AIへの指示・集計のしかた・自動化の決まり・作るものの選び方など）を変える案
   title は短く、how は具体的に何をどう変えるか、why は材料の数字の根拠
+  - 3件のうち1件は、思いつけば「別軸」の案にしてよい（axis を "new" に）。今のやり方の改善ではなく、まだ試していない手（動画など新しい発信の形・新しい場所・届け方・作るものの形を変えるなど）。how には ①何をするか ②自動でできるか、人の手が要るか（人が手でやる形でもよい）③小さく試す方法 ④何の数字で続けるか決めるか を書く。外のサービスの規約やAPIの制約は、確かでなければ断定せず「要確認」と書く。why には、今のネックにどう効くかを書く
 - voice: 今週のひとこと（80文字以内）。感想・気づき・この会社へのダメ出し・試したいことなど何でもよい。遠慮はいらない
 守ること:
 - 材料にある数字だけを使う。件数が少ないときは「まだ偶然の可能性が高い」と書く
 - 提案箱で返事待ち・見送りになっているものと同じ提案は出さない
 - 広告費を使う案、他人の投稿への宣伝の返信・DMなど、スパムになる案は出さない
 - voice は必ず書く（空にしない）。数字や出来事は材料にあるものだけを使い、体験談は作らない
-形式: {"review":"振り返り","proposals":[{"title":"短い題","how":"具体的に","why":"根拠","target":"human|system"}],"voice":"今週のひとこと","voice_effects":[]}`,
+形式: {"review":"振り返り","proposals":[{"title":"短い題","how":"具体的に","why":"根拠","target":"human|system","axis":"new（別軸の案のときだけ）"}],"voice":"今週のひとこと","voice_effects":[]}`,
     user: mat,
     // ひとことは必ず書いてもらう（省きがちなので。抜けていたら、1回だけ書き直してもらう）
     validate: (v): v is MemberOut => isObj(v) && isStr(v.review) && Array.isArray(v.proposals) && isStr(v.voice),
@@ -94,7 +94,7 @@ export async function createWeeklyMeeting(): Promise<number> {
   const got = list.flatMap((modelId, i) => {
     const o = outs[i];
     return o.status === "fulfilled" ? [{ modelId, review: o.value.review.slice(0, 1500), proposals: o.value.proposals.filter((p) => isObj(p) && isStr(p.title)).slice(0, 3).map((p) => ({
-      title: p.title.trim().slice(0, 80), how: String(p.how ?? "").slice(0, 500), why: String(p.why ?? "").slice(0, 300), target: p.target === "system" ? "system" as const : "human" as const,
+      title: `${p.axis === "new" ? NEW_AXIS : ""}${p.title.trim()}`.slice(0, 80), how: String(p.how ?? "").slice(0, 500), why: String(p.why ?? "").slice(0, 300), target: p.target === "system" ? "system" as const : "human" as const,
     })) }] : [];
   });
   if (got.length < 2) throw new Error("2社以上の振り返りが集まらなかったため、定例会議を開けませんでした");
@@ -121,6 +121,7 @@ export async function createWeeklyMeeting(): Promise<number> {
       modelId: m.modelId,
       system: `週の定例会議で出た改善案を採点します。だれの案かは伏せてあります。
 観点: 材料の数字に根拠があるか / 実際にやれるか / やったら成果（訪問・登録・利用）に効きそうか / スパムや作り話にならないか
+「別軸:」で始まる案は、まだ実績がないので数字の根拠では比べない。今のネックに効く理屈があるか、小さく試せるか、うまくいかなかったときの損が小さいかで見る
 1〜10点で、甘くしないこと（平凡なら5点前後）。
 形式: {"scores":[{"id":"P1","score":点}]}`,
       user: `${mat}\n\n採点する案:\n${mine.map((x) => `【${label(x.i)}】（${x.p.target === "system" ? "仕組み" : "運営者"}向け）${x.p.title}: ${x.p.how}（根拠: ${x.p.why}）`).join("\n")}`,
@@ -138,6 +139,9 @@ export async function createWeeklyMeeting(): Promise<number> {
 
   // 3. 今回の案の上位（6点以上・3件まで）を提案箱へ。この週に入っていた提案は点を付け、5点未満は閉じる
   const adopted = ranked.filter((p) => !p.existingId && p.score >= 6).slice(0, 3);
+  // 別軸の案は、改善案に押し出されないよう、一番良いものを1件は入れる（5点以上）
+  const bestNew = ranked.find((p) => !p.existingId && p.title.startsWith(NEW_AXIS) && p.score >= 5);
+  if (bestNew && !adopted.includes(bestNew)) adopted.push(bestNew);
   let closed = 0;
   for (const p of ranked.filter((x) => x.existingId && x.scores.length)) {
     const sc = Math.round(p.score * 10) / 10;

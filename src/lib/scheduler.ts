@@ -5,13 +5,12 @@ import { maybeWeeklyMeeting } from "./weekly";
 import { maybeRefreshTrends } from "./trends";
 import { maybeAutoPost } from "./sns";
 import { syncComments } from "./snsComments";
-import { maybeDailyDigest } from "./notify";
 import { maybeDailyBackup } from "./backup";
 import { resumeRefQueue } from "./designRefs";
 import { backfillViralApps, maybeWeeklyViral, resumeViralQueue } from "./viralPosts";
 import { maybeCreatePlan, runPlanTasks } from "./plan";
 import { syncReactions } from "./postReactions";
-import { maybeDailyReport } from "./diary";
+import { maybeNightlyReport } from "./diary";
 import { proposeFromErrors } from "./voices";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
@@ -82,11 +81,6 @@ async function tickNow() {
     logEvent(null, "system", "backup-error", `データベースのバックアップに失敗: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
   }
   try {
-    await maybeDailyDigest();
-  } catch (e) {
-    logEvent(null, "system", "notify-error", `1日のまとめを送れませんでした: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
-  }
-  try {
     await syncComments();
   } catch (e) {
     logEvent(null, "system", "sns-comments-error", `コメントの取り込みでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
@@ -106,7 +100,7 @@ async function tickNow() {
   } catch (e) {
     logEvent(null, "system", "plan-task-error", `今日の計画の予定の実行でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
   }
-  await maybeDailyReport();
+  await maybeNightlyReport();
   try {
     await maybeAutoPost();
   } catch (e) {

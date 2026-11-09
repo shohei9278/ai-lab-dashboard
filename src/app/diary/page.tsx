@@ -6,6 +6,8 @@ import { getSettings } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
 import { listDiaries, type DiaryContent, type DiaryImage, type DiaryRow } from "@/lib/diary";
 import { CopyNote, WriteDiary } from "./DiaryActions";
+import { RecordVideos } from "./RecordVideos";
+import { listRecordVideos } from "@/lib/recordVideo";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +81,7 @@ export default async function DiaryPage() {
         {s.dailyReport ? "" : "（設定で、毎晩の日報は止めています）"}
       </PageIntro>
       <DiaryTabs current="/diary" />
+      {owner && <RecordVideos items={listRecordVideos()} />}
       {list.length ? (
         <ShowMore initial={7} className="space-y-3">{list.map((d) => <Diary key={d.id} d={d} owner={owner} />)}</ShowMore>
       ) : <p className="card p-4 text-sm text-ink-2">まだ日報はありません。毎晩22時以降に、その日の分が書かれます。</p>}

@@ -213,18 +213,15 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
             <div className="text-sm font-medium">スマホへの1日のまとめ</div>
             <p className="text-xs text-muted">
               {notifyReady ? "✓ 送り先が入っています。" : "送り先が入っていないため、送られません（.env.local に NOTIFY_WEBHOOK_URL を入れて、サーバーを再起動してください。手順は docs/SETUP-NOTIFY.md）。"}
-              毎日1回、新しい案件・公開・判断・投稿・失敗・あなたの確認待ち・費用をまとめて送ります。
+              毎晩22時以降に日報を書いて、新しい案件・公開・判断・投稿・失敗・あなたの確認待ち・費用と一緒に送ります。
             </p>
             <div className="flex flex-wrap items-end gap-3">
-              <Field label="送る時刻（日本時間）" note="">
-                <input type="number" min={0} max={23} {...num("digestHour")} className={input} />
-              </Field>
               <TestNotify disabled={!notifyReady} />
             </div>
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-1" checked={v.notifyLive} onChange={(e) => set("notifyLive", e.target.checked)} />
               <span>
-                その場の通知（AIが何かを始めたとき・終えたときに、同じ送り先へすぐ送る）
+                その場の通知（AIが何かを終えたときに、同じ送り先へすぐ送る）
                 <span className="block text-xs text-muted">短い間に続いたものは、まとめて1回で送ります。あなたが自分で操作したことは送りません。</span>
               </span>
             </label>

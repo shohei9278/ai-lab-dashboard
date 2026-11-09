@@ -5,7 +5,7 @@ FROM node:22-bookworm-slim
 
 # 画面を撮るときに日本語と絵文字が正しく出るように、フォントを入れる。better-sqlite3 をビルドし直すときの道具も入れておく
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends fonts-noto-cjk fonts-noto-color-emoji python3 make g++ ca-certificates \
+  && apt-get install -y --no-install-recommends fonts-noto-cjk fonts-noto-color-emoji ffmpeg python3 make g++ ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

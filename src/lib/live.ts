@@ -2,6 +2,7 @@ import { HIDDEN, maskEventMessage, maskHandles } from "./viewer";
 import { db, getSettings } from "./db";
 import { activityList, buildingList, ideaRunning, liveNotesList } from "./loop";
 import { modelInfo } from "./models";
+import { NIGHTLY_HOUR } from "./notify";
 import { schedulerStatus } from "./scheduler";
 
 // ライブ画面用: 数秒ごとに読みに来る。いまAIがやっていること・動く数字・AIの呼び出しのログ・AIの「会話」
@@ -98,7 +99,7 @@ export function liveSnapshot({ guest = false } = {}) {
     nextTick: sch.nextTick ? new Date(sch.nextTick).toISOString() : null,
     everyMinutes: sch.checkEveryMinutes,
     dailyHour: s.dailyHour,
-    digestHour: s.digestHour,
+    digestHour: NIGHTLY_HOUR,
     killSwitch: s.killSwitch,
     building: buildingList().map((b) => ({ ...b, title: titles.get(b.id) ?? `#${b.id}` })),
     activities: activityList(),

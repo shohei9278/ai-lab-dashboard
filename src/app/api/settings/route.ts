@@ -83,7 +83,6 @@ export async function POST(req: Request) {
     ["viralSearchCount", 100, 1000],
     ["wantsSearchCount", 0, 1000],
     ["judgeAfterDays", 1, 60],
-    ["digestHour", 0, 23],
     ["staleDays", 1, 90],
     ["autoConfidence", 0, 1],
     ["targetUseRate", 0.001, 1],
