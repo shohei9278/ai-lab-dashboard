@@ -151,9 +151,9 @@ export async function createRecordVideo(kind: RecordVideoKind): Promise<number> 
           // 読み終わるまで止める
           await page.waitForTimeout(c.big ? 2300 : Math.max(1500, (c.text?.length ?? 0) * 55 + (c.number ? 500 : 0)));
         }
-      }, recordVideoPath(file)!);
+      }, recordVideoPath(file)!, () => browser.close());
     } finally {
-      await browser.close();
+      await browser.close().catch(() => undefined);
     }
     const modelId = getSettings().loopModel;
     const id = Number(db().prepare("INSERT INTO record_videos (kind, title, caption, file, model_id, script) VALUES (?, ?, ?, ?, ?, ?)")
