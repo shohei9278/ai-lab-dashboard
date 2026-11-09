@@ -343,8 +343,8 @@ const DESIGN_DIRECTIONS = [
 async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, modelId?: string, purpose = "LP作成", direction?: string): Promise<Lp & { shareText?: string }> {
   const isTool = p.kind === "tool";
   const before = p.lp ? (JSON.parse(p.lp) as Lp) : null;
-  // 自由に書いたページのHTMLは長いので、文言の材料としては渡さない
-  const prev = before ? `\n\n今のLP:\n${JSON.stringify({ ...before, page: undefined })}` : "";
+  // 自由に書いたページとツールのHTMLは長いので、文言の材料としては渡さない（書き返そうとして出力の上限で切れるため。ツールの修正は buildTool が担当）
+  const prev = before ? `\n\n今のLP:\n${JSON.stringify({ ...before, page: undefined, tool: undefined, shareText: before.tool?.shareText })}` : "";
   const core = keepCore
     ? "\n- 今回は改善なので、対象読者・サービスの中身・仮説は変えない。変えるのは指示された1か所だけにし、それ以外は今のLPのまま残す"
     : "";
@@ -796,7 +796,7 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html);
   const pageReview = await reviewLp(p, page, opts.keepCore ? before : undefined);
   const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
-  let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? page.headline } });
+  let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
   if (lp.design) lp.design.illustration = before?.design?.illustration;
   const drawn = await withIllustration(p, lp, version);
