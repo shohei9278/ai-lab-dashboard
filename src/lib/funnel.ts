@@ -17,8 +17,15 @@ export type Funnel = {
 
 const SECTION_LABEL: Record<string, string> = { pains: "困りごと", features: "できること", faq: "よくある質問", signup: "登録フォーム" };
 
-export function funnel(p: ProjectRow): Funnel {
-  const version = p.public_version ?? p.lp_version;
+// 作った版と、記録がある版のすべて（新しい順）
+export function funnelVersions(p: ProjectRow): number[] {
+  const rows = db().prepare("SELECT version AS v FROM lp_versions WHERE project_id = ? UNION SELECT lp_version AS v FROM metrics WHERE project_id = ? AND lp_version IS NOT NULL UNION SELECT version AS v FROM lp_funnel WHERE project_id = ?").all(p.id, p.id, p.id) as { v: number }[];
+  return [...new Set([...rows.map((r) => r.v), p.public_version ?? p.lp_version])].sort((a, b) => b - a);
+}
+
+// version を省くと、いま公開中の版
+export function funnel(p: ProjectRow, versionArg?: number): Funnel {
+  const version = versionArg ?? p.public_version ?? p.lp_version;
   const t = projectTotals(p.id, version);
   const shares = t.rows.reduce((n, r) => n + (r.shares ?? 0), 0);
   const rows = db().prepare("SELECT name, detail, visitors FROM lp_funnel WHERE project_id = ? AND version = ?").all(p.id, version) as { name: string; detail: string; visitors: number }[];

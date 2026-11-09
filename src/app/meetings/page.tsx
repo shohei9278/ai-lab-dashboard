@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
 import { isOwner } from "@/lib/viewer";
 import { adhocRunning } from "@/lib/adhoc";
@@ -124,7 +125,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Pro
           <Link key={x} href={`/meetings?kind=${x}`} className={`rounded-full border px-3 py-1 ${k === x ? "border-accent bg-accent text-accent-ink" : "border-line text-ink-2"}`}>{MEETING_LABEL[x]}</Link>
         ))}
       </nav>
-      {list.length ? <div className="space-y-3">{list.slice(0, 60).map((m) => <MeetingCard key={m.key} m={m} />)}</div> : <p className="text-sm text-ink-2">直近30日の会議はありません。</p>}
+      {list.length ? <ShowMore initial={10} className="space-y-3">{list.map((m) => <MeetingCard key={m.key} m={m} />)}</ShowMore> : <p className="text-sm text-ink-2">直近30日の会議はありません。</p>}
     </div>
   );
 }

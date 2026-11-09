@@ -7,6 +7,7 @@ import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
 import { SignupTrend } from "@/components/SignupTrend";
 import { costEfficiency } from "@/lib/cost";
 import { jstDateTime, pct } from "@/lib/format";
+import { ShowMore } from "@/components/ShowMore";
 import { KillSwitch } from "@/components/KillSwitch";
 import { IdeaForm } from "@/components/IdeaForm";
 import { DailyCard } from "@/components/DailyCard";
@@ -126,7 +127,7 @@ export default async function Home() {
         {waiting.length === 0 ? (
           <p className="text-sm text-ink-2">いまは確認することはありません。AIが自動で進めています。</p>
         ) : (
-          <ul className="divide-y divide-line">
+          <ShowMore as="ul" initial={5} className="divide-y divide-line">
             {waiting.map((w) => {
               const label = w.kind === "stuck"
                 ? { title: "AIの作業が途中で停止", action: "作り直しを指示する" }
@@ -168,7 +169,7 @@ export default async function Home() {
                 </li>
               );
             })}
-          </ul>
+          </ShowMore>
         )}
         {autoStats.published > 0 && (
           <p className="mt-3 border-t border-line pt-3 text-xs text-ink-2">
@@ -408,7 +409,7 @@ export default async function Home() {
                     <div className="text-sm font-bold">{col.title} <span className="num font-normal text-muted">{items.length}</span></div>
                     <div className="text-xs text-muted">{col.who}</div>
                   </div>
-                  {items.map((p) => <ProjectCard key={p.id} p={p} pending={pendingByProject.has(p.id)} target={targetRate(p.kind, s)} />)}
+                  <ShowMore initial={5} className="space-y-2">{items.map((p) => <ProjectCard key={p.id} p={p} pending={pendingByProject.has(p.id)} target={targetRate(p.kind, s)} />)}</ShowMore>
                 </div>
               );
             })}

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { HIDDEN, isOwner } from "@/lib/viewer";
+import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
 import { jstDateTime } from "@/lib/format";
 import { modelInfo } from "@/lib/models";
@@ -42,7 +43,7 @@ export default async function OutsidePage() {
           <p className="text-xs text-muted">AIが「どの声・どの調べものを受けて、何を変えたか」を自分で書いたものです。実際の人や外の情報に触れたことで、AIの判断が変わった具体例になります。</p>
         </div>
         {effects.length ? (
-          <ul className="space-y-2 text-sm">
+          <ShowMore as="ul" initial={5} className="space-y-2 text-sm">
             {effects.map((e) => (
               <li key={e.id} className="rounded-lg border border-line p-3">
                 <div className="flex flex-wrap gap-x-2 text-xs text-ink-2">
@@ -64,7 +65,7 @@ export default async function OutsidePage() {
                 </ul>
               </li>
             ))}
-          </ul>
+          </ShowMore>
         ) : <p className="text-sm text-ink-2">まだありません。外の声が届き、AIがそれを受けて何かを変えると、ここに出ます。</p>}
       </section>
 
@@ -74,7 +75,7 @@ export default async function OutsidePage() {
           <p className="text-xs text-muted">朝会の担当AIが「今の判断に効くのに分からないこと」を1日1件まで決め、Webの公開情報で調べたものです。出典は、AIが実際に見たページだけを残しています。調べても分からなければ、保留のまま残します。</p>
         </div>
         {research.length ? (
-          <ul className="space-y-3">
+          <ShowMore as="ul" initial={5} className="space-y-3">
             {research.map((r) => {
               const f = r.findings ? (JSON.parse(r.findings) as Finding[]) : [];
               const st = { answered: ["分かった", "var(--good)"], unknown: ["分からなかった（保留）", "var(--warning)"], failed: ["調べられなかった", "var(--critical)"], pending: ["調べる前", "var(--muted)"], running: ["調べている", "var(--accent)"] }[r.status];
@@ -99,7 +100,7 @@ export default async function OutsidePage() {
                 </li>
               );
             })}
-          </ul>
+          </ShowMore>
         ) : <p className="text-sm text-ink-2">まだありません。明日以降の朝会で、AIが分からないことを決めると調べ始めます。</p>}
       </section>
 

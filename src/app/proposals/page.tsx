@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { isOwner } from "@/lib/viewer";
+import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
 import { jstDateTime } from "@/lib/format";
 import { modelInfo } from "@/lib/models";
@@ -82,7 +83,7 @@ export default async function ProposalsPage() {
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">返事をしたもの</h2>
         {answered.length ? (
-          <ul className="space-y-1 text-sm">
+          <ShowMore as="ul" initial={10} className="space-y-1 text-sm">
             {answered.map((r) => (
               <li key={r.id}>
                 <span style={{ color: r.status === "done" ? "var(--good)" : "var(--muted)" }}>{r.status === "done" ? "✓ やった" : "– 見送り"}</span>
@@ -91,7 +92,7 @@ export default async function ProposalsPage() {
                 {r.note && <span className="ml-2 text-xs text-ink-2">（{r.note}）</span>}
               </li>
             ))}
-          </ul>
+          </ShowMore>
         ) : <p className="text-sm text-ink-2">まだありません。</p>}
       </section>
     </div>

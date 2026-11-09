@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ShowMore } from "@/components/ShowMore";
 import type { EventRow } from "@/lib/db";
 import { decisionShort, type EventDetail } from "@/lib/eventDetails";
 import { KIND_LABEL } from "@/lib/loop";
@@ -11,7 +12,7 @@ const pt = (x: number | null) => (x === null ? "—" : `${x.toFixed(1)}点`);
 // 案件の経過。中身がある行（候補の選定・判断・議論）は、押すと開く
 export function EventLog({ projectId, events, details }: { projectId: number; events: EventRow[]; details: Map<number, EventDetail> }) {
   return (
-    <ol className="card divide-y divide-line text-sm">
+    <ShowMore as="ol" initial={15} step={30} className="card divide-y divide-line text-sm">
       {events.map((e) => {
         const d = details.get(e.id);
         const head = (
@@ -36,7 +37,7 @@ export function EventLog({ projectId, events, details }: { projectId: number; ev
           </li>
         );
       })}
-    </ol>
+    </ShowMore>
   );
 }
 

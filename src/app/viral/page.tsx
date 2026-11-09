@@ -1,4 +1,5 @@
 import { HIDDEN, isOwner } from "@/lib/viewer";
+import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
 import { GrowthTabs } from "@/components/LabTabs";
 import { getSettings } from "@/lib/db";
@@ -56,11 +57,9 @@ export default async function ViralPage() {
           <div className="card p-6 text-sm text-ink-2">まだありません。次の自動検索か「今すぐ検索する」で集まります。</div>
         ) : (
           <div className="card overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs text-muted">
+            <ShowMore as="table" initial={10} className="w-full text-sm" head={<thead className="text-left text-xs text-muted">
                 <tr><th className="px-3 py-2">困りごと・欲しいもの</th><th className="px-3 py-2">誰が</th><th className="px-3 py-2 text-right">いいね</th><th className="px-3 py-2">案件</th><th className="px-3 py-2" /></tr>
-              </thead>
-              <tbody>
+              </thead>}>
                 {wants.map((w) => (
                   <tr key={w.id} className="border-t border-line align-top">
                     <td className="px-3 py-2">
@@ -76,8 +75,7 @@ export default async function ViralPage() {
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
+            </ShowMore>
           </div>
         )}
       </section>
@@ -87,7 +85,7 @@ export default async function ViralPage() {
         {rows.length === 0 ? (
           <div className="card p-6 text-sm text-ink-2">まだありません。</div>
         ) : (
-          <ul className="grid gap-3 lg:grid-cols-2">
+          <ShowMore as="ul" initial={10} className="grid gap-3 lg:grid-cols-2">
             {rows.map((r) => (
               <li key={r.id} className="card space-y-2 p-4 text-sm">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted">
@@ -120,7 +118,7 @@ export default async function ViralPage() {
                 )}
               </li>
             ))}
-          </ul>
+          </ShowMore>
         )}
       </section>
     </div>

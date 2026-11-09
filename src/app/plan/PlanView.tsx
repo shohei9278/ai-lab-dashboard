@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ShowMore } from "@/components/ShowMore";
 import { db } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
 import { AUTO_PLATFORMS, type AutoPlatform } from "@/lib/snsApi";
@@ -274,7 +275,7 @@ export function AiPostsReview({ owner }: { owner: boolean }) {
   if (!rows.length) return <p className="text-sm text-ink-2">直近3日のAIの投稿はありません。</p>;
   const t = titles();
   return (
-    <ul className="space-y-2">
+    <ShowMore as="ul" initial={10} className="space-y-2">
       {rows.map((p) => (
         <li key={`${p.table}${p.id}`} className="space-y-1 rounded-lg border p-3 text-sm" style={{ borderColor: p.human_review === "bad" ? "var(--critical)" : "var(--line)" }}>
           <div className="flex flex-wrap items-center gap-x-2 text-xs text-ink-2">
@@ -290,7 +291,7 @@ export function AiPostsReview({ owner }: { owner: boolean }) {
           {p.human_review === "bad" && p.human_note && <div className="text-xs" style={{ color: "var(--critical)" }}>あなたのひとこと: {p.human_note}</div>}
         </li>
       ))}
-    </ul>
+    </ShowMore>
   );
 }
 

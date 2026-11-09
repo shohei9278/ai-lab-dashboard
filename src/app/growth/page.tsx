@@ -2,6 +2,7 @@ import { HIDDEN, isOwner, maskHandles } from "@/lib/viewer";
 import Link from "next/link";
 import { getSettings } from "@/lib/db";
 import { accounts, projectSns, snsPosts } from "@/lib/snsOverview";
+import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
 import { GrowthTabs } from "@/components/LabTabs";
 import { DraftControls, ForgetPost, PauseToggle, ReplyControls, SyncComments } from "./SnsActions";
@@ -199,8 +200,7 @@ export default async function GrowthPage() {
           <div className="card p-4 text-sm text-ink-2">まだ投稿はありません。</div>
         ) : (
           <div className="card overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="text-left text-xs text-muted">
+            <ShowMore as="table" initial={15} className="w-full text-sm" head={<thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-3 py-2">日時</th>
                   <th className="px-3 py-2">場所</th>
@@ -209,8 +209,7 @@ export default async function GrowthPage() {
                   <th className="px-3 py-2 text-right">成果</th>
                   <th className="px-3 py-2"></th>
                 </tr>
-              </thead>
-              <tbody>
+              </thead>}>
                 {posted.map((p) => (
                   <tr key={p.id} className="border-b border-line align-top last:border-0">
                     <td className="num px-3 py-2 whitespace-nowrap text-xs text-ink-2">{p.posted_at ? jstUtc(p.posted_at) : "—"}</td>
@@ -227,8 +226,7 @@ export default async function GrowthPage() {
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
+            </ShowMore>
           </div>
         )}
       </section>

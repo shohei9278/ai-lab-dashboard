@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ShowMore } from "@/components/ShowMore";
 import { db } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
 import { modelInfo } from "@/lib/models";
@@ -23,7 +24,7 @@ export function VoiceList({ voices, owner, compact = false }: { voices: VoiceRow
   if (!voices.length) return <p className="p-4 text-sm text-ink-2">まだ声はありません。AIが作業をすると、ここにつぶやきが流れます。</p>;
   const titles = new Map((db().prepare("SELECT id, title FROM projects").all() as { id: number; title: string }[]).map((p) => [p.id, p.title]));
   return (
-    <ul className="divide-y divide-line">
+    <ShowMore as="ul" initial={compact ? 5 : 20} className="divide-y divide-line">
       {voices.map((v) => {
         const m = v.model_id ? modelInfo(v.model_id) : null;
         const color = m ? `var(--series-${m.provider})` : "var(--muted)";
@@ -65,6 +66,6 @@ export function VoiceList({ voices, owner, compact = false }: { voices: VoiceRow
           </li>
         );
       })}
-    </ul>
+    </ShowMore>
   );
 }

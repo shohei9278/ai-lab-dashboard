@@ -26,7 +26,7 @@ import { AutoReviewCard } from "./AutoReviewCard";
 import { EventLog } from "./EventLog";
 import { FunnelCard } from "./FunnelCard";
 import { getWant } from "@/lib/userWants";
-import { funnel } from "@/lib/funnel";
+import { funnel, funnelVersions } from "@/lib/funnel";
 import { eventDetails } from "@/lib/eventDetails";
 import { SnsPosts } from "./SnsPosts";
 import { listPosts, postLink } from "@/lib/sns";
@@ -38,7 +38,7 @@ export const dynamic = "force-dynamic";
 
 const STEPS = ["idea", "lp", "live", "deciding"] as const;
 
-export default async function ProjectPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ProjectPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ fv?: string }> }) {
   const { id } = await params;
   const p = getProject(Number(id));
   if (!p) notFound();
@@ -46,6 +46,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const want = p.want_id ? getWant(p.want_id) : undefined;
   const t = projectTotals(p.id);
   const approvals = pendingApprovals(p.id);
+  const fv = Number((await searchParams).fv);
   const owner = await isOwner();
   const events = maskEventsForGuest(maskEvents(db().prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id DESC").all(p.id) as EventRow[]), owner);
   const projectVoices = listVoices({ projectId: p.id, limit: 20 });
@@ -199,7 +200,11 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
         <p className="card p-3 text-sm text-ink-2">✓ 事前登録してくれた人への連絡と、メールアドレスの削除は済んでいます。</p>
       )}
 
-      {p.public_slug && <FunnelCard f={funnel(p)} isTool={isTool} />}
+      {p.public_slug && (() => {
+        const live = p.public_version ?? p.lp_version;
+        const all = funnelVersions(p).map((v) => funnel(p, v));
+        return <FunnelCard f={all.find((x) => x.version === fv) ?? funnel(p)} all={all} isTool={isTool} projectId={p.id} liveVersion={live} />;
+      })()}
 
       {!!p.auto_published && (
         <AutoReviewCard id={p.id} review={p.human_review} note={p.human_review_note} at={p.human_review_at} url={publicUrl(p.id)} />

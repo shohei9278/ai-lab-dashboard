@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { NOTE_CERTAINTY, NOTE_TOPICS, listNotes, type NoteCertainty } from "@/lib/notes";
+import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
 import { LibraryTabs } from "@/components/LabTabs";
 import { CERTAINTY_LABEL, activeLessons } from "@/lib/loop";
@@ -67,7 +68,7 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
       {notes.length === 0 ? (
         <div className="card p-6 text-sm text-ink-2">まだメモがありません。</div>
       ) : (
-        <ol className="space-y-3">
+        <ShowMore as="ol" initial={10} className="space-y-3">
           {notes.map((n) => (
             <li key={n.id} className="card p-4">
               <div className="flex flex-wrap items-center gap-2 text-xs text-ink-2">
@@ -90,7 +91,7 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
               />
             </li>
           ))}
-        </ol>
+        </ShowMore>
       )}
     </div>
   );
