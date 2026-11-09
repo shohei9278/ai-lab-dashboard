@@ -8,7 +8,7 @@ import { syncComments } from "./snsComments";
 import { maybeDailyDigest } from "./notify";
 import { maybeDailyBackup } from "./backup";
 import { resumeRefQueue } from "./designRefs";
-import { maybeWeeklyViral, resumeViralQueue } from "./viralPosts";
+import { backfillViralApps, maybeWeeklyViral, resumeViralQueue } from "./viralPosts";
 import { maybeCreatePlan, runPlanTasks } from "./plan";
 import { syncReactions } from "./postReactions";
 import { maybeDailyReport } from "./diary";
@@ -68,6 +68,7 @@ async function tickNow() {
   }
   resumeRefQueue();
   resumeViralQueue();
+  await backfillViralApps().catch((e) => logEvent(null, "system", "viral-error", `話題の投稿のアプリの説明の追加でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500)));
   try {
     await maybeWeeklyViral();
   } catch (e) {

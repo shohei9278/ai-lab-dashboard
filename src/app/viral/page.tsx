@@ -27,7 +27,7 @@ export default async function ViralPage() {
   return (
     <div className="space-y-6">
       <PageIntro title="話題の投稿">
-        Xでよく伸びた個人開発の投稿と、「こういうの欲しい」という声を集めます。伸びた投稿は、AIが「なぜ伸びたか」をまとめ、SNSの投稿の書き方・LPの見せ方・アイデア出しの切り口に使います（題材はまねさせません）。
+        Xでよく伸びた個人開発の投稿と、「こういうの欲しい」という声を集めます。伸びた投稿は、AIが「なぜ伸びたか」をまとめ、SNSの投稿の書き方・LPの見せ方・アイデア出しの参考に使います（何が受けたかは別の題材に応用しますが、同じアプリは作らせません）。
         「欲しい」の声は、そのままアイデア出しに渡し、声から生まれた案件には元の声を残します。どちらも拾うだけで、投稿者への返信やメンションはしません。画像は保存しません。
       </PageIntro>
       <GrowthTabs current="/viral" />
@@ -109,6 +109,7 @@ export default async function ViralPage() {
                   <dl className="grid grid-cols-[5.5em_1fr] gap-x-2 gap-y-1 border-t border-line pt-2 text-xs">
                     <dt className="text-muted">種類</dt><dd>{r.a.type === "share" ? "使った人の結果のシェア" : "作った人の紹介"}</dd>
                     <dt className="text-muted">分野・形</dt><dd>{r.a.genre}・{r.a.format}</dd>
+                    {r.a.app && <><dt className="text-muted">どんなアプリか</dt><dd>{r.a.app}</dd></>}
                     <dt className="text-muted">伸びた理由</dt><dd>{r.a.why}</dd>
                     <dt className="text-muted">言葉の型</dt><dd>{r.a.hook}</dd>
                     <dt className="text-muted">見せ方</dt><dd>{r.a.visual}</dd>

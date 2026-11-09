@@ -1,4 +1,5 @@
-import { callClaude, isObj, isStr, type ClaudeContent } from "./ai";
+import { callClaude, callJson, isObj, isStr, type ClaudeContent } from "./ai";
+import { hasKey } from "./models";
 import { db, getSettings, saveSettings } from "./db";
 import { logEvent } from "./loop";
 import { X_READ_COST_USD, searchAcross, xConfigured } from "./xPost";
@@ -10,7 +11,7 @@ import { searchWants } from "./userWants";
 // まとめは、SNSの投稿の書き方・LPの見せ方・アイデア出し（切り口だけ。題材はまねさせない）に渡す
 
 // type: launch = 作った人の紹介 / share = 使った人が結果をシェアした投稿（診断・ジェネレーターなどのツールで伸びる形）
-export type ViralAnalysis = { type?: "launch" | "share"; genre: string; format: string; hook: string; visual: string; why: string; takeaway: string; angle: string };
+export type ViralAnalysis = { type?: "launch" | "share"; app?: string; genre: string; format: string; hook: string; visual: string; why: string; takeaway: string; angle: string };
 export type ViralPost = {
   id: number; at: string; tweet_id: string; url: string; source: "manual" | "search"; status: "queued" | "ok" | "error"; error: string | null;
   author: string | null; text: string | null; posted_at: string | null;
@@ -128,6 +129,7 @@ async function analyze(r: ViralPost) {
 - launch: 作った人が、自分のプロダクトを紹介した投稿
 - share: 使った人が、診断・ジェネレーター・計算ツールなどの結果をシェアした投稿（自動で作られたシェア文やOGP画像を含む）。プロダクトがシェアされる仕組みとして参考にする
 - type: launch / share
+- app: どんなアプリ・ツールで、何ができるのか（1文。投稿から読み取れる範囲で）
 - genre: 題材の分野（例: 旅行・暮らし / 家計 / 勉強 / 仕事効率化）
 - format: プロダクトの形（例: スマホアプリ / Webサービス / ブラウザ拡張 / デジタル商品）
 - hook: 本文の言葉の型。具体的な題材を抜いた形で書く（例: 「もっと〇〇したくなる〇〇」と使ったあとの気持ちで言い切る、説明なしの一言）
@@ -137,7 +139,7 @@ async function analyze(r: ViralPost) {
 - angle: アイデアの切り口を1文。題材は抽象化し、このアプリと同じものを作る方向にしない（例: 機能より「〇〇したくなる気持ち」を売る）
 share のときは、hook に「シェア文の型」、visual に「シェアされる結果の見せ方（OGP画像など）」、takeaway に「ツールの結果をシェアされやすくする作り方」を書く。
 推測で書くところは言い切らない。launch でも share でもない投稿（プロダクトと関係のない話題など）なら、why に「参考にならない」と書く。
-出力はJSONのみ: {"type":"launch","genre":"","format":"","hook":"","visual":"","why":"","takeaway":"","angle":""}`,
+出力はJSONのみ: {"type":"launch","app":"","genre":"","format":"","hook":"","visual":"","why":"","takeaway":"","angle":""}`,
     content,
     maxTokens: 4000,
   });
@@ -146,6 +148,7 @@ share のときは、hook に「シェア文の型」、visual に「シェア�
   if (!isObj(v) || !isStr(v.why)) throw new Error("まとめを読み取れませんでした");
   const a: ViralAnalysis = {
     type: v.type === "share" ? "share" : "launch",
+    app: String(v.app ?? "").slice(0, 200),
     genre: String(v.genre ?? ""), format: String(v.format ?? ""), hook: String(v.hook ?? ""), visual: String(v.visual ?? ""),
     why: String(v.why).slice(0, 300), takeaway: String(v.takeaway ?? "").slice(0, 200), angle: String(v.angle ?? "").slice(0, 200),
   };
@@ -210,6 +213,27 @@ export async function maybeWeeklyViral() {
 
 // ---- AIに渡す文章 ----
 
+// 「どんなアプリか」を分析に足す前に取り込んだ投稿に、保存してある本文から後付けする（安いモデルで、1回に20件まで。5分ごとの見回りから呼ぶ）
+export async function backfillViralApps(): Promise<number> {
+  const rows = db().prepare("SELECT id, text, analysis FROM viral_posts WHERE status = 'ok' AND analysis IS NOT NULL AND json_extract(analysis, '$.app') IS NULL ORDER BY id DESC LIMIT 20").all() as { id: number; text: string | null; analysis: string }[];
+  if (!rows.length) return 0;
+  const out = await callJson<{ apps: { id: number; app: string }[] }>({
+    purpose: "話題の投稿の分析（アプリの説明の追加）",
+    modelId: hasKey("anthropic") ? "claude-haiku-5-5" : undefined,
+    system: `Xでよく伸びた投稿の本文と分析から、「どんなアプリ・ツールで、何ができるのか」を1文で書きます。投稿から読み取れる範囲だけを書き、分からなければ空にします。
+形式: {"apps":[{"id":番号,"app":"1文（分からなければ空）"}]}`,
+    user: rows.map((r) => { const a = JSON.parse(r.analysis) as ViralAnalysis; return `【${r.id}】ジャンル: ${a.genre} / 形: ${a.format}\n本文: ${(r.text ?? "").slice(0, 400)}`; }).join("\n\n"),
+    validate: (v): v is { apps: { id: number; app: string }[] } => isObj(v) && Array.isArray(v.apps),
+  });
+  const upd = db().prepare("UPDATE viral_posts SET analysis = ? WHERE id = ?");
+  // 答えがなかった投稿も空で埋める（次の見回りで同じ投稿を読み直さないように）
+  for (const r of rows) {
+    const app = out.apps.find((x) => Number(x.id) === r.id)?.app;
+    upd.run(JSON.stringify({ ...(JSON.parse(r.analysis) as ViralAnalysis), app: typeof app === "string" ? app.slice(0, 200) : "" }), r.id);
+  }
+  return rows.length;
+}
+
 function recentOk(limit: number): ViralAnalysis[] {
   return (db().prepare("SELECT analysis FROM viral_posts WHERE status = 'ok' AND at >= datetime('now', '-60 days') ORDER BY COALESCE(likes, 0) DESC LIMIT ?").all(limit) as { analysis: string }[])
     .map((r) => JSON.parse(r.analysis) as ViralAnalysis);
@@ -224,7 +248,7 @@ export function viralHints(kind: "idea" | "sns" | "page" | "tool"): string {
     return `\n\n最近Xでよく伸びた「使った人が結果をシェアした投稿」から分かる、シェアされやすい結果の作り（参考。題材や文言はまねしない）:\n${shares.slice(0, 4).map((a) => `- シェア文の型: ${a.hook} / 見せ方: ${a.visual} / ${a.takeaway}`).join("\n")}`;
   }
   if (kind === "idea") {
-    return `\n\n最近Xでよく伸びた個人開発の投稿から読み取れる切り口（参考。題材やアプリそのものはまねしない。同じ題材・似たアプリは出さない）:\n${list.map((a) => `- ${a.angle}（${a.genre}）`).join("\n")}`;
+    return `\n\n最近Xでよく伸びたアプリ・ツール（参考にする。何が受けたか・どんな気持ちに応えたか・使われる仕組みは、別の対象者や別の困りごとに応用してよい。ただし同じものを作らない。名前・見た目・機能の組み合わせをそのまま写さない）:\n${list.map((a) => `- ${a.app ? `${a.app}（${a.genre}）` : a.genre}: 伸びた理由: ${a.why} / 切り口: ${a.angle}`).join("\n")}`;
   }
   if (kind === "sns") {
     return `\n\n最近Xでよく伸びた個人開発の投稿の書き方（言葉の型と見せ方だけを参考にし、文をそのまま使わない）:\n${list.slice(0, 5).map((a) => `- 型: ${a.hook} / 伸びた理由: ${a.why}`).join("\n")}`;
