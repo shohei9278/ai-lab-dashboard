@@ -37,7 +37,8 @@ export function funnel(p: ProjectRow, versionArg?: number): Funnel {
     ? [
         // ツールはページの上の方にあるので、読んだ深さは段に入れず、下に別に出す
         { key: "visit", label: "訪問した", visitors: t.visits, ofVisits: of(t.visits) },
-        { key: "use", label: "ツールを使った", visitors: t.signups, ofVisits: of(t.signups) },
+        { key: "tool_view", label: "ツールが画面に入った", visitors: count("section_view", "tool"), ofVisits: of(count("section_view", "tool")) },
+        { key: "use", label: "ツールを操作した", visitors: t.signups, ofVisits: of(t.signups) },
         { key: "share", label: "シェアした", visitors: shares, ofVisits: of(shares) },
       ]
     : [

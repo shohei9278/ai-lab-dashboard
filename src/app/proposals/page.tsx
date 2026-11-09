@@ -13,6 +13,9 @@ const SOURCE: Record<string, string> = {
   plan: "朝会", meeting: "週の定例会議", scene: "作業の途中で", error: "エラーの見張り", revival: "敗者復活", human: "あなた", voice: "社員の声から",
 };
 
+// 臨時会議の提案も source は meeting なので、場面の名前で見分ける
+const sourceLabel = (r: RequestRow) => (r.source === "meeting" && r.scene?.startsWith("臨時会議") ? r.scene : SOURCE[r.source] ?? r.source);
+
 function Item({ r, owner }: { r: RequestRow; owner: boolean }) {
   const m = r.proposer ? modelInfo(r.proposer) : null;
   return (
@@ -32,7 +35,7 @@ function Item({ r, owner }: { r: RequestRow; owner: boolean }) {
       {r.why && <div className="text-xs text-muted">理由: {r.why}</div>}
       {r.ai_reply && <div className="rounded bg-surface-2 px-2 py-1 text-xs text-ink-2">AIの返事: {r.ai_reply}</div>}
       <div className="text-xs text-muted">
-        {SOURCE[r.source] ?? r.source}{r.scene && r.source === "scene" ? `（${r.scene}）` : ""}
+        {sourceLabel(r)}{r.scene && r.source === "scene" ? `（${r.scene}）` : ""}
         {r.project_id && <> ・<Link href={`/projects/${r.project_id}`} className="underline">#{r.project_id}</Link></>}
         {m && <> ・提案: <span style={{ color: `var(--series-${m.provider})` }}>{m.label}</span></>}
         ・{jstDateTime(r.created_at)}
@@ -88,7 +91,7 @@ export default async function ProposalsPage() {
               <li key={r.id}>
                 <span style={{ color: r.status === "done" ? "var(--good)" : "var(--muted)" }}>{r.status === "done" ? "✓ やった" : "– 見送り"}</span>
                 <span className="ml-2">{r.title}</span>
-                <span className="ml-2 text-xs text-muted">{r.source === "human" ? "あなたの提案" : r.target === "system" ? "仕組み" : "あなたへ"}・{SOURCE[r.source] ?? r.source}{r.score !== null ? `・${r.score.toFixed(1)}点` : ""}</span>
+                <span className="ml-2 text-xs text-muted">{r.source === "human" ? "あなたの提案" : r.target === "system" ? "仕組み" : "あなたへ"}・{sourceLabel(r)}{r.score !== null ? `・${r.score.toFixed(1)}点` : ""}</span>
                 {r.note && <span className="ml-2 text-xs text-ink-2">（{r.note}）</span>}
               </li>
             ))}

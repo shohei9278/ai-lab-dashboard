@@ -22,12 +22,14 @@ export function Tracker({ slug, version }: { slug: string; version: number }) {
       (entries) => {
         for (const e of entries) {
           const section = (e.target as HTMLElement).dataset.section;
-          if (!e.isIntersecting || !section || seen.has(section)) continue;
+          // 縦に長い部分（スマホのツールなど）は、半分が同時に画面に入らないので、画面の半分以上を占めたら見えたことにする
+          const visible = e.isIntersecting && (e.intersectionRatio >= 0.5 || e.intersectionRect.height >= innerHeight * 0.5);
+          if (!visible || !section || seen.has(section)) continue;
           seen.add(section);
           gaEvent("section_view", { lp_slug: slug, lp_version: version, section });
         }
       },
-      { threshold: 0.5 },
+      { threshold: [0, 0.1, 0.25, 0.5] },
     );
     document.querySelectorAll("[data-section]").forEach((el) => observer.observe(el));
 

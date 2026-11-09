@@ -107,7 +107,7 @@ export async function createWeeklyMeeting(): Promise<number> {
 
   // 2. だれの案かを伏せて、自分以外の案を採点し合う
   // 今回の案と、この週に提案箱に入った提案（あなたが入れたもの・会議の案は除く）を一緒に採点する
-  const existing = (db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source NOT IN ('human', 'meeting') AND created_at >= datetime('now', '-8 days')").all() as RequestRow[])
+  const existing = (db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source != 'human' AND (source != 'meeting' OR scene LIKE '臨時会議%') AND created_at >= datetime('now', '-8 days')").all() as RequestRow[])
     .map((r) => ({ title: r.title, how: r.how ?? "", why: r.why ?? "", target: r.target, proposer: r.proposer ?? "", existingId: r.id as number | undefined }));
   const pool = [...got.flatMap((m) => m.proposals.map((p) => ({ ...p, proposer: m.modelId, existingId: undefined as number | undefined }))), ...existing];
   const order = pool.map((_, i) => i).sort(() => Math.random() - 0.5);
