@@ -22,14 +22,16 @@ export async function getLp(slug: string): Promise<LpRow | null> {
   return { ...row, content: normalizeLp(row.content) };
 }
 
-// 公開中の動くツールの一覧（トップページ用。ツール本体のHTMLは重いので読まない）
-export async function listTools(): Promise<{ slug: string; title: string; version: number; sub: string | null }[]> {
-  const { data, error } = await supabase()
-    .from("lps")
-    .select("slug, title, version, project_id, sub:content->>subheadline")
-    .eq("status", "published")
-    .not("content->tool", "is", null)
-    .order("project_id", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as unknown as { slug: string; title: string; version: number; sub: string | null }[];
+export type ListedPage = { slug: string; title: string; version: number; sub: string | null };
+
+// 公開中のページの一覧（トップページ用）。動くツールと事前登録のページに分ける。ツール本体のHTMLは重いので読まない
+export async function listPages(): Promise<{ tools: ListedPage[]; lps: ListedPage[] }> {
+  const published = () => supabase().from("lps").select("slug, title, version, project_id, sub:content->>subheadline").eq("status", "published");
+  const [tools, lps] = await Promise.all([
+    published().not("content->tool", "is", null).order("project_id", { ascending: false }),
+    published().is("content->tool", null).order("project_id", { ascending: false }),
+  ]);
+  if (tools.error) throw tools.error;
+  if (lps.error) throw lps.error;
+  return { tools: (tools.data ?? []) as unknown as ListedPage[], lps: (lps.data ?? []) as unknown as ListedPage[] };
 }
