@@ -10,15 +10,12 @@ import { isOwner } from "@/lib/viewer";
 import { LogoutButton } from "./login/LoginForm";
 import "./globals.css";
 
-// フォントはブラウザが Google Fonts から読み込む（next/font はビルドのときに取りに行くので、ビルド環境によって失敗するため）
-const FONT_URL = "https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=M+PLUS+Rounded+1c:wght@400;700&family=Noto+Serif+JP:wght@400;700&display=swap";
-const FONT_VARS = { "--font-noto": "'Noto Sans JP'", "--font-rounded": "'M PLUS Rounded 1c'", "--font-mincho": "'Noto Serif JP'" } as React.CSSProperties;
-const fontHead = (
-  <head>
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-    <link rel="stylesheet" href={FONT_URL} />
-  </head>
-);
+// フォントは端末やサーバーに入っているものを使う（外部から読み込まないので、閲覧者の情報を送らず、ビルドも止まらない）
+const FONT_VARS = {
+  "--font-noto": "'Noto Sans JP', 'Noto Sans CJK JP', 'Hiragino Sans'",
+  "--font-rounded": "'Hiragino Maru Gothic ProN', 'Noto Sans CJK JP'",
+  "--font-mincho": "'Hiragino Mincho ProN', 'Yu Mincho', 'Noto Serif CJK JP'",
+} as React.CSSProperties;
 
 export const metadata: Metadata = {
   title: "AI Product Lab",
@@ -32,7 +29,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   if ((await headers()).get("x-pathname") === "/showcase") {
     return (
       <html lang="ja">
-        {fontHead}
         <body className="antialiased" style={FONT_VARS}>
           <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
         </body>
@@ -52,7 +48,6 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   ];
   return (
     <html lang="ja">
-      {fontHead}
       <body className="antialiased" style={FONT_VARS}>
         <div className="lg:flex">
           <SideNav
