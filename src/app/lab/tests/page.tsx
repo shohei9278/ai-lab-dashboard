@@ -56,7 +56,7 @@ export default function TestsPage() {
             <div className="flex items-center gap-2 border-b border-line px-3 py-2 text-sm text-ink-2">
               #{stats.run.id} {TASK_LABEL[stats.run.task as TaskType]} <MockBadge mock={!!stats.run.mock} />
             </div>
-            <table className="w-full text-sm">
+            <table className="m-scroll w-full text-sm">
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-3 py-2">モデル</th>

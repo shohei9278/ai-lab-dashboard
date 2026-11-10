@@ -148,7 +148,7 @@ export default async function GrowthPage() {
           <div className="card p-4 text-sm text-ink-2">公開中の案件はありません。</div>
         ) : (
           <div className="card overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="m-cards w-full text-sm">
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-3 py-2">案件</th>
@@ -159,16 +159,16 @@ export default async function GrowthPage() {
               <tbody>
                 {projects.map((p) => (
                   <tr key={p.id} className="border-b border-line last:border-0">
-                    <td className="px-3 py-2"><Link href={`/projects/${p.id}`} className="hover:underline">#{p.id} {p.title}</Link></td>
+                    <td className="m-wide px-3 py-2 font-medium sm:font-normal"><Link href={`/projects/${p.id}`} className="hover:underline">#{p.id} {p.title}</Link></td>
                     {shown.map((a) => {
                       const b = p.by[a.key];
                       return (
-                        <td key={a.key} className="num px-3 py-2 text-right text-xs">
+                        <td key={a.key} data-label={a.label} className="num px-3 py-2 text-right text-xs">
                           {b ? <>{b.n}件<span className="block text-muted">最後 {jstUtc(b.last)}</span></> : <span className="text-muted">まだ</span>}
                         </td>
                       );
                     })}
-                    <td className="px-3 py-2"><PauseToggle projectId={p.id} paused={p.paused} /></td>
+                    <td className="m-wide px-3 py-2"><PauseToggle projectId={p.id} paused={p.paused} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -212,7 +212,7 @@ export default async function GrowthPage() {
           <div className="card p-4 text-sm text-ink-2">まだ投稿はありません。</div>
         ) : (
           <div className="card overflow-x-auto">
-            <ShowMore as="table" initial={15} className="w-full text-sm" head={<thead className="text-left text-xs text-muted">
+            <ShowMore as="table" initial={15} className="m-cards w-full text-sm" head={<thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-3 py-2">日時</th>
                   <th className="px-3 py-2">場所</th>
@@ -224,14 +224,14 @@ export default async function GrowthPage() {
               </thead>}>
                 {posted.map((p) => (
                   <tr key={p.id} className="border-b border-line align-top last:border-0">
-                    <td className="num px-3 py-2 whitespace-nowrap text-xs text-ink-2">{p.posted_at ? jstUtc(p.posted_at) : "—"}</td>
+                    <td className="m-span2 num px-3 py-2 whitespace-nowrap text-xs text-ink-2">{p.posted_at ? jstUtc(p.posted_at) : "—"}</td>
                     <td className="px-3 py-2 whitespace-nowrap text-xs">{label(p.platform)}{p.author === "human" && <span className="block text-muted">あなた</span>}</td>
-                    <td className="px-3 py-2">
+                    <td className="m-wide px-3 py-2">
                       <Link href={`/projects/${p.project_id}`} className="text-xs text-ink-2 hover:underline">#{p.project_id} {p.title}</Link>
                       <p className="line-clamp-2 text-xs" title={p.text}>{p.text}</p>
                     </td>
-                    <td className="num px-3 py-2 text-right">{p.visits}</td>
-                    <td className="num px-3 py-2 text-right">{p.conversions}<span className="block text-[10px] text-muted">{p.noun}</span></td>
+                    <td data-label="訪問" className="num px-3 py-2 text-right">{p.visits}</td>
+                    <td data-label="成果" className="num px-3 py-2 text-right">{p.conversions}<span className="block text-[10px] text-muted">{p.noun}</span></td>
                     <td className="px-3 py-2 whitespace-nowrap text-right text-xs">
                       {p.post_url && <a href={p.post_url} target="_blank" rel="noreferrer" className="block text-accent underline">投稿を見る ↗</a>}
                       <ForgetPost id={p.id} />

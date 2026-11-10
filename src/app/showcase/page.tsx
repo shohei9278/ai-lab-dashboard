@@ -125,7 +125,7 @@ export default function Showcase() {
         <h2 className="font-bold">公開した案件</h2>
         {projects.length === 0 ? <p className="text-sm text-ink-2">まだありません。</p> : (
           <div className="card overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="m-cards w-full text-sm">
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-3 py-2">案件</th>
@@ -143,12 +143,12 @@ export default function Showcase() {
                   const m = modelInfo(p.idea_model ?? p.model_id);
                   return (
                     <tr key={p.id} className="num border-b border-line last:border-0">
-                      <td className="px-3 py-2">{url ? <a href={url} target="_blank" rel="noreferrer" className="text-accent underline">{p.title}</a> : p.title}</td>
-                      <td className="px-3 py-2 text-xs">{KIND_LABEL[p.kind]}</td>
-                      <td className="px-3 py-2 text-xs">{STAGE_LABEL[p.stage]}</td>
-                      <td className="px-3 py-2 text-xs"><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: `var(--series-${m.provider})` }} />{m.label}</td>
-                      <td className="px-3 py-2 text-right">{t.visits}</td>
-                      <td className="px-3 py-2 text-right">{t.visits ? `${CONV[p.kind].rate} ${pct(t.rate, 1)}` : "—"}</td>
+                      <td className="m-wide px-3 py-2 font-medium sm:font-normal">{url ? <a href={url} target="_blank" rel="noreferrer" className="text-accent underline">{p.title}</a> : p.title}</td>
+                      <td data-label="形" className="px-3 py-2 text-xs">{KIND_LABEL[p.kind]}</td>
+                      <td data-label="いまの段階" className="px-3 py-2 text-xs">{STAGE_LABEL[p.stage]}</td>
+                      <td data-label="アイデアを出したAI" className="px-3 py-2 text-xs"><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: `var(--series-${m.provider})` }} />{m.label}</td>
+                      <td data-label="訪問" className="px-3 py-2 text-right">{t.visits}</td>
+                      <td data-label="成果の率" className="px-3 py-2 text-right">{t.visits ? `${CONV[p.kind].rate} ${pct(t.rate, 1)}` : "—"}</td>
                     </tr>
                   );
                 })}

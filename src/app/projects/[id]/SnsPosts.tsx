@@ -119,7 +119,7 @@ export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl, account 
         <div className="space-y-2 border-t border-line pt-3">
           <h3 className="text-sm font-bold">投稿したもの</h3>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="m-cards w-full text-sm">
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-2 py-1.5">投稿</th>
@@ -130,7 +130,7 @@ export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl, account 
                 </tr>
               </thead>
               <tbody>
-                {posted.map((p) => <PostedRow key={p.id} p={p} act={act} />)}
+                {posted.map((p) => <PostedRow key={p.id} p={p} act={act} convNoun={convNoun} />)}
               </tbody>
             </table>
           </div>
@@ -194,17 +194,17 @@ function Draft({ p, busy, act }: { p: PostView; busy: boolean; act: (label: stri
   );
 }
 
-function PostedRow({ p, act }: { p: PostView; act: (label: string, body: Record<string, unknown>) => Promise<boolean> }) {
+function PostedRow({ p, act, convNoun }: { p: PostView; act: (label: string, body: Record<string, unknown>) => Promise<boolean>; convNoun: string }) {
   const [impr, setImpr] = useState(p.impressions === null ? "" : String(p.impressions));
   const [url, setUrl] = useState(p.postUrl ?? "");
   const ctr = p.impressions ? p.visits / p.impressions : null;
   return (
     <tr className="border-b border-line align-top last:border-0">
-      <td className="max-w-md px-2 py-2">
+      <td className="m-wide max-w-md px-2 py-2">
         <div className="text-xs text-muted">{PLATFORMS[p.platform] ?? p.platform}・{p.postedAt ? jstDateTime(p.postedAt) : ""}{p.angle ? `・${p.angle}` : ""}</div>
         <div className="line-clamp-3">{p.text}</div>
       </td>
-      <td className="px-2 py-2 text-right">
+      <td data-label="表示回数" className="px-2 py-2 text-right">
         <input
           type="number" min={0} value={impr} onChange={(e) => setImpr(e.target.value)}
           onBlur={() => impr !== (p.impressions === null ? "" : String(p.impressions)) && act("保存しています…", { action: "stats", id: p.id, impressions: impr })}
@@ -212,9 +212,9 @@ function PostedRow({ p, act }: { p: PostView; act: (label: string, body: Record<
         />
         {ctr !== null && <div className="num text-xs text-muted">クリック率 {(ctr * 100).toFixed(1)}%</div>}
       </td>
-      <td className="num px-2 py-2 text-right">{p.visits}</td>
-      <td className="num px-2 py-2 text-right">{p.conversions}</td>
-      <td className="px-2 py-2">
+      <td data-label="訪問" className="num px-2 py-2 text-right">{p.visits}</td>
+      <td data-label={convNoun} className="num px-2 py-2 text-right">{p.conversions}</td>
+      <td data-label="投稿のURL" className="m-wide px-2 py-2">
         <input
           value={url} onChange={(e) => setUrl(e.target.value)}
           onBlur={() => url !== (p.postUrl ?? "") && act("保存しています…", { action: "stats", id: p.id, postUrl: url })}
