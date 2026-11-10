@@ -85,7 +85,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   return (
     <div className="space-y-6">
       <div className="space-y-2">
-        <Link href="/" className="text-sm text-accent underline">← ホーム</Link>
+        <Link href="/projects" className="text-sm text-accent underline">← 案件の一覧</Link>
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-bold">{p.title}</h1>
           <span className="rounded border border-line px-1.5 py-0.5 text-xs">{STAGE_LABEL[p.stage]}</span>

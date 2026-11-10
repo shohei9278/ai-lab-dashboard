@@ -6,3 +6,6 @@ export const POLICY_UPDATED = process.env.POLICY_UPDATED || "2026年11月1日";
 // Google アナリティクス4 の測定ID（G-XXXXXXXXXX）。未設定ならGAは読み込まない
 const ga = process.env.GA_MEASUREMENT_ID?.trim() ?? "";
 export const GA_MEASUREMENT_ID = /^G-[A-Z0-9]{4,20}$/.test(ga) ? ga : "";
+
+// 実験のダッシュボード（公開サイト・通知・動画から同じものを使う）
+export const DASHBOARD_URL = "https://ai-lab-dashboard-production-fc9e.up.railway.app";

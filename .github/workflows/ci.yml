@@ -1,0 +1,71 @@
+# プルリクエストと main へのプッシュで動く。人の確認のあとでマージすると本番に出る
+# check が失敗すると Railway はデプロイしない（Railway 側で Wait for CI をオンにする）
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      AI_LAB_SCHEDULER: "off"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            lp-site/package-lock.json
+      - run: npm ci
+      - name: lint
+        run: npm run lint
+      - name: テスト
+        run: npm test
+      - name: 本番用のビルド
+        run: npm run build
+      - name: 型チェック
+        run: npm run typecheck
+      - name: 公開サイトの依存を入れる
+        working-directory: lp-site
+        run: npm ci
+      - name: 公開サイトの型チェック
+        working-directory: lp-site
+        run: npx tsc --noEmit
+
+  # 別の会社のAIによるレビュー（PRだけ）。結果をコメントするだけで、失敗してもマージは止めない
+  ai-review:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx tsx scripts/ai-review.ts
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BODY: ${{ github.event.pull_request.body }}

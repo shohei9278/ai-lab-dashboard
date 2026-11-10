@@ -25,7 +25,7 @@ export function IdeaAuthors() {
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-3 py-2">アイデアを出したAI</th>
-                  <th className="px-3 py-2 text-right">候補 / 選ばれた</th>
+                  <th className="px-3 py-2 text-right">選ばれた / 候補</th>
                   <th className="px-3 py-2 text-right">他社からの点</th>
                   <th className="px-3 py-2 text-right">自分の案への点</th>
                   <th className="px-3 py-2 text-right">他社の案への点</th>
@@ -44,7 +44,7 @@ export function IdeaAuthors() {
                         <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ background: `var(--series-${m.provider})` }} />
                         {m.label}
                       </td>
-                      <td className="px-3 py-2 text-right">{s.candidates} / {s.selected}</td>
+                      <td className="px-3 py-2 text-right">{s.selected} / {s.candidates}</td>
                       <td className="px-3 py-2 text-right">{pt(s.scoreFromOthers)}</td>
                       <td className="px-3 py-2 text-right">
                         {pt(s.scoreFromSelf)}

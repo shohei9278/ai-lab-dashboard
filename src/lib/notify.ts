@@ -1,6 +1,7 @@
 import { db, getSettings, saveSettings } from "./db";
 import { budgetState } from "./budget";
 import { waitingItems } from "./overview";
+import { DASHBOARD_URL } from "../../lp-site/src/lib/site";
 import { modelInfo } from "./models";
 import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, todayPlan } from "./plan";
 import type { DiaryContent } from "./diary";
@@ -19,7 +20,7 @@ function planLine(): string[] {
 // 投稿の時間が終わる時刻。これ以降に日報を書いて、まとめと一緒に送る（日本時間）
 export const NIGHTLY_HOUR = 22;
 
-const DIARY_URL = "https://ai-lab-dashboard-production-fc9e.up.railway.app/diary";
+const DIARY_URL = `${DASHBOARD_URL}/diary`;
 const jstNow = () => new Date(Date.now() + 9 * 3_600_000);
 const todayDiary = () => db().prepare("SELECT model_id, content FROM daily_reports WHERE day = ?").get(jstNow().toISOString().slice(0, 10)) as { model_id: string; content: string } | undefined;
 

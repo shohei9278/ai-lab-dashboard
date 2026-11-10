@@ -5,6 +5,7 @@ import type { DiaryContent } from "./diary";
 import { headline } from "./experiment";
 import { launch } from "./freePage";
 import { logEvent } from "./loop";
+import { DASHBOARD_URL } from "../../lp-site/src/lib/site";
 import { modelInfo } from "./models";
 import { RECORD_VIDEO_KINDS, type RecordVideoKind } from "./recordVideoKinds";
 import { recordToMp4 } from "./videoRender";
@@ -53,7 +54,7 @@ function material(kind: RecordVideoKind): string {
 
 // 台本の数字が、すべて材料にある数字かを確かめる（作り話を防ぐ）
 const numbersOf = (t: string) => (t.replace(/(\d),(\d)/g, "$1$2").match(/\d+(?:\.\d+)?/g) ?? []);
-function numbersFromMaterial(script: Script, mat: string): boolean {
+export function numbersFromMaterial(script: Script, mat: string): boolean {
   const known = new Set(numbersOf(mat));
   const all = [script.hook, script.end, ...script.scenes.flatMap((x) => [x.text, x.label, x.number ?? ""])];
   return all.flatMap(numbersOf).every((n) => known.has(n));
@@ -113,7 +114,7 @@ const iv=setInterval(()=>{t.textContent=chars.slice(0,++k).join('');if(k>=chars.
 }
 
 // ---- ダッシュボードを巡る動画: 本物のゲスト用の画面を、スマホ幅で順に見せる（AIは使わない）----
-const DASHBOARD = "https://ai-lab-dashboard-production-fc9e.up.railway.app";
+const DASHBOARD = DASHBOARD_URL;
 type Stop = { path: string; anchor: string; caption: string; scroll: number; ms: number };
 
 function tourStops(): { stops: Stop[]; hook: string; caption: string } {
@@ -128,7 +129,7 @@ function tourStops(): { stops: Stop[]; hook: string; caption: string } {
       { path: "/meetings", anchor: "会議室", caption: "会議も\nAI同士でやっている", scroll: 480, ms: 3200 },
       { path: "/voices", anchor: "日報とつぶやき", caption: "仕事の合間に\nAIがつぶやく", scroll: 620, ms: 3800 },
       { path: "/lab", anchor: "総合ランキング", caption: "3社のAIで\n成績を競っている", scroll: 380, ms: 3200 },
-      { path: "/", anchor: "案件の一覧", caption: `案件${h.projects}件・訪問${h.visits}人\n利用${h.conversions}件・AI費用 約${yen}円`, scroll: 320, ms: 3400 },
+      { path: "/projects", anchor: "案件の一覧", caption: `案件${h.projects}件・訪問${h.visits}人\n利用${h.conversions}件・AI費用 約${yen}円`, scroll: 320, ms: 3400 },
     ],
   };
 }

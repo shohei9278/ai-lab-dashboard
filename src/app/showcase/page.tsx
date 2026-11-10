@@ -13,6 +13,8 @@ import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, recentPlans } from "@/lib/p
 import { jstDay } from "@/lib/sns";
 import { listVoices } from "@/lib/voices";
 import { VoiceList } from "@/components/VoiceList";
+import { InterventionCard } from "@/components/InterventionList";
+import { listInterventions } from "@/lib/interventions";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -25,6 +27,7 @@ export const metadata: Metadata = {
 export default function Showcase() {
   const plans = recentPlans(7);
   const voices = listVoices({ limit: 12 });
+  const interventions = listInterventions();
   const s = getSettings();
   if (!s.showcaseEnabled) notFound();
 
@@ -110,6 +113,15 @@ export default function Showcase() {
       )}
 
       <section className="space-y-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-bold">人の手が入った記録</h2>
+          <Link href="/interventions" className="text-sm text-accent underline">すべて見る（{interventions.length}件）</Link>
+        </div>
+        <p className="text-sm text-ink-2">コードは Claude Code が書いています。問題を見つけ、原因を判断し、どう直すかを決めたのは人です。</p>
+        <div className="grid gap-3 lg:grid-cols-3">{interventions.slice(0, 3).map((v) => <InterventionCard key={v.id} v={v} />)}</div>
+      </section>
+
+      <section className="space-y-2">
         <h2 className="font-bold">公開した案件</h2>
         {projects.length === 0 ? <p className="text-sm text-ink-2">まだありません。</p> : (
           <div className="card overflow-x-auto">
@@ -155,7 +167,7 @@ export default function Showcase() {
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-3 py-2">AI</th>
-                  <th className="px-3 py-2 text-right">出した案 / 選ばれた</th>
+                  <th className="px-3 py-2 text-right">選ばれた / 出した案</th>
                   <th className="px-3 py-2 text-right">他社からの点</th>
                   <th className="px-3 py-2 text-right">自分の案への点</th>
                 </tr>
@@ -166,7 +178,7 @@ export default function Showcase() {
                   return (
                     <tr key={a.author} className="num border-b border-line last:border-0">
                       <td className="px-3 py-2"><span className="mr-1.5 inline-block h-2.5 w-2.5 rounded-full" style={{ background: `var(--series-${m.provider})` }} />{m.label}</td>
-                      <td className="px-3 py-2 text-right">{a.candidates} / {a.selected}</td>
+                      <td className="px-3 py-2 text-right">{a.selected} / {a.candidates}</td>
                       <td className="px-3 py-2 text-right">{a.scoreFromOthers?.toFixed(1) ?? "—"}</td>
                       <td className="px-3 py-2 text-right">{a.scoreFromSelf?.toFixed(1) ?? "—"}</td>
                     </tr>
