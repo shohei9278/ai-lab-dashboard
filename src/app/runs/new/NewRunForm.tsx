@@ -23,9 +23,10 @@ export function NewRunForm({ models, tasks }: { models: ModelOpt[]; tasks: TaskO
   const [mock, setMock] = useState(true);
   const [note, setNote] = useState("");
   // 断られたとき（公開中のデモなど）は error だけが返り、見積もりは入っていない
-  const [est, setEst] = useState<{ error: string | null; estimate?: Estimate; usdJpy?: number; forMock: boolean } | null>(null);
-  // ダミーの見積もりを、実APIの確認に使わない
-  const estimate = est?.forMock === mock ? est.estimate : undefined;
+  const [est, setEst] = useState<{ error: string | null; estimate?: Estimate; usdJpy?: number; forKey: string } | null>(null);
+  // 今の入力に対する見積もりだけを使う（入力を変えたら、新しい見積もりが届くまで実APIでは実行できない）
+  const estKey = JSON.stringify([task, selected, reps, variant, lang, mock]);
+  const estimate = est?.forKey === estKey ? est.estimate : undefined;
   const usdJpy = est?.usdJpy ?? 0;
   // 実際のAPIは費用がかかるので、見積もりを確かめられないときは実行させない
   const needsEstimate = !mock && !estimate;
@@ -43,7 +44,7 @@ export function NewRunForm({ models, tasks }: { models: ModelOpt[]; tasks: TaskO
       signal: ctrl.signal,
     })
       .then((r) => r.json())
-      .then((d) => setEst({ ...d, forMock: mock }))
+      .then((d) => setEst({ ...d, forKey: estKey }))
       .catch((e) => {
         if (e instanceof Error && e.name !== "AbortError") setEst(null);
       });
