@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { listTools } from "@/lib/supabase";
-import { SITE_NAME } from "@/lib/site";
+import { DASHBOARD_URL, SITE_NAME } from "@/lib/site";
 
 // 公開中のツールの一覧。公開・撤退はデータから自動で反映する（5分ごとに読み直す）
 export const revalidate = 300;
 
-const RECORD_URL = "https://ai-lab-dashboard-production-fc9e.up.railway.app/showcase";
+const RECORD_URL = `${DASHBOARD_URL}/showcase`;
 
 export const metadata: Metadata = {
   title: `${SITE_NAME}｜AIが作っている小さなWebツール`,

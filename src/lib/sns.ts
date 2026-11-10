@@ -147,7 +147,7 @@ export async function maybeAutoPost(): Promise<string[]> {
   const s = getSettings();
   if (!s.autoPost || s.killSwitch) return [];
   // 今日の計画があれば、投稿の回数・時刻・切り口は計画に任せる（計画を作れなかった日だけ、決まった間隔で投稿する）
-  if (s.dailyPlan && db().prepare("SELECT 1 FROM daily_plans WHERE day = ?").get(jstDay())) return [];
+  if (plannedToday()) return [];
   const h = jstHour();
   if (h < 8 || h >= 22) return [];
   const done: string[] = [];
@@ -167,7 +167,7 @@ async function autoPostTo(platform: AutoPlatform, perDay: number): Promise<strin
   const apiId = `${platform}-api`;
   // 失敗した直後は、2時間あけてから試す（クレジット切れなどで、5分ごとに失敗し続けないように）
   if (db().prepare("SELECT 1 FROM ai_calls WHERE model_id = ? AND error IS NOT NULL AND at >= datetime('now', '-2 hours') AND id = (SELECT MAX(id) FROM ai_calls WHERE model_id = ?)").get(apiId, apiId)) return null;
-  const recent = db().prepare("SELECT COUNT(*) AS n, MAX(posted_at) AS last FROM sns_posts WHERE platform = ? AND status = 'posted' AND author = 'ai' AND post_url IS NOT NULL AND posted_at >= datetime('now', '-24 hours')").get(platform) as { n: number; last: string | null };
+  const recent = recentAutoPosts(platform);
   if (recent.n >= perDay) return null;
   // 1日の投稿を間隔をあけて出す（例: 1日3件なら、前の投稿から5時間ほどあける）
   if (recent.last && Date.now() - Date.parse(recent.last.replace(" ", "T") + "Z") < (14 / Math.max(1, perDay)) * 3_600_000) return null;
@@ -218,6 +218,21 @@ export function aiPostsLast24h(platform: string): number {
   const a = (db().prepare("SELECT COUNT(*) AS n FROM sns_posts WHERE platform = ? AND status = 'posted' AND author = 'ai' AND posted_at >= datetime('now', '-24 hours')").get(platform) as { n: number }).n;
   const b = (db().prepare("SELECT COUNT(*) AS n FROM plan_tasks WHERE platform = ? AND kind = 'plain' AND status = 'done' AND done_at >= datetime('now', '-24 hours')").get(platform) as { n: number }).n;
   return a + b;
+}
+
+// 今日の計画があるか（あれば投稿の回数と時刻は計画に任せる。作れなかった日は決まった間隔で投稿する）
+export const plannedToday = () => getSettings().dailyPlan && !!db().prepare("SELECT 1 FROM daily_plans WHERE day = ?").get(jstDay());
+
+// 毎日の計画の安全装置: 直近24時間の投稿数と上限
+export const safetyQuota = (platform: string) => ({ used: aiPostsLast24h(platform), cap: getSettings().postSafetyPerDay });
+
+// 計画がない日の、決まった間隔の投稿の数と最後の時刻
+export const recentAutoPosts = (platform: string) => db().prepare("SELECT COUNT(*) AS n, MAX(posted_at) AS last FROM sns_posts WHERE platform = ? AND status = 'posted' AND author = 'ai' AND post_url IS NOT NULL AND posted_at >= datetime('now', '-24 hours')").get(platform) as { n: number; last: string | null };
+
+// 今いちばん効いている投稿の上限（画面の表示と判定をそろえる）
+export function postQuota(platform: string): { used: number; cap: number; planned: boolean } {
+  if (plannedToday()) return { ...safetyQuota(platform), planned: true };
+  return { used: recentAutoPosts(platform).n, cap: getSettings().autoPostPerDay, planned: false };
 }
 
 async function postProject(p: ProjectRow, platform: AutoPlatform, hint?: string): Promise<string | null> {

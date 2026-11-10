@@ -1,0 +1,51 @@
+# 本番の確認: デプロイが終わったら主要ページを確かめる。30分ごとに、デプロイが始まらず古いままになっていないかも確かめる
+# Railway の Wait for CI に待たれないよう、push では動かさない
+name: 本番の確認
+
+on:
+  deployment_status:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  DASHBOARD: https://ai-lab-dashboard-production-fc9e.up.railway.app
+
+jobs:
+  smoke:
+    if: github.event_name != 'deployment_status' || github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 主要ページが開く
+        run: |
+          for p in / /projects /plan /diary /lab /growth /live /interventions /showcase; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --retry 3 --retry-all-errors --max-time 40 "$DASHBOARD$p")
+            echo "$p $code"
+            [ "$code" = "200" ] || exit 1
+          done
+      - name: ゲストは操作できない
+        run: |
+          for u in /api/loop /api/videos /api/interventions; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' --max-time 40 "$DASHBOARD$u")
+            echo "$u $code"
+            [ "$code" = "403" ] || exit 1
+          done
+      - name: main の最新が本番に届いている
+        if: github.event_name != 'deployment_status'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          live=$(curl -s --max-time 40 "$DASHBOARD/api/version" | jq -r '.commit // empty')
+          if [ -z "$live" ]; then echo "本番の版が分からないため飛ばします"; exit 0; fi
+          head=$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)
+          at=$(gh api "repos/${{ github.repository }}/commits/main" --jq .commit.committer.date)
+          age=$(( $(date +%s) - $(date -d "$at" +%s) ))
+          echo "本番 $live / main $head / ${age}秒前"
+          # CIで止めたコミットは本番に出ないのが正しいので、CIが通っているものだけを見る
+          ok=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=$head&event=push" --jq '[.workflow_runs[] | select(.name=="CI")][0].conclusion // ""')
+          if [ "$live" != "$head" ] && [ "$age" -gt 1800 ] && [ "$ok" = "success" ]; then
+            echo "CIは通ったのに、30分たっても本番が最新になっていません"; exit 1
+          fi

@@ -302,7 +302,20 @@ CREATE TABLE IF NOT EXISTS voices (
   text TEXT NOT NULL,
   request_id INTEGER -- 提案箱に昇格したとき
 );
--- 週の定例会議: 3社がそれぞれ1週間を振り返って改善案を出し、作者を伏せて採点し合う。上位の案を提案箱に入れる
+CREATE TABLE IF NOT EXISTS interventions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  day TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  happened TEXT NOT NULL,
+  noticed TEXT NOT NULL,
+  decision TEXT NOT NULL,
+  commit_sha TEXT,
+  seed_key TEXT,
+  hidden INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS record_videos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -314,6 +327,7 @@ CREATE TABLE IF NOT EXISTS record_videos (
   script TEXT NOT NULL
 );
 
+-- 週の定例会議: 3社がそれぞれ1週間を振り返って改善案を出し、作者を伏せて採点し合う。上位の案を提案箱に入れる
 CREATE TABLE IF NOT EXISTS meetings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -566,6 +580,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "growth_focus_at", "TEXT"], // 集客の方針を最後に見直した日時（見直す前後の数字を分けるため）
   ["projects", "published_at", "TEXT"], // 最初に公開した日時
   ["projects", "judged_at", "TEXT"], // 最後にAIが判断した日時
+  ["interventions", "seed_key", "TEXT"], // 最初に入れた事例の目印（コードの内容で更新するため）
   ["projects", "index_visits", "INTEGER NOT NULL DEFAULT 0"], // 公開サイトの一覧から来た訪問者の数
   ["projects", "index_uses", "INTEGER NOT NULL DEFAULT 0"], // そのうち登録・利用した人の数
   ["projects", "hold_reason", "TEXT"], // 保留にした理由（人が書く）

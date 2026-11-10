@@ -78,7 +78,7 @@ export default async function GrowthPage() {
                 </div>
                 <div className="num text-xs text-ink-2">
                   直近24時間 {a.today}/{a.cap}件・
-                  {!s.autoPost ? "自動投稿はオフ" : a.nextAt ? `次に投稿できるのは ${jst(a.nextAt)} ごろ` : "今日の上限に達しました"}
+                  {!s.autoPost ? "自動投稿はオフ" : !a.nextAt ? "上限に達しました" : a.planned ? "投稿の時刻は毎朝の計画で決まります" : `次に投稿できるのは ${jst(a.nextAt)} ごろ`}
                 </div>
                 <div className="num text-xs text-muted">{a.free ? "無料" : `今月の費用 ${Math.round(a.costJpy).toLocaleString("ja-JP")}円（1件 約30円）`}</div>
                 {a.lastError && (
