@@ -6,6 +6,7 @@ import { addIntervention, hideIntervention, listInterventions } from "../src/lib
 import { getProject, holdProject, jstToday, resumeDueHolds } from "../src/lib/loop";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
+import { skitHtml } from "../src/lib/recordSkit";
 import { jstDay, postQuota } from "../src/lib/sns";
 import { clipText, getTrace, listTraces, saveTrace } from "../src/lib/traces";
 
@@ -89,4 +90,10 @@ test("AIの入出力: 件数と日数を超えた分は消し、長い本文は�
   assert.ok(clipped.length < 61_000 && clipped.startsWith("始") && clipped.endsWith("終"));
   saveTrace({ ...base, input: long });
   assert.equal(listTraces()[0].input_chars, long.length);
+});
+
+test("ロボットの寸劇: 台本の文字でページの作りを壊せない", () => {
+  const html = skitHtml({ cast: [{ name: "A", provider: "openai" }], beats: [{ speaker: 0, line: "</script><img src=x>", mood: "normal", board: "<b>" }] });
+  assert.ok(!html.includes("</script><img"));
+  assert.ok(html.includes("\\u003c/script>"));
 });

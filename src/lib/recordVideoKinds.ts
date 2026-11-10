@@ -2,7 +2,7 @@
 export const RECORD_VIDEO_KINDS = {
   tour: "ダッシュボードを見せる",
   day: "今日の結果",
-  debate: "AI同士の議論",
+  debate: "ロボットの会議",
   fail: "失敗談",
 } as const;
 export type RecordVideoKind = keyof typeof RECORD_VIDEO_KINDS;
