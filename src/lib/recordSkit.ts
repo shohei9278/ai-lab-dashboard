@@ -1,28 +1,26 @@
+import fs from "node:fs";
+import path from "node:path";
+
 // ロボット社員の寸劇の描画（ブラウザで動かして録画する）。ロボットはこの実験用のオリジナルの絵で、各社のロゴは使わない
+// 体は生成した画像（public/robots）で、黒い画面の上に目と口のLEDを重ねて表情を付ける
 export const MOODS = ["normal", "surprised", "thinking", "down", "angry", "happy"] as const;
 export type Mood = (typeof MOODS)[number];
 export type SkitCast = { name: string; provider: string };
 export type SkitBeat = { speaker: number; line: string; mood: Mood; board?: string };
 
-const COLOR: Record<string, string> = { anthropic: "#e0895a", openai: "#35b48c", google: "#5b8def" };
+const COLOR: Record<string, string> = { anthropic: "#f08a2a", openai: "#58cfa6", google: "#5aa9f0" };
+// 画像の中の黒い画面の位置（%）
+const FACE: Record<string, { cx: number; cy: number; w: number; h: number }> = {
+  anthropic: { cx: 49.5, cy: 35.6, w: 64, h: 31 },
+  openai: { cx: 49.5, cy: 41, w: 65, h: 31 },
+  google: { cx: 51, cy: 42, w: 66, h: 30 },
+};
 
-// 会社ごとに頭の形とアンテナを変える
+const imageUrl = (provider: string) => `data:image/webp;base64,${fs.readFileSync(path.join(process.cwd(), "public", "robots", `${provider}.webp`)).toString("base64")}`;
+
 function robot(provider: string): string {
-  const c = COLOR[provider] ?? "#9aa0aa";
-  const head = provider === "openai"
-    ? `<polygon points="80,34 134,62 134,122 80,150 26,122 26,62" fill="${c}"/>`
-    : provider === "google"
-      ? `<circle cx="80" cy="92" r="60" fill="${c}"/>`
-      : `<rect x="24" y="38" width="112" height="108" rx="26" fill="${c}"/>`;
-  const antenna = provider === "google"
-    ? `<path d="M80 6 l6 12 13 2 -10 9 3 13 -12-7 -12 7 3-13 -10-9 13-2z" fill="#ffd166"/>`
-    : `<rect x="76" y="14" width="8" height="24" fill="#c9ced6"/><circle cx="80" cy="12" r="9" fill="${provider === "openai" ? "#7cf0c8" : "#ffd166"}"/>`;
-  return `<svg viewBox="0 0 160 230" width="150" height="216" aria-hidden="true">${antenna}${head}
-    <rect x="36" y="66" width="88" height="44" rx="20" fill="#14181f"/>
-    <g class="eyes"><circle class="eye" cx="60" cy="88" r="9" fill="#e9f7ff"/><circle class="eye" cx="100" cy="88" r="9" fill="#e9f7ff"/></g>
-    <rect class="mouth" x="62" y="122" width="36" height="8" rx="4" fill="#14181f"/>
-    <rect x="46" y="158" width="68" height="54" rx="12" fill="#c9ced6"/><rect x="58" y="172" width="44" height="10" rx="5" fill="${c}"/>
-    <rect x="14" y="164" width="24" height="12" rx="6" fill="#9aa0aa"/><rect x="122" y="164" width="24" height="12" rx="6" fill="#9aa0aa"/></svg>`;
+  const f = FACE[provider] ?? FACE.anthropic;
+  return `<img src="${imageUrl(FACE[provider] ? provider : "anthropic")}" alt=""><div class="face" style="left:${f.cx - f.w / 2}%;top:${f.cy - f.h / 2}%;width:${f.w}%;height:${f.h}%"><i class="eye l"></i><i class="eye r"></i><i class="mouth"></i></div>`;
 }
 
 export function skitHtml(data: { cast: SkitCast[]; beats: SkitBeat[] }): string {
@@ -37,16 +35,20 @@ export function skitHtml(data: { cast: SkitCast[]; beats: SkitBeat[] }): string 
 #bubble{position:absolute;top:296px;left:24px;right:24px;min-height:210px;border-radius:22px;background:#f7f7f4;color:#14181f;padding:18px 22px;opacity:0;transition:opacity .16s}
 #bubble:after{content:"";position:absolute;bottom:-26px;left:var(--tail,50%);margin-left:-18px;border:18px solid transparent;border-top:26px solid #f7f7f4;border-bottom:0}
 #who{font-size:21px;font-weight:800;margin-bottom:8px}#line{font-size:34px;font-weight:800;line-height:1.42;white-space:pre-wrap}
-#stage{position:absolute;left:0;right:0;bottom:118px;display:flex;justify-content:space-around;align-items:flex-end;padding:0 10px}
-.bot{width:160px;display:flex;flex-direction:column;align-items:center;transition:opacity .2s,transform .22s}.bot.dim{opacity:.5}.bot.on{transform:translateY(-16px) scale(1.1)}
-.bot.on svg{filter:drop-shadow(0 0 16px var(--c))}.name{font-size:17px;font-weight:700;margin-top:4px;color:#d7dae0}
-.body{transform-origin:50% 90%}.bot.talk .mouth{animation:talk .16s infinite alternate;transform-box:fill-box;transform-origin:center}
-@keyframes talk{to{transform:scaleY(3.2)}}
-.surprised .body{animation:jump .42s 2}.surprised .eye{transform-box:fill-box;transform-origin:center;transform:scale(1.5)}@keyframes jump{50%{transform:translateY(-34px)}}
-.angry .body{animation:shake .12s 10}.angry .eye{fill:#ff8a7a}@keyframes shake{25%{transform:translateX(-7px) rotate(-3deg)}75%{transform:translateX(7px) rotate(3deg)}}
-.down .body{transform:rotate(8deg) translateY(14px);transition:transform .3s}.down .eye{transform-box:fill-box;transform-origin:center;transform:scaleY(.3)}
-.thinking .body{transform:rotate(-9deg);transition:transform .3s}.thinking .eyes{transform:translate(8px,-5px)}
-.happy .body{animation:hop .3s 4}@keyframes hop{50%{transform:translateY(-22px) rotate(3deg)}}
+#stage{position:absolute;left:0;right:0;bottom:112px;display:flex;justify-content:space-around;align-items:flex-end;padding:0 10px}
+.bot{width:170px;display:flex;flex-direction:column;align-items:center;transition:opacity .2s,transform .22s;filter:saturate(.95)}.bot.dim{opacity:.62;filter:saturate(.55)}.bot.on{transform:translateY(-14px) scale(1.09)}
+.body{position:relative;height:262px;transform-origin:50% 92%}.body img{height:100%;display:block}.bot.on .body img{filter:drop-shadow(0 0 16px var(--c))}
+.bot:after{content:"";order:1;width:120px;height:14px;border-radius:50%;background:#0006;margin-top:-6px}.name{order:2;font-size:17px;font-weight:700;margin-top:6px;color:#e4e7ec}
+.face{position:absolute;--led:#8df3ff}.eye,.mouth{position:absolute;display:block;background:var(--led);box-shadow:0 0 8px var(--led),0 0 18px var(--led);transition:all .14s}
+.eye{top:27%;width:20%;height:38%;border-radius:50%;animation:blink 3.4s infinite}.eye.l{left:20%}.eye.r{right:20%}.eye.r{animation-delay:.02s}
+@keyframes blink{0%,94%,100%{transform:scaleY(1)}97%{transform:scaleY(.08)}}
+.mouth{left:38%;width:24%;top:74%;height:8%;border-radius:6px}.bot.talk .mouth{animation:talk .15s infinite alternate}
+@keyframes talk{to{top:68%;height:22%;border-radius:12px}}
+.surprised .body{animation:jump .42s 2}.surprised .eye{top:20%;height:50%;width:25%;animation:none}.surprised .mouth{left:43%;width:14%;top:72%;height:16%;border-radius:50%}@keyframes jump{50%{transform:translateY(-34px)}}
+.angry .body{animation:shake .12s 10}.angry .face{--led:#ff7d6e}.angry .eye{top:36%;height:24%;animation:none;border-radius:4px}.angry .eye.l{transform:rotate(18deg)}.angry .eye.r{transform:rotate(-18deg)}@keyframes shake{25%{transform:translateX(-7px) rotate(-3deg)}75%{transform:translateX(7px) rotate(3deg)}}
+.down .body{transform:rotate(7deg) translateY(12px);transition:transform .3s}.down .face{--led:#6fb7c9}.down .eye{top:47%;height:10%;animation:none;border-radius:4px}.down .mouth{left:43%;width:14%;height:5%}
+.thinking .body{transform:rotate(-8deg);transition:transform .3s}.thinking .eye{animation:none;transform:translate(26%,-20%)}.thinking .mouth{left:50%;width:12%;height:6%}
+.happy .body{animation:hop .3s 4}@keyframes hop{50%{transform:translateY(-22px) rotate(3deg)}}.happy .eye{animation:none;background:transparent;box-shadow:none;height:34%;top:34%;border-top:6px solid var(--led);border-radius:50%;filter:drop-shadow(0 0 6px var(--led))}.happy .mouth{left:38%;width:24%;height:16%;border-radius:0 0 40px 40px}
 </style><div id="floor"></div><div id="tag">AIを社員にした会社の実験</div><div id="board"><span id="bt"></span></div><div id="bubble"><div id="who"></div><div id="line"></div></div><div id="stage">${bots}</div>
 <script>
 const D=${JSON.stringify(data).replace(/</g, "\\u003c")};
