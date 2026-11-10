@@ -31,7 +31,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const loginEnabled = !!process.env.DASHBOARD_PASSWORD;
   const groups: NavGroup[] = [
     { items: [{ href: "/", label: "ホーム", also: ["/plan"] }, { href: "/projects", label: "案件の一覧" }, { href: "/live", label: "ライブ" }] },
-    { title: "あなたの確認", items: [{ href: "/approvals", label: "判断待ち", badge: pending }, { href: "/proposals", label: "提案箱", badge: proposals }] },
+    { title: owner ? "あなたの確認" : "運営者の確認", items: [{ href: "/approvals", label: "判断待ち", badge: owner ? pending : 0 }, { href: "/proposals", label: "提案箱", badge: owner ? proposals : 0 }] },
     { title: "AIの社員", items: [{ href: "/meetings", label: "会議室" }, { href: "/diary", label: "日報", also: ["/voices"] }, { href: "/lab", label: "AIの成績" }] },
     { title: "届ける", items: [{ href: "/growth", label: "集客", also: ["/viral"] }, { href: "/outside", label: "外の声" }] },
     { title: "その他", items: [{ href: "/interventions", label: "人の手の記録" }, { href: "/notes", label: "資料", also: ["/reports"] }, ...(owner ? [{ href: "/traces", label: "AIの入出力" }] : []), { href: "/settings", label: "設定" }] },
@@ -49,7 +49,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
           banner={!owner && (
             <div className="border-b border-line bg-surface-2">
               <p className="px-4 py-1.5 lg:px-6 text-xs text-ink-2">
-                公開中のデモです。AIが実際に動かしている実験の、本物の画面と数字を見られます（閲覧のみ。ボタンは押せません。個人の情報や他人の投稿は伏せています）。
+                公開中のデモです（閲覧のみ）<span className="hidden sm:inline">。AIが実際に動かしている実験の、本物の画面と数字を見られます。ボタンは押せません。個人の情報や他人の投稿は伏せています</span>。
               {" "}<Link href="/showcase" className="underline">はじめての方は概要ページへ</Link>
               </p>
             </div>

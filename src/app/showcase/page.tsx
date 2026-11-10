@@ -53,7 +53,7 @@ export default function Showcase() {
         <Link href="/" className="inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink">実際のダッシュボードを見る（閲覧専用）</Link>
       </header>
 
-      <section className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Tile label="AIが出したアイデア" value={`${ideas.n}件`} />
         <Tile label="進めた案件" value={`${all.n}件`} />
         <Tile label="公開した案件" value={`${projects.filter((p) => p.public_version !== null).length}件`} />

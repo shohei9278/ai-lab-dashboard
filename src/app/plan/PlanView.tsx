@@ -225,16 +225,11 @@ export function PostStatsView() {
 }
 
 // 提案箱のうち、あなたへのお願い（返事がまだのもの）
-export function OpenRequests({ owner }: { owner: boolean }) {
+export function OpenRequests({ owner, collapsed }: { owner: boolean; collapsed?: boolean }) {
   const rows = openRequests("human");
   if (!rows.length) return null;
-  return (
-    <div className="space-y-2 rounded-lg p-3" style={{ background: "var(--surface-2)" }}>
-      <div className="flex flex-wrap items-baseline gap-2 text-sm font-medium">
-        提案箱: あなたへのお願い（{rows.length}件）
-        <span className="text-xs font-normal text-muted">AIが自分ではできないけれど、やると効きそうだと考えたこと</span>
-        <Link href="/proposals" className="ml-auto text-xs font-normal text-accent underline">提案箱を開く</Link>
-      </div>
+  const heading = `提案箱: ${owner ? "あなた" : "運営者"}へのお願い（${rows.length}件）`;
+  const list = (
       <ul className="space-y-2">
         {rows.map((r) => (
           <li key={r.id} className="space-y-0.5 text-sm">
@@ -247,6 +242,26 @@ export function OpenRequests({ owner }: { owner: boolean }) {
           </li>
         ))}
       </ul>
+  );
+  if (collapsed) {
+    return (
+      <details className="rounded-lg p-3" style={{ background: "var(--surface-2)" }}>
+        <summary data-demo-ok className="cursor-pointer text-sm font-medium">{heading}</summary>
+        <div className="mt-2 space-y-2">
+          <Link href="/proposals" className="text-xs text-accent underline">提案箱を開く</Link>
+          {list}
+        </div>
+      </details>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-lg p-3" style={{ background: "var(--surface-2)" }}>
+      <div className="flex flex-wrap items-baseline gap-2 text-sm font-medium">
+        {heading}
+        <span className="text-xs font-normal text-muted">AIが自分ではできないけれど、やると効きそうだと考えたこと</span>
+        <Link href="/proposals" className="ml-auto text-xs font-normal text-accent underline">提案箱を開く</Link>
+      </div>
+      {list}
     </div>
   );
 }

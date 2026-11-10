@@ -5,6 +5,7 @@ import { useState } from "react";
 import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
 import { DecisionCard } from "./DecisionCard";
 import { jstDateTime } from "@/lib/format";
+import { plainIssue } from "@/lib/issueText";
 
 export type ApprovalView = {
   id: number;
@@ -93,7 +94,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
               ) : (
                 <div style={{ color: "var(--critical)" }}>
                   ! AIのチェックで問題が残っています
-                  <ul className="ml-5 list-disc text-ink-2">{a.review.issues.map((x) => <li key={x}>{x}</li>)}</ul>
+                  <ul className="ml-5 list-disc text-ink-2">{a.review.issues.map((x) => <li key={x}>{plainIssue(x)}</li>)}</ul>
                 </div>
               )}
             </div>

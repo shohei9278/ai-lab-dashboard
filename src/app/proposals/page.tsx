@@ -60,7 +60,7 @@ export default async function ProposalsPage() {
       </PageIntro>
 
       <section className="card space-y-3 p-4">
-        <h2 className="font-bold">あなたにやってほしいこと（{human.length}件）</h2>
+        <h2 className="font-bold">{owner ? "あなたにやってほしいこと" : "運営者へのお願い"}（{human.length}件）</h2>
         {human.length ? <ul className="space-y-2">{human.map((r) => <Item key={r.id} r={r} owner={owner} />)}</ul> : <p className="text-sm text-ink-2">今はありません。</p>}
       </section>
 
