@@ -310,6 +310,8 @@ CREATE TABLE IF NOT EXISTS interventions (
   happened TEXT NOT NULL,
   noticed TEXT NOT NULL,
   decision TEXT NOT NULL,
+  result TEXT,
+  found_by TEXT,
   commit_sha TEXT,
   seed_key TEXT,
   hidden INTEGER NOT NULL DEFAULT 0,
@@ -580,6 +582,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "growth_focus_at", "TEXT"], // 集客の方針を最後に見直した日時（見直す前後の数字を分けるため）
   ["projects", "published_at", "TEXT"], // 最初に公開した日時
   ["projects", "judged_at", "TEXT"], // 最後にAIが判断した日時
+  ["interventions", "result", "TEXT"], // 修正後の結果
+  ["interventions", "found_by", "TEXT"], // 問題を見つけたのは誰か（カンマ区切り）
   ["interventions", "seed_key", "TEXT"], // 最初に入れた事例の目印（コードの内容で更新するため）
   ["projects", "index_visits", "INTEGER NOT NULL DEFAULT 0"], // 公開サイトの一覧から来た訪問者の数
   ["projects", "index_uses", "INTEGER NOT NULL DEFAULT 0"], // そのうち登録・利用した人の数

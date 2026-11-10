@@ -117,7 +117,7 @@ export default function Showcase() {
           <h2 className="font-bold">人の手が入った記録</h2>
           <Link href="/interventions" className="text-sm text-accent underline">すべて見る（{interventions.length}件）</Link>
         </div>
-        <p className="text-sm text-ink-2">コードは Claude Code が書いています。問題を見つけ、原因を判断し、どう直すかを決めたのは人です。</p>
+        <p className="text-sm text-ink-2">コード生成には主に Claude Code を活用しています。人間は問題の発見、方針決定、動作確認を担当し、原因調査や修正にもAIを活用しています。</p>
         <div className="grid gap-3 lg:grid-cols-3">{interventions.slice(0, 3).map((v) => <InterventionCard key={v.id} v={v} />)}</div>
       </section>
 
