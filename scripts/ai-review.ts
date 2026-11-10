@@ -15,7 +15,7 @@ async function comment(body: string) {
     : `https://api.github.com/repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/comments`;
   const res = await fetch(url, {
     method: "POST",
-    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
+    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" },
     body: JSON.stringify({ body }),
   });
   if (!res.ok) throw new Error(`コメントを投稿できませんでした（${res.status}）`);
