@@ -22,7 +22,10 @@ export function NewRunForm({ models, tasks }: { models: ModelOpt[]; tasks: TaskO
   const [lang, setLang] = useState("ja");
   const [mock, setMock] = useState(true);
   const [note, setNote] = useState("");
-  const [est, setEst] = useState<{ error: string | null; estimate: Estimate; usdJpy: number } | null>(null);
+  // 断られたとき（公開中のデモなど）は error だけが返り、見積もりは入っていない
+  const [est, setEst] = useState<{ error: string | null; estimate?: Estimate; usdJpy?: number } | null>(null);
+  const estimate = est?.estimate;
+  const usdJpy = est?.usdJpy ?? 0;
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -44,7 +47,7 @@ export function NewRunForm({ models, tasks }: { models: ModelOpt[]; tasks: TaskO
   }, [task, selected.join(","), reps, variant, lang, mock]);
 
   async function submit() {
-    if (!mock && est && !confirm(`実際のAPIを呼び出します。見積もり ${fmtYen(est.estimate.usd, est.usdJpy)} です。実行しますか？`)) return;
+    if (!mock && estimate && !confirm(`実際のAPIを呼び出します。見積もり ${fmtYen(estimate.usd, usdJpy)} です。実行しますか？`)) return;
     setSubmitting(true);
     setSubmitError(null);
     const res = await fetch("/api/runs", {
@@ -132,18 +135,18 @@ export function NewRunForm({ models, tasks }: { models: ModelOpt[]; tasks: TaskO
       <aside className="card h-fit space-y-3 p-4">
         <h2 className="font-bold">実行前の見積もり</h2>
         <div className="num text-sm text-ink-2">
-          {itemCount}問 × {reps}回 × {selected.length}モデル = <b className="text-ink">{est?.estimate.calls ?? 0}回</b>
+          {itemCount}問 × {reps}回 × {selected.length}モデル = <b className="text-ink">{estimate?.calls ?? 0}回</b>
         </div>
         <div>
           <div className="text-xs text-muted">{mock ? "ダミーのため実際の費用は0円（参考値）" : "見積もり費用"}</div>
-          <div className="num text-2xl font-bold">{est ? fmtYen(est.estimate.usd, est.usdJpy) : "—"}</div>
+          <div className="num text-2xl font-bold">{estimate ? fmtYen(estimate.usd, usdJpy) : "—"}</div>
         </div>
-        {est && est.estimate.perModel.length > 0 && (
+        {estimate && estimate.perModel.length > 0 && (
           <ul className="space-y-1 text-xs text-ink-2">
-            {est.estimate.perModel.map((p) => (
+            {estimate.perModel.map((p) => (
               <li key={p.modelId} className="num flex justify-between">
                 <span>{models.find((m) => m.id === p.modelId)?.label}</span>
-                <span>{fmtYen(p.usd, est.usdJpy)}{p.measured ? "" : " *"}</span>
+                <span>{fmtYen(p.usd, usdJpy)}{p.measured ? "" : " *"}</span>
               </li>
             ))}
           </ul>

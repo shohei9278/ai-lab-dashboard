@@ -6,11 +6,13 @@ import { PageIntro } from "@/components/PageIntro";
 import { LibraryTabs } from "@/components/LabTabs";
 import { AddNoteButton, CopyButton, CreateReportButton } from "./ReportActions";
 import { jstFull } from "@/lib/format";
+import { isOwner } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
   const { id } = await searchParams;
+  const owner = await isOwner();
   const s = getSettings();
   const reports = listReports();
   const current = reports.find((r) => r.id === Number(id)) ?? reports[0];
@@ -80,6 +82,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             </section>
           </div>
 
+          {/* 投稿前の下書きは運営者だけに渡す（画面で隠すのではなく、来訪者にはデータごと送らない） */}
+          {!owner ? (
+            <p className="card p-4 text-sm text-ink-2">投稿前の下書き（Xの投稿・記事）は、運営者だけに表示しています。</p>
+          ) : (
+          <>
           <section className="card space-y-2 p-4">
             <h2 className="font-bold">実験ログの下書き（あなたの個人アカウント用）</h2>
             <p className="text-xs text-muted">「AIにプロダクト作りを任せる実験」として、あなたが自分のアカウントで投稿する文です。「Xで投稿」を押すと、投稿の画面が開きます（送るのはあなたです）。</p>
@@ -103,6 +110,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             </div>
             <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-sm font-[inherit]">{r.article}</pre>
           </section>
+          </>
+          )}
         </>
       )}
     </div>

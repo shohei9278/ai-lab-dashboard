@@ -303,13 +303,14 @@ function RankingCard({ r }: { r: Ranking }) {
         <ol className="space-y-2">
           {r.rows.map((row, i) => (
             <li key={row.modelId}>
-              <div className="flex items-baseline justify-between gap-2 text-sm">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-2 text-sm">
                 <span className="flex min-w-0 items-center gap-2">
                   <span className="num w-8 shrink-0 text-xs font-bold" style={{ color: i === 0 && r.rows.length > 1 ? "var(--accent)" : "var(--text-2)" }}>{MEDAL[i] ?? `${i + 1}位`}</span>
                   <span aria-hidden className="inline-block h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: `var(--series-${row.provider})` }} />
                   <span className="truncate">{row.label}</span>
                 </span>
-                <span className="num shrink-0 font-medium">{row.display}<span className="ml-1 text-xs font-normal text-muted">n={row.n}</span></span>
+                {/* 説明の長い数字は名前の次の行へ送る（名前を削らず、画面の幅も超えないように） */}
+                <span className="num ml-auto min-w-0 text-right font-medium">{row.display}<span className="ml-1 text-xs font-normal text-muted">n={row.n}</span></span>
               </div>
               <Bar value={len(row.value)} color={`var(--series-${row.provider})`} />
             </li>
