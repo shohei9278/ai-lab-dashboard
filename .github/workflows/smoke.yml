@@ -10,13 +10,15 @@ on:
 
 permissions:
   contents: read
+  deployments: read
+  actions: read
 
 env:
   DASHBOARD: https://ai-lab-dashboard-production-fc9e.up.railway.app
 
 jobs:
   smoke:
-    if: github.event_name != 'deployment_status' || github.event.deployment_status.state == 'success'
+    if: github.event_name != 'deployment_status' || (github.event.deployment_status.state == 'success' && contains(github.event.deployment.environment, 'production'))
     runs-on: ubuntu-latest
     steps:
       - name: 主要ページが開く
@@ -37,15 +39,21 @@ jobs:
         if: github.event_name != 'deployment_status'
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          live=$(curl -s --max-time 40 "$DASHBOARD/api/version" | jq -r '.commit // empty')
-          if [ -z "$live" ]; then echo "本番の版が分からないため飛ばします"; exit 0; fi
-          head=$(gh api "repos/${{ github.repository }}/commits/main" --jq .sha)
-          at=$(gh api "repos/${{ github.repository }}/commits/main" --jq .commit.committer.date)
+          head=$(gh api "repos/$REPO/commits/main" --jq .sha)
+          at=$(gh api "repos/$REPO/commits/main" --jq .commit.committer.date)
           age=$(( $(date +%s) - $(date -d "$at" +%s) ))
-          echo "本番 $live / main $head / ${age}秒前"
+          # Railway のデプロイ記録で、最新の状態が success のものが今動いている版（入れ替わった版は inactive になる）
+          live=""
+          for id in $(gh api "repos/$REPO/deployments?per_page=15" --jq '.[] | select(.environment | contains("production")) | .id'); do
+            state=$(gh api "repos/$REPO/deployments/$id/statuses?per_page=1" --jq '.[0].state')
+            if [ "$state" = "success" ]; then live=$(gh api "repos/$REPO/deployments/$id" --jq .sha); break; fi
+          done
+          echo "本番 ${live:-不明} / main $head / ${age}秒前"
+          if [ -z "$live" ]; then echo "動いている版が見つかりません"; exit 1; fi
           # CIで止めたコミットは本番に出ないのが正しいので、CIが通っているものだけを見る
-          ok=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=$head&event=push" --jq '[.workflow_runs[] | select(.name=="CI")][0].conclusion // ""')
+          ok=$(gh api "repos/$REPO/actions/runs?head_sha=$head&event=push" --jq '[.workflow_runs[] | select(.name=="CI")][0].conclusion // ""')
           if [ "$live" != "$head" ] && [ "$age" -gt 1800 ] && [ "$ok" = "success" ]; then
             echo "CIは通ったのに、30分たっても本番が最新になっていません"; exit 1
           fi
