@@ -65,7 +65,7 @@ test("人の手の記録: 最初の事例は入れ直しても増えず、消し
   assert.ok(!again.some((v) => v.id === first[0].id));
   assert.ok(again.some((v) => v.title === "手で足した"));
   assert.throws(() => addIntervention({ title: "x" }), /すべて書いて/);
-  const id = addIntervention({ title: "発見者", happened: "a", noticed: "b", decision: "c", result: "r", found_by: ["gpt", "test", "不正"] });
+  const id = addIntervention({ title: "発見者", happened: "a", noticed: "b", decision: "c", result: "r", found_by: ["gpt", "test", "gpt", "不正", "toString", "constructor"] });
   const row = listInterventions().find((v) => v.id === id)!;
   assert.equal(row.found_by, "gpt,test");
   assert.equal(row.result, "r");

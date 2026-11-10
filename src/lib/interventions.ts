@@ -16,7 +16,8 @@ export type FoundBy = keyof typeof FOUND_BY;
 export type InterventionRow = { id: number; day: string; kind: InterventionKind; title: string; happened: string; noticed: string; decision: string; result: string | null; found_by: string | null; commit_sha: string | null };
 
 export const commitUrl = (sha: string) => `https://github.com/shohei9278/ai-lab-dashboard/commit/${sha}`;
-export const foundByLabels = (v: string | null) => (v ?? "").split(",").flatMap((k) => (k in FOUND_BY ? [FOUND_BY[k as FoundBy]] : []));
+const isFoundBy = (k: unknown): k is FoundBy => typeof k === "string" && Object.hasOwn(FOUND_BY, k);
+export const foundByLabels = (v: string | null) => (v ?? "").split(",").filter(isFoundBy).map((k) => FOUND_BY[k]);
 
 // これまでの実際の事例。key ごとにコードの内容で更新するので、文面やコミットを直せば次の起動で反映される（消した記録は消したまま）
 const FIRST: (Omit<InterventionRow, "id"> & { key: string })[] = [
@@ -58,7 +59,7 @@ export function addIntervention(v: Record<string, unknown>): number {
   const text = (k: string, max: number) => String(v[k] ?? "").trim().slice(0, max);
   const title = text("title", 80), happened = text("happened", 400), noticed = text("noticed", 300), decision = text("decision", 400), result = text("result", 300), sha = text("commit", 40);
   const kind = (["bug", "design", "direction"].includes(String(v.kind)) ? v.kind : "bug") as InterventionKind;
-  const found = (Array.isArray(v.found_by) ? v.found_by : []).filter((k): k is FoundBy => typeof k === "string" && k in FOUND_BY);
+  const found = [...new Set((Array.isArray(v.found_by) ? v.found_by : []).filter(isFoundBy))];
   if (!title || !happened || !noticed || !decision) throw new Error("題・問題・人の対応・AIの対応は、すべて書いてください");
   if (sha && !/^[0-9a-f]{7,40}$/.test(sha)) throw new Error("コミットは英数字のIDで入れてください");
   seedOnce();
