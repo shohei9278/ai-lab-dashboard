@@ -97,3 +97,49 @@ body {
 .grid > * {
   min-width: 0;
 }
+
+/* スマホの表。列を押しつぶして1文字ずつ折り返さないようにする（PCの見た目は変えない） */
+@media (max-width: 639px) {
+  /* m-scroll: 見出しと数字を折り返さず、横にスクロールして読む表 */
+  table.m-scroll th,
+  table.m-scroll td.num,
+  table.m-scroll tr.num td {
+    white-space: nowrap;
+  }
+
+  /* m-cards: 1行を1枚のカードにする表（m-wide は横幅いっぱい、m-span2 は2列分、data-label は値の上に出す見出し） */
+  table.m-cards,
+  .m-cards tbody {
+    display: block;
+  }
+  .m-cards thead {
+    display: none;
+  }
+  .m-cards tr {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem 0.75rem;
+    padding: 0.75rem;
+  }
+  .m-cards td {
+    display: block;
+    max-width: none;
+    padding: 0;
+    text-align: left;
+    white-space: normal;
+  }
+  .m-cards td.m-wide {
+    grid-column: 1 / -1;
+  }
+  .m-cards td.m-span2 {
+    grid-column: span 2;
+  }
+  .m-cards td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    color: var(--muted);
+    font-size: 0.6875rem;
+    font-weight: 400;
+    white-space: nowrap;
+  }
+}

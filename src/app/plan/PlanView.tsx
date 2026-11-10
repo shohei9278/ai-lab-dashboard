@@ -142,7 +142,7 @@ export function PlanHistory({ plans }: { plans: PlanRow[] }) {
   if (!plans.length) return <p className="text-sm text-ink-2">まだありません。</p>;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="m-cards w-full text-sm">
         <thead className="text-left text-xs text-muted">
           <tr><th className="py-1 pr-3 font-normal">日</th><th className="py-1 pr-3 font-normal">担当</th><th className="py-1 pr-3 font-normal">ネック</th><th className="py-1 pr-3 font-normal">予定</th><th className="py-1 pr-3 font-normal">目標</th><th className="py-1 pr-3 font-normal">予想→実測（訪問）</th></tr>
         </thead>
@@ -151,18 +151,18 @@ export function PlanHistory({ plans }: { plans: PlanRow[] }) {
             const g = planProgress(p);
             return (
               <tr key={p.id} className="border-t border-line align-top">
-                <td className="num whitespace-nowrap py-2 pr-3">{dayLabel(p.day)}</td>
-                <td className="whitespace-nowrap py-2 pr-3 text-xs" style={{ color: `var(--series-${modelInfo(p.model_id).provider})` }}>{modelInfo(p.model_id).label}</td>
-                <td className="py-2 pr-3">{BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}<div className="text-xs text-muted">{g.content.focus}</div></td>
-                <td className="num whitespace-nowrap py-2 pr-3">{g.done}/{g.total}件 <span className="text-xs text-ink-2">{Math.round(g.taskRate * 100)}%</span></td>
-                <td className="num whitespace-nowrap py-2 pr-3">
+                <td className="num whitespace-nowrap py-2 pr-3 font-medium sm:font-normal">{dayLabel(p.day)}</td>
+                <td className="m-span2 whitespace-nowrap py-2 pr-3 text-xs" style={{ color: `var(--series-${modelInfo(p.model_id).provider})` }}>{modelInfo(p.model_id).label}</td>
+                <td className="m-wide py-2 pr-3">{BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}<div className="text-xs text-muted">{g.content.focus}</div></td>
+                <td data-label="予定" className="num whitespace-nowrap py-2 pr-3">{g.done}/{g.total}件 <span className="text-xs text-ink-2">{Math.round(g.taskRate * 100)}%</span></td>
+                <td data-label="目標" className="num whitespace-nowrap py-2 pr-3">
                   {g.goals.map((x) => (
                     <div key={x.metric} style={{ color: x.rate >= 1 ? "var(--good)" : undefined }}>
                       {GOAL_LABEL[x.metric]} {x.actual}/{x.target}{x.rate >= 1 ? " ✓" : ""}
                     </div>
                   ))}
                 </td>
-                <td className="num whitespace-nowrap py-2 pr-3">
+                <td data-label="予想→実測" className="num whitespace-nowrap py-2 pr-3">
                   {g.prediction ? (
                     <span style={{ color: Math.abs(g.actual.visits - g.prediction.visits) <= Math.max(2, g.prediction.visits * 0.2) ? "var(--good)" : undefined }}>
                       {g.prediction.visits} → {g.actual.visits}人
@@ -196,14 +196,14 @@ export function PostStatsView() {
       <div className="space-y-1">
         <h3 className="text-sm font-medium">{title}</h3>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="m-scroll w-full text-sm">
             <thead className="text-left text-xs text-muted">
               <tr><th className="py-1 pr-3 font-normal"></th><th className="py-1 pr-3 font-normal">件数</th><th className="py-1 pr-3 font-normal">宣伝からの訪問（平均）</th><th className="py-1 pr-3 font-normal">反応（平均）</th></tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.label} className="border-t border-line">
-                  <td className="py-1.5 pr-3">{r.label}</td>
+                  <td className="min-w-32 py-1.5 pr-3">{r.label}</td>
                   <td className="num py-1.5 pr-3">{r.n}</td>
                   <td className="whitespace-nowrap py-1.5 pr-3">{bar(r.avgVisits, maxV)}</td>
                   <td className="whitespace-nowrap py-1.5 pr-3">{bar(r.avgReaction, maxR)}{r.reacted < r.n && r.reacted > 0 ? <span className="ml-1 text-xs text-muted">（{r.reacted}件で集計）</span> : null}</td>

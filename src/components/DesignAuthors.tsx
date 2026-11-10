@@ -20,7 +20,7 @@ export function DesignAuthors() {
         <div className="card p-6 text-sm text-ink-2">まだ記録がありません（公開の判断が済んだ実案件だけを数えます）。</div>
       ) : (
         <div className="card overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="m-scroll w-full text-sm">
             <thead className="text-left text-xs text-muted">
               <tr className="border-b border-line">
                 <th className="px-3 py-2">LPを作ったAI</th>

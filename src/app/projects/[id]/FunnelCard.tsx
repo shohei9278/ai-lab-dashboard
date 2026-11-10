@@ -32,7 +32,7 @@ export function FunnelCard({ f, isTool, projectId, all, liveVersion }: { f: Funn
           </nav>
           {/* 版どうしを見比べる（訪問に対する割合） */}
           <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+            <table className="m-scroll w-full text-xs">
               <thead className="text-left text-muted">
                 <tr>
                   <th className="py-1 pr-3 font-normal">版</th>

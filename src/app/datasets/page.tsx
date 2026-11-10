@@ -17,7 +17,7 @@ export default function DatasetsPage() {
             <h2 className="font-bold">{ds.title}（{ds.items.length}問）</h2>
             <p className="text-xs text-muted">{ds.labels ? `ラベル: ${ds.labels.join(" / ")}` : `項目: ${ds.fields!.join(", ")}`}</p>
             <div className="card overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="m-scroll w-full text-sm">
                 <thead className="text-left text-xs text-muted">
                   <tr className="border-b border-line">
                     <th className="px-3 py-2">ID</th>
@@ -31,8 +31,8 @@ export default function DatasetsPage() {
                     <tr key={it.id} className="border-b border-line align-top last:border-0">
                       <td className="px-3 py-2 text-ink-2">{it.id}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-ink-2">{AUTHOR_LABEL[it.author] ?? it.author}</td>
-                      <td className="px-3 py-2 whitespace-pre-wrap">{it.input}</td>
-                      <td className="px-3 py-2 font-mono text-xs whitespace-pre-wrap">
+                      <td className="min-w-52 px-3 py-2 whitespace-pre-wrap">{it.input}</td>
+                      <td className="min-w-72 px-3 py-2 font-mono text-xs whitespace-pre-wrap">
                         {typeof it.answer === "string" ? it.answer : JSON.stringify(it.answer, null, 1)}
                       </td>
                     </tr>

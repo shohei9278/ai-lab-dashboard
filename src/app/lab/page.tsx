@@ -241,7 +241,7 @@ export default function LabPage() {
         <section className="space-y-2">
           <h2 className="font-bold">進め方（モード）の比較</h2>
           <div className="card overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="m-scroll w-full text-sm">
               <thead className="text-left text-xs text-muted">
                 <tr className="border-b border-line">
                   <th className="px-3 py-2">モード</th>
