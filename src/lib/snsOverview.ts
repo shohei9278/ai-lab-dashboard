@@ -1,7 +1,7 @@
 import { db, getSettings, type ProjectRow } from "./db";
 import { CONV } from "./loop";
 import { AUTO_PLATFORMS, type AutoPlatform } from "./snsApi";
-import { postLink } from "./sns";
+import { postLink, postQuota, recentAutoPosts } from "./sns";
 
 // SNSの管理画面用: 場所ごとの状態（つながっているか・今日の投稿数・次に投稿できる時刻・最後の失敗）と、投稿の一覧
 
@@ -12,10 +12,11 @@ export function accounts() {
   return (Object.keys(AUTO_PLATFORMS) as AutoPlatform[]).map((key) => {
     const def = AUTO_PLATFORMS[key];
     const apiId = `${key}-api`;
-    const recent = db().prepare("SELECT COUNT(*) AS n, MAX(posted_at) AS last FROM sns_posts WHERE platform = ? AND status = 'posted' AND author = 'ai' AND post_url IS NOT NULL AND posted_at >= datetime('now', '-24 hours')").get(key) as { n: number; last: string | null };
+    const recent = recentAutoPosts(key);
     const all = db().prepare("SELECT COUNT(*) AS n, COALESCE(SUM(visits), 0) AS v, COALESCE(SUM(conversions), 0) AS c FROM sns_posts WHERE platform = ? AND status = 'posted'").get(key) as { n: number; v: number; c: number };
     const lastCall = db().prepare("SELECT at, error FROM ai_calls WHERE model_id = ? ORDER BY id DESC LIMIT 1").get(apiId) as { at: string; error: string | null } | undefined;
     const cost = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS c FROM ai_calls WHERE model_id = ? AND strftime('%Y-%m', at) = strftime('%Y-%m', 'now')").get(apiId) as { c: number }).c;
+    const { used: today, cap, planned } = postQuota(key);
     // 次に投稿できる時刻（間隔・失敗のあとの待ち時間のうち、遅い方。日本時間の8〜22時の外なら翌朝8時）
     let next = Date.now();
     if (recent.last) next = Math.max(next, parseUtc(recent.last) + (14 / Math.max(1, s.autoPostPerDay)) * 3_600_000);
@@ -33,7 +34,7 @@ export function accounts() {
       : (db().prepare("SELECT post_url FROM sns_posts WHERE platform = 'threads' AND post_url IS NOT NULL ORDER BY id DESC LIMIT 1").get() as { post_url: string } | undefined)?.post_url.replace(/\/post\/.*$/, "") ?? null;
     return {
       key, label: def.label, configured: def.configured(), free: def.costUsd === 0, handle, profile,
-      today: recent.n, cap: s.autoPostPerDay, nextAt: recent.n >= s.autoPostPerDay ? null : new Date(next).toISOString(),
+      today, cap, planned, nextAt: today >= cap ? null : new Date(next).toISOString(),
       lastError: lastCall?.error ? { at: lastCall.at, error: lastCall.error } : null,
       costJpy: cost * s.usdJpy, posts: all.n, visits: all.v, conversions: all.c,
     };

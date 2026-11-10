@@ -4,7 +4,7 @@ import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lesso
 import { endReasons, headline } from "./experiment";
 import { funnelText } from "./funnel";
 import { AUTO_PLATFORMS, autoPlatforms, postAllowed, type AutoPlatform } from "./snsApi";
-import { aiPostsLast24h, jstDay, postPromo } from "./sns";
+import { jstDay, postPromo, safetyQuota } from "./sns";
 import { viralHints } from "./viralPosts";
 import { budgetState } from "./budget";
 import { jstDateTime } from "./format";
@@ -232,7 +232,7 @@ function planMaterial(): string {
     outsideText(),
     researchText() || "調べたこと: まだない",
     `公開中の案件:\n${projectLines.join("\n") || "（なし）"}`,
-    `自動で投稿できる場所: ${platforms.map((p) => `${AUTO_PLATFORMS[p].label}（宣伝は${postAllowed(p, "promo") ? `1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}・普通の投稿は${postAllowed(p, "plain") ? `約${Math.round(AUTO_PLATFORMS[p].plainCostUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}。直近24時間の投稿 ${aiPostsLast24h(p)}件・安全装置 ${s.postSafetyPerDay}件）`).join(" / ") || "なし（自動投稿がオフ、またはキーがない。投稿の予定は入れない）"}`,
+    `自動で投稿できる場所: ${platforms.map((p) => `${AUTO_PLATFORMS[p].label}（宣伝は${postAllowed(p, "promo") ? `1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}・普通の投稿は${postAllowed(p, "plain") ? `約${Math.round(AUTO_PLATFORMS[p].plainCostUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}。直近24時間の投稿 ${safetyQuota(p).used}件・安全装置 ${s.postSafetyPerDay}件）`).join(" / ") || "なし（自動投稿がオフ、またはキーがない。投稿の予定は入れない）"}`,
     `投稿してよい時間: ${POST_START}〜${POST_END}時`,
     `予算: 今月の残り 約${Math.max(0, Math.round(s.monthlyBudgetJpy - monthSpendUsd() * s.usdJpy))}円（月${s.monthlyBudgetJpy}円）・新しい案件1件 約${Math.round(b.perProject)}円・今日の予算のペースで作れる新しい案件 ${b.newToday}件`,
     `最近のAIの宣伝の投稿と、そこからの訪問・成果:\n${recentPosts.join("\n") || "（なし）"}`,
@@ -326,7 +326,8 @@ export async function createPlan({ force = false } = {}): Promise<number> {
     if (t.kind === "promo" && !live.has(Number(t.project_id))) return false;
     if (!postAllowed(t.platform, t.kind)) return false;
     const n = (perPlatform.get(t.platform) ?? 0) + 1;
-    if (aiPostsLast24h(t.platform) + n > s.postSafetyPerDay) return false;
+    const q = safetyQuota(t.platform);
+    if (q.used + n > q.cap) return false;
     perPlatform.set(t.platform, n);
     return true;
   }).slice(0, 30);
@@ -442,9 +443,10 @@ async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string
   if (!s.autoPost) return { status: "skipped", result: "自動投稿がオフのため見送り" };
   if (!AUTO_PLATFORMS[platform]?.configured()) return { status: "skipped", result: "この場所のキーがないため見送り" };
   if (!postAllowed(platform, t.kind === "promo" ? "promo" : "plain")) return { status: "skipped", result: `設定で、この場所の${t.kind === "promo" ? "宣伝" : "普通"}の投稿を止めているため見送り` };
-  if (aiPostsLast24h(platform) >= s.postSafetyPerDay) {
-    logEvent(null, "system", "plan-cap", `${AUTO_PLATFORMS[platform].label}の投稿が安全装置（直近24時間で${s.postSafetyPerDay}件）に届いたため、予定を見送りました`);
-    return { status: "skipped", result: `安全装置（直近24時間で${s.postSafetyPerDay}件）に届いたため見送り` };
+  const quota = safetyQuota(platform);
+  if (quota.used >= quota.cap) {
+    logEvent(null, "system", "plan-cap", `${AUTO_PLATFORMS[platform].label}の投稿が安全装置（直近24時間で${quota.cap}件）に届いたため、予定を見送りました`);
+    return { status: "skipped", result: `安全装置（直近24時間で${quota.cap}件）に届いたため見送り` };
   }
   if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) return { status: "skipped", result: "今月の予算の上限に達したため見送り" };
   if (t.kind === "promo") {
