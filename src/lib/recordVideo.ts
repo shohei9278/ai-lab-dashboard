@@ -57,7 +57,7 @@ function material(kind: RecordVideoKind): string {
 const numbersOf = (t: string) => (t.replace(/(\d),(\d)/g, "$1$2").match(/\d+(?:\.\d+)?/g) ?? []);
 export function numbersFromMaterial(script: Script, mat: string): boolean {
   const known = new Set(numbersOf(mat));
-  const all = [script.hook, script.end, ...script.scenes.flatMap((x) => [x.text, x.label, x.number ?? ""])];
+  const all = [script.hook, script.end, script.caption, ...script.scenes.flatMap((x) => [x.text, x.label, x.number ?? ""])];
   return all.flatMap(numbersOf).every((n) => known.has(n));
 }
 
@@ -88,7 +88,7 @@ async function writeSkit(mat: string, instruction?: string): Promise<Skit> {
       if (!isObj(v) || !isStr(v.hook) || !isStr(v.end) || !isStr(v.caption) || !Array.isArray(v.beats) || v.beats.length < 3) return false;
       const beats = v.beats as Skit["beats"];
       if (!beats.every((b) => isObj(b) && isStr(b.line) && ids.includes(b.who)) || new Set(beats.map((b) => b.who)).size < 2) return false;
-      return numbersFromMaterial({ hook: v.hook, end: v.end, caption: "", scenes: beats.map((b) => ({ who: null, label: "", text: b.line, number: b.board })) }, mat);
+      return numbersFromMaterial({ hook: v.hook, end: v.end, caption: v.caption, scenes: beats.map((b) => ({ who: null, label: "", text: b.line, number: b.board })) }, mat);
     },
   });
 }

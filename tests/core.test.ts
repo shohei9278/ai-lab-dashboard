@@ -54,6 +54,7 @@ test("動画の台本: 材料にない数字は通さない", () => {
   const mat = "AI費用 約5,624円・訪問 32人";
   assert.equal(numbersFromMaterial(script("費用は5,624円、訪問は32人"), mat), true);
   assert.equal(numbersFromMaterial(script("費用は9,999円"), mat), false);
+  assert.equal(numbersFromMaterial({ ...script("費用は5,624円"), caption: "利用者は1,000人です" }, mat), false);
 });
 
 test("人の手の記録: 最初の事例は入れ直しても増えず、消した記録は戻らない", () => {
