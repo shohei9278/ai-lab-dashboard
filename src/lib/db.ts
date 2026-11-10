@@ -302,6 +302,20 @@ CREATE TABLE IF NOT EXISTS voices (
   text TEXT NOT NULL,
   request_id INTEGER -- 提案箱に昇格したとき
 );
+CREATE TABLE IF NOT EXISTS ai_traces (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  purpose TEXT NOT NULL,
+  model_id TEXT NOT NULL,
+  project_id INTEGER,
+  system TEXT NOT NULL,
+  input TEXT NOT NULL,
+  output TEXT,
+  error TEXT,
+  input_chars INTEGER NOT NULL DEFAULT 0,
+  output_chars INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS interventions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   day TEXT NOT NULL,

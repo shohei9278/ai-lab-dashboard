@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { saveTrace } from "./traces";
 import { db, getSettings, monthSpendUsd } from "./db";
 import { logEvent } from "./loop";
 import { isObj, isStr } from "./ai";
@@ -105,6 +106,7 @@ ${title ? `問いの中の「#${r.project_id}」は自社のサービス「${tit
     }
     const cost = costUsd(model, inTok, outTok) + searches * SEARCH_USD;
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, '調べもの', ?, ?, ?, ?, NULL)").run(r.project_id, modelId, inTok, outTok, cost);
+    saveTrace({ purpose: "調べもの", modelId, projectId: r.project_id, system: "", input: JSON.stringify(messages[0]?.content), output: text, error: null });
     const t = text.replace(/```(?:json)?/g, "");
     const v = JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)) as unknown;
     if (!isObj(v)) throw new Error("結果を読み取れませんでした");
@@ -120,6 +122,7 @@ ${title ? `問いの中の「#${r.project_id}」は自社のサービス「${tit
   } catch (e) {
     const m = (e instanceof Error ? e.message : String(e)).slice(0, 300);
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, '調べもの', ?, ?, ?, ?, ?)").run(r.project_id, modelId, inTok, outTok, costUsd(model, inTok, outTok) + searches * SEARCH_USD, m);
+    saveTrace({ purpose: "調べもの", modelId, projectId: r.project_id, system: "", input: JSON.stringify(messages[0]?.content), output: text, error: m });
     db().prepare("UPDATE research SET status = 'failed', unknown = ?, searches = ?, done_at = datetime('now') WHERE id = ?").run(`調べる途中で失敗した: ${m}`, searches, id);
     logEvent(r.project_id, "system", "research-error", `調べもの「${r.question.slice(0, 40)}」でエラー: ${m}`);
   }

@@ -7,6 +7,7 @@ import { getProject, holdProject, jstToday, resumeDueHolds } from "../src/lib/lo
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
 import { jstDay, postQuota } from "../src/lib/sns";
+import { clipText, getTrace, listTraces, saveTrace } from "../src/lib/traces";
 
 const addProject = (stage = "live") =>
   Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id) VALUES ('t', 't', 'p', 's', 'h', 'r', ?, 'm')").run(stage).lastInsertRowid);
@@ -70,4 +71,21 @@ test("人の手の記録: 最初の事例は入れ直しても増えず、消し
   assert.equal(row.found_by, "gpt,test");
   assert.equal(row.result, "r");
   assert.throws(() => addIntervention({ title: "x", happened: "a", noticed: "b", decision: "c", commit: "zzz" }), /コミット/);
+});
+
+test("AIの入出力: 件数と日数を超えた分は消し、長い本文は前後を残す", () => {
+  const base = { purpose: "test", modelId: "m", system: "s", input: "i" };
+  for (let i = 0; i < 205; i++) saveTrace({ ...base, output: `o${i}` });
+  assert.equal(listTraces().length, 200);
+  assert.equal(listTraces()[0].input_chars, 1);
+  const row = (db().prepare("SELECT COUNT(*) AS n, MIN(id) AS first FROM ai_traces").get() as { n: number; first: number });
+  assert.equal(row.n, 200);
+  db().prepare("UPDATE ai_traces SET at = datetime('now', '-8 days') WHERE id = ?").run(row.first);
+  saveTrace({ ...base });
+  assert.equal(getTrace(row.first), undefined);
+  const long = `始${"あ".repeat(100_000)}終`;
+  const clipped = clipText(long);
+  assert.ok(clipped.length < 61_000 && clipped.startsWith("始") && clipped.endsWith("終"));
+  saveTrace({ ...base, input: long });
+  assert.equal(listTraces()[0].input_chars, long.length);
 });
