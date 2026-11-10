@@ -4,6 +4,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 import { callModel } from "./providers";
+import { saveTrace } from "./traces";
 
 export class GuardError extends Error {}
 
@@ -35,6 +36,7 @@ export async function callJson<T>(opts: {
       )
       .run(opts.projectId ?? null, opts.purpose, model.id, r.inputTokens, r.outputTokens, cost,
         r.error ?? (ok ? null : "JSONの形式が不正"));
+    saveTrace({ purpose: opts.purpose, modelId: model.id, projectId: opts.projectId, system, input: opts.user, output: r.text, error: r.error ?? (ok ? null : "JSONの形式が不正") });
     if (r.error) throw new Error(`AIの呼び出しに失敗しました: ${r.error.slice(0, 200)}`);
     if (ok) return parsed as T;
   }
@@ -50,6 +52,7 @@ export function claudeModelId(): string | null {
 }
 
 export type ClaudeContent = ({ type: "text"; text: string } | { type: "image"; source: { type: "base64"; media_type: "image/png" | "image/jpeg"; data: string } })[];
+const contentText = (c: ClaudeContent) => c.map((x) => (x.type === "text" ? x.text : "（画像）")).join("\n");
 
 export async function callClaude(opts: { purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number; modelId?: string; effort?: "low" | "medium" | "high" }): Promise<string> {
   const s = getSettings();
@@ -61,6 +64,7 @@ export async function callClaude(opts: { purpose: string; projectId?: number; sy
   const log = (inTok: number, outTok: number, error: string | null) =>
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(opts.projectId ?? null, opts.purpose, model.id, inTok, outTok, costUsd(model, inTok, outTok), error);
+  const trace = (output: string | null, error: string | null) => saveTrace({ purpose: opts.purpose, modelId: model.id, projectId: opts.projectId, system: opts.system, input: contentText(opts.content), output, error });
   try {
     // 出力が長いので、途中で切れないよう流しながら受け取る
     const msg = await new Anthropic({ timeout: 15 * 60 * 1000, maxRetries: 1 }).messages.stream({
@@ -74,11 +78,12 @@ export async function callClaude(opts: { purpose: string; projectId?: number; sy
     const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
     const error = msg.stop_reason === "refusal" ? "refusal" : msg.stop_reason === "max_tokens" ? `出力が長すぎて途中で切れました（本文${text.length}文字の時点。残りは考える処理に使用）` : null;
     log(msg.usage.input_tokens, msg.usage.output_tokens, error);
+    trace(text, error);
     if (error) throw new Error(error);
     return text;
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
-    if (!/refusal|途中で切れました/.test(m)) log(0, 0, m.slice(0, 500));
+    if (!/refusal|途中で切れました/.test(m)) { log(0, 0, m.slice(0, 500)); trace(null, m); }
     throw new Error(`AIの呼び出しに失敗しました: ${m.slice(0, 200)}`);
   }
 }
@@ -96,6 +101,7 @@ export async function callLong(opts: { modelId: string; purpose: string; project
   const log = (inTok: number, outTok: number, error: string | null) =>
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(opts.projectId ?? null, opts.purpose, model.id, inTok, outTok, costUsd(model, inTok, outTok), error);
+  const trace = (output: string | null, error: string | null) => saveTrace({ purpose: opts.purpose, modelId: model.id, projectId: opts.projectId, system: opts.system, input: opts.user, output, error });
   if (model.provider === "google") {
     try {
       const res = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: 15 * 60 * 1000 } }).models.generateContent({
@@ -106,11 +112,12 @@ export async function callLong(opts: { modelId: string; purpose: string; project
       const error = reason === "MAX_TOKENS" ? "出力が長すぎて途中で切れました" : !res.text ? `出力が空でした（${reason ?? "理由不明"}）` : null;
       // 思考トークンも出力として課金される
       log(u?.promptTokenCount ?? 0, (u?.candidatesTokenCount ?? 0) + (u?.thoughtsTokenCount ?? 0), error);
+      trace(res.text ?? null, error);
       if (error) throw new Error(error);
       return res.text ?? "";
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
-      if (!/途中で切れました|出力が空でした/.test(m)) log(0, 0, m.slice(0, 500));
+      if (!/途中で切れました|出力が空でした/.test(m)) { log(0, 0, m.slice(0, 500)); trace(null, m); }
       throw new Error(`AIの呼び出しに失敗しました: ${m.slice(0, 200)}`);
     }
   }
@@ -123,11 +130,12 @@ export async function callLong(opts: { modelId: string; purpose: string; project
     const outTok = res.usage?.output_tokens ?? 0;
     const error = res.status === "incomplete" ? "出力が長すぎて途中で切れました" : null;
     log(inTok, outTok, error);
+    trace(res.output_text, error);
     if (error) throw new Error(error);
     return res.output_text;
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
-    if (!/途中で切れました/.test(m)) log(0, 0, m.slice(0, 500));
+    if (!/途中で切れました/.test(m)) { log(0, 0, m.slice(0, 500)); trace(null, m); }
     throw new Error(`AIの呼び出しに失敗しました: ${m.slice(0, 200)}`);
   }
 }
@@ -143,6 +151,7 @@ export async function callVision(opts: { modelId: string; purpose: string; proje
   const log = (inTok: number, outTok: number, error: string | null) =>
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(opts.projectId ?? null, opts.purpose, model.id, inTok, outTok, costUsd(model, inTok, outTok), error);
+  const trace = (output: string | null, error: string | null) => saveTrace({ purpose: opts.purpose, modelId: model.id, projectId: opts.projectId, system: opts.system, input: contentText(opts.content), output, error });
   try {
     if (model.provider === "openai") {
       const res = await new OpenAI({ timeout: 6 * 60 * 1000, maxRetries: 1 }).responses.create({
@@ -156,6 +165,7 @@ export async function callVision(opts: { modelId: string; purpose: string; proje
       });
       const error = res.status === "incomplete" ? "出力が長すぎて途中で切れました" : null;
       log(res.usage?.input_tokens ?? 0, res.usage?.output_tokens ?? 0, error);
+      trace(res.output_text, error);
       if (error) throw new Error(error);
       return res.output_text;
     }
@@ -167,11 +177,12 @@ export async function callVision(opts: { modelId: string; purpose: string; proje
     const u = res.usageMetadata;
     const error = res.candidates?.[0]?.finishReason === "MAX_TOKENS" ? "出力が長すぎて途中で切れました" : null;
     log(u?.promptTokenCount ?? 0, (u?.candidatesTokenCount ?? 0) + (u?.thoughtsTokenCount ?? 0), error);
+    trace(res.text ?? null, error);
     if (error) throw new Error(error);
     return res.text ?? "";
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
-    if (!/途中で切れました/.test(m)) log(0, 0, m.slice(0, 500));
+    if (!/途中で切れました/.test(m)) { log(0, 0, m.slice(0, 500)); trace(null, m); }
     throw new Error(`AIの呼び出しに失敗しました: ${m.slice(0, 200)}`);
   }
 }

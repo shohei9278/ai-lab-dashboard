@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { saveTrace } from "./traces";
 import { db, getSettings, monthSpendUsd } from "./db";
 import { logEvent } from "./loop";
 import { isObj, isStr } from "./ai";
@@ -117,9 +118,12 @@ ${title ? `問いの中の「#${r.project_id}」は自社のサービス「${tit
     db().prepare("UPDATE research SET status = ?, summary = ?, findings = ?, unknown = ?, searches = ?, done_at = datetime('now') WHERE id = ?")
       .run(status, isStr(v.summary) ? v.summary.slice(0, 800) : null, JSON.stringify(findings), isStr(v.unknown) ? v.unknown.slice(0, 400) : null, searches, id);
     logEvent(r.project_id, "ai", "research", `調べもの「${r.question.slice(0, 40)}」: ${status === "answered" ? `分かった（出典${findings.length}件・${today}）` : "分からなかった（保留）"}`);
+    // 読み取りまで済んでから残す（失敗したときは下の catch で1件だけ残す）
+    saveTrace({ purpose: "調べもの", modelId, projectId: r.project_id, system: "", input: JSON.stringify(messages[0]?.content), output: text, error: null });
   } catch (e) {
     const m = (e instanceof Error ? e.message : String(e)).slice(0, 300);
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, '調べもの', ?, ?, ?, ?, ?)").run(r.project_id, modelId, inTok, outTok, costUsd(model, inTok, outTok) + searches * SEARCH_USD, m);
+    saveTrace({ purpose: "調べもの", modelId, projectId: r.project_id, system: "", input: JSON.stringify(messages[0]?.content), output: text, error: m });
     db().prepare("UPDATE research SET status = 'failed', unknown = ?, searches = ?, done_at = datetime('now') WHERE id = ?").run(`調べる途中で失敗した: ${m}`, searches, id);
     logEvent(r.project_id, "system", "research-error", `調べもの「${r.question.slice(0, 40)}」でエラー: ${m}`);
   }

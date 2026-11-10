@@ -44,7 +44,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
     { title: "あなたの確認", items: [{ href: "/approvals", label: "判断待ち", badge: pending }, { href: "/proposals", label: "提案箱", badge: proposals }] },
     { title: "AIの社員", items: [{ href: "/meetings", label: "会議室" }, { href: "/diary", label: "日報", also: ["/voices"] }, { href: "/lab", label: "AIの成績" }] },
     { title: "届ける", items: [{ href: "/growth", label: "集客", also: ["/viral"] }, { href: "/outside", label: "外の声" }] },
-    { title: "その他", items: [{ href: "/interventions", label: "人の手の記録" }, { href: "/notes", label: "資料", also: ["/reports"] }, { href: "/settings", label: "設定" }] },
+    { title: "その他", items: [{ href: "/interventions", label: "人の手の記録" }, { href: "/notes", label: "資料", also: ["/reports"] }, ...(owner ? [{ href: "/traces", label: "AIの入出力" }] : []), { href: "/settings", label: "設定" }] },
   ];
   return (
     <html lang="ja">
