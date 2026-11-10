@@ -12,10 +12,11 @@ export function RecordVideos({ items }: { items: Item[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState<RecordVideoKind | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [wish, setWish] = useState("");
   const make = async (kind: RecordVideoKind) => {
     setBusy(kind);
     setError(null);
-    const res = await fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind }) });
+    const res = await fetch("/api/videos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, instruction: wish }) });
     const data = (await res.json().catch(() => ({}))) as { error?: string };
     setBusy(null);
     if (!res.ok) setError(data.error ?? "作れませんでした");
@@ -27,6 +28,14 @@ export function RecordVideos({ items }: { items: Item[] }) {
         <h2 className="font-bold">実験の記録の動画（あなただけに見えています）</h2>
         <p className="text-xs text-muted">本物の記録からAIが台本を書き、縦長の短い動画（音なし）を作ります。内容を確かめてから、個人のアカウントに手で投稿してください。字幕の動画は1本 約5〜10円（ダッシュボードの動画はAIを使わないので無料）、1〜2分かかります。</p>
       </div>
+      <label className="block text-xs text-ink-2">
+        見せ方の希望（任意。「ダッシュボードを見せる」には使いません）
+        <input
+          value={wish} onChange={(e) => setWish(e.target.value)} maxLength={200} placeholder="例: 費用の話を中心に / GPTとGeminiの対立を強めに"
+          className="mt-1 block w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+        />
+        <span className="mt-1 block text-muted">事実や数字は変わりません。元の記録にない数字は自動で弾きます。</span>
+      </label>
       <div className="flex flex-wrap gap-2">
         {(Object.keys(RECORD_VIDEO_KINDS) as RecordVideoKind[]).map((k) => (
           <button key={k} type="button" disabled={!!busy} className="rounded-lg border border-line px-3 py-1.5 text-sm disabled:opacity-50" onClick={() => make(k)}>

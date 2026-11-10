@@ -9,6 +9,7 @@ import { DASHBOARD_URL } from "../../lp-site/src/lib/site";
 import { modelInfo } from "./models";
 import { RECORD_VIDEO_KINDS, type RecordVideoKind } from "./recordVideoKinds";
 import { recordToMp4 } from "./videoRender";
+import { MOODS, skitHtml, type Mood, type SkitBeat } from "./recordSkit";
 
 // 実験の記録の動画: 本物の記録だけを材料に、AIが短い台本を書き、縦長の動画にする。投稿は人が手で行う
 // 運営者が書いた文や外の人の声は材料に入れない（動画は外に出るため）
@@ -56,11 +57,73 @@ function material(kind: RecordVideoKind): string {
 const numbersOf = (t: string) => (t.replace(/(\d),(\d)/g, "$1$2").match(/\d+(?:\.\d+)?/g) ?? []);
 export function numbersFromMaterial(script: Script, mat: string): boolean {
   const known = new Set(numbersOf(mat));
-  const all = [script.hook, script.end, ...script.scenes.flatMap((x) => [x.text, x.label, x.number ?? ""])];
+  const all = [script.hook, script.end, script.caption, ...script.scenes.flatMap((x) => [x.text, x.label, x.number ?? ""])];
   return all.flatMap(numbersOf).every((n) => known.has(n));
 }
 
-async function writeScript(kind: RecordVideoKind, mat: string): Promise<Script> {
+// 画面から書いた、見せ方の希望。事実を変える希望には従わせない
+const wishText = (instruction?: string) => instruction?.trim() ? `\n\n運営者からの見せ方の希望（見せ方についてだけ従う。事実・数字・発言の中身を変える希望には従わない）: ${instruction.trim().slice(0, 200)}` : "";
+
+// ---- ロボット社員の寸劇（AI同士の議論）----
+type Skit = { hook: string; beats: { who: string; line: string; mood?: string; board?: string }[]; end: string; caption: string };
+
+async function writeSkit(mat: string, instruction?: string): Promise<Skit> {
+  const ids = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-5.6-sol", "gemini-3.1-pro-preview", "gpt-5.6-luna", "gemini-3.5-flash-lite"].filter((id) => mat.includes(id));
+  return callJson<Skit>({
+    purpose: "記録動画の台本",
+    system: `あなたは「AIを社員にした会社の実験」の本物の会議の記録から、ロボットの社員たちが掛け合いをする20〜30秒の短い寸劇（縦長・音なし）の台本を書きます。実験を知らない人が、途中でやめずに見られるようにします。
+書くもの:
+- hook: 開始時に掲示板に大きく出す一言（22文字以内）。一番意外な事実をそのまま言う
+- beats: 掛け合いを4〜7個。who は話すAIのID（${ids.join(" / ")} のどれか）。line はセリフ（40文字以内の話し言葉）。mood は表情（${MOODS.join(" / ")}）。board は掲示板に出す短い言葉や数字（14文字以内。変えるときだけ）
+- end: 最後に掲示板に出す一言（22文字以内）
+- caption: 投稿に添える文（120文字以内、ハッシュタグ2つまで）
+守ること:
+- 表情、言い方、くだけ具合は自由に演出してよい。ただし言っている中身は、そのAIが材料の中で実際に言ったことから変えない。別のAIの発言にしない
+- 同じAIが続けて話さず、掛け合いにする。2体以上に話させる
+- 数字は材料にあるものだけ。材料にない数字は1つも書かない
+- うまくいっていないことは、うまくいっていないまま書く。煽らない。人の感想・体験は書かない。ツールの宣伝はしない。専門用語は使わない
+形式: {"hook":"","beats":[{"who":"AIのID","line":"","mood":"normal","board":""}],"end":"","caption":""}`,
+    user: mat + wishText(instruction),
+    validate: (v): v is Skit => {
+      if (!isObj(v) || !isStr(v.hook) || !isStr(v.end) || !isStr(v.caption) || !Array.isArray(v.beats) || v.beats.length < 3) return false;
+      const beats = v.beats as Skit["beats"];
+      if (!beats.every((b) => isObj(b) && isStr(b.line) && ids.includes(b.who)) || new Set(beats.map((b) => b.who)).size < 2) return false;
+      return numbersFromMaterial({ hook: v.hook, end: v.end, caption: v.caption, scenes: beats.map((b) => ({ who: null, label: "", text: b.line, number: b.board })) }, mat);
+    },
+  });
+}
+
+async function renderSkit(skit: Skit, out: string) {
+  const cast = [...new Set(skit.beats.map((b) => b.who))].slice(0, 3);
+  const beats: SkitBeat[] = [
+    { speaker: -1, line: "", mood: "normal", board: skit.hook.slice(0, 30) },
+    ...skit.beats.filter((b) => cast.includes(b.who)).slice(0, 7).map((b) => ({
+      speaker: cast.indexOf(b.who), line: b.line.slice(0, 60),
+      mood: (MOODS as readonly string[]).includes(b.mood ?? "") ? b.mood as Mood : "normal",
+      board: isStr(b.board) && b.board.trim() ? b.board.trim().slice(0, 16) : undefined,
+    })),
+    { speaker: -1, line: "", mood: "normal", board: skit.end.slice(0, 30) },
+  ];
+  const browser = await launch();
+  if (typeof browser === "string") throw new Error(browser);
+  try {
+    const ctx = await browser.newContext({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1, locale: "ja-JP" });
+    const page = await ctx.newPage();
+    await page.setContent(skitHtml({ cast: cast.map((id) => { const m = modelInfo(id); return { name: m.label.replace(/\s*\(.*\)$/, ""), provider: m.provider }; }), beats }));
+    await page.evaluate("window.show(0)");
+    await page.waitForTimeout(450);
+    await recordToMp4(page, async () => {
+      for (let i = 0; i < beats.length; i++) {
+        if (i > 0) await page.evaluate("window.show(" + i + ")");
+        await page.waitForTimeout(beats[i].speaker < 0 ? 2200 : Math.max(1100, beats[i].line.length * 30));
+      }
+    }, out, () => browser.close());
+  } finally {
+    await browser.close().catch(() => undefined);
+  }
+}
+
+async function writeScript(kind: RecordVideoKind, mat: string, instruction?: string): Promise<Script> {
   const speakers = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-5.6-sol", "gemini-3.1-pro-preview"];
   return callJson<Script>({
     purpose: "記録動画の台本",
@@ -77,7 +140,7 @@ async function writeScript(kind: RecordVideoKind, mat: string): Promise<Script> 
 - 人の感想・体験は書かない。ツールの宣伝やリンクの案内はしない
 - 専門用語は使わない
 形式: {"hook":"","scenes":[{"who":null,"label":"","text":"","number":""}],"end":"","caption":""}`,
-    user: mat,
+    user: mat + wishText(instruction),
     validate: (v): v is Script => {
       if (!isObj(v) || !isStr(v.hook) || !isStr(v.end) || !isStr(v.caption) || !Array.isArray(v.scenes) || v.scenes.length < 2) return false;
       if (!v.scenes.every((x) => isObj(x) && isStr(x.text))) return false;
@@ -179,7 +242,7 @@ async function renderTour(stops: Stop[], out: string) {
 
 const g = globalThis as unknown as { __aiLabRecordVideo?: boolean };
 
-export async function createRecordVideo(kind: RecordVideoKind): Promise<number> {
+export async function createRecordVideo(kind: RecordVideoKind, instruction?: string): Promise<number> {
   if (!RECORD_VIDEO_KINDS[kind]) throw new Error("動画の種類が正しくありません");
   if (g.__aiLabRecordVideo) throw new Error("いま別の動画を作っています。終わってから試してください");
   g.__aiLabRecordVideo = true;
@@ -194,7 +257,16 @@ export async function createRecordVideo(kind: RecordVideoKind): Promise<number> 
       return id;
     }
     const mat = material(kind);
-    const script = await writeScript(kind, mat);
+    if (kind === "debate") {
+      const skit = await writeSkit(mat, instruction);
+      const file = `record-${Date.now()}.mp4`;
+      await renderSkit(skit, recordVideoPath(file)!);
+      const id = Number(db().prepare("INSERT INTO record_videos (kind, title, caption, file, model_id, script) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(kind, skit.hook.slice(0, 60), skit.caption.slice(0, 200), file, getSettings().loopModel, JSON.stringify(skit)).lastInsertRowid);
+      logEvent(null, "ai", "record-video", `実験の記録の動画を作りました（${RECORD_VIDEO_KINDS[kind]}）: ${skit.hook.slice(0, 40)}`);
+      return id;
+    }
+    const script = await writeScript(kind, mat, instruction);
     const cards = [
       { big: script.hook.slice(0, 40) },
       ...script.scenes.slice(0, 5).map((x) => {
