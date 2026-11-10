@@ -23,9 +23,12 @@ export function NewRunForm({ models, tasks }: { models: ModelOpt[]; tasks: TaskO
   const [mock, setMock] = useState(true);
   const [note, setNote] = useState("");
   // 断られたとき（公開中のデモなど）は error だけが返り、見積もりは入っていない
-  const [est, setEst] = useState<{ error: string | null; estimate?: Estimate; usdJpy?: number } | null>(null);
-  const estimate = est?.estimate;
+  const [est, setEst] = useState<{ error: string | null; estimate?: Estimate; usdJpy?: number; forMock: boolean } | null>(null);
+  // ダミーの見積もりを、実APIの確認に使わない
+  const estimate = est?.forMock === mock ? est.estimate : undefined;
   const usdJpy = est?.usdJpy ?? 0;
+  // 実際のAPIは費用がかかるので、見積もりを確かめられないときは実行させない
+  const needsEstimate = !mock && !estimate;
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -40,13 +43,16 @@ export function NewRunForm({ models, tasks }: { models: ModelOpt[]; tasks: TaskO
       signal: ctrl.signal,
     })
       .then((r) => r.json())
-      .then(setEst)
-      .catch(() => {});
+      .then((d) => setEst({ ...d, forMock: mock }))
+      .catch((e) => {
+        if (e instanceof Error && e.name !== "AbortError") setEst(null);
+      });
     return () => ctrl.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task, selected.join(","), reps, variant, lang, mock]);
 
   async function submit() {
+    if (needsEstimate) return;
     if (!mock && estimate && !confirm(`実際のAPIを呼び出します。見積もり ${fmtYen(estimate.usd, usdJpy)} です。実行しますか？`)) return;
     setSubmitting(true);
     setSubmitError(null);
@@ -64,7 +70,7 @@ export function NewRunForm({ models, tasks }: { models: ModelOpt[]; tasks: TaskO
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   const itemCount = tasks.find((t) => t.id === task)?.items ?? 0;
-  const error = submitError ?? est?.error ?? null;
+  const error = submitError ?? est?.error ?? (!mock && !est ? "費用の見積もりを確かめられないため、実際のAPIでは実行できません" : null);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
@@ -161,7 +167,7 @@ export function NewRunForm({ models, tasks }: { models: ModelOpt[]; tasks: TaskO
         )}
         <button
           onClick={submit}
-          disabled={submitting || !!est?.error || selected.length === 0}
+          disabled={submitting || needsEstimate || !!est?.error || selected.length === 0}
           className="w-full rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-ink disabled:opacity-50"
         >
           {submitting ? "開始中…" : "実行する"}
