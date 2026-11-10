@@ -5,7 +5,7 @@ import { OWNER_COOKIE, ownerToken } from "@/lib/ownerToken";
 // - DASHBOARD_PASSWORD を設定しなければ、このPCで動かすときと同じく、すべて運営者として開ける
 // - 運営者かどうかは、/login で付けるクッキーか、Basic 認証（スクリプト用）で確かめる
 // - 来た人の操作（GET 以外の呼び出し）は、ここで全部断る。費用がかかる操作も、データの変更もできない
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   // 見ている人をページに伝える（外から送られた値は使わない）
   const headers = new Headers(req.headers);

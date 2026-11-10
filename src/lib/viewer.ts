@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 
 // 見ている人が、運営者（あなた）か、公開中のデモを見に来た人か
-// middleware が、ログインの印（クッキー）を確かめて x-viewer に入れる。来た人は閲覧だけで、操作はサーバー側で止めている
+// proxy が、ログインの印（クッキー）を確かめて x-viewer に入れる。来た人は閲覧だけで、操作はサーバー側で止めている
 export async function isOwner(): Promise<boolean> {
   return (await headers()).get("x-viewer") === "owner";
 }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 // 公開中のデモを見に来た人向け: ボタンは見せたまま、押すと「デモでは押せません」と出す
-// 実際の操作はサーバー側（middleware）で断っているので、これは見た目と説明のため
+// 実際の操作はサーバー側（proxy）で断っているので、これは見た目と説明のため
 export function GuestGuard() {
   const [msg, setMsg] = useState<string | null>(null);
   useEffect(() => {

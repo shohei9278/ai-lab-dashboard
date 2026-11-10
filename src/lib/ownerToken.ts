@@ -1,5 +1,5 @@
 // 運営者のログインの印。パスワードから作るので、パスワードを変えると古い印は使えなくなる
-// middleware（Edge）でも使えるよう、Web Crypto で作る
+// proxy でも使えるよう、Web Crypto で作る
 export const OWNER_COOKIE = "lab_owner";
 
 export async function ownerToken(password: string): Promise<string> {
