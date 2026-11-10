@@ -7,9 +7,8 @@ import { OWNER_COOKIE, ownerToken } from "@/lib/ownerToken";
 // - 来た人の操作（GET 以外の呼び出し）は、ここで全部断る。費用がかかる操作も、データの変更もできない
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
-  // 画面の外枠（メニューなど）を出し分けるために、開いているページと、見ている人を伝える（外から送られた値は使わない）
+  // 見ている人をページに伝える（外から送られた値は使わない）
   const headers = new Headers(req.headers);
-  headers.set("x-pathname", pathname);
   headers.delete("x-viewer");
   const pass = (viewer: "owner" | "guest") => {
     headers.set("x-viewer", viewer);
