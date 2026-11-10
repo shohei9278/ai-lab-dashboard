@@ -1,9 +1,9 @@
 import { openRequests } from "@/lib/plan";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { headers } from "next/headers";
 import { pendingCount } from "@/lib/views";
 import { ActivityBadge } from "@/components/ActivityBadge";
+import { AppShell } from "@/components/AppShell";
 import { SideNav, type NavGroup } from "@/components/SideNav";
 import { GuestGuard } from "@/components/GuestGuard";
 import { isOwner } from "@/lib/viewer";
@@ -25,16 +25,6 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  // 公開ページ（/showcase）では、ダッシュボードのメニューや承認待ちの数を出さない
-  if ((await headers()).get("x-pathname") === "/showcase") {
-    return (
-      <html lang="ja">
-        <body className="antialiased" style={FONT_VARS}>
-          <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>
-        </body>
-      </html>
-    );
-  }
   const pending = pendingCount();
   const proposals = openRequests().filter((r) => r.source !== "human").length;
   const owner = await isOwner();
@@ -49,13 +39,14 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   return (
     <html lang="ja">
       <body className="antialiased" style={FONT_VARS}>
-        <div className="lg:flex">
-          <SideNav
-            groups={groups}
-            footer={owner ? (loginEnabled ? <LogoutButton /> : null) : <Link href="/login" className="text-muted underline">運営者のログイン</Link>}
-          />
-          <div className="min-w-0 flex-1">
-          {!owner && (
+        <AppShell
+          nav={
+            <SideNav
+              groups={groups}
+              footer={owner ? (loginEnabled ? <LogoutButton /> : null) : <Link href="/login" className="text-muted underline">運営者のログイン</Link>}
+            />
+          }
+          banner={!owner && (
             <div className="border-b border-line bg-surface-2">
               <p className="px-4 py-1.5 lg:px-6 text-xs text-ink-2">
                 公開中のデモです。AIが実際に動かしている実験の、本物の画面と数字を見られます（閲覧のみ。ボタンは押せません。個人の情報や他人の投稿は伏せています）。
@@ -63,11 +54,10 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
               </p>
             </div>
           )}
-            <main className="mx-auto max-w-6xl px-4 py-6 lg:px-6">{children}</main>
-          </div>
-        </div>
-        <ActivityBadge />
-        {!owner && <GuestGuard />}
+          overlay={<><ActivityBadge />{!owner && <GuestGuard />}</>}
+        >
+          {children}
+        </AppShell>
       </body>
     </html>
   );
