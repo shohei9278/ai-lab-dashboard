@@ -40,6 +40,9 @@ jobs:
       - name: 公開サイトの依存を入れる
         working-directory: lp-site
         run: npm ci
+      - name: 公開サイトのlint
+        working-directory: lp-site
+        run: npm run lint
       - name: 公開サイトの型チェック
         working-directory: lp-site
         run: npx tsc --noEmit
