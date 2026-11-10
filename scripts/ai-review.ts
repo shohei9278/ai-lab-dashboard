@@ -25,10 +25,15 @@ async function comment(body: string) {
 // 同じPRの過去のコメントを読む（読めなくてもレビューは続ける）
 async function pastComments(): Promise<PrComment[]> {
   if (!PR_NUMBER) return [];
-  const res = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100`, {
-    headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
-  }).catch(() => null);
-  return res?.ok ? ((await res.json()) as PrComment[]) : [];
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100`, {
+      headers: { Authorization: `Bearer ${GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
+    });
+    const body: unknown = res.ok ? await res.json() : [];
+    return Array.isArray(body) ? (body as PrComment[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 async function main() {
