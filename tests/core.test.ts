@@ -81,8 +81,9 @@ test("AIの入出力: 件数と日数を超えた分は消し、長い本文は�
   const row = (db().prepare("SELECT COUNT(*) AS n, MIN(id) AS first FROM ai_traces").get() as { n: number; first: number });
   assert.equal(row.n, 200);
   db().prepare("UPDATE ai_traces SET at = datetime('now', '-8 days') WHERE id = ?").run(row.first);
-  saveTrace({ ...base });
+  // 新しい保存がなくても、見るだけで期限切れは消える
   assert.equal(getTrace(row.first), undefined);
+  assert.ok(!listTraces().some((t) => t.id === row.first));
   const long = `始${"あ".repeat(100_000)}終`;
   const clipped = clipText(long);
   assert.ok(clipped.length < 61_000 && clipped.startsWith("始") && clipped.endsWith("終"));

@@ -11,25 +11,30 @@ export type TraceRow = TraceSummary & { system: string; input: string; output: s
 
 export const clipText = (s: string): string => s.length <= MAX_FIELD ? s : `${s.slice(0, 40_000)}\n\n…（${(s.length - MAX_FIELD).toLocaleString("en-US")}文字を省略）…\n\n${s.slice(-20_000)}`;
 
+// 期限切れと上限を超えた分を消す（AIが長く止まっていても残らないよう、見るときにも消す）
+const prune = () => db().prepare(`DELETE FROM ai_traces WHERE at < datetime('now', '-${KEEP_DAYS} days') OR id <= (SELECT id FROM ai_traces ORDER BY id DESC LIMIT 1 OFFSET ${KEEP_ROWS})`).run();
+
 // 記録の失敗で、AIの処理を止めない
 export function saveTrace(t: { purpose: string; modelId: string; projectId?: number | null; system: string; input: string; output?: string | null; error?: string | null }) {
   try {
     const conn = db();
     conn.prepare("INSERT INTO ai_traces (purpose, model_id, project_id, system, input, output, error, input_chars, output_chars) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(t.purpose, t.modelId, t.projectId ?? null, clipText(t.system), clipText(t.input), t.output == null ? null : clipText(t.output), t.error ?? null, t.input.length, t.output?.length ?? 0);
-    conn.prepare(`DELETE FROM ai_traces WHERE at < datetime('now', '-${KEEP_DAYS} days') OR id <= (SELECT id FROM ai_traces ORDER BY id DESC LIMIT 1 OFFSET ${KEEP_ROWS})`).run();
+    prune();
   } catch (e) {
     console.error("AIの入出力を保存できませんでした", e);
   }
 }
 
 export function listTraces(projectId?: number): TraceSummary[] {
+  prune();
   return db().prepare(
     `SELECT t.id, t.at, t.purpose, t.model_id, t.project_id, t.error, t.input_chars, t.output_chars, p.title
      FROM ai_traces t LEFT JOIN projects p ON p.id = t.project_id ${projectId ? "WHERE t.project_id = ?" : ""} ORDER BY t.id DESC LIMIT ${KEEP_ROWS}`,
   ).all(...(projectId ? [projectId] : [])) as TraceSummary[];
 }
 
-export const getTrace = (id: number) => db().prepare(
-  "SELECT t.*, p.title FROM ai_traces t LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = ?",
-).get(id) as TraceRow | undefined;
+export function getTrace(id: number): TraceRow | undefined {
+  prune();
+  return db().prepare("SELECT t.*, p.title FROM ai_traces t LEFT JOIN projects p ON p.id = t.project_id WHERE t.id = ?").get(id) as TraceRow | undefined;
+}

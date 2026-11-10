@@ -106,7 +106,6 @@ ${title ? `問いの中の「#${r.project_id}」は自社のサービス「${tit
     }
     const cost = costUsd(model, inTok, outTok) + searches * SEARCH_USD;
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, '調べもの', ?, ?, ?, ?, NULL)").run(r.project_id, modelId, inTok, outTok, cost);
-    saveTrace({ purpose: "調べもの", modelId, projectId: r.project_id, system: "", input: JSON.stringify(messages[0]?.content), output: text, error: null });
     const t = text.replace(/```(?:json)?/g, "");
     const v = JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)) as unknown;
     if (!isObj(v)) throw new Error("結果を読み取れませんでした");
@@ -119,6 +118,8 @@ ${title ? `問いの中の「#${r.project_id}」は自社のサービス「${tit
     db().prepare("UPDATE research SET status = ?, summary = ?, findings = ?, unknown = ?, searches = ?, done_at = datetime('now') WHERE id = ?")
       .run(status, isStr(v.summary) ? v.summary.slice(0, 800) : null, JSON.stringify(findings), isStr(v.unknown) ? v.unknown.slice(0, 400) : null, searches, id);
     logEvent(r.project_id, "ai", "research", `調べもの「${r.question.slice(0, 40)}」: ${status === "answered" ? `分かった（出典${findings.length}件・${today}）` : "分からなかった（保留）"}`);
+    // 読み取りまで済んでから残す（失敗したときは下の catch で1件だけ残す）
+    saveTrace({ purpose: "調べもの", modelId, projectId: r.project_id, system: "", input: JSON.stringify(messages[0]?.content), output: text, error: null });
   } catch (e) {
     const m = (e instanceof Error ? e.message : String(e)).slice(0, 300);
     db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (?, '調べもの', ?, ?, ?, ?, ?)").run(r.project_id, modelId, inTok, outTok, costUsd(model, inTok, outTok) + searches * SEARCH_USD, m);
