@@ -2,6 +2,7 @@ import { callJson, isObj } from "./ai";
 import { db, getSettings } from "./db";
 import { logEvent } from "./loop";
 import { X_READ_COST_USD, searchAcross } from "./xPost";
+import { external } from "./untrusted";
 
 // 「こういうの欲しい」の声
 // 週1回、X で「〇〇できるアプリ欲しい」「誰か作って」などの投稿を探し、AIがプロダクトの需要だけを残す。
@@ -61,7 +62,7 @@ export async function searchWants(): Promise<{ read: number; added: number }> {
 外すもの: ただの愚痴で解決したいことが読み取れないもの、物を買いたい話（服・家電など）、特定の会社の既存サービスへの不満や要望だけのもの、冗談・大喜利、宣伝、政治・事件の話、医療・法律・お金の助言が必要なもの、誰かを攻撃する話
 残すものは、who（どんな人か。投稿から読み取れる範囲で短く。個人を特定する情報は書かない）と problem（何に困っていて、何が欲しいか。1文）を書く。外すものは note に理由を短く書く。
 形式: {"items":[{"n":番号,"keep":true,"who":"","problem":"","note":""}]}`,
-      user: cands.map((c, i) => `【${i + 1}】いいね${c.likes}・ブックマーク${c.bookmarks}・返信${c.replies}\n${c.text.slice(0, 400)}`).join("\n\n"),
+      user: external(cands.map((c, i) => `【${i + 1}】いいね${c.likes}・ブックマーク${c.bookmarks}・返信${c.replies}\n${c.text.slice(0, 400)}`).join("\n\n")),
       validate: (v): v is { items: { n: number; keep: boolean; who: string; problem: string; note: string }[] } => isObj(v) && Array.isArray(v.items),
     });
     const insert = db().prepare(
@@ -95,5 +96,5 @@ export function wantsForIdeas(limit = 12): UserWant[] {
 export function wantsText(): string {
   const list = wantsForIdeas();
   if (!list.length) return "";
-  return `\n\nXで見つけた「こういうの欲しい」の声（いいねは「自分も欲しい」人の数の目安。この困りごとから案を作ってよい。そのときは want_id に声の番号を書く。投稿者への返信・メンション・引用を届け方にしない）:\n${list.map((w) => `- 声${w.id}（いいね${w.likes ?? 0}）: ${w.who ? `${w.who}が、` : ""}${w.problem}`).join("\n")}`;
+  return `\n\nXで見つけた「こういうの欲しい」の声（いいねは「自分も欲しい」人の数の目安。この困りごとから案を作ってよい。そのときは want_id に声の番号を書く。投稿者への返信・メンション・引用を届け方にしない）:\n${external(list.map((w) => `- 声${w.id}（いいね${w.likes ?? 0}）: ${w.who ? `${w.who}が、` : ""}${w.problem}`).join("\n"))}`;
 }

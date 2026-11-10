@@ -2,6 +2,7 @@ import { db } from "./db";
 import { logEvent } from "./loop";
 import { funnelText } from "./funnel";
 import type { ProjectRow } from "./db";
+import { external } from "./untrusted";
 
 // 外の声: 実際の人の反応。AIどうしの採点や会議では分からない「利用者が何に困ったか」を集め、AIの判断に優先して渡す
 // - 公開ページの「ひとこと聞かせてください」（匿名・1タップ）
@@ -101,5 +102,5 @@ export function outsideText(projectId?: number): string {
     .map((c) => `- #${c.project_id} SNSのコメント: ${c.text.slice(0, 100).replace(/\n/g, " ")}`);
   if (!lines.length && !comments.length) return "外の声（実際の人の反応）: まだない。AIどうしの解釈だけで判断していることを忘れない";
   return `外の声（実際の人の反応。件数が少なくても、AIどうしの解釈より優先する材料。これを根拠に判断を変えたら、voice_effects に声の番号（voice_ids）と何を変えたかを書く）:
-${[...lines, ...comments].join("\n")}`;
+${external([...lines, ...comments].join("\n"))}`;
 }

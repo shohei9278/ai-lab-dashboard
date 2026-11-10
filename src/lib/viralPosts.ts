@@ -4,6 +4,7 @@ import { db, getSettings, saveSettings } from "./db";
 import { logEvent } from "./loop";
 import { X_READ_COST_USD, searchAcross, xConfigured } from "./xPost";
 import { searchWants } from "./userWants";
+import { external } from "./untrusted";
 
 // 話題の個人開発の投稿
 // あなたが貼ったURLと、週1回の X の検索で拾った「伸びた投稿」を、AIが読んで「なぜ伸びたか」をまとめる。
@@ -222,7 +223,7 @@ export async function backfillViralApps(): Promise<number> {
     modelId: hasKey("anthropic") ? "claude-haiku-5-5" : undefined,
     system: `Xでよく伸びた投稿の本文と分析から、「どんなアプリ・ツールで、何ができるのか」を1文で書きます。投稿から読み取れる範囲だけを書き、分からなければ空にします。
 形式: {"apps":[{"id":番号,"app":"1文（分からなければ空）"}]}`,
-    user: rows.map((r) => { const a = JSON.parse(r.analysis) as ViralAnalysis; return `【${r.id}】ジャンル: ${a.genre} / 形: ${a.format}\n本文: ${(r.text ?? "").slice(0, 400)}`; }).join("\n\n"),
+    user: external(rows.map((r) => { const a = JSON.parse(r.analysis) as ViralAnalysis; return `【${r.id}】ジャンル: ${a.genre} / 形: ${a.format}\n本文: ${(r.text ?? "").slice(0, 400)}`; }).join("\n\n")),
     validate: (v): v is { apps: { id: number; app: string }[] } => isObj(v) && Array.isArray(v.apps),
   });
   const upd = db().prepare("UPDATE viral_posts SET analysis = ? WHERE id = ?");
@@ -245,13 +246,13 @@ export function viralHints(kind: "idea" | "sns" | "page" | "tool"): string {
   if (kind === "tool") {
     const shares = list.filter((a) => a.type === "share");
     if (!shares.length) return "";
-    return `\n\n最近Xでよく伸びた「使った人が結果をシェアした投稿」から分かる、シェアされやすい結果の作り（参考。題材や文言はまねしない）:\n${shares.slice(0, 4).map((a) => `- シェア文の型: ${a.hook} / 見せ方: ${a.visual} / ${a.takeaway}`).join("\n")}`;
+    return `\n\n最近Xでよく伸びた「使った人が結果をシェアした投稿」から分かる、シェアされやすい結果の作り（参考。題材や文言はまねしない）:\n${external(shares.slice(0, 4).map((a) => `- シェア文の型: ${a.hook} / 見せ方: ${a.visual} / ${a.takeaway}`).join("\n"))}`;
   }
   if (kind === "idea") {
-    return `\n\n最近Xでよく伸びたアプリ・ツール（参考にする。何が受けたか・どんな気持ちに応えたか・使われる仕組みは、別の対象者や別の困りごとに応用してよい。ただし同じものを作らない。名前・見た目・機能の組み合わせをそのまま写さない）:\n${list.map((a) => `- ${a.app ? `${a.app}（${a.genre}）` : a.genre}: 伸びた理由: ${a.why} / 切り口: ${a.angle}`).join("\n")}`;
+    return `\n\n最近Xでよく伸びたアプリ・ツール（参考にする。何が受けたか・どんな気持ちに応えたか・使われる仕組みは、別の対象者や別の困りごとに応用してよい。ただし同じものを作らない。名前・見た目・機能の組み合わせをそのまま写さない）:\n${external(list.map((a) => `- ${a.app ? `${a.app}（${a.genre}）` : a.genre}: 伸びた理由: ${a.why} / 切り口: ${a.angle}`).join("\n"))}`;
   }
   if (kind === "sns") {
-    return `\n\n最近Xでよく伸びた個人開発の投稿の書き方（言葉の型と見せ方だけを参考にし、文をそのまま使わない）:\n${list.slice(0, 5).map((a) => `- 型: ${a.hook} / 伸びた理由: ${a.why}`).join("\n")}`;
+    return `\n\n最近Xでよく伸びた個人開発の投稿の書き方（言葉の型と見せ方だけを参考にし、文をそのまま使わない）:\n${external(list.slice(0, 5).map((a) => `- 型: ${a.hook} / 伸びた理由: ${a.why}`).join("\n"))}`;
   }
-  return `\n\n最近Xでよく伸びた個人開発の見せ方（参考。そのまままねしない）:\n${list.slice(0, 5).map((a) => `- ${a.visual}。${a.takeaway}`).join("\n")}`;
+  return `\n\n最近Xでよく伸びた個人開発の見せ方（参考。そのまままねしない）:\n${external(list.slice(0, 5).map((a) => `- ${a.visual}。${a.takeaway}`).join("\n"))}`;
 }

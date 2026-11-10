@@ -57,3 +57,17 @@ jobs:
           if [ "$live" != "$head" ] && [ "$age" -gt 1800 ] && [ "$ok" = "success" ]; then
             echo "CIは通ったのに、30分たっても本番が最新になっていません"; exit 1
           fi
+      # 失敗が続いているあいだは、最初の1回だけ知らせる（NOTIFY_WEBHOOK_URL を GitHub の Secrets に入れると動く）
+      - name: 失敗をDiscordに知らせる
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.NOTIFY_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$WEBHOOK" ] || exit 0
+          prev=$(gh api "repos/$REPO/actions/workflows/smoke.yml/runs?status=completed&per_page=20" --jq '[.workflow_runs[] | select(.conclusion != "skipped")][0].conclusion // ""')
+          [ "$prev" != "failure" ] || exit 0
+          jq -n --arg c "🚨 本番の確認に失敗しました: $RUN_URL" '{content: $c, allowed_mentions: {parse: []}}' \
+            | curl -sS --fail --max-time 20 -X POST -H 'Content-Type: application/json' -d @- "$WEBHOOK" > /dev/null
