@@ -5,7 +5,7 @@ import { maybeWeeklyMeeting } from "./weekly";
 import { maybeRefreshTrends } from "./trends";
 import { maybeAutoPost } from "./sns";
 import { syncComments } from "./snsComments";
-import { maybeDailyBackup } from "./backup";
+import { maybeDailyBackup, maybeOffsiteBackup } from "./backup";
 import { resumeRefQueue } from "./designRefs";
 import { backfillViralApps, maybeWeeklyViral, resumeViralQueue } from "./viralPosts";
 import { maybeCreatePlan, runPlanTasks } from "./plan";
@@ -79,6 +79,12 @@ async function tickNow() {
     if (file) logEvent(null, "system", "backup", `データベースのバックアップを取りました（${file}）`);
   } catch (e) {
     logEvent(null, "system", "backup-error", `データベースのバックアップに失敗: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
+  }
+  try {
+    const sent = await maybeOffsiteBackup();
+    if (sent) logEvent(null, "system", "backup", `データベースのバックアップを外部に保存しました（${sent.file}・${Math.ceil(sent.bytes / 1024)}KB）`);
+  } catch (e) {
+    logEvent(null, "system", "backup-offsite-error", `データベースのバックアップの外部保存に失敗: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
   }
   try {
     await syncComments();
