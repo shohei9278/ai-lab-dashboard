@@ -7,6 +7,7 @@ import { PageIntro } from "@/components/PageIntro";
 import { GrowthTabs } from "@/components/LabTabs";
 import { DraftControls, ForgetPost, PauseToggle, ReplyControls, SyncComments } from "./SnsActions";
 import { listComments } from "@/lib/snsComments";
+import { AiPostsReview } from "../plan/PlanView";
 
 export const dynamic = "force-dynamic";
 
@@ -200,6 +201,15 @@ export default async function GrowthPage() {
             ))}
           </ul>
         )}
+      </section>
+
+      {/* AIだけで出した投稿の見直し（毎日の計画から移した） */}
+      <section id="posts" className="card scroll-mt-4 space-y-3 p-4">
+        <div>
+          <h2 className="font-bold">AIだけで出した投稿の確認（直近3日）</h2>
+          <p className="text-xs text-muted">人が見ないまま出た投稿です。「出すべきでなかった」を付けると、その投稿と理由を次の計画・投稿を書くAIに渡し、同じ書き方を避けさせます（投稿そのものは消しません。消すときは各サービスで消してください）。</p>
+        </div>
+        <AiPostsReview owner={owner} />
       </section>
 
       {/* 投稿済み */}
