@@ -88,7 +88,7 @@ test("来訪者: 主要なページがスマホ幅でエラーなく開き、横
     const state = await page.evaluate(() => ({ text: document.body.innerText, width: document.documentElement.scrollWidth }));
     assert.ok(!state.text.includes("Application error"), `${r} が画面エラーになりました`);
     assert.ok(state.width <= 375, `${r} が横にはみ出しています（${state.width}px）`);
-    assert.deepEqual(errors, [], `${r} でエラーが出ました`);
+    assert.deepEqual(errors, [], `${r} でエラーが出ました: ${errors.join(" / ").slice(0, 500)}`);
   }
   await ctx.close();
 });

@@ -4,9 +4,9 @@ import { db } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
 import { AUTO_PLATFORMS, type AutoPlatform } from "@/lib/snsApi";
 import { BOTTLENECK_LABEL, GOAL_LABEL, TASK_KIND_LABEL, certaintyLabel, planProgress, type PlanRow, type TaskRow } from "@/lib/plan";
-import { AnswerRequest, CancelTask, ReviewPost } from "./PlanActions";
+import { CancelTask, ReviewPost } from "./PlanActions";
 import { modelInfo } from "@/lib/models";
-import { openRequests, recentRequests } from "@/lib/plan";
+import { openRequests } from "@/lib/plan";
 import { recentAiPosts, unreviewedPostCount } from "@/lib/postStats";
 import { postStats, type StatRow } from "@/lib/postStats";
 
@@ -224,63 +224,15 @@ export function PostStatsView() {
   );
 }
 
-// 提案箱のうち、あなたへのお願い（返事がまだのもの）
-export function OpenRequests({ owner, collapsed }: { owner: boolean; collapsed?: boolean }) {
-  const rows = openRequests("human");
-  if (!rows.length) return null;
-  const heading = `提案箱: ${owner ? "あなた" : "運営者"}へのお願い（${rows.length}件）`;
-  const list = (
-      <ul className="space-y-2">
-        {rows.map((r) => (
-          <li key={r.id} className="space-y-0.5 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-medium">{r.title}</span>
-              {owner && <AnswerRequest id={r.id} />}
-            </div>
-            {r.how && <div className="text-ink-2">{r.how}</div>}
-            {r.why && <div className="text-xs text-muted">理由: {r.why}</div>}
-          </li>
-        ))}
-      </ul>
-  );
-  if (collapsed) {
-    return (
-      <details className="rounded-lg p-3" style={{ background: "var(--surface-2)" }}>
-        <summary data-demo-ok className="cursor-pointer text-sm font-medium">{heading}</summary>
-        <div className="mt-2 space-y-2">
-          <Link href="/proposals" className="text-xs text-accent underline">提案箱を開く</Link>
-          {list}
-        </div>
-      </details>
-    );
-  }
+// 提案箱のうち、運営者へのお願い（返事がまだのもの）の件数だけ出す。一覧と返事は提案箱のページで
+export function RequestCount({ owner }: { owner: boolean }) {
+  const n = openRequests("human").length;
+  if (!n) return null;
   return (
-    <div className="space-y-2 rounded-lg p-3" style={{ background: "var(--surface-2)" }}>
-      <div className="flex flex-wrap items-baseline gap-2 text-sm font-medium">
-        {heading}
-        <span className="text-xs font-normal text-muted">AIが自分ではできないけれど、やると効きそうだと考えたこと</span>
-        <Link href="/proposals" className="ml-auto text-xs font-normal text-accent underline">提案箱を開く</Link>
-      </div>
-      {list}
-    </div>
-  );
-}
-
-// これまでのお願いと返事
-export function RequestHistory() {
-  const rows = recentRequests(20).filter((r) => r.status !== "open");
-  if (!rows.length) return <p className="text-sm text-ink-2">まだ返事をしたお願いはありません。</p>;
-  return (
-    <ul className="space-y-1 text-sm">
-      {rows.map((r) => (
-        <li key={r.id}>
-          <span style={{ color: r.status === "done" ? "var(--good)" : "var(--muted)" }}>{r.status === "done" ? "✓ やった" : "– 見送り"}</span>
-          <span className="ml-2">{r.title}</span>
-          {r.note && <span className="ml-2 text-xs text-ink-2">（{r.note}）</span>}
-          {r.decided_at && <span className="ml-2 text-xs text-muted">{jstDateTime(r.decided_at)}</span>}
-        </li>
-      ))}
-    </ul>
+    <p className="rounded-lg p-3 text-sm" style={{ background: "var(--surface-2)" }}>
+      提案箱: {owner ? "あなた" : "運営者"}へのお願いが <b className="num">{n}件</b>あります
+      <Link href="/proposals" className="ml-2 text-accent underline">提案箱を開く</Link>
+    </p>
   );
 }
 

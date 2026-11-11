@@ -1,61 +1,37 @@
-import { isOwner, maskEventsForGuest } from "@/lib/viewer";
+import { isOwner } from "@/lib/viewer";
 import Link from "next/link";
-import { db, getSettings, type ProjectRow, type Stage } from "@/lib/db";
+import { db, getSettings } from "@/lib/db";
 import { getModel } from "@/lib/models";
-import { CONV, MODE_LABEL, autoPublishStats, ideaAuthors, targetRate } from "@/lib/loop";
+import { autoPublishStats } from "@/lib/loop";
 import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
 import { SignupTrend } from "@/components/SignupTrend";
 import { costEfficiency } from "@/lib/cost";
 import { jstDateTime, pct } from "@/lib/format";
 import { ShowMore } from "@/components/ShowMore";
 import { KillSwitch } from "@/components/KillSwitch";
-import { IdeaForm } from "@/components/IdeaForm";
-import { DailyCard } from "@/components/DailyCard";
 import { Stat } from "@/components/ui";
-import { AUTO_PLATFORMS, autoPlatforms } from "@/lib/snsApi";
 import { budgetState } from "@/lib/budget";
 import { planProgress, todayPlan } from "@/lib/plan";
-import { listVoices } from "@/lib/voices";
-import { VoiceList } from "@/components/VoiceList";
-import { OpenRequests, PlanSummary, PlanTasks, unreviewedPostCount } from "./plan/PlanView";
+import { PlanSummary, PlanTasks, RequestCount, unreviewedPostCount } from "./plan/PlanView";
 import { Replan } from "./plan/PlanActions";
 
 export const dynamic = "force-dynamic";
-
-const ACTOR = { ai: "AI", human: "あなた", system: "システム" } as const;
 
 export default async function Home() {
   const s = getSettings();
   const plan = s.dailyPlan ? todayPlan() : undefined;
   const hasSimulated = !!db().prepare("SELECT 1 FROM metrics WHERE source = 'simulated' LIMIT 1").get();
-  const xPosts = db().prepare(
-    `SELECT s.text, s.platform, s.posted_at, s.post_url, s.visits, s.conversions, p.id AS project_id, p.title, p.kind
-     FROM sns_posts s JOIN projects p ON p.id = s.project_id WHERE s.status = 'posted' ORDER BY s.posted_at DESC LIMIT 4`,
-  ).all() as { text: string; platform: string; posted_at: string; post_url: string | null; visits: number; conversions: number; project_id: number; title: string; kind: ProjectRow["kind"] }[];
-  const xToday = (db().prepare("SELECT COUNT(*) AS n FROM sns_posts WHERE status = 'posted' AND author = 'ai' AND post_url IS NOT NULL AND posted_at >= datetime('now', '-24 hours')").get() as { n: number }).n;
-  const snsOn = autoPlatforms().map((k) => AUTO_PLATFORMS[k].label);
-  const xReady = snsOn.length > 0;
   // 場所ごとの最後の自動投稿が失敗していたら出す
   const xLastError = db().prepare(
     `SELECT c.at, c.purpose || ': ' || c.error AS error FROM ai_calls c
      WHERE c.model_id IN ('x-api', 'threads-api', 'bluesky-api') AND c.error IS NOT NULL AND c.id = (SELECT MAX(id) FROM ai_calls d WHERE d.model_id = c.model_id)
      ORDER BY c.id DESC LIMIT 1`,
   ).get() as { at: string; error: string } | undefined;
-  const lastDaily = db().prepare("SELECT message FROM events WHERE kind = 'daily' ORDER BY id DESC LIMIT 1").get() as { message: string } | undefined;
-  const modeSetting = s.approvalMode === "alternate"
-    ? "2つのモードに交互に割り当て"
-    : s.approvalMode === "confidence"
-      ? `AIの自信が${Math.round(s.autoConfidence * 100)}%以上なら自動`
-      : MODE_LABEL[s.approvalMode];
-
   const o = overview();
   const owner = await isOwner();
   const you = owner ? "あなた" : "運営者";
-  const voices = listVoices({ limit: 5 });
-  o.events = maskEventsForGuest(o.events, owner);
   const waiting = waitingItems();
   const autoStats = autoPublishStats();
-  const waitingAt = (stage: Stage) => waiting.filter((w) => w.stage === stage).length;
   const diff = o.todaySignups - o.yesterdaySignups;
   const budgetRatio = s.monthlyBudgetJpy ? o.aiJpy / s.monthlyBudgetJpy : 0;
   const bud = budgetState();
@@ -181,7 +157,7 @@ export default async function Home() {
           {plan ? (
             <>
               <PlanSummary plan={plan} />
-              <OpenRequests owner={owner} collapsed />
+              <RequestCount owner={owner} />
               {owner && unreviewedPostCount() > 0 && (
                 <p className="text-sm">
                   AIだけで出した投稿のうち、まだ見ていないもの <b className="num">{unreviewedPostCount()}件</b>（直近3日）
@@ -199,18 +175,15 @@ export default async function Home() {
         </section>
       )}
 
-      {/* 社員の声（最新の5件） */}
-      {voices.length > 0 && (
-        <section className="card space-y-2 p-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="font-bold">社員の声</h2>
-            <Link href="/voices" className="text-sm text-accent underline">すべて見る</Link>
-          </div>
-          <VoiceList voices={voices} owner={owner} compact />
-        </section>
-      )}
+      {/* SNSの自動投稿が止まっているときだけ知らせる（一覧は集客のページ） */}
+      {xLastError && (
+            <p className="card p-3 text-xs" style={{ background: "var(--surface-2)", color: "var(--critical)" }}>
+              ! 最後の自動投稿が失敗しました（{jstDateTime(xLastError.at)}）: {xLastError.error}
+              <span className="block text-ink-2">{/credits depleted/.test(xLastError.error) ? "X の Developer Console でクレジットを購入してください。" : ""}2時間ごとに試し直します。</span>
+            </p>
+          )}
 
-      {/* 推移と処理ログ */}
+      {/* 推移とお金 */}
       <div className="grid gap-4 lg:grid-cols-3">
         <section className="card p-4 lg:col-span-2">
           <Head
@@ -221,117 +194,6 @@ export default async function Home() {
             <SignupTrend data={o.trend} />
           ) : (
             <p className="py-10 text-center text-sm text-ink-2">まだ集客の数字がありません。LPやツールを公開すると、ここに推移が出ます。</p>
-          )}
-        </section>
-        <section className="card p-4">
-          <Head title="AIの処理ログ" note="AIとあなたが何をしたかの最新の記録です。" />
-          <ol className="space-y-2">
-            {o.events.map((e) => (
-              <li key={e.id} className="text-xs">
-                <div className="flex gap-2 text-muted">
-                  <span className="num">{jstDateTime(e.at)}</span>
-                  <span className="font-medium" style={{ color: e.actor === "ai" ? "var(--accent)" : "var(--text-2)" }}>{ACTOR[e.actor]}</span>
-                  {e.title && e.project_id ? (
-                    <Link href={`/projects/${e.project_id}`} className="truncate text-accent hover:underline">{e.title}</Link>
-                  ) : null}
-                </div>
-                <p className="line-clamp-1 text-ink-2" title={e.message}>{e.message}</p>
-              </li>
-            ))}
-            {!o.events.length && <li className="text-ink-2">まだありません。</li>}
-          </ol>
-        </section>
-      </div>
-
-      {/* 自動化のループ */}
-      <section className="card p-4">
-        <Head title="AIのプロダクト自動化ループ" note="各段階にいる案件の数です。「あなたの確認」がある段階は、行を押すと一覧に移動します。" />
-        <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {FLOW.map((f, i) => {
-            const n = o.stageCount(f.stages);
-            const w = waitingAt(f.stages[0]);
-            return (
-              <li key={f.title} className="relative">
-                <a
-                  href={w ? "#waiting" : "/projects"}
-                  className="block h-full rounded-xl border p-3 hover:bg-surface-2"
-                  style={{ borderColor: w ? "var(--accent)" : "var(--border)" }}
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-sm font-bold">{i + 1}. {f.title}</span>
-                    <span className="num text-xl font-bold">{n}<span className="text-xs font-normal text-muted">件</span></span>
-                  </div>
-                  <div className="mt-1 text-xs text-ink-2">{f.who}</div>
-                  <div className="mt-2 text-xs font-medium" style={{ color: w ? "var(--accent)" : "var(--muted)" }}>
-                    {w ? `● ${you}の確認 ${w}件 →` : "○ 確認なし"}
-                  </div>
-                </a>
-                {i < FLOW.length - 1 && <span aria-hidden className="absolute -right-2 top-1/2 z-10 hidden -translate-y-1/2 text-muted lg:block">→</span>}
-              </li>
-            );
-          })}
-        </ol>
-        <p className="mt-2 text-xs text-ink-2">
-          ↺ 判断で「改善」になると 2. 作成 に戻り、「集客の見直し」「続ける（育てる）」では公開したまま次の実験に進みます。終わった案件：継続 {o.stageCount(["continued"])}件・撤退 {o.stageCount(["killed"])}件・見送り {o.stageCount(["rejected"])}件
-        </p>
-      </section>
-
-      {/* 下段の3つ */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <section className="card p-4">
-          <Head title="集客中" note={`目標は登録率 ${pct(s.targetSignupRate, 1)}・ツールの利用率 ${pct(s.targetUseRate)}・判断の目安は訪問${s.judgeMinVisits}人`} />
-          {o.live.length ? (
-            <ul className="space-y-3 text-sm">
-              {o.live.map(({ p, t }) => (
-                <li key={p.id}>
-                  <Link href={`/projects/${p.id}`} className="flex justify-between gap-2 hover:underline">
-                    <span className="truncate">{p.title}{p.demo ? <span className="ml-1 text-[10px] text-muted">デモ</span> : null}</span>
-                    <span className="num shrink-0" style={{ color: t.rate >= targetRate(p.kind, s) ? "var(--good)" : "var(--text-2)" }}>{CONV[p.kind].rate} {pct(t.rate, 1)}</span>
-                  </Link>
-                  <Meter value={t.visits / s.judgeMinVisits} />
-                  <div className="num text-xs text-muted">訪問 {t.visits}/{s.judgeMinVisits}人・{CONV[p.kind].noun} {t.signups}人</div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-ink-2">公開中の案件はありません。</p>
-          )}
-        </section>
-        <section className="card p-4">
-          <Head
-            title="SNSでの集客"
-            note={!xReady ? "SNSのキーが未設定です（docs/SETUP-SNS.md）" : s.autoPost ? `AIが ${snsOn.join("・")} に自動で投稿中（直近24時間 ${xToday}件・場所ごとに1日${s.autoPostPerDay}件まで）` : "自動投稿はオフです（設定でオンにできます）"}
-          />
-          {xLastError && (
-            <p className="mb-3 rounded-lg p-2 text-xs" style={{ background: "var(--surface-2)", color: "var(--critical)" }}>
-              ! 最後の自動投稿が失敗しました（{jstDateTime(xLastError.at)}）: {xLastError.error}
-              <span className="block text-ink-2">{/credits depleted/.test(xLastError.error) ? "X の Developer Console でクレジットを購入してください。" : ""}2時間ごとに試し直します。</span>
-            </p>
-          )}
-          {xPosts.length ? (
-            <ul className="space-y-3 text-sm">
-              {xPosts.map((x) => (
-                <li key={x.posted_at + x.project_id}>
-                  <div className="flex justify-between gap-2 text-xs text-muted">
-                    <Link href={`/projects/${x.project_id}`} className="truncate hover:underline">{x.title}<span className="ml-1 text-muted">・{x.platform === "x" ? "X" : x.platform === "threads" ? "Threads" : x.platform === "bluesky" ? "Bluesky" : x.platform}</span></Link>
-                    <span className="num shrink-0">{jstDateTime(x.posted_at)}</span>
-                  </div>
-                  <p className="line-clamp-2 text-xs text-ink-2">{x.text}</p>
-                  <div className="num text-xs text-muted">
-                    訪問 {x.visits}人・{CONV[x.kind].noun} {x.conversions}人
-                    {x.post_url && <a href={x.post_url} target="_blank" rel="noreferrer" className="ml-2 text-accent underline">投稿 ↗</a>}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="text-sm text-ink-2">まだ投稿はありません。</p>
-          )}
-          <Link href="/growth" className="mt-3 block text-xs text-accent underline">SNSの管理を開く →</Link>
-          {o.improving.length > 0 && (
-            <p className="mt-3 border-t border-line pt-2 text-xs text-ink-2">
-              AIが改善した案件: {o.improving.map(({ p }) => `${p.title}（第${p.lp_version}版）`).join("・")}
-            </p>
           )}
         </section>
         <section className="card p-4">
@@ -367,33 +229,19 @@ export default async function Home() {
         </section>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <DailyCard
-          enabled={s.dailyEnabled}
-          hour={s.dailyHour}
-          lastRun={s.lastDailyRun}
-          lastMessage={lastDaily?.message ?? null}
-          count={s.dailyIdeaCount}
-          keep={s.dailyKeep}
-          modeLabel={modeSetting}
-        />
-        <IdeaForm authors={ideaAuthors().map((id) => getModel(id).label)} />
-      </div>
-
-
-      <p className="text-sm text-ink-2">
-        AIの社員ごとの成績・ランキング・全自動の成績は <Link href="/lab" className="text-accent underline">AIの成績</Link>、教訓は <Link href="/notes" className="text-accent underline">資料</Link> にまとめています。
-      </p>
+      {/* ほかの画面へ（ホームは毎日の確認と判断だけにする） */}
+      <nav aria-label="ほかの画面" className="card flex flex-wrap gap-x-4 gap-y-2 p-4 text-sm">
+        <span className="text-muted">詳しく見る:</span>
+        <Link href="/projects" className="text-accent underline">案件の段階とアイデア出し</Link>
+        <Link href="/growth" className="text-accent underline">集客とSNSの投稿</Link>
+        <Link href="/live" className="text-accent underline">AIの処理ログ</Link>
+        <Link href="/voices" className="text-accent underline">社員の声</Link>
+        <Link href="/lab" className="text-accent underline">AIの成績</Link>
+        <Link href="/notes" className="text-accent underline">教訓と資料</Link>
+      </nav>
     </div>
   );
 }
-
-const FLOW: { stages: Stage[]; title: string; who: string }[] = [
-  { stages: ["idea"], title: "アイデア", who: "3社のAIが、種類を問わずアイデアと「最初の届け方」を出し、採点して選ぶ" },
-  { stages: ["lp"], title: "作成", who: "AIが事前登録のページや動くツールを作り、画面を撮ってチェック。通れば自動で公開" },
-  { stages: ["live"], title: "公開・集客", who: "AIがSNSに投稿して人を呼ぶ。届いていなければ集客を見直す" },
-  { stages: ["deciding"], title: "判断", who: "訪問がたまるか一定の日数がたつと、AIが続ける（育てる）・改善・集客の見直し・撤退を決める" },
-];
 
 function waitLabel(days: number): string {
   if (days < 1 / 24) return "さっきから待機";
