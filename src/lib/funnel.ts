@@ -56,10 +56,13 @@ export function funnel(p: ProjectRow, versionArg?: number): Funnel {
 // AIの判断に渡す文
 export function funnelText(p: ProjectRow): string {
   const f = funnel(p);
-  if (!f.hasEvents || !f.visits) return "";
+  if (!f.visits) return "";
   const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
+  // 流入元は訪問の記録から数えるので、ページの中での動きの記録がない版でも渡す
+  const channels = channelText(p, f.version).trim();
+  if (!f.hasEvents) return channels;
   return `ページの中での動き（第${f.version}版・訪問者に対する割合）: ${f.steps.map((s) => `${s.label} ${s.visitors}人（${pc(s.ofVisits)}）`).join(" → ")}
-読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}${channelText(p, f.version)}`;
+読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}${channels ? `\n${channels}` : ""}`;
 }
 
 // 流入元ごとに、どこまで進んだか（件数が少ないうちは偶然の差が大きい）

@@ -46,6 +46,7 @@ export const channelSteps = (isTool: boolean): ChannelStep[] => isTool
   : [{ key: "half", label: "半分まで読んだ" }, { key: "cta", label: "登録ボタンを押した" }, { key: "conv", label: "事前登録した" }];
 
 // 版ごとに、流入元ごとの人数と、各段まで進んだ人数を数える。1人の流入元は、その版で最初に来たときのもの
+// （views は記録の番号順＝来た順に渡すこと。取り込みは id の昇順で読んでいる）
 export function channelStats(views: View[], events: Event[], conv: Conv[], postPlatform: Map<string, string>, isTool: boolean, siteHost?: string | null): Map<number, ChannelRow[]> {
   const out = new Map<number, ChannelRow[]>();
   const versions = [...new Set(views.map((v) => v.version))];
