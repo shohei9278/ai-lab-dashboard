@@ -35,6 +35,10 @@ jobs:
         run: npm test
       - name: 本番用のビルド
         run: npm run build
+      - name: ブラウザを入れる
+        run: npx playwright-core install --with-deps chromium
+      - name: 来訪者の画面のテスト
+        run: npm run test:e2e
       - name: 型チェック
         run: npm run typecheck
       - name: 公開サイトの依存を入れる
