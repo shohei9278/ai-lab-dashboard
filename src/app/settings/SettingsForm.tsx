@@ -210,7 +210,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
             {backups ? (
               <>
                 <p className="text-xs">{backups.files.length ? `最近の写し: ${backups.files.join("・")}` : "まだ写しはありません（次の自動の確認で取ります）"}</p>
-                <p className="text-xs">{backups.offsite ? `最新の外部保存: ${backups.offsite.file}（${new Date(backups.offsite.at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}）` : "外部にはまだ保存していません（次の自動の確認で送ります）"}</p>
+                <p className="text-xs">{backups.offsite ? `最新の外部保存: ${backups.offsite.file}（${new Date(backups.offsite.at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}）` : publishing ? "外部にはまだ保存していません（次の自動の確認で送ります）" : "Supabase が設定されていないため、外部には保存していません"}</p>
               </>
             ) : <p className="text-xs">写しの状況は、運営者だけに表示しています。</p>}
           </div>

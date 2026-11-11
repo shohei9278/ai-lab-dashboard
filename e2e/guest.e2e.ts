@@ -52,15 +52,21 @@ test("概要ページとダッシュボードの行き来で、サイドバー�
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await ctx.newPage();
   const sidebar = page.locator("aside");
+  // 再読み込みすると消える印。残っていれば、同じページのまま（クライアントで）移ったことになる
+  const sameDocument = () => page.evaluate(() => (window as unknown as { __e2e?: boolean }).__e2e === true);
   await page.goto(`${BASE}/showcase`);
   assert.equal(await sidebar.count(), 0);
+  await page.evaluate(() => { (window as unknown as { __e2e?: boolean }).__e2e = true; });
   await page.getByRole("link", { name: /実際のダッシュボードを見る/ }).click();
   await sidebar.waitFor();
+  assert.ok(await sameDocument(), "ダッシュボードへの移動で再読み込みされました");
   await page.getByRole("link", { name: "はじめての方は概要ページへ" }).click();
   await page.waitForURL("**/showcase");
   await sidebar.waitFor({ state: "detached" });
+  assert.ok(await sameDocument(), "概要ページへの移動で再読み込みされました");
   await page.goBack();
   await sidebar.waitFor();
+  assert.ok(await sameDocument(), "戻るで再読み込みされました");
   await ctx.close();
 });
 
@@ -69,6 +75,10 @@ test("来訪者: 主要なページがスマホ幅でエラーなく開き、横
   const page = await ctx.newPage();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
+  // コンソールのエラーも数える。来訪者の操作を断ったときの 403 だけは、想定どおりなので除く
+  page.on("console", (m) => {
+    if (m.type() === "error" && !/status of 403/.test(m.text())) errors.push(m.text());
+  });
   const routes = ["/", "/showcase", "/projects", "/plan", "/live", "/approvals", "/proposals", "/meetings", "/diary", "/lab", "/lab/tests", "/growth", "/growth/stats", "/outside", "/interventions", "/notes", "/reports", "/settings", "/runs", "/runs/new", "/datasets"];
   for (const r of routes) {
     errors.length = 0;
