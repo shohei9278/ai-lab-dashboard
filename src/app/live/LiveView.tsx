@@ -32,7 +32,8 @@ const color = (p: string | null) => (p ? `var(--series-${p})` : "var(--muted)");
 
 export function LiveView({ initial }: { initial: LiveSnapshot }) {
   const [data, setData] = useState(initial);
-  const [now, setNow] = useState(() => Date.now());
+  // 最初の表示はサーバーの時刻にそろえる（ブラウザの時刻で描くと、サーバーの表示と食い違って警告が出る）。そのあと1秒ごとに進める
+  const [now, setNow] = useState(() => Date.parse(initial.now));
   const [online, setOnline] = useState(true);
   // 新しく増えたものを光らせるため、前回までに見たものを覚えておく
   const seen = useRef(new Set<string>([...initial.feed.map((f) => f.key), ...initial.calls.map((c) => `c${c.id}`), ...initial.events.map((e) => `e${e.id}`)]));

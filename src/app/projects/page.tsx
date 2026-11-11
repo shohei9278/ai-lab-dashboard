@@ -3,7 +3,10 @@ import { PageIntro } from "@/components/PageIntro";
 import { ShowMore } from "@/components/ShowMore";
 import { db, getSettings, type ProjectRow, type Stage } from "@/lib/db";
 import { pct } from "@/lib/format";
-import { CONV, STAGE_LABEL, projectTotals, targetRate } from "@/lib/loop";
+import { CONV, MODE_LABEL, STAGE_LABEL, ideaAuthors, projectTotals, targetRate } from "@/lib/loop";
+import { getModel } from "@/lib/models";
+import { IdeaForm } from "@/components/IdeaForm";
+import { DailyCard } from "@/components/DailyCard";
 
 export const dynamic = "force-dynamic";
 
@@ -22,13 +25,19 @@ export default function ProjectsPage() {
   const pendingByProject = new Set(
     (db().prepare("SELECT DISTINCT project_id FROM approvals WHERE status = 'pending'").all() as { project_id: number }[]).map((r) => r.project_id),
   );
+  const lastDaily = db().prepare("SELECT message FROM events WHERE kind = 'daily' ORDER BY id DESC LIMIT 1").get() as { message: string } | undefined;
+  const modeSetting = s.approvalMode === "alternate"
+    ? "2つのモードに交互に割り当て"
+    : s.approvalMode === "confidence"
+      ? `AIの自信が${Math.round(s.autoConfidence * 100)}%以上なら自動`
+      : MODE_LABEL[s.approvalMode];
   return (
     <div className="space-y-4">
       <PageIntro title="案件の一覧">AIが進めている案件を、段階ごとに並べています。押すと、その案件で何を考えて何をしたかが見られます。</PageIntro>
       <section className="space-y-2">
         {projects.length === 0 ? (
           <div className="card p-6 text-sm text-ink-2">
-            まだ案件がありません。ホームの「アイデアを出す」でAIに考えさせてください。
+            まだ案件がありません。下の「アイデアを出す」でAIに考えさせてください。
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -63,6 +72,23 @@ export default function ProjectsPage() {
             </ul>
           </div>
         )}
+      </section>
+
+      {/* 新しいアイデア: 毎日の自動実行と、テーマを決めて今すぐ出させる操作（ホームから移した） */}
+      <section id="ideas" className="scroll-mt-4 space-y-2">
+        <h2 className="font-bold">アイデア出し</h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <DailyCard
+            enabled={s.dailyEnabled}
+            hour={s.dailyHour}
+            lastRun={s.lastDailyRun}
+            lastMessage={lastDaily?.message ?? null}
+            count={s.dailyIdeaCount}
+            keep={s.dailyKeep}
+            modeLabel={modeSetting}
+          />
+          <IdeaForm authors={ideaAuthors().map((id) => getModel(id).label)} />
+        </div>
       </section>
     </div>
   );

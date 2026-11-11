@@ -5,7 +5,7 @@ import { getSettings } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
 import { autoPlatforms } from "@/lib/snsApi";
 import { planProgress, recentPlans, todayPlan } from "@/lib/plan";
-import { AiPostsReview, OpenRequests, PlanHistory, PlanSummary, PlanTasks, RequestHistory, dayLabel } from "./PlanView";
+import { AiPostsReview, RequestCount, PlanHistory, PlanSummary, PlanTasks, dayLabel } from "./PlanView";
 import { Replan } from "./PlanActions";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +39,7 @@ export default async function PlanPage() {
               <span className="text-xs text-muted">{jstDateTime(plan.created_at)} に作成</span>
             </div>
             <PlanSummary plan={plan} />
-            <OpenRequests owner={owner} collapsed={!owner} />
+            <RequestCount owner={owner} />
           </section>
 
           <section className="card space-y-2 p-4">
@@ -75,13 +75,6 @@ export default async function PlanPage() {
       </section>
 
       <p className="text-sm">どの投稿の手が効いたかは、<a href="/growth/stats" className="text-accent underline">集客 → 効いた手</a>で見られます。</p>
-      <section className="card space-y-3 p-4">
-        <div>
-          <h2 className="font-bold">提案箱への返事</h2>
-          <p className="text-xs text-muted">返事（やった・やらない、ひとこと）は、次の計画でAIが見ます。やってもらったことの前後で数字がどう変わったかも振り返ります。</p>
-        </div>
-        <RequestHistory />
-      </section>
       <p className="text-xs text-muted">普通の投稿にはリンクがないため、そこから何人来たかは分かりません。反応の数と、全体の訪問の増え方で、効いたかどうかを見ます。設定は<Link href="/settings" className="underline">設定</Link>で変えられます。</p>
     </div>
   );

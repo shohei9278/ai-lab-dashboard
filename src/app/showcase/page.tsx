@@ -13,8 +13,7 @@ import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, recentPlans } from "@/lib/p
 import { jstDay } from "@/lib/sns";
 import { listVoices } from "@/lib/voices";
 import { VoiceList } from "@/components/VoiceList";
-import { InterventionCard } from "@/components/InterventionList";
-import { listInterventions } from "@/lib/interventions";
+import { INTERVENTION_KIND, listInterventions } from "@/lib/interventions";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -60,6 +59,43 @@ export default function Showcase() {
         <Tile label="訪問（累計）" value={`${cost.visits}人`} />
         <Tile label="登録・利用（累計）" value={`${cost.conversions}件`} />
         <Tile label="AI費用（累計）" value={yen(aiTotal)} sub={cost.perConversion === null ? undefined : `成果1件あたり ${yen(cost.perConversion)}`} />
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="font-bold">公開した案件</h2>
+        {projects.length === 0 ? <p className="text-sm text-ink-2">まだありません。</p> : (
+          <div className="card overflow-x-auto">
+            <table className="m-cards w-full text-sm">
+              <thead className="text-left text-xs text-muted">
+                <tr className="border-b border-line">
+                  <th className="px-3 py-2">案件</th>
+                  <th className="px-3 py-2">形</th>
+                  <th className="px-3 py-2">いまの段階</th>
+                  <th className="px-3 py-2">アイデアを出したAI</th>
+                  <th className="px-3 py-2 text-right">訪問</th>
+                  <th className="px-3 py-2 text-right">成果の率</th>
+                </tr>
+              </thead>
+              <tbody>
+                {projects.map((p) => {
+                  const t = projectTotals(p.id);
+                  const url = s.showcaseShowLinks ? publicUrl(p.id) : null;
+                  const m = modelInfo(p.idea_model ?? p.model_id);
+                  return (
+                    <tr key={p.id} className="num border-b border-line last:border-0">
+                      <td className="m-wide px-3 py-2 font-medium sm:font-normal">{url ? <a href={url} target="_blank" rel="noreferrer" className="text-accent underline">{p.title}</a> : p.title}</td>
+                      <td data-label="形" className="px-3 py-2 text-xs">{KIND_LABEL[p.kind]}</td>
+                      <td data-label="いまの段階" className="px-3 py-2 text-xs">{STAGE_LABEL[p.stage]}</td>
+                      <td data-label="アイデアを出したAI" className="px-3 py-2 text-xs"><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: `var(--series-${m.provider})` }} />{m.label}</td>
+                      <td data-label="訪問" className="px-3 py-2 text-right">{t.visits}</td>
+                      <td data-label="成果の率" className="px-3 py-2 text-right">{t.visits ? `${CONV[p.kind].rate} ${pct(t.rate, 1)}` : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {report && (
@@ -118,44 +154,15 @@ export default function Showcase() {
           <Link href="/interventions" className="text-sm text-accent underline">すべて見る（{interventions.length}件）</Link>
         </div>
         <p className="text-sm text-ink-2">コード生成には主に Claude Code を活用しています。人間は問題の発見、方針決定、動作確認を担当し、原因調査や修正にもAIを活用しています。</p>
-        <div className="grid gap-3 lg:grid-cols-3">{interventions.slice(0, 3).map((v) => <InterventionCard key={v.id} v={v} />)}</div>
-      </section>
-
-      <section className="space-y-2">
-        <h2 className="font-bold">公開した案件</h2>
-        {projects.length === 0 ? <p className="text-sm text-ink-2">まだありません。</p> : (
-          <div className="card overflow-x-auto">
-            <table className="m-cards w-full text-sm">
-              <thead className="text-left text-xs text-muted">
-                <tr className="border-b border-line">
-                  <th className="px-3 py-2">案件</th>
-                  <th className="px-3 py-2">形</th>
-                  <th className="px-3 py-2">いまの段階</th>
-                  <th className="px-3 py-2">アイデアを出したAI</th>
-                  <th className="px-3 py-2 text-right">訪問</th>
-                  <th className="px-3 py-2 text-right">成果の率</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projects.map((p) => {
-                  const t = projectTotals(p.id);
-                  const url = s.showcaseShowLinks ? publicUrl(p.id) : null;
-                  const m = modelInfo(p.idea_model ?? p.model_id);
-                  return (
-                    <tr key={p.id} className="num border-b border-line last:border-0">
-                      <td className="m-wide px-3 py-2 font-medium sm:font-normal">{url ? <a href={url} target="_blank" rel="noreferrer" className="text-accent underline">{p.title}</a> : p.title}</td>
-                      <td data-label="形" className="px-3 py-2 text-xs">{KIND_LABEL[p.kind]}</td>
-                      <td data-label="いまの段階" className="px-3 py-2 text-xs">{STAGE_LABEL[p.stage]}</td>
-                      <td data-label="アイデアを出したAI" className="px-3 py-2 text-xs"><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ background: `var(--series-${m.provider})` }} />{m.label}</td>
-                      <td data-label="訪問" className="px-3 py-2 text-right">{t.visits}</td>
-                      <td data-label="成果の率" className="px-3 py-2 text-right">{t.visits ? `${CONV[p.kind].rate} ${pct(t.rate, 1)}` : "—"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <ul className="card divide-y divide-line text-sm">
+          {interventions.slice(0, 3).map((v) => (
+            <li key={v.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 p-3">
+              <span className="num text-xs text-muted">{v.day.slice(5).replace("-", "/")}</span>
+              <span className="rounded border border-line px-1.5 text-xs text-ink-2">{INTERVENTION_KIND[v.kind]}</span>
+              <span className="font-medium">{v.title}</span>
+            </li>
+          ))}
+        </ul>
       </section>
 
       {authors.length > 0 && (
