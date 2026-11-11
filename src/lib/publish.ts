@@ -2,6 +2,7 @@ import { importSiteFeedback } from "./outside";
 import { createClient } from "@supabase/supabase-js";
 import { db, getSettings, type ProjectRow } from "./db";
 import { attributePosts } from "./sns";
+import { channelStats, hostOf } from "./channels";
 
 // 公開用LPサイト（Vercel）とデータ（Supabase）をつなぐ部分。
 // Supabase の設定がなければ何もしない（今までどおり手入力・シミュレーションで動く）
@@ -47,9 +48,9 @@ export async function closeLp(p: ProjectRow) {
 }
 
 // Supabase は1回に最大1000行しか返さないので、全部そろうまで続けて取る
-type Row = { version: number; day: string; visitor_id: string; kind?: string; source?: string | null; name?: string; detail?: string };
+type Row = { version: number; day: string; visitor_id: string; kind?: string; source?: string | null; referrer?: string | null; name?: string; detail?: string };
 const COLUMNS = {
-  lp_views: "version, day, visitor_id, source", signups: "version, day, visitor_id", tool_events: "version, day, visitor_id, kind",
+  lp_views: "version, day, visitor_id, source, referrer", signups: "version, day, visitor_id", tool_events: "version, day, visitor_id, kind",
   lp_events: "version, day, visitor_id, name, detail",
 } as const;
 
@@ -127,7 +128,8 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
     attributePosts(p.id, views, conv);
     const fromIndex = indexCounts(views, conv);
     conn.prepare("UPDATE projects SET index_visits = ?, index_uses = ? WHERE id = ?").run(fromIndex.visits, fromIndex.uses, p.id);
-    await syncFunnel(p.id, slug);
+    const funnelEvents = await syncFunnel(p.id, slug);
+    syncChannels(p, views, funnelEvents, conv);
     visits += views.length;
     signups += conv.length;
   }
@@ -136,12 +138,12 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
 
 // ページの中での動き（ボタン・入力開始・読んだ深さなど）を、版・イベントごとの人数にまとめて入れ直す
 // 公開サイトの Supabase に lp_events の表をまだ作っていないときは、何もしない
-async function syncFunnel(projectId: number, slug: string) {
+async function syncFunnel(projectId: number, slug: string): Promise<Row[]> {
   let rows: Row[];
   try {
     rows = await fetchAll("lp_events", slug);
   } catch (e) {
-    if (/lp_events/.test(e instanceof Error ? e.message : "")) return;
+    if (/lp_events/.test(e instanceof Error ? e.message : "")) return [];
     throw e;
   }
   const people = new Map<string, Set<string>>();
@@ -158,6 +160,19 @@ async function syncFunnel(projectId: number, slug: string) {
       const [version, name, detail] = k.split("|");
       ins.run(projectId, Number(version), name, detail, set.size);
     }
+  })();
+  return rows;
+}
+
+// どこから来たかを、版ごと・流入元ごとに数えて保存する（来た元のページは、サイト名だけを残す）
+function syncChannels(p: ProjectRow, views: Row[], events: Row[], conv: Row[]) {
+  const postPlatform = new Map((db().prepare("SELECT code, platform FROM sns_posts WHERE project_id = ? AND code IS NOT NULL").all(p.id) as { code: string; platform: string }[]).map((r) => [r.code, r.platform]));
+  const stats = channelStats(views, events, conv, postPlatform, p.kind === "tool", hostOf(getSettings().lpBaseUrl));
+  const conn = db();
+  conn.transaction(() => {
+    conn.prepare("DELETE FROM lp_channels WHERE project_id = ?").run(p.id);
+    const ins = conn.prepare("INSERT INTO lp_channels (project_id, version, data) VALUES (?, ?, ?)");
+    for (const [version, rows] of stats) ins.run(p.id, version, JSON.stringify(rows));
   })();
 }
 

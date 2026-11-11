@@ -1,10 +1,11 @@
 import Link from "next/link";
 import type { Funnel } from "@/lib/funnel";
+import { channelSteps, type ChannelRow } from "@/lib/channels";
 
 const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
 
 // ページの中での動き: 訪問した人が、どこまで進んだか
-export function FunnelCard({ f, isTool, projectId, all, liveVersion }: { f: Funnel; isTool: boolean; projectId: number; all: Funnel[]; liveVersion: number }) {
+export function FunnelCard({ f, isTool, projectId, all, liveVersion, channels }: { f: Funnel; isTool: boolean; projectId: number; all: Funnel[]; liveVersion: number; channels: ChannelRow[] }) {
   // いちばん大きく減っている段（前の段からの割合が最も低いところ）
   let worst = -1;
   let worstRate = 1;
@@ -99,8 +100,50 @@ export function FunnelCard({ f, isTool, projectId, all, liveVersion }: { f: Funn
             )}
             {f.errors > 0 && <p className="text-xs" style={{ color: "var(--critical)" }}>登録しようとして失敗した人: {f.errors}人</p>}
           </div>
+          <Channels rows={channels} isTool={isTool} />
         </>
       )}
     </section>
+  );
+}
+
+// どこから来たか: 流入元ごとの人数と、そこから来た人がどこまで進んだか
+function Channels({ rows, isTool }: { rows: ChannelRow[]; isTool: boolean }) {
+  const steps = channelSteps(isTool);
+  const total = rows.reduce((n, r) => n + r.visitors, 0);
+  return (
+    <div className="space-y-2 border-t border-line pt-3">
+      <div>
+        <div className="text-sm font-medium">どこから来たか</div>
+        <p className="text-xs text-muted">SNSの投稿の専用リンクから来た人は、その投稿の場所に数えます（Threads から来た人は、来た元が Facebook と記録されるため）。1人は、この版で最初に来たときの流入元で数えます。来た元のページは、サイト名だけを使います。</p>
+      </div>
+      {!rows.length ? (
+        <p className="text-sm text-ink-2">まだ記録がありません。5分ごとの取り込みで出ます。</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="m-scroll w-full text-sm">
+            <thead className="text-left text-xs text-muted">
+              <tr className="border-b border-line">
+                <th className="py-1.5 pr-3 font-normal">流入元</th>
+                <th className="py-1.5 pr-3 text-right font-normal">訪問</th>
+                {steps.map((s) => <th key={s.key} className="py-1.5 pr-3 text-right font-normal">{s.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={`${r.key}:${r.host ?? ""}`} className="border-b border-line last:border-0">
+                  <td className="min-w-28 py-1.5 pr-3">{r.label}</td>
+                  <td className="num py-1.5 pr-3 text-right">{r.visitors}人<span className="ml-1 text-xs text-muted">{pc(total ? r.visitors / total : null)}</span></td>
+                  {steps.map((s) => {
+                    const n = r.steps[s.key] ?? 0;
+                    return <td key={s.key} className="num py-1.5 pr-3 text-right">{n}人<span className="ml-1 text-xs text-muted">{pc(r.visitors ? n / r.visitors : null)}</span></td>;
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }

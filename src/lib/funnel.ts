@@ -1,5 +1,6 @@
 import { db, type ProjectRow } from "./db";
 import { projectTotals } from "./loop";
+import { channelSteps, maskChannels, type ChannelRow } from "./channels";
 
 // 案件ごとの「ページの中での動き」。訪問した人が、どこまで進んだか（今の版）
 // 人数は訪問者ごと・1日1回で数える（同じ人が別の日に来ると2人と数える。訪問数と同じ数え方）
@@ -58,5 +59,20 @@ export function funnelText(p: ProjectRow): string {
   if (!f.hasEvents || !f.visits) return "";
   const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
   return `ページの中での動き（第${f.version}版・訪問者に対する割合）: ${f.steps.map((s) => `${s.label} ${s.visitors}人（${pc(s.ofVisits)}）`).join(" → ")}
-読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}`;
+読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}${channelText(p, f.version)}`;
+}
+
+// 流入元ごとに、どこまで進んだか（件数が少ないうちは偶然の差が大きい）
+function channelText(p: ProjectRow, version: number): string {
+  const rows = channelRows(p.id, version, false);
+  if (!rows.length) return "";
+  const steps = channelSteps(p.kind === "tool");
+  return `\n流入元ごと（件数が少ないうちは偶然の差が大きい）: ${rows.map((r) => `${r.label} ${r.visitors}人（${steps.map((s) => `${s.label} ${r.steps[s.key] ?? 0}人`).join("・")}）`).join(" / ")}`;
+}
+
+// 流入元ごとの人数（来訪者には、ほかのサイトの名前をまとめて出す）
+export function channelRows(projectId: number, version: number, owner: boolean): ChannelRow[] {
+  const row = db().prepare("SELECT data FROM lp_channels WHERE project_id = ? AND version = ?").get(projectId, version) as { data: string } | undefined;
+  const rows = row ? (JSON.parse(row.data) as ChannelRow[]) : [];
+  return owner ? rows : maskChannels(rows);
 }

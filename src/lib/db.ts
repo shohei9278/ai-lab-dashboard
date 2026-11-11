@@ -448,6 +448,13 @@ CREATE TABLE IF NOT EXISTS page_candidates (
   selected INTEGER NOT NULL DEFAULT 0,
   check_json TEXT -- PageCheck（撮った画面など）
 );
+-- どこから来たか（流入元）ごとの人数と、ページの中で進んだ段の人数（取り込むたびに作り直す）。data は ChannelRow[] のJSON。ほかのサイトはサイト名だけを持つ
+CREATE TABLE IF NOT EXISTS lp_channels (
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  version INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  PRIMARY KEY (project_id, version)
+);
 -- ページの中での動き（公開サイトの lp_events から、取り込むたびに作り直す）。版ごと・イベントごとの人数
 CREATE TABLE IF NOT EXISTS lp_funnel (
   project_id INTEGER NOT NULL REFERENCES projects(id),
