@@ -27,7 +27,7 @@ import { AutoReviewCard } from "./AutoReviewCard";
 import { EventLog } from "./EventLog";
 import { FunnelCard } from "./FunnelCard";
 import { getWant } from "@/lib/userWants";
-import { funnel, funnelVersions } from "@/lib/funnel";
+import { channelRows, funnel, funnelVersions } from "@/lib/funnel";
 import { eventDetails } from "@/lib/eventDetails";
 import { SnsPosts } from "./SnsPosts";
 import { listPosts, postLink } from "@/lib/sns";
@@ -272,7 +272,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
       {p.public_slug && (() => {
         const live = p.public_version ?? p.lp_version;
         const all = funnelVersions(p).map((v) => funnel(p, v));
-        return <FunnelCard f={all.find((x) => x.version === fv) ?? funnel(p)} all={all} isTool={isTool} projectId={p.id} liveVersion={live} />;
+        const shown = all.find((x) => x.version === fv) ?? funnel(p);
+        return <FunnelCard f={shown} all={all} isTool={isTool} projectId={p.id} liveVersion={live} channels={channelRows(p.id, shown.version, owner)} />;
       })()}
 
       {p.index_visits > 0 && (
