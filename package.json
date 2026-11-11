@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",
-    "@google/genai": "^2.32.0",
+    "@google/genai": "^3.0.0",
     "@supabase/supabase-js": "^2.119.0",
     "better-sqlite3": "^13.0.3",
     "next": "16.4.6",
