@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { addIntervention, hideIntervention } from "@/lib/interventions";
 
-// 人の手が入った記録を足す・消す（ゲストは middleware が POST を止める）
+// 人の手が入った記録を足す・消す（ゲストは proxy が POST を止める）
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Record<string, unknown>;

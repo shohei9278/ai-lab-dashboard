@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { dataDir } from "@/lib/db";
 
 // このPCの画面の写真など（DB の外のファイル）をサーバーに移すための入口（scripts/push-db.mts から使う）
-// 運営者だけが使える（来た人の POST は middleware が断る）。置ける場所は決まったフォルダの中だけ
+// 運営者だけが使える（来た人の POST は proxy が断る）。置ける場所は決まったフォルダの中だけ
 const ALLOWED = /^(screenshots|refs|brand)\/[A-Za-z0-9._-]+$/;
 
 export async function POST(req: Request) {
