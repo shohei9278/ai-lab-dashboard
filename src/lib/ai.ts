@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { GoogleGenAI } from "@google/genai";
 import { callModel } from "./providers";
 import { saveTrace } from "./traces";
+import { withExternalRule } from "./untrusted";
 
 export class GuardError extends Error {}
 
@@ -23,7 +24,7 @@ export async function callJson<T>(opts: {
   const model = getModel(opts.modelId ?? s.loopModel);
   if (!hasKey(model.provider)) throw new GuardError(`${model.label} のAPIキーがありません`);
 
-  const system = `${opts.system}\n\n出力はJSONのみ。前置きやコードブロックは付けないこと。`;
+  const system = `${withExternalRule(opts.system, opts.user)}\n\n出力はJSONのみ。前置きやコードブロックは付けないこと。`;
   // 形式が崩れたときは1回だけやり直す
   for (let attempt = 0; attempt < 2; attempt++) {
     const r = await callModel(model, { system, user: opts.user }, null);
@@ -72,7 +73,7 @@ export async function callClaude(opts: { purpose: string; projectId?: number; sy
       max_tokens: opts.maxTokens,
       thinking: { type: "adaptive" },
       ...(opts.effort ? { output_config: { effort: opts.effort } } : {}),
-      system: opts.system,
+      system: withExternalRule(opts.system, JSON.stringify(opts.content)),
       messages: [{ role: "user", content: opts.content }],
     }).finalMessage();
     const text = msg.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
@@ -105,7 +106,7 @@ export async function callLong(opts: { modelId: string; purpose: string; project
   if (model.provider === "google") {
     try {
       const res = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: 15 * 60 * 1000 } }).models.generateContent({
-        model: model.id, contents: opts.user, config: { systemInstruction: opts.system, maxOutputTokens: opts.maxTokens },
+        model: model.id, contents: opts.user, config: { systemInstruction: withExternalRule(opts.system, opts.user), maxOutputTokens: opts.maxTokens },
       });
       const u = res.usageMetadata;
       const reason = res.candidates?.[0]?.finishReason;
@@ -124,7 +125,7 @@ export async function callLong(opts: { modelId: string; purpose: string; project
   try {
     // 出力が長いので、待ち時間の上限を長めにとる
     const res = await new OpenAI({ timeout: 15 * 60 * 1000, maxRetries: 1 }).responses.create({
-      model: model.id, instructions: opts.system, input: opts.user, max_output_tokens: opts.maxTokens,
+      model: model.id, instructions: withExternalRule(opts.system, opts.user), input: opts.user, max_output_tokens: opts.maxTokens,
     });
     const inTok = res.usage?.input_tokens ?? 0;
     const outTok = res.usage?.output_tokens ?? 0;
