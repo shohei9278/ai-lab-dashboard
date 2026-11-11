@@ -39,7 +39,7 @@ export default async function PlanPage() {
               <span className="text-xs text-muted">{jstDateTime(plan.created_at)} に作成</span>
             </div>
             <PlanSummary plan={plan} />
-            <OpenRequests owner={owner} />
+            <OpenRequests owner={owner} collapsed={!owner} />
           </section>
 
           <section className="card space-y-2 p-4">

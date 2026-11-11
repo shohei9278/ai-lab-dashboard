@@ -50,6 +50,7 @@ export default async function Home() {
 
   const o = overview();
   const owner = await isOwner();
+  const you = owner ? "あなた" : "運営者";
   const voices = listVoices({ limit: 5 });
   o.events = maskEventsForGuest(o.events, owner);
   const waiting = waitingItems();
@@ -73,7 +74,7 @@ export default async function Home() {
             Claude・GPT・Gemini の3社のAIを社員にした、小さなプロダクト会社の実験です。社員どうしでアイデアを出して採点し合い、事前登録のページや動くツールを作って公開し、SNSで人を呼び、反応を見て「続ける・改善・撤退」まで決めます。
             毎朝の朝会で今日やることを決め、週1回の定例会議で振り返ります。
             {s.fullAuto && s.approvalMode === "auto"
-              ? "あなたは社長として、AIだけで出したものをあとから確認し、提案箱に返事をします。"
+              ? `${you}は社長として、AIだけで出したものをあとから確認し、提案箱に返事をします。`
               : "要所ではあなた（社長）の承認を待ち、提案箱の提案にも返事をします。"}
           </p>
           <p className="flex items-center gap-1.5 text-xs text-ink-2">
@@ -96,7 +97,7 @@ export default async function Home() {
           className="card block p-4 hover:bg-surface-2"
           style={waiting.length ? { borderColor: "var(--accent)", boxShadow: "inset 4px 0 0 var(--accent)" } : undefined}
         >
-          <div className="text-xs text-muted">あなたの確認・対応</div>
+          <div className="text-xs text-muted">{you}の確認・対応</div>
           <div className="num mt-1 text-2xl font-bold" style={{ color: waiting.length ? "var(--accent)" : undefined }}>{waiting.length}件</div>
           <div className="mt-1 text-xs text-ink-2">{waiting.length ? "下の一覧から案件を開けます ↓" : "確認することはありません"}</div>
         </a>
@@ -111,7 +112,7 @@ export default async function Home() {
 
       {/* 止まっているもの */}
       <section id="waiting" className="card scroll-mt-4 p-4" style={waiting.length ? { borderColor: "var(--accent)" } : undefined}>
-        <Head title="あなたの確認・対応" note="AIだけで公開したものの確認と、AIが人に回したもの（チェックで問題が残った・上限に達したなど）です。古い順で、行を押すと案件の画面に移動します。" />
+        <Head title={`${you}の確認・対応`} note="AIだけで公開したものの確認と、AIが人に回したもの（チェックで問題が残った・上限に達したなど）です。古い順で、行を押すと案件の画面に移動します。" />
         {waiting.length === 0 ? (
           <p className="text-sm text-ink-2">いまは確認することはありません。AIが自動で進めています。</p>
         ) : (
@@ -161,7 +162,7 @@ export default async function Home() {
         )}
         {autoStats.published > 0 && (
           <p className="mt-3 border-t border-line pt-3 text-xs text-ink-2">
-            AIだけで公開したもの: {autoStats.published}件（あなたが確認済み {autoStats.reviewed}件・うち「出すべきでなかった」{autoStats.bad}件
+            AIだけで公開したもの: {autoStats.published}件（{you}が確認済み {autoStats.reviewed}件・うち「出すべきでなかった」{autoStats.bad}件
             {autoStats.reviewed > 0 ? `＝${pct(autoStats.bad / autoStats.reviewed, 0)}` : ""}）
           </p>
         )}
@@ -180,7 +181,7 @@ export default async function Home() {
           {plan ? (
             <>
               <PlanSummary plan={plan} />
-              <OpenRequests owner={owner} />
+              <OpenRequests owner={owner} collapsed />
               {owner && unreviewedPostCount() > 0 && (
                 <p className="text-sm">
                   AIだけで出した投稿のうち、まだ見ていないもの <b className="num">{unreviewedPostCount()}件</b>（直近3日）
@@ -262,7 +263,7 @@ export default async function Home() {
                   </div>
                   <div className="mt-1 text-xs text-ink-2">{f.who}</div>
                   <div className="mt-2 text-xs font-medium" style={{ color: w ? "var(--accent)" : "var(--muted)" }}>
-                    {w ? `● あなたの確認 ${w}件 →` : "○ 確認なし"}
+                    {w ? `● ${you}の確認 ${w}件 →` : "○ 確認なし"}
                   </div>
                 </a>
                 {i < FLOW.length - 1 && <span aria-hidden className="absolute -right-2 top-1/2 z-10 hidden -translate-y-1/2 text-muted lg:block">→</span>}

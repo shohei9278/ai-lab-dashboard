@@ -34,6 +34,7 @@ import { listPosts, postLink } from "@/lib/sns";
 import { projectCost } from "@/lib/cost";
 import { publicUrl } from "@/lib/publish";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
+import { plainIssue } from "@/lib/issueText";
 
 export const dynamic = "force-dynamic";
 
@@ -156,9 +157,9 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
             <LpCandidates projectId={p.id} version={p.lp_version} items={candidateViews} canSwitch={publishPending && p.stage === "lp"} isTool={isTool} />
           )}
           {versions.length > 1 && (
-            <div className="space-y-2 border-t border-line pt-3">
-              <div className="text-xs text-muted">版の履歴（何をどう変えたか。自動モードではAIが承認なしで改善した版もあります）</div>
-              <ol className="space-y-2 text-sm">
+            <details className="space-y-2 border-t border-line pt-3">
+              <summary data-demo-ok className="cursor-pointer text-xs text-muted">版の履歴（{versions.length}版。何をどう変えたか。自動モードではAIが承認なしで改善した版もあります）</summary>
+              <ol className="mt-2 space-y-2 text-sm">
                 {versions.map((v) => {
                   const vlp = JSON.parse(v.lp) as Lp;
                   const review = v.review ? (JSON.parse(v.review) as Review) : null;
@@ -173,14 +174,14 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                         {vt.visits > 0 && <span className="num">訪問 {vt.visits} / {conv.noun} {vt.signups}（{pct(vt.rate, 1)}）</span>}
                         {review && (review.ok
                           ? <span style={{ color: "var(--good)" }}>✓ チェックOK</span>
-                          : <span style={{ color: "var(--critical)" }}>! {review.issues.join(" / ")}</span>)}
+                          : <span style={{ color: "var(--critical)" }}>! {review.issues.map(plainIssue).join(" / ")}</span>)}
                       </div>
                       <div>{vlp.headline}</div>
                     </li>
                   );
                 })}
               </ol>
-            </div>
+            </details>
           )}
         </section>
       )}
@@ -373,8 +374,12 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
 
 
       <section className="space-y-2">
-        <h2 className="font-bold">経過</h2>
-        <EventLog projectId={p.id} events={events} details={eventDetails(p.id, events.filter((e) => !e.message.startsWith("AIが判断しました（内容は")), authorHidden)} />
+        <details>
+          <summary data-demo-ok className="cursor-pointer font-bold">経過（{events.length}件）</summary>
+          <div className="mt-2">
+            <EventLog projectId={p.id} events={events.map((e) => ({ ...e, message: plainIssue(e.message) }))} details={eventDetails(p.id, events.filter((e) => !e.message.startsWith("AIが判断しました（内容は")), authorHidden)} />
+          </div>
+        </details>
       </section>
     </div>
   );

@@ -87,7 +87,7 @@ export function SnsPosts({ projectId, posts, convNoun, ready, imageUrl, account 
       <div className="flex flex-wrap items-end gap-2">
         <label className="text-xs text-ink-2">
           切り口の希望（任意）
-          <input value={hint} onChange={(e) => setHint(e.target.value)} maxLength={300} placeholder="例: 夏休みの終わりに合わせて" className="mt-1 block w-72 max-w-full rounded-lg border border-line bg-surface px-2 py-1 text-sm" />
+          <input value={hint} onChange={(e) => setHint(e.target.value)} maxLength={300} placeholder="例: 夏休みの終わりに合わせて" className="mt-1 block w-full max-w-72 rounded-lg border border-line bg-surface px-2 py-1 text-sm" />
         </label>
         <ActionButton variant="primary" disabled={!!busy} onClick={() => act("AIが下書きを作っています…", { action: "draft", projectId, count: 3, hint })}>
           AIに下書きを3つ作らせる（約5円）

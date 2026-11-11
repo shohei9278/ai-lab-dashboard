@@ -20,7 +20,7 @@ export default async function ViralPage() {
   const ready = xConfigured();
   const owner = await isOwner();
   // 来た人には、他人の投稿の本文と「欲しい」の声の元の投稿を伏せる（AIのまとめと数字は出す）
-  const rows = listViral().map((r) => (owner ? r : { ...r, text: r.text ? HIDDEN : r.text }));
+  const rows = listViral().map((r) => (owner ? r : { ...r, text: r.text ? HIDDEN : r.text, author: r.author ? HIDDEN : r.author, url: "" }));
   const ok = rows.filter((r) => r.status === "ok");
   const waiting = rows.filter((r) => r.status === "queued").length;
   const wants = listWants().map((w) => (owner ? w : { ...w, text: HIDDEN, url: "" }));
@@ -91,7 +91,7 @@ export default async function ViralPage() {
                 <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted">
                   <span>{r.author ?? "（読み込み中）"}・{r.source === "search" ? "自動検索" : "手動"}{r.posted_at ? `・${jstDateTime(r.posted_at)}` : ""}</span>
                   <span className="flex gap-3">
-                    <a href={r.url} target="_blank" rel="noreferrer" className="text-accent underline">投稿を見る ↗</a>
+                    {r.url && <a href={r.url} target="_blank" rel="noreferrer" className="text-accent underline">投稿を見る ↗</a>}
                     <DeleteViral id={r.id} />
                   </span>
                 </div>
