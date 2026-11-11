@@ -75,7 +75,7 @@ export default async function Home() {
             毎朝の朝会で今日やることを決め、週1回の定例会議で振り返ります。
             {s.fullAuto && s.approvalMode === "auto"
               ? `${you}は社長として、AIだけで出したものをあとから確認し、提案箱に返事をします。`
-              : "要所ではあなた（社長）の承認を待ち、提案箱の提案にも返事をします。"}
+              : `要所では${you}（社長）の承認を待ち、提案箱の提案にも返事をします。`}
           </p>
           <p className="flex items-center gap-1.5 text-xs text-ink-2">
             <span aria-hidden style={{ color: status.c }}>●</span>{status.t}

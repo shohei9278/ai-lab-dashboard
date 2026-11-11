@@ -33,7 +33,7 @@ export async function maybeDailyBackup(): Promise<string | null> {
   return file;
 }
 
-export type OffsiteState = { file: string; at: string; bytes: number };
+export type OffsiteState = { file: string; at: string; bytes: number }; // file は保存領域での名前（.gz）
 
 const offsitePath = () => path.join(dataDir("backups"), "offsite.json");
 
@@ -80,11 +80,13 @@ let lastTry = 0;
 export async function maybeOffsiteBackup(): Promise<OffsiteState | null> {
   if (!publishingConfigured() || Date.now() - lastTry < RETRY_MS) return null;
   const latest = backupList()[0];
-  if (!latest || offsiteState()?.file === latest.file) return null;
+  const remote = latest ? `${latest.file}.gz` : null;
+  if (!latest || !remote || offsiteState()?.file === remote) return null;
   lastTry = Date.now();
-  const bytes = await pushOffsite(path.join(dataDir("backups"), latest.file), `${latest.file}.gz`);
-  const state: OffsiteState = { file: latest.file, at: new Date().toISOString(), bytes };
-  fs.writeFileSync(offsitePath(), JSON.stringify(state));
+  const bytes = await pushOffsite(path.join(dataDir("backups"), latest.file), remote);
+  // 古い写しを消し終えてから「送った」と記録する（消すのに失敗したら、1時間後に送り直しと一緒にやり直す）
   await pruneOffsite();
+  const state: OffsiteState = { file: remote, at: new Date().toISOString(), bytes };
+  fs.writeFileSync(offsitePath(), JSON.stringify(state));
   return state;
 }
