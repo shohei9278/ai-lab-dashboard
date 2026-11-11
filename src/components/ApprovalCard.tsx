@@ -6,6 +6,7 @@ import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
 import { DecisionCard } from "./DecisionCard";
 import { jstDateTime } from "@/lib/format";
 import { plainIssue } from "@/lib/issueText";
+import { hasUnpublishedVersion, versionLabel } from "@/lib/versionLabel";
 
 export type ApprovalView = {
   id: number;
@@ -13,7 +14,7 @@ export type ApprovalView = {
   proposal: string;
   reason: string;
   createdAt: string;
-  project: { id: number; title: string; target: string; problem: string; solution: string; hypothesis: string; confidence: number | null; demo: boolean; kind: "lp" | "tool" };
+  project: { id: number; title: string; target: string; problem: string; solution: string; hypothesis: string; confidence: number | null; demo: boolean; kind: "lp" | "tool"; lpVersion: number; publicVersion: number | null };
   conv: { noun: string; rate: string }; // 成果の呼び方（事前登録LPは登録、動くツールは利用）
   decision?: { confidence: number; nextAction: string };
   review?: { ok: boolean; issues: string[] };
@@ -99,9 +100,14 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
               )}
             </div>
           )}
-          <Link href={`/lp/${a.project.id}`} target="_blank" className="inline-block text-sm text-accent underline">
-            {a.project.kind === "tool" ? "ツールを実際に触って確かめる ↗" : "作成されたLPを見る ↗"}
-          </Link>
+          <span className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <Link href={`/lp/${a.project.id}?v=${a.project.lpVersion}`} target="_blank" className="text-accent underline">
+              {versionLabel({ lp_version: a.project.lpVersion, public_version: a.project.publicVersion }, a.project.lpVersion)}を{a.project.kind === "tool" ? "触って確かめる" : "見る"} ↗
+            </Link>
+            {hasUnpublishedVersion({ lp_version: a.project.lpVersion, public_version: a.project.publicVersion }) && (
+              <Link href={`/lp/${a.project.id}/compare`} target="_blank" className="text-accent underline">公開中の第{a.project.publicVersion}版と見比べる ↗</Link>
+            )}
+          </span>
           {a.review && !a.review.ok && a.review.issues.length > 0 && (
             <AutoFix approvalId={a.id} issues={a.review.issues} isTool={a.project.kind === "tool"} />
           )}

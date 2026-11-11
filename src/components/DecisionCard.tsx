@@ -53,7 +53,7 @@ export function DecisionCard({ a }: { a: ApprovalView }) {
           <Item label="広告費（上限）">{t.adSpendJpy.toLocaleString("ja-JP")}円（{j.adBudgetJpy.toLocaleString("ja-JP")}円）</Item>
         </dl>
         <p className="text-sm"><span className="text-xs text-muted">検証する仮説: </span>{a.project.hypothesis}</p>
-        <Link href={`/lp/${a.project.id}`} target="_blank" className="text-sm text-accent underline">{a.project.kind === "tool" ? "今のツールを見る ↗" : "今のLPを見る ↗"}</Link>
+        <Link href={`/lp/${a.project.id}?v=${a.project.publicVersion ?? a.project.lpVersion}`} target="_blank" className="text-sm text-accent underline">{a.project.kind === "tool" ? "公開中のツールを見る ↗" : "公開中のLPを見る ↗"}</Link>
         {t.simulated && <p className="text-xs text-muted">※ 集客データにシミュレーションが含まれます</p>}
       </div>
 

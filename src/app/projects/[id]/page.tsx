@@ -35,6 +35,7 @@ import { projectCost } from "@/lib/cost";
 import { publicUrl } from "@/lib/publish";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
 import { plainIssue } from "@/lib/issueText";
+import { hasUnpublishedVersion, versionLabel } from "@/lib/versions";
 
 export const dynamic = "force-dynamic";
 
@@ -208,7 +209,10 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <section className="card space-y-3 p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="font-bold">{isTool ? "AIが作ったツール" : "AIが作ったLP"}（今は第{p.lp_version}版）</h2>
-            <Link href={`/lp/${p.id}`} target="_blank" className="text-sm text-accent underline">{isTool ? "ツールを開いて試す ↗" : "LPを開く ↗"}</Link>
+            <span className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              <Link href={`/lp/${p.id}?v=${p.lp_version}`} target="_blank" className="text-accent underline">{versionLabel(p, p.lp_version)}を{isTool ? "試す" : "開く"} ↗</Link>
+              {hasUnpublishedVersion(p) && <Link href={`/lp/${p.id}/compare`} target="_blank" className="text-accent underline">公開中の第{p.public_version}版と見比べる ↗</Link>}
+            </span>
           </div>
           <div className="text-lg font-bold">{lp.headline}</div>
           <div className="text-sm text-ink-2">{lp.subheadline}</div>
@@ -227,7 +231,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                   return (
                     <li key={v.id} className="rounded-lg bg-surface-2 p-2">
                       <div className="flex flex-wrap gap-x-3 text-xs text-ink-2">
-                        <span className="font-medium text-ink">第{v.version}版</span>
+                        <Link href={`/lp/${p.id}?v=${v.version}`} target="_blank" className="font-medium text-accent underline">{versionLabel(p, v.version)} ↗</Link>
                         <span className="num">{jstDateTime(v.created_at)}</span>
                         <span>{v.note}</span>
                         {v.tool_model && <span>コード: {modelInfo(v.tool_model).label}{v.tool_rewrites ? `（書き直し ${v.tool_rewrites}回）` : ""}</span>}
