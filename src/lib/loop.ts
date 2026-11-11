@@ -388,6 +388,10 @@ ${(Object.keys(DESIGN_OPTIONS) as (keyof typeof DESIGN_OPTIONS)[]).map((k) => `-
 // （渡すと「前の版にあったツール本体がなくなった」と誤って報告する）
 export const beforeForReview = (before: Lp): Lp => ({ ...before, tool: undefined, page: undefined });
 
+// ツールの案件では、画面イメージ（preview）はページに出さずに捨てる。出ないものをチェックすると、
+// 本物のツールと食い違うと誤って指摘して公開が止まるので、チェックの前に外す
+export const toolPageForReview = (page: Lp): Lp => ({ ...page, preview: undefined });
+
 async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp): Promise<Review> {
   const out = await callJson<Review>({
     purpose: "LPチェック",
@@ -814,7 +818,7 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const { shareText, ...page } = await writeLp(p, opts.instruction, opts.keepCore);
   const version = nextVersion(p.id);
   const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html);
-  const pageReview = await reviewLp(p, page, opts.keepCore ? before : undefined);
+  const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined);
   const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
   let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
