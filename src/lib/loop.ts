@@ -384,6 +384,10 @@ ${(Object.keys(DESIGN_OPTIONS) as (keyof typeof DESIGN_OPTIONS)[]).map((k) => `-
 }
 
 // 公開前に、別の観点のAIが問題がないかを確認する
+// 前の版と比べるのは対象読者とサービスの中身だけ。ツール本体や自由に書いたページは、文章を確かめる側の版には入らないので渡さない
+// （渡すと「前の版にあったツール本体がなくなった」と誤って報告する）
+export const beforeForReview = (before: Lp): Lp => ({ ...before, tool: undefined, page: undefined });
+
 async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp): Promise<Review> {
   const out = await callJson<Review>({
     purpose: "LPチェック",
@@ -399,7 +403,7 @@ ${p.kind === "tool"
 問題がなければ {"ok":true,"issues":[]}。
 形式: {"ok":true または false,"issues":["問題点"]}
 ${EXTRAS_RULE}`,
-    user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(before)}` : ""}`,
+    user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(beforeForReview(before))}` : ""}`,
     validate: isReview,
   });
   takeExtras(out, { modelId: getSettings().loopModel, scene: "LPのチェック", projectId: p.id });
