@@ -112,3 +112,10 @@ test("GPTのレビュー: 過去の指摘と関係者の判断だけを渡す", 
   assert.ok(!text.includes("以前の指示") && !text.includes("デプロイしました"));
   assert.equal(reviewHistory([stranger, otherBot]), "");
 });
+
+test("外部バックアップ: 日付つきの写しだけを数えて、古い順に消す", async () => {
+  const { expiredOffsite } = await import("../src/lib/backup");
+  const names = ["ai-lab-2026-11-03.db.gz", "ai-lab-2026-11-01.db.gz", "ai-lab-2026-11-02.db.gz", "note.txt", "test-delete-me.db.gz"];
+  assert.deepEqual(expiredOffsite(names, 2), ["ai-lab-2026-11-01.db.gz"]);
+  assert.deepEqual(expiredOffsite(names, 3), []);
+});

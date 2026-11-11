@@ -13,7 +13,7 @@ const MODES: { id: ApprovalMode; label: string; body: string }[] = [
 ];
 
 export function SettingsForm({ initial, models, publishing, snsReady, notifyReady, backups }: {
-  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { key: string; label: string; ok: boolean; free: boolean; promoYen: number; plainYen: number }[]; notifyReady: boolean; backups: string[];
+  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { key: string; label: string; ok: boolean; free: boolean; promoYen: number; plainYen: number }[]; notifyReady: boolean; backups: { files: string[]; offsite: { file: string; at: string } | null } | null;
 }) {
   const router = useRouter();
   const [v, setV] = useState({
@@ -206,8 +206,13 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           </Field>
           <div className="space-y-1 rounded-lg bg-surface-2 p-3 sm:col-span-2">
             <div className="text-sm font-medium">データベースのバックアップ</div>
-            <p className="text-xs text-muted">毎日1回、data/backups/ に日付つきの写しを取り、14日分残します（Dropbox の中なので、PCの外にも同期されます）。戻すときは、サーバーを止めて、戻したい日の写しを data/ai-lab.db に置き換えます。</p>
-            <p className="text-xs">{backups.length ? `最近の写し: ${backups.join("・")}` : "まだ写しはありません（次の自動の確認で取ります）"}</p>
+            <p className="text-xs text-muted">毎日1回、データベースと同じ場所に日付つきの写しを取って14日分残し、Supabase の非公開の保存領域（db-backups）にも圧縮して送って30日分残します。外部への保存に失敗すると、エラーの通知が届きます。戻すときは、保存領域から戻したい日の .gz を取り出して展開し、サーバーを止めてデータベースのファイルと置き換えます。</p>
+            {backups ? (
+              <>
+                <p className="text-xs">{backups.files.length ? `最近の写し: ${backups.files.join("・")}` : "まだ写しはありません（次の自動の確認で取ります）"}</p>
+                <p className="text-xs">{backups.offsite ? `最新の外部保存: ${backups.offsite.file}（${new Date(backups.offsite.at).toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" })}）` : "外部にはまだ保存していません（次の自動の確認で送ります）"}</p>
+              </>
+            ) : <p className="text-xs">写しの状況は、運営者だけに表示しています。</p>}
           </div>
           <div className="space-y-2 rounded-lg bg-surface-2 p-3 sm:col-span-2">
             <div className="text-sm font-medium">スマホへの1日のまとめ</div>
