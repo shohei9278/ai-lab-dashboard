@@ -45,7 +45,8 @@ export default async function Home() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-3xl space-y-1">
-          <h1 className="text-xl font-bold">AIが自動でプロダクトを作る実験</h1>
+          <h1 className="text-xl font-bold">運営ダッシュボード</h1>
+          <p className="text-sm font-medium text-ink-2">AIが自動でプロダクトを作る実験</p>
           <p className="text-sm text-ink-2">
             Claude・GPT・Gemini の3社のAIを社員にした、小さなプロダクト会社の実験です。社員どうしでアイデアを出して採点し合い、事前登録のページや動くツールを作って公開し、SNSで人を呼び、反応を見て「続ける・改善・撤退」まで決めます。
             毎朝の朝会で今日やることを決め、週1回の定例会議で振り返ります。
@@ -161,7 +162,7 @@ export default async function Home() {
               {owner && unreviewedPostCount() > 0 && (
                 <p className="text-sm">
                   AIだけで出した投稿のうち、まだ見ていないもの <b className="num">{unreviewedPostCount()}件</b>（直近3日）
-                  <Link href="/plan#posts" className="ml-2 text-accent underline">確かめる</Link>
+                  <Link href="/growth#posts" className="ml-2 text-accent underline">確かめる</Link>
                 </p>
               )}
               <details className="group border-t border-line pt-2">

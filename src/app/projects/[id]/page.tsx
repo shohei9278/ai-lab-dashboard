@@ -118,8 +118,67 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <div className="card p-4 text-sm text-ink-2">⏸ 保留中です。公開は続けたまま、宣伝と判断を止めています（{p.hold_until}に再開）。</div>
       )}
 
-      <section className="card space-y-3 p-4">
-        <h2 className="font-bold">AIのアイデア</h2>
+      {/* 一番見たい数字を上に置く */}
+      {t.rows.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="font-bold">集客の結果{t.simulated && <span className="ml-2 text-xs font-normal text-muted">シミュレーションを含む</span>}</h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <Stat label="訪問" value={`${t.visits}人`} sub={`判断の目安 ${s.judgeMinVisits}人`} />
+            <Stat label={isTool ? "使った人" : "事前登録"} value={`${t.signups}人`} sub={isTool ? `シェア ${shares}人` : undefined} />
+            <Stat
+              label={conv.rate}
+              value={<span style={{ color: t.rate >= target ? "var(--good)" : undefined }}>{pct(t.rate, 1)}</span>}
+              sub={`目標 ${pct(target, 1)} ${t.rate >= target ? "✓ 達成" : "（未達）"}`}
+            />
+            <Stat label="広告費" value={`${t.adSpendJpy.toLocaleString("ja-JP")}円`} sub={`上限 ${s.adBudgetPerProjectJpy.toLocaleString("ja-JP")}円 の ${pct(adRatio)}`} />
+            {(() => {
+              const c = projectCost(p.id);
+              return (
+                <Stat
+                  label={`${conv.noun}1件あたりの費用`}
+                  value={c.perConversion === null ? "—" : `${Math.round(c.perConversion).toLocaleString("ja-JP")}円`}
+                  sub={`AI ${Math.round(c.aiJpy).toLocaleString("ja-JP")}円＋広告 ${c.adJpy.toLocaleString("ja-JP")}円`}
+                />
+              );
+            })()}
+          </div>
+          <div className="card overflow-x-auto">
+            <table className="m-scroll w-full text-sm">
+              <thead className="text-left text-xs text-muted">
+                <tr className="border-b border-line">
+                  <th className="px-3 py-2">日付</th>
+                  <th className="px-3 py-2 text-right">訪問</th>
+                  <th className="px-3 py-2 text-right">{conv.noun}</th>
+                  <th className="px-3 py-2 text-right">{conv.rate}</th>
+                  {isTool && <th className="px-3 py-2 text-right">シェア</th>}
+                  <th className="px-3 py-2 text-right">広告費</th>
+                  <th className="px-3 py-2">LPの版</th>
+                  <th className="px-3 py-2">データ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {t.rows.map((r) => (
+                  <tr key={r.id} className="num border-b border-line last:border-0">
+                    <td className="px-3 py-2">{r.day}</td>
+                    <td className="px-3 py-2 text-right">{r.visits}</td>
+                    <td className="px-3 py-2 text-right">{r.signups}</td>
+                    <td className="px-3 py-2 text-right">{r.visits ? pct(r.signups / r.visits, 1) : "—"}</td>
+                    {isTool && <td className="px-3 py-2 text-right">{r.shares}</td>}
+                    <td className="px-3 py-2 text-right">{r.ad_spend_jpy.toLocaleString("ja-JP")}円</td>
+                    <td className="px-3 py-2 text-xs text-ink-2">第{r.lp_version}版</td>
+                    <td className="px-3 py-2 text-xs text-ink-2">{r.source === "simulated" ? "シミュレーション" : r.source === "real" ? "実データ" : "手入力"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {/* 企画の中身は長いので、開いたときだけ読む */}
+      <details className="card p-4">
+        <summary data-demo-ok className="cursor-pointer font-bold">AIのアイデア（誰向け・困りごと・解決策・仮説）</summary>
+        <div className="mt-3 space-y-3">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <Item label="誰向け">{p.target}</Item>
           <Item label="困りごと">{p.problem}</Item>
@@ -142,7 +201,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           ・LPなどを作るAI: {modelInfo(p.model_id).label}
           {p.theme ? `・テーマ「${p.theme}」` : ""}・この案件のAI費用 {yen(aiCost.s, s.usdJpy)}（{aiCost.n}回）
         </p>
-      </section>
+        </div>
+      </details>
 
       {lp && (
         <section className="card space-y-3 p-4">
@@ -286,61 +346,6 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <RevisionForm id={p.id} isTool={isTool} isPublic={!!p.public_slug} />
       )}
 
-      {t.rows.length > 0 && (
-        <section className="space-y-2">
-          <h2 className="font-bold">集客の結果{t.simulated && <span className="ml-2 text-xs font-normal text-muted">シミュレーションを含む</span>}</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <Stat label="訪問" value={`${t.visits}人`} sub={`判断の目安 ${s.judgeMinVisits}人`} />
-            <Stat label={isTool ? "使った人" : "事前登録"} value={`${t.signups}人`} sub={isTool ? `シェア ${shares}人` : undefined} />
-            <Stat
-              label={conv.rate}
-              value={<span style={{ color: t.rate >= target ? "var(--good)" : undefined }}>{pct(t.rate, 1)}</span>}
-              sub={`目標 ${pct(target, 1)} ${t.rate >= target ? "✓ 達成" : "（未達）"}`}
-            />
-            <Stat label="広告費" value={`${t.adSpendJpy.toLocaleString("ja-JP")}円`} sub={`上限 ${s.adBudgetPerProjectJpy.toLocaleString("ja-JP")}円 の ${pct(adRatio)}`} />
-            {(() => {
-              const c = projectCost(p.id);
-              return (
-                <Stat
-                  label={`${conv.noun}1件あたりの費用`}
-                  value={c.perConversion === null ? "—" : `${Math.round(c.perConversion).toLocaleString("ja-JP")}円`}
-                  sub={`AI ${Math.round(c.aiJpy).toLocaleString("ja-JP")}円＋広告 ${c.adJpy.toLocaleString("ja-JP")}円`}
-                />
-              );
-            })()}
-          </div>
-          <div className="card overflow-x-auto">
-            <table className="m-scroll w-full text-sm">
-              <thead className="text-left text-xs text-muted">
-                <tr className="border-b border-line">
-                  <th className="px-3 py-2">日付</th>
-                  <th className="px-3 py-2 text-right">訪問</th>
-                  <th className="px-3 py-2 text-right">{conv.noun}</th>
-                  <th className="px-3 py-2 text-right">{conv.rate}</th>
-                  {isTool && <th className="px-3 py-2 text-right">シェア</th>}
-                  <th className="px-3 py-2 text-right">広告費</th>
-                  <th className="px-3 py-2">LPの版</th>
-                  <th className="px-3 py-2">データ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {t.rows.map((r) => (
-                  <tr key={r.id} className="num border-b border-line last:border-0">
-                    <td className="px-3 py-2">{r.day}</td>
-                    <td className="px-3 py-2 text-right">{r.visits}</td>
-                    <td className="px-3 py-2 text-right">{r.signups}</td>
-                    <td className="px-3 py-2 text-right">{r.visits ? pct(r.signups / r.visits, 1) : "—"}</td>
-                    {isTool && <td className="px-3 py-2 text-right">{r.shares}</td>}
-                    <td className="px-3 py-2 text-right">{r.ad_spend_jpy.toLocaleString("ja-JP")}円</td>
-                    <td className="px-3 py-2 text-xs text-ink-2">第{r.lp_version}版</td>
-                    <td className="px-3 py-2 text-xs text-ink-2">{r.source === "simulated" ? "シミュレーション" : r.source === "real" ? "実データ" : "手入力"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
 
       <ShadowJudgments projectId={p.id} hidePending />
 

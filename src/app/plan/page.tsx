@@ -5,7 +5,7 @@ import { getSettings } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
 import { autoPlatforms } from "@/lib/snsApi";
 import { planProgress, recentPlans, todayPlan } from "@/lib/plan";
-import { AiPostsReview, RequestCount, PlanHistory, PlanSummary, PlanTasks, dayLabel } from "./PlanView";
+import { RequestCount, PlanHistory, PlanSummary, PlanTasks, dayLabel } from "./PlanView";
 import { Replan } from "./PlanActions";
 
 export const dynamic = "force-dynamic";
@@ -61,13 +61,6 @@ export default async function PlanPage() {
         </section>
       )}
 
-      <section id="posts" className="card scroll-mt-4 space-y-3 p-4">
-        <div>
-          <h2 className="font-bold">AIだけで出した投稿の確認（直近3日）</h2>
-          <p className="text-xs text-muted">人が見ないまま出た投稿です。「出すべきでなかった」を付けると、その投稿と理由を次の計画・投稿を書くAIに渡し、同じ書き方を避けさせます（投稿そのものは消しません。消すときは各サービスで消してください）。</p>
-        </div>
-        <AiPostsReview owner={owner} />
-      </section>
 
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">これまでの計画と達成度</h2>
