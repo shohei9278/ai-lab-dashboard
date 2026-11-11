@@ -9,3 +9,10 @@ test("LPのチェック: 前の版と比べるときに、ツール本体と自�
   assert.ok(text.includes("見出し"));
   assert.ok(!text.includes("本体") && !text.includes("シェア文") && !text.includes("ページ"));
 });
+
+test("ツールのチェック: ページに出さない画面イメージを渡さない", async () => {
+  const { toolPageForReview } = await import("../src/lib/loop");
+  const page = { headline: "見出し", preview: { title: "画面", kind: "list", rows: [["最後に会った時期", "2〜3年前"]] } } as unknown as Parameters<typeof toolPageForReview>[0];
+  const text = JSON.stringify(toolPageForReview(page));
+  assert.ok(text.includes("見出し") && !text.includes("2〜3年前"));
+});
