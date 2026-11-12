@@ -134,6 +134,11 @@ test("育てられる案件の数: 直近7日の本物の訪問から出し、�
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 259, 0, 0, 'real')").run(id, day(-2));
   // 350人 / 7日 = 1日50人。14日で700人なので7件
   assert.deepEqual(trafficCapacity(), { perDay: 50, projects: 7 });
+  // 境界: 6日前は数え、7日前と明日（日本時間）は数えない
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 7, 0, 0, 'real')").run(id, day(-6));
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 1000, 0, 0, 'real')").run(id, day(-7));
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 1000, 0, 0, 'real')").run(id, day(1));
+  assert.deepEqual(trafficCapacity(), { perDay: 51, projects: 7 });
 });
 
 test("ツールの利用: 入力欄を押しただけでは数えず、結果の一文をシェア用に知らせられる", () => {

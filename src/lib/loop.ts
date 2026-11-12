@@ -1749,8 +1749,10 @@ export type DailyResult = { ran: boolean; message: string; projectIds: number[] 
 // 直近7日の本物の訪問から1日あたりを出し、(判断までの日数 × 2) のうちに基準へ届く件数とする。並行して比べられるよう最低2件
 export function trafficCapacity(): { perDay: number; projects: number } {
   const s = getSettings();
-  const since = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
-  const v = (db().prepare("SELECT COALESCE(SUM(m.visits), 0) AS n FROM metrics m JOIN projects p ON p.id = m.project_id WHERE m.source != 'simulated' AND p.demo = 0 AND m.day >= ?").get(since) as { n: number }).n;
+  // metrics.day は日本時間の日付。今日を含む7日間（6日前〜今日）を数える
+  const today = jstToday();
+  const since = new Date(Date.parse(`${today}T00:00:00Z`) - 6 * 86_400_000).toISOString().slice(0, 10);
+  const v = (db().prepare("SELECT COALESCE(SUM(m.visits), 0) AS n FROM metrics m JOIN projects p ON p.id = m.project_id WHERE m.source != 'simulated' AND p.demo = 0 AND m.day >= ? AND m.day <= ?").get(since, today) as { n: number }).n;
   const perDay = Math.round((v / 7) * 10) / 10;
   const projects = Math.max(2, Math.floor((perDay * s.judgeAfterDays * 2) / Math.max(1, s.judgeMinVisits)));
   return { perDay, projects };
