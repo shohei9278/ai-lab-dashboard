@@ -6,6 +6,7 @@ import { addIntervention, hideIntervention, listInterventions } from "../src/lib
 import { getProject, holdProject, jstToday, resumeDueHolds, trafficCapacity } from "../src/lib/loop";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
+import { listMeetings } from "../src/lib/meetings";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
 import { skitHtml } from "../src/lib/recordSkit";
@@ -173,4 +174,33 @@ test("canvasの部品: 角丸は半径を収め、文字は幅に収まるまで
 
 test("ツールの枠: hidden を付けた要素は、クラスで display を決めていても消える", () => {
   assert.match(wrapToolHtml("<p>x</p>"), /<style>\[hidden\]\{display:none!important\}<\/style>/);
+});
+
+test("判断の会議: 全自動で進んだ判断や、意見がそろった判断も出し、議論があれば付ける", () => {
+  const id = addProject();
+  const ins = db().prepare("INSERT INTO shadow_judgments (round_id, project_id, approval_id, lp_version, model_id, is_primary, decision, confidence, reason, next_action, error) VALUES (?, ?, ?, 1, ?, ?, ?, 0.6, ?, ?, NULL)");
+  // 1回目: 人の承認なし（全自動）・3社とも同じ
+  const r1 = Number(ins.run(0, id, null, "claude-opus-5-5", 1, "collect", "訪問が少ない", "様子を見る").lastInsertRowid);
+  db().prepare("UPDATE shadow_judgments SET round_id = ? WHERE id = ?").run(r1, r1);
+  ins.run(r1, id, null, "gpt-5.6-sol", 0, "collect", "同じく少ない", "待つ");
+  ins.run(r1, id, null, "gemini-3.1-pro-preview", 0, "collect", "まだ早い", "待つ");
+  // 2回目: 人の承認あり・意見が割れて議論した
+  const aid = Number(db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason) VALUES (?, 'decision', '撤退する', 'r')").run(id).lastInsertRowid);
+  const r2 = Number(ins.run(0, id, aid, "claude-opus-5-5", 1, "kill", "反応がない", "閉じる").lastInsertRowid);
+  db().prepare("UPDATE shadow_judgments SET round_id = ? WHERE id = ?").run(r2, r2);
+  ins.run(r2, id, aid, "gpt-5.6-sol", 0, "rethink", "届いていない", "場所を変える");
+  db().prepare("INSERT INTO debates (approval_id, round_id, status, payload) VALUES (?, ?, 'done', ?)").run(aid, r2, JSON.stringify({ issue: "届いていないのか", missing_info: "", positions: [{ modelId: "gpt-5.6-sol", first: "rethink", final: "rethink", argument: "投稿が少ない", changed: false }] }));
+  const ms = listMeetings("judge").filter((m) => m.projectId === id);
+  assert.equal(ms.length, 2);
+  const auto = ms.find((m) => m.key === `judge-${r1}`)!;
+  assert.equal(auto.conclusion, "担当の判断「データを集める」をそのまま進めた・3社とも同じ判断");
+  assert.equal(auto.items.length, 3);
+  const split = ms.find((m) => m.key === `judge-${r2}`)!;
+  assert.match(split.conclusion, /^担当の判断「撤退」を人の判断に回した・意見が割れた（撤退・集客を見直す）・争点: 届いていないのか$/);
+  assert.equal(split.items.at(-1)!.title, "議論: 最初は「集客を見直す」→ 最後は「集客を見直す」");
+  // 判断に失敗したAIのエラーの文は、会議室に出さない
+  db().prepare("INSERT INTO shadow_judgments (round_id, project_id, approval_id, lp_version, model_id, is_primary, decision, error) VALUES (?, ?, NULL, 1, 'gemini-3.1-pro-preview', 0, NULL, 'secret https://internal.example/key')").run(r1, id);
+  const failed = listMeetings("judge").find((m) => m.key === `judge-${r1}`)!.items.at(-1)!;
+  assert.equal(failed.title, "判断を取得できませんでした");
+  assert.equal(failed.text, undefined);
 });

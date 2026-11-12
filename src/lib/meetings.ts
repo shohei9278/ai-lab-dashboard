@@ -132,19 +132,61 @@ function designMeetings(days: number): Meeting[] {
   });
 }
 
+// 判断の会議: 撤退・継続の判断ごとに、担当のAIとほかの社員がそれぞれ出した判断と理由（shadow_judgments の1回）
+// 意見が割れて人の判断が必要だったときは、そのあとの議論（debates）も付ける
+// （以前は議論があった回だけを出していたため、全自動で進んだ判断や、意見がそろった判断が会議室に出なかった）
+type JudgeRow = {
+  round_id: number; at: string; project_id: number; approval_id: number | null; lp_version: number; model_id: string; is_primary: number;
+  decision: string | null; confidence: number | null; reason: string | null; next_action: string | null; ptitle: string;
+};
+const DEC: Record<string, string> = { continue: "続ける", improve: "改善", kill: "撤退", collect: "データを集める", rethink: "集客を見直す" };
+const decLabel = (d: string | null) => (d ? DEC[d] ?? d : "判断できず");
+
+// 表示する回の議論だけを読む。壊れた1件があっても、会議室全体は止めない
+function debatesFor(roundIds: number[]): Map<number, DebateResult> {
+  const out = new Map<number, DebateResult>();
+  if (!roundIds.length) return out;
+  const rows = db().prepare(`SELECT round_id, payload FROM debates WHERE payload IS NOT NULL AND round_id IN (${roundIds.map(() => "?").join(",")})`).all(...roundIds) as { round_id: number; payload: string }[];
+  for (const r of rows) {
+    try {
+      out.set(r.round_id, JSON.parse(r.payload) as DebateResult);
+    } catch {
+      // 読めない議論は付けない
+    }
+  }
+  return out;
+}
+
 function judgeMeetings(days: number): Meeting[] {
+  // エラーの文（error 列）は、来訪者にも見える会議室には出さないので読まない
   const rows = db().prepare(
-    `SELECT d.id, d.at, d.status, d.payload, a.project_id, p.title AS ptitle FROM debates d JOIN approvals a ON a.id = d.approval_id JOIN projects p ON p.id = a.project_id
-     WHERE d.payload IS NOT NULL AND d.at >= datetime('now', ?) ORDER BY d.id`,
-  ).all(since(days)) as { id: number; at: string; status: string; payload: string; project_id: number; ptitle: string }[];
-  const DEC: Record<string, string> = { continue: "続ける", improve: "改善", kill: "撤退", collect: "データを集める", rethink: "集客を見直す" };
-  return rows.map((r) => {
-    const d = JSON.parse(r.payload) as DebateResult;
+    `SELECT s.round_id, s.at, s.project_id, s.approval_id, s.lp_version, s.model_id, s.is_primary, s.decision, s.confidence, s.reason, s.next_action, p.title AS ptitle
+     FROM shadow_judgments s JOIN projects p ON p.id = s.project_id
+     WHERE s.round_id > 0 AND p.demo = 0 AND s.round_id IN (SELECT id FROM shadow_judgments WHERE is_primary = 1 AND at >= datetime('now', ?))
+     ORDER BY s.round_id, s.is_primary DESC, s.id`,
+  ).all(since(days)) as JudgeRow[];
+  const rounds = new Map<number, JudgeRow[]>();
+  for (const r of rows) rounds.set(r.round_id, [...(rounds.get(r.round_id) ?? []), r]);
+  const debates = debatesFor([...rounds.keys()]);
+  const pct = (c: number | null) => (c === null ? "" : `（自信 ${Math.round(c * 100)}%）`);
+  return [...rounds.entries()].map(([roundId, list]) => {
+    const primary = list.find((r) => r.is_primary) ?? list[0];
+    const decided = list.filter((r) => r.decision);
+    const kinds = uniq(decided.map((r) => r.decision));
+    const debate = debates.get(roundId);
+    const items: MeetingItem[] = list.map((r) => ({
+      who: r.model_id,
+      title: r.decision ? `${r.is_primary ? "担当の判断" : "意見"}「${decLabel(r.decision)}」${pct(r.confidence)}` : "判断を取得できませんでした",
+      text: r.decision ? `${r.reason ?? ""}${r.next_action ? `\n次にやること: ${r.next_action}` : ""}` : undefined,
+    }));
+    if (debate) items.push(...debate.positions.map((x) => ({ who: x.modelId, title: `議論: 最初は「${decLabel(x.first)}」→ 最後は「${decLabel(x.final)}」`, text: x.argument })));
+    const agreement = decided.length <= 1 ? "" : kinds.length === 1 ? `${decided.length}社とも同じ判断` : `意見が割れた（${kinds.map(decLabel).join("・")}）`;
+    const route = primary.approval_id ? "人の判断に回した" : "そのまま進めた";
     return {
-      key: `judge-${r.id}`, kind: "judge" as const, at: r.at, title: r.ptitle, projectId: r.project_id,
-      attendees: uniq(d.positions.map((p) => p.modelId)),
-      conclusion: `争点: ${d.issue}`,
-      items: d.positions.map((p) => ({ who: p.modelId, title: `最初は「${DEC[p.first] ?? p.first}」→ 最後は「${DEC[p.final] ?? p.final}」` })),
+      key: `judge-${roundId}`, kind: "judge" as const, at: primary.at, title: `${primary.ptitle}（第${primary.lp_version}版）`, projectId: primary.project_id,
+      attendees: uniq(list.map((r) => r.model_id)),
+      conclusion: `担当の判断「${decLabel(primary.decision)}」を${route}${agreement ? `・${agreement}` : ""}${debate ? `・争点: ${debate.issue}` : ""}`,
+      items,
     };
   });
 }
