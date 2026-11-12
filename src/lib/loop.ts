@@ -483,7 +483,8 @@ ${CANVAS_HELPERS_JS}
 }
 
 // ツール本体をAIが読んで、動かない箇所や問題のある内容がないかを確かめる
-async function reviewTool(p: ProjectRow, html: string): Promise<Review> {
+// instruction: 今回の修正指示（作るときと同じ「コードに書かない値」を、チェックでも確かめられるように渡す）
+async function reviewTool(p: ProjectRow, html: string, instruction?: string): Promise<Review> {
   const out = await callJson<Review>({
     purpose: "ツールチェック",
     projectId: p.id,
@@ -494,14 +495,14 @@ async function reviewTool(p: ProjectRow, html: string): Promise<Review> {
 - 架空の統計を事実のように書いている、医療・法律・お金の助言をしている、誰かを傷つける・差別的な内容がある
 - 実在の人物・団体について、不正確そうなデータを使っている
 - 「${p.solution}」というツールの目的からずれている
-- ツールの目的で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）を、初期値・プリセット・選択肢などの形でコードに書いている
+- ツールの目的や今回の修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）を、初期値・プリセット・選択肢・入力例・便利な機能などの形でコードに書いている
 - canvas などで画像を作るとき、入力できる最大の文字数でも、本文とロゴ・ハッシュタグなどが重ならない作りになっていない（本文を描く範囲の下端が決まっていない）
 - 「最小です」「ゼロにできます」のように理論上のことを言い切る表示が、小さな条件（人数が少ない・値が0や1など）で実際に手計算すると成り立たない
 - 使う前と後・改善前と後などの比較を出すとき、利用者が条件を変えても、比較の基準（前の値）が同じ条件で計算されていない（条件によって改善率がマイナスになる・表示が崩れる など）
 問題がなければ {"ok":true,"issues":[]}。
 形式: {"ok":true または false,"issues":["問題点"]}
 ${EXTRAS_RULE}`,
-    user: html,
+    user: instruction ? `今回の修正指示: ${instruction}\n\nツールのコード:\n${html}` : html,
     validate: isReview,
   });
   takeExtras(out, { modelId: getSettings().loopModel, scene: "ツールのチェック", projectId: p.id });
@@ -540,7 +541,7 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
   };
   let html = await write(instruction, prevHtml);
   const check = async (h: string): Promise<{ review: Review; test: ToolTest }> => {
-    const [ai, test] = await Promise.all([reviewTool(p, h), testTool(h, shotName)]);
+    const [ai, test] = await Promise.all([reviewTool(p, h, instruction), testTool(h, shotName)]);
     const issues = [...staticToolIssues(h), ...ai.issues, ...testIssues(test)];
     return { review: { ok: issues.length === 0 && ai.ok, issues }, test };
   };
