@@ -9,6 +9,8 @@ import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
 import { pageSystem } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
+import { officeSnapshot, roomOf } from "../src/lib/office";
+import { stateAt } from "../src/lib/officeShared";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
 import { skitHtml } from "../src/lib/recordSkit";
@@ -234,4 +236,23 @@ test("プロンプトの比較: 始める前に、項目・案件・キーを確
   // 途中で止まったままの比較は、失敗として閉じる
   db().prepare("INSERT INTO prompt_tests (at, project_id, factor, model_id) VALUES (datetime('now', '-2 hours'), ?, 'reader', 'claude-opus-5-5')").run(lpId);
   assert.equal(listPromptTests().find((t) => t.factor === "reader")!.status, "error");
+});
+
+test("オフィス: 呼んだ目的で部屋を決め、3分たつと休憩室に戻る。SNSのAPIは社員に数えない", () => {
+  assert.equal(roomOf("LPのデザイン"), "dev");
+  assert.equal(roomOf("ツール作成"), "dev");
+  assert.equal(roomOf("判断（裏比較）"), "meeting");
+  assert.equal(roomOf("アイデアの採点"), "meeting");
+  assert.equal(roomOf("SNS投稿の下書き"), "pr");
+  const ev = [{ at: "2026-11-12 10:00:00", member: "anthropic" as const, room: "dev" as const, doing: "LPのデザイン", project: "x" }];
+  assert.equal(stateAt(ev, "2026-11-12 10:02:00").anthropic.room, "dev");
+  assert.equal(stateAt(ev, "2026-11-12 10:04:00").anthropic.room, "lounge");
+  assert.equal(stateAt(ev, "2026-11-12 09:59:00").anthropic.room, "lounge");
+  assert.equal(stateAt(ev, "2026-11-12 10:01:00").openai.room, "lounge");
+  const ins = db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, 1, 0)");
+  ins.run("Xへの自動投稿", "x-api");
+  ins.run("判断", "gpt-5.6-sol");
+  const snap = officeSnapshot();
+  assert.equal(snap.events.some((e) => e.doing.startsWith("Xへの自動投稿")), false);
+  assert.equal(snap.events.some((e) => e.member === "openai" && e.room === "meeting"), true);
 });

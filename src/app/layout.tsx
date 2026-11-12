@@ -33,7 +33,7 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const groups: NavGroup[] = [
     { title: "今日の運営", items: [{ href: "/", label: "ホーム" }, { href: "/plan", label: "毎日の計画" }, { href: "/approvals", label: "判断待ち", badge: owner ? pending : 0 }, { href: "/proposals", label: "提案箱", badge: owner ? proposals : 0 }] },
     { title: "案件と集客", items: [{ href: "/projects", label: "案件の一覧" }, { href: "/growth", label: "集客", also: ["/viral"] }, { href: "/outside", label: "外の声" }] },
-    { title: "AIの社員", items: [{ href: "/live", label: "ライブ" }, { href: "/meetings", label: "会議室" }, { href: "/diary", label: "日報", also: ["/voices"] }, { href: "/lab", label: "AIの成績" }] },
+    { title: "AIの社員", items: [{ href: "/live", label: "ライブ" }, { href: "/office", label: "オフィス（試作）" }, { href: "/meetings", label: "会議室" }, { href: "/diary", label: "日報", also: ["/voices"] }, { href: "/lab", label: "AIの成績" }] },
     { title: "記録と設定", items: [{ href: "/interventions", label: "人の手の記録" }, { href: "/notes", label: "資料", also: ["/reports"] }, ...(owner ? [{ href: "/traces", label: "AIの入出力" }] : []), { href: "/settings", label: "設定" }] },
   ];
   return (
