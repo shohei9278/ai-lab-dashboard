@@ -504,7 +504,8 @@ export function OfficeView({ initial, owner = false, numbers = true }: { initial
         )}
 
       </div>
-      <aside className="card mt-3 space-y-3 p-3 lg:mt-0" aria-label="社員の状態">
+      {/* aside はサイドメニューに使っているので、ここは section にする（来訪者の画面のテストがメニューを aside で探すため） */}
+      <section className="card mt-3 space-y-3 p-3 lg:mt-0" aria-label="社員の状態">
         <h2 className="text-sm font-bold">社員の状態</h2>
         {MEMBERS.map((m) => <MemberRow key={m.id} member={m.id} s={state[m.id]} c={tally[m.id]} line={lineOf(m.id)} walking={walking[m.id]} onHot={setHot} />)}
         <h2 className="border-t border-line pt-2 text-sm font-bold">🏪 案件通り</h2>
@@ -527,7 +528,7 @@ export function OfficeView({ initial, owner = false, numbers = true }: { initial
           <p className="text-xs text-muted">公開中の案件はありません。</p>
         )}
         <p className="text-[10px] text-muted">👤 は今日の訪問、✓ は今日の登録・利用。店を押すと、その案件の画面に移ります。</p>
-      </aside>
+      </section>
       </div>
       </ScaleCtx.Provider>
 
