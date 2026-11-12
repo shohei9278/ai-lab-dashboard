@@ -14,6 +14,8 @@ import { budgetState } from "@/lib/budget";
 import { planProgress, todayPlan } from "@/lib/plan";
 import { PlanSummary, PlanTasks, RequestCount, unreviewedPostCount } from "./plan/PlanView";
 import { Replan } from "./plan/PlanActions";
+import { officeSnapshot } from "@/lib/office";
+import { OfficeView } from "./office/OfficeView";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +43,22 @@ export default async function Home() {
       ? { c: "var(--good)", t: `稼働中（毎日${s.dailyHour}時以降に自動実行）` }
       : { c: "var(--muted)", t: "毎日の自動実行はオフ" };
 
+  // オフィス（AIの社員のいまの様子）。来訪者には一番上に、運営者には確認・対応の一覧の下に出す
+  // （運営者は毎日の確認を先に済ませたいため。来訪者には、何をしている会社かを最初に見せる）
+  const office = (
+    <section aria-labelledby="office-title" className="space-y-2">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 id="office-title" className={owner ? "font-bold" : "text-xl font-bold"}>AIの社員が働くオフィス</h2>
+        <Link href="/office" className="text-sm text-accent underline">大きく見る</Link>
+      </div>
+      {!owner && <p className="text-sm text-ink-2">Claude・GPT・Gemini のロボットの社員が、いま何をしているかを部屋の位置で見せています。部屋・家具・店を押すと、その記録の画面に移ります。</p>}
+      <OfficeView initial={officeSnapshot()} owner={owner} numbers={!owner} />
+    </section>
+  );
+
   return (
     <div className="space-y-4">
+      {!owner && office}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="max-w-3xl space-y-1">
           <h1 className="text-xl font-bold">運営ダッシュボード</h1>
@@ -144,6 +160,8 @@ export default async function Home() {
           </p>
         )}
       </section>
+
+      {owner && office}
 
       {/* 今日のAIの計画 */}
       {s.dailyPlan && (

@@ -1,6 +1,8 @@
 import { db, getSettings, monthSpendUsd } from "./db";
 import { jstToday } from "./loop";
 import { waitingItems } from "./overview";
+import { openRequests } from "./plan";
+import { pendingCount } from "./views";
 import { modelInfo } from "./models";
 import type { Member, OfficeEvent, OfficeHappening, OfficeLine, OfficeShop, Room } from "./officeShared";
 
@@ -81,6 +83,11 @@ export function officeNumbers() {
     live,
     waiting: waiting.length,
     stuck: waiting.filter((w) => w.kind === "stuck").length,
+    // 動いていないときのお知らせ用: 判断待ち、提案箱の返事待ち（AIからの提案）、毎日の自動実行の時刻
+    approvals: pendingCount(),
+    proposals: openRequests().filter((r) => r.source !== "human").length,
+    dailyHour: s.dailyEnabled && !s.killSwitch ? s.dailyHour : null,
+    killSwitch: s.killSwitch,
   };
 }
 
