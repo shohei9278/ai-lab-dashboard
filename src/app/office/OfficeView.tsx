@@ -1,28 +1,60 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { OfficeSnapshot } from "@/lib/office";
 import { HAPPENING, MEMBERS, ROOMS, stateAt, tallyAt, toMs, type Member, type OfficeLine, type Room } from "@/lib/officeShared";
+import { ROBOT_CSS, Robot, type RobotMood } from "./Robot";
 
-// オフィス（試作）の画面。絵は図形と色だけで、動きと演出で「いま何をしているか」を見せる
+// オフィス（試作）の画面。斜め上から見た床の上で、ロボット社員（動画と同じ絵）が動いて「いま何をしているか」を見せる
 // - 社員は部屋ごとに決まった席に座る（会議室はテーブルを囲む）。部屋を移るときは、廊下を通って歩く
 // - 作業中は小さく動き、手が空くと休憩室のソファに戻る
 // - 公開・撤退・続けるの出来事は、画面の上に演出を出す
 // - だれかが3分以内に動いていれば「いま」を映し、だれも動いていなければ直近24時間を早送りで再生する。再生のバーで好きな時刻に飛べる
 
 type Pt = { x: number; y: number };
-const ROOM_BOX: Record<Room, { left: number; top: number; width: number; height: number; icon: string; bg: string }> = {
-  dev: { left: 2, top: 4, width: 46, height: 42, icon: "💻", bg: "color-mix(in srgb, var(--series-google) 10%, var(--surface))" },
-  meeting: { left: 52, top: 4, width: 46, height: 42, icon: "🗣️", bg: "color-mix(in srgb, var(--series-anthropic) 10%, var(--surface))" },
-  pr: { left: 2, top: 54, width: 46, height: 42, icon: "📣", bg: "color-mix(in srgb, var(--series-openai) 10%, var(--surface))" },
-  lounge: { left: 52, top: 54, width: 46, height: 42, icon: "☕", bg: "var(--surface-2)" },
+const tint = (c: string, p: number) => `color-mix(in srgb, ${c} ${p}%, var(--surface))`;
+const ROOM_BOX: Record<Room, { left: number; top: number; width: number; height: number; icon: string; bg: string; edge: string }> = {
+  dev: { left: 3, top: 3, width: 44, height: 44, icon: "💻", bg: tint("var(--series-google)", 14), edge: tint("var(--series-google)", 40) },
+  meeting: { left: 53, top: 3, width: 44, height: 44, icon: "🗣️", bg: tint("var(--series-anthropic)", 14), edge: tint("var(--series-anthropic)", 40) },
+  pr: { left: 3, top: 53, width: 44, height: 44, icon: "📣", bg: tint("var(--series-openai)", 14), edge: tint("var(--series-openai)", 40) },
+  lounge: { left: 53, top: 53, width: 44, height: 44, icon: "☕", bg: tint("var(--text)", 6), edge: tint("var(--text)", 22) },
 };
+// 斜め上から見た形にする傾き（床）と、その上で立った向きに戻す傾き（ロボット・吹き出し・モニター）
+const ISO = "rotateX(60deg) rotateZ(-45deg)";
+const UPRIGHT = "rotateZ(45deg) rotateX(-60deg)";
+
+// 床の上の箱（x・y・幅・奥行きは床の％、h は高さ px）。上の面と、手前に見える2つの側面（y の大きい側と x の小さい側）を描く
+function Box({ x, y, w, d, h, top, side, round }: { x: number; y: number; w: number; d: number; h: number; top: string; side: string; round?: boolean }) {
+  const r = round ? "50%" : "6px";
+  return (
+    <div className="absolute" style={{ left: `${x}%`, top: `${y}%`, width: `${w}%`, height: `${d}%`, transformStyle: "preserve-3d" }}>
+      {!round && <div className="absolute left-0 top-full w-full" style={{ height: h, background: side, transformOrigin: "top", transform: "rotateX(90deg)" }} />}
+      {!round && <div className="absolute right-full top-0 h-full" style={{ width: h, background: `color-mix(in srgb, ${side} 80%, #000)`, transformOrigin: "right", transform: "rotateY(90deg)" }} />}
+      {round && <div className="absolute inset-0" style={{ borderRadius: r, background: side, transform: `translateZ(${h / 2}px)` }} />}
+      <div className="absolute inset-0 border border-line" style={{ borderRadius: r, background: top, transform: `translateZ(${h}px)` }} />
+    </div>
+  );
+}
+
+// 床の上の点（x・y は床の％、z は高さ px）に、立った向きで置く。下の真ん中がその点に来る
+function Bill({ x, y, z, move, children }: { x: number; y: number; z: number; move?: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className="absolute h-0 w-0"
+      style={{ left: `${x}%`, top: `${y}%`, transformStyle: "preserve-3d", transform: `translateZ(${z}px)`, transition: move ? `left ${HOP_MS}ms linear, top ${HOP_MS}ms linear` : undefined }}
+    >
+      <div className="absolute left-0 top-0 h-0 w-0" style={{ transform: UPRIGHT, transformStyle: "preserve-3d" }}>
+        <div className="absolute bottom-0 left-0 -translate-x-1/2">{children}</div>
+      </div>
+    </div>
+  );
+}
 const ORDER: Member[] = ["anthropic", "openai", "google"];
 // 席（％）。社員ごとに決まった席に座る
 const SEATS: Record<Room, Pt[]> = {
-  dev: [{ x: 11, y: 30 }, { x: 25, y: 30 }, { x: 39, y: 30 }],
-  pr: [{ x: 11, y: 80 }, { x: 25, y: 80 }, { x: 39, y: 80 }],
-  meeting: [{ x: 61, y: 27 }, { x: 89, y: 27 }, { x: 75, y: 40 }],
+  dev: [{ x: 9, y: 32 }, { x: 21, y: 32 }, { x: 33, y: 32 }],
+  pr: [{ x: 9, y: 82 }, { x: 21, y: 82 }, { x: 33, y: 82 }],
+  meeting: [{ x: 63, y: 27 }, { x: 72, y: 35 }, { x: 84, y: 33 }], // テーブルの手前側に並ぶ（奥だと吹き出しが画面の上にはみ出す）
   lounge: [{ x: 63, y: 82 }, { x: 75, y: 82 }, { x: 87, y: 82 }],
 };
 // 部屋の出入り口（廊下の上の点）。左の部屋と右の部屋の間は、真ん中を通る
@@ -161,7 +193,7 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
 
   return (
     <div className="space-y-3">
-      <style>{KEYFRAMES}</style>
+      <style>{KEYFRAMES + ROBOT_CSS}</style>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="rounded-full px-2 py-0.5 text-xs font-medium" style={{ background: !replaying ? "var(--good)" : "var(--surface-2)", color: !replaying ? "#fff" : "var(--text-2)" }}>
           {!replaying ? "● いま" : paused ? "⏸ 一時停止中" : times.length ? "▶ 直近24時間を再生中" : "直近24時間の動きはありません"}
@@ -180,24 +212,68 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
       </div>
       <p className="-mt-1 text-[10px] text-muted">数字は、再生中もいまのものです（稼働・待機だけ、再生している時刻のもの）。公開・集客中は{n.live}件。</p>
 
-      <div className="card relative aspect-[3/4] w-full overflow-hidden sm:aspect-[16/10]">
-        {(Object.keys(ROOM_BOX) as Room[]).map((r) => {
-          const b = ROOM_BOX[r];
-          return (
-            <div key={r} className="absolute rounded-xl border border-line" style={{ left: `${b.left}%`, top: `${b.top}%`, width: `${b.width}%`, height: `${b.height}%`, background: b.bg }}>
-              <span className="absolute left-2 top-1.5 text-xs font-bold text-ink-2 sm:text-sm">{b.icon} {ROOMS[r]}</span>
-            </div>
-          );
-        })}
-        {/* 家具: 開発室と広報デスクの机、会議室のテーブル、休憩室のソファ */}
-        {(["dev", "pr"] as Room[]).flatMap((r) =>
-          SEATS[r].map((p, i) => <div key={`${r}${i}`} className="absolute h-[3%] w-[10%] -translate-x-1/2 rounded bg-[color:var(--border)]" style={{ left: `${p.x}%`, top: `${p.y + 6}%` }} />),
-        )}
-        <div className="absolute h-[9%] w-[16%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[color:var(--border)]" style={{ left: "75%", top: "27%" }} />
-        <div className="absolute h-[4%] w-[34%] -translate-x-1/2 rounded-lg bg-[color:var(--border)]" style={{ left: "75%", top: "88%" }} />
+      <div className="card relative aspect-[10/8] w-full overflow-hidden sm:aspect-[16/9]" style={{ background: "linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%)" }}>
+        {/* 床（斜め上から見た形に傾ける）。部屋・机・ロボットはこの上に置き、ロボットと吹き出しは立った向きに戻す */}
+        <div className="absolute left-1/2 top-[57%] aspect-square w-[68%] sm:w-[64%]" style={{ transform: `translate(-50%, -50%) ${ISO}`, transformStyle: "preserve-3d" }}>
+          <Box x={0} y={0} w={100} d={100} h={6} top="var(--surface-2)" side="color-mix(in srgb, var(--text) 18%, var(--surface-2))" />
+          {(Object.keys(ROOM_BOX) as Room[]).map((r) => {
+            const b = ROOM_BOX[r];
+            return <Box key={r} x={b.left} y={b.top} w={b.width} d={b.height} h={12} top={b.bg} side={b.edge} />;
+          })}
+          {/* 家具: 開発室と広報デスクの机とモニター（席の奥＝画面の右上に置く）、会議室のテーブル、休憩室のソファ */}
+          {(["dev", "pr"] as Room[]).flatMap((r) =>
+            SEATS[r].map((p, i) => {
+              const on = ORDER.some((m) => state[m].room === r && ORDER.indexOf(m) === i && !walking[m]);
+              return (
+                <Fragment key={`${r}${i}`}>
+                  <Box x={p.x + 1} y={p.y - 10} w={10} d={6} h={22} top="var(--surface)" side="color-mix(in srgb, var(--text) 25%, var(--surface))" />
+                  <Bill x={p.x + 6} y={p.y - 8} z={22}>
+                    <span className="block h-[clamp(10px,2.4vw,18px)] w-[clamp(14px,3.4vw,26px)] rounded-[3px] border-2 border-[#2a2f3a]" style={{ background: on ? COLOR[ORDER[i]] : "#3a4150", boxShadow: on ? `0 0 10px ${COLOR[ORDER[i]]}` : undefined }} />
+                  </Bill>
+                </Fragment>
+              );
+            }),
+          )}
+          <Box x={68} y={16} w={14} d={14} h={20} top="var(--surface)" side="color-mix(in srgb, var(--text) 25%, var(--surface))" round />
+          <Box x={58} y={88} w={34} d={6} h={18} top="color-mix(in srgb, var(--series-anthropic) 25%, var(--surface))" side="color-mix(in srgb, var(--series-anthropic) 45%, var(--surface))" />
+          {(Object.keys(ROOM_BOX) as Room[]).map((r) => (
+            <Bill key={r} x={ROOM_BOX[r].left + 4} y={ROOM_BOX[r].top + 6} z={14}>
+              <span className="whitespace-nowrap rounded-md bg-surface/90 px-1 py-0.5 text-[9px] font-bold text-ink-2 shadow-sm sm:px-1.5 sm:text-xs">{ROOM_BOX[r].icon} {ROOMS[r]}</span>
+            </Bill>
+          ))}
+
+          {MEMBERS.map((m) => {
+            const s = state[m.id];
+            const line = lineOf(m.id);
+            const p = pos[m.id];
+            // 同じ部屋で同じことをしている社員がほかにいれば、吹き出しは先の1人だけに出す（同じ文が重ならないように）
+            const shared = !line && !!s.doing && ORDER.slice(0, ORDER.indexOf(m.id)).some((o) => state[o].room === s.room && state[o].doing === s.doing && !lineOf(o));
+            const mood: RobotMood = happening?.kind === "publish" ? "happy" : line?.kind === "proposal" ? "alert" : line ? "talk" : s.doing ? "work" : "rest";
+            const anim = walking[m.id] ? "office-walk .28s ease-in-out infinite alternate" : s.doing ? "office-work 1.2s ease-in-out infinite" : "office-rest 3s ease-in-out infinite";
+            return (
+              <Bill key={m.id} x={p.x} y={p.y} z={12} move>
+                <button type="button" onClick={() => setSelected(selected === m.id ? null : m.id)} className="flex flex-col items-center" aria-label={`${m.name}: ${s.doing ?? "休憩中"}`}>
+                  {!walking[m.id] && !shared && (line || s.doing) && (
+                    <span className="mb-1 line-clamp-2 w-max max-w-[7rem] rounded-lg border border-line bg-surface px-1.5 py-1 text-left text-[10px] leading-snug shadow sm:max-w-[12rem] sm:px-2 sm:text-xs">
+                      {line ? (
+                        <span style={{ color: line.kind === "proposal" ? "var(--accent)" : undefined }}>{line.kind === "proposal" ? "❗ " : ""}{line.text}</span>
+                      ) : (
+                        <span className="text-ink-2">{WORK_ICON[s.room]} {s.doing}{s.project ? `（${s.project}）` : ""}</span>
+                      )}
+                    </span>
+                  )}
+                  <span className="block" style={{ animation: anim, transformOrigin: "50% 100%", filter: selected === m.id ? `drop-shadow(0 0 6px ${COLOR[m.id]})` : undefined, ["--rb-h" as string]: "clamp(40px, 8vw, 80px)" }}>
+                    <Robot member={m.id} mood={mood} />
+                  </span>
+                  <span className="mt-0.5 rounded bg-surface/80 px-1 text-[10px] font-bold sm:text-xs" style={{ color: COLOR[m.id] }}>{m.name}</span>
+                </button>
+              </Bill>
+            );
+          })}
+        </div>
 
         {happening && (
-          <div key={happening.at} className="pointer-events-none absolute left-1/2 top-[46%] z-20 -translate-x-1/2 -translate-y-1/2 text-center" style={{ animation: "office-pop 4s ease-out forwards" }}>
+          <div key={happening.at} className="pointer-events-none absolute left-1/2 top-[18%] z-20 -translate-x-1/2 -translate-y-1/2 text-center" style={{ animation: "office-pop 4s ease-out forwards" }}>
             <div className="relative">
               {[0, 1, 2, 3, 4].map((i) => (
                 <span key={i} className="absolute text-xl" style={{ left: `calc(50% + ${-48 + i * 24}px)`, top: "-12px", animation: `office-burst 1.6s ${i * 0.12}s ease-out forwards` }}>{HAPPENING[happening.kind].icon}</span>
@@ -208,44 +284,6 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
             </div>
           </div>
         )}
-
-        {MEMBERS.map((m) => {
-          const s = state[m.id];
-          const line = lineOf(m.id);
-          const p = pos[m.id];
-          const anim = walking[m.id] ? "office-walk .28s ease-in-out infinite alternate" : s.doing ? "office-work .9s ease-in-out infinite" : "office-rest 3s ease-in-out infinite";
-          return (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => setSelected(selected === m.id ? null : m.id)}
-              className="absolute z-10 flex -translate-x-1/2 -translate-y-full flex-col items-center"
-              style={{ left: `${p.x}%`, top: `${p.y + 5}%`, transition: `left ${HOP_MS}ms linear, top ${HOP_MS}ms linear` }}
-              aria-label={`${m.name}: ${s.doing ?? "休憩中"}`}
-            >
-              {!walking[m.id] && (line || s.doing) && (
-                // 吹き出しは、端の席では内側に寄せる（画面の外にはみ出さないように）
-                <span className={`absolute bottom-full mb-1 line-clamp-2 w-max max-w-[6.5rem] rounded-lg border border-line bg-surface px-1.5 py-1 text-left text-[10px] leading-snug shadow sm:max-w-[12rem] sm:px-2 sm:text-xs ${p.x < 20 ? "left-0" : p.x > 80 ? "right-0" : "left-1/2 -translate-x-1/2"}`}>
-                  {line ? (
-                    <span style={{ color: line.kind === "proposal" ? "var(--accent)" : undefined }}>{line.kind === "proposal" ? "❗ " : ""}{line.text}</span>
-                  ) : (
-                    <span className="text-ink-2">{s.doing}{s.project ? `（${s.project}）` : ""}</span>
-                  )}
-                </span>
-              )}
-              <span className="relative">
-                <span
-                  className="grid h-9 w-9 place-items-center rounded-full text-sm font-bold text-white shadow sm:h-11 sm:w-11"
-                  style={{ background: COLOR[m.id], animation: anim, outline: selected === m.id ? "3px solid var(--accent)" : undefined, outlineOffset: 2 }}
-                >
-                  {m.name.slice(0, 1)}
-                </span>
-                {!walking[m.id] && <span className="absolute -right-2 -top-1 text-xs sm:text-sm" aria-hidden>{s.doing ? WORK_ICON[s.room] : "☕"}</span>}
-              </span>
-              <span className="mt-0.5 text-[10px] font-medium sm:text-xs">{m.name}</span>
-            </button>
-          );
-        })}
       </div>
 
       {times.length > 0 && (

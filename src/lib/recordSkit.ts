@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { ROBOT_FACE } from "./robotFace";
 
 // ロボット社員の寸劇の描画（ブラウザで動かして録画する）。ロボットはこの実験用のオリジナルの絵で、各社のロゴは使わない
 // 体は生成した画像（public/robots）で、黒い画面の上に目と口のLEDを重ねて表情を付ける
@@ -9,12 +10,8 @@ export type SkitCast = { name: string; provider: string };
 export type SkitBeat = { speaker: number; line: string; mood: Mood; board?: string };
 
 const COLOR: Record<string, string> = { anthropic: "#f08a2a", openai: "#58cfa6", google: "#5aa9f0" };
-// 画像の中の黒い画面の位置（%）
-const FACE: Record<string, { cx: number; cy: number; w: number; h: number }> = {
-  anthropic: { cx: 49.5, cy: 35.6, w: 64, h: 31 },
-  openai: { cx: 49.5, cy: 41, w: 65, h: 31 },
-  google: { cx: 51, cy: 42, w: 66, h: 30 },
-};
+// 画像の中の黒い画面の位置（%）。オフィスの画面と同じものを使う
+const FACE = ROBOT_FACE;
 
 const imageUrl = (provider: string) => `data:image/webp;base64,${fs.readFileSync(path.join(process.cwd(), "public", "robots", `${provider}.webp`)).toString("base64")}`;
 
