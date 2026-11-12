@@ -25,15 +25,16 @@ export type PageCheck = {
   at: string;
 };
 
-const SYSTEM = `あなたは、SNSで「このLP強すぎる」と話題になるレベルのLPを作る、トップクラスのアートディレクター兼フロントエンドエンジニアです。
-まだ存在しないサービスの「事前登録LP」を、1つのHTMLファイルとして書きます。
-
-進め方:
+// 指示は部品に分けて持つ（プロンプトの比較で、部品を1つだけ差し替えられるように。ふだんは全部をこの順に使う）
+const ROLE = "あなたは、SNSで「このLP強すぎる」と話題になるレベルのLPを作る、トップクラスのアートディレクター兼フロントエンドエンジニアです。\n";
+const TASK = "まだ存在しないサービスの「事前登録LP」を、1つのHTMLファイルとして書きます。\n\n";
+const STEPS = `進め方:
 1. まず、このサービスだけの「世界観」を1つ決める（例: 人物像、モチーフ、比喩）。見出し・各セクション・ボタンの文言・装飾まで、すべてをその世界観で貫く
 2. 説明の横に、その世界観を表す小さなUIの演出（実際の画面風のモック、カード、ログ、チャットなど）をHTML/CSSで作る
 3. 余白・文字の大きさの強弱・配色を作り込み、テンプレートに見えない、記憶に残る見た目にする
 
-守ること:
+`;
+const RULES = `守ること:
 - スマホ（幅375px）で最も美しく見えること。左右に必ず16px以上の余白をとる。PC（幅1280px）でも崩れないこと
 - 外部ファイルは Google Fonts だけ使ってよい。画像は、指定されたイラストのURLがあればそれだけ使ってよい。ほかの装飾はCSS・インラインSVG・絵文字で作る
 - fetch などの通信、localStorage・Cookie、alert、window.open、外部サイトへのリンクは使わない（隔離された枠の中で表示され、どれも動かない）。ページ内のリンクは href="#id" だけ
@@ -48,6 +49,26 @@ const SYSTEM = `あなたは、SNSで「このLP強すぎる」と話題にな�
 - <title> と <meta name="description">（ページの要約1文）を入れ、見出しの <h1> は1つだけにする
 - 日本語で書く。HTML全体で10万文字以内
 - 出力は <!doctype html> から始まるHTMLだけ。説明やコードブロックは付けない`;
+
+// 守ることを短く整理した版（プロンプトの比較用）。動かすための決まりと、うそを書かない決まりは残し、言い回しを詰めた
+const SHORT_RULES = `守ること:
+- スマホ（375px）で一番きれいに。左右16px以上の余白。PC（1280px）でも崩れない
+- 外部ファイルは Google Fonts と指定のイラストだけ。通信・保存領域・alert・別ページへのリンクは使わない（ページ内リンク href="#id" だけ）
+- 実績・お客様の声・利用者数・効果の数字は書かない。誇大表現をしない。作ることや提供の時期が決まっているかのように書かない
+- 登録フォーム: ${PAGE_RULES.form}。登録ボタンは href="#signup"。${PAGE_RULES.privacy}。${PAGE_RULES.operator}
+- <p class="lab-done"> と <p class="lab-error"> の見た目を決める。<title>・<meta name="description">・<h1>1つを入れる
+- 日本語・10万文字以内。出力は <!doctype html> から始まるHTMLだけ`;
+
+// 対象者の目で考えてから書く（プロンプトの比較用）
+const READER = `書き始める前に（頭の中で考え、出力には書かない）: このページの対象者になったつもりで、SNSのリンクからこのページを開いた最初の3秒で何を知りたいか、どこで「自分には関係ない」と帰りたくなるか、何があれば登録したくなるかを考える。その答えに合わせて、最初の画面と各セクションを組み立てる。
+
+`;
+
+export type PageVariant = { role?: boolean; shortRules?: boolean; reader?: boolean };
+export function pageSystem(v: PageVariant = {}): string {
+  return `${v.role === false ? "" : ROLE}${TASK}${v.reader ? READER : ""}${STEPS}${v.shortRules ? SHORT_RULES : RULES}`;
+}
+const SYSTEM = pageSystem();
 
 function material(p: ProjectRow, lp: Lp): string {
   const ill = lp.design?.illustration;
@@ -68,23 +89,26 @@ function extractHtml(text: string): string {
 }
 
 // modelId を指定すると、そのAIが書く（別の会社のAIとの作り比べ用。指定しなければ Claude）
-async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: string; instruction?: string; issues?: string[]; keepCore?: boolean; refs?: DesignRef[]; modelId?: string }): Promise<string> {
+// system・effort・purpose は、プロンプトの比較で差し替えるときだけ渡す
+export async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: string; instruction?: string; issues?: string[]; keepCore?: boolean; refs?: DesignRef[]; modelId?: string; system?: string; effort?: "low" | "medium" | "high"; purpose?: string }): Promise<string> {
   const fix = opts.issues?.length
     ? `\n\n今のページに次の問題が見つかった。これを直したページ全体を出力すること（直す所以外はそのまま）:\n- ${opts.issues.join("\n- ")}`
     : "";
   const instr = opts.instruction
     ? `\n\n今回の修正指示: ${opts.instruction}\n${opts.keepCore ? "指示された所だけ直し、それ以外（世界観・見た目・文言）は今のページのまま残すこと。" : "世界観は保ったまま、指示に合わせて直すこと。"}ページ全体を出力すること。`
     : "";
-  const purpose = opts.issues?.length ? "LPのデザイン修正" : "LPのデザイン";
+  const purpose = opts.purpose ?? (opts.issues?.length ? "LPのデザイン修正" : "LPのデザイン");
+  const system = opts.system ?? SYSTEM;
   const user = `${material(p, lp)}${opts.prevHtml ? `\n\n今のページ:\n${opts.prevHtml}` : viralHints("page")}${instr}${fix}`;
   if (opts.modelId && getModel(opts.modelId).provider !== "anthropic") {
-    return extractHtml(await callLong({ modelId: opts.modelId, purpose, projectId: p.id, system: SYSTEM, user, maxTokens: 64000 }));
+    return extractHtml(await callLong({ modelId: opts.modelId, purpose, projectId: p.id, system, user, maxTokens: 64000, effort: opts.effort }));
   }
   const text = await callClaude({
     purpose,
     projectId: p.id,
-    system: SYSTEM,
+    system,
     modelId: opts.modelId,
+    effort: opts.effort,
     content: [
       { type: "text", text: user },
       // 参考のLP（雰囲気と質の水準を上げるため。配置・文言・画像はまねしない）
@@ -147,7 +171,7 @@ async function fillOperator(page: import("playwright-core").Page) {
 }
 
 // 本物のブラウザで開いて、スマホ幅で上から順に、PC幅で一番上を撮る
-async function shootPage(html: string, imgOrigins: string[], name: string): Promise<{ skipped?: string; sp: Shot[]; pc?: Shot; errors: string[]; overflow: boolean; text: string }> {
+export async function shootPage(html: string, imgOrigins: string[], name: string): Promise<{ skipped?: string; sp: Shot[]; pc?: Shot; errors: string[]; overflow: boolean; text: string }> {
   const browser = await launch();
   if (typeof browser === "string") return { skipped: browser, sp: [], errors: [], overflow: false, text: "" };
   const dir = dataDir("screenshots");
@@ -266,7 +290,7 @@ export type PageJudge = { modelId: string; a: number; b: number; reason: string 
 
 // 2つのページの画面を、どちらがどのAIの作か伏せて、3社のAIに別々に見比べさせる（スマホの最初の4画面とPCの最初の画面）。平均点の高い方を選ぶ
 // names は理由の文の中の呼び名（X・Y は採点役ごとに並びが違うので、作ったAIの名前に置き換える）
-export async function judgePages(p: ProjectRow, a: PageCheck, b: PageCheck, names = { a: "案A", b: "案B" }): Promise<{ winner: "a" | "b"; scoreA: number; scoreB: number; reason: string; judges: PageJudge[] }> {
+export async function judgePages(p: ProjectRow, a: PageCheck, b: PageCheck, names = { a: "案A", b: "案B" }, purpose = "LPのデザインの採点"): Promise<{ winner: "a" | "b"; scoreA: number; scoreB: number; reason: string; judges: PageJudge[] }> {
   const dir = dataDir("screenshots");
   const imgs = (c: PageCheck): ClaudeContent =>
     [...c.shots.slice(0, 4), ...(c.pc ? [c.pc] : [])]
@@ -281,7 +305,7 @@ export async function judgePages(p: ProjectRow, a: PageCheck, b: PageCheck, name
     const flip = Math.random() < 0.5; // 並び順で見抜かれないように（採点役ごとに決める）
     const [x, y] = flip ? [ib, ia] : [ia, ib];
     const out = await callVision({
-      modelId, purpose: "LPのデザインの採点", projectId: p.id, system, maxTokens: 16000,
+      modelId, purpose, projectId: p.id, system, maxTokens: 16000,
       content: [{ type: "text", text: "案X:" }, ...x, { type: "text", text: "案Y:" }, ...y],
     });
     const t = out.replace(/```(?:json)?/g, "");
