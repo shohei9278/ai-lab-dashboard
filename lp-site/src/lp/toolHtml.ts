@@ -14,7 +14,8 @@ addEventListener("click",function(e){var t=e.target;if(!t||!t.closest||t.closest
 addEventListener("input",use,true);addEventListener("change",use,true);})();</script>`;
 
 export function wrapToolHtml(html: string): string {
-  const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${CSP}">`;
+  // [hidden] は、クラスで display を決めた要素にも効くようにする（付けても消えず、切り替えの入力欄が出たままになっていた）
+  const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${CSP}"><style>[hidden]{display:none!important}</style>`;
   return `<!doctype html><html lang="ja"><head>${head}</head><body>${html}${BRIDGE}</body></html>`;
 }
 

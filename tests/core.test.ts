@@ -5,6 +5,7 @@ import { db, saveSettings } from "../src/lib/db";
 import { addIntervention, hideIntervention, listInterventions } from "../src/lib/interventions";
 import { getProject, holdProject, jstToday, resumeDueHolds, trafficCapacity } from "../src/lib/loop";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
+import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
 import { skitHtml } from "../src/lib/recordSkit";
@@ -146,4 +147,30 @@ test("ツールの利用: 入力欄を押しただけでは数えず、結果の
   assert.match(html, /var F="input,select,textarea,label"/);
   assert.match(html, /t\.closest\(F\)\)return/);
   assert.match(html, /window\.labShare=function/);
+});
+
+test("canvasの部品: 角丸は半径を収め、文字は幅に収まるまで小さくし、折り返しは最大行数で「…」にする", () => {
+  // 1文字の幅 = 文字の大きさ（px）とみなす偽物の ctx
+  const calls: unknown[][] = [];
+  const ctx = {
+    font: "bold 20px sans-serif",
+    measureText(t: string) { return { width: [...t].length * Number(/(\d+)px/.exec(this.font)![1]) }; },
+    beginPath() { calls.push(["begin"]); }, moveTo(...a: number[]) { calls.push(["move", ...a]); },
+    arcTo(...a: number[]) { calls.push(["arc", ...a]); }, closePath() { calls.push(["close"]); },
+  };
+  const h = new Function(`${CANVAS_HELPERS_JS}; return { roundRectPath, fitFontSize, wrapLines };`)();
+  h.roundRectPath(ctx, 0, 0, 100, 20, 50);
+  assert.deepEqual(calls[1], ["move", 10, 0]); // 半径は高さの半分（10）まで
+  assert.equal(calls.filter((c) => c[0] === "arc").every((c) => c[5] === 10), true);
+  assert.equal(h.fitFontSize(ctx, "あいうえお", 60, 20, 8), 12); // 5文字を60pxに収める
+  assert.equal(ctx.font, "bold 12px sans-serif");
+  assert.equal(h.fitFontSize(ctx, "あいうえお", 10, 20, 8), 8); // 最小で止まる
+  ctx.font = "bold 10px sans-serif";
+  assert.deepEqual(h.wrapLines(ctx, "あいうえおかきく", 30), ["あいう", "えおか", "きく"]);
+  assert.deepEqual(h.wrapLines(ctx, "あい\nう", 30), ["あい", "う"]);
+  assert.deepEqual(h.wrapLines(ctx, "あいうえおかきく", 30, 2), ["あいう", "えお…"]);
+});
+
+test("ツールの枠: hidden を付けた要素は、クラスで display を決めていても消える", () => {
+  assert.match(wrapToolHtml("<p>x</p>"), /<style>\[hidden\]\{display:none!important\}<\/style>/);
 });
