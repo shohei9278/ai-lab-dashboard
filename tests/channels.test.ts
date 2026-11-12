@@ -13,6 +13,7 @@ test("流入元: 投稿の専用リンクを来た元のページより優先し
   assert.deepEqual(channelOf({ source: null, referrer: "https://blog.example.com/entry/1?id=9" }, posts), { key: "other", host: "blog.example.com" });
   assert.deepEqual(channelOf({ source: null, referrer: "" }, posts), { key: "direct" });
   assert.deepEqual(channelOf({ source: "unknown1", referrer: null }, posts), { key: "direct" });
+  assert.deepEqual(channelOf({ source: "related", referrer: "https://hitoride.vercel.app/p1" }, posts, "hitoride.vercel.app"), { key: "site" });
 });
 
 test("流入元: 版ごとに最初の流入元で1人と数え、進んだ段を数える", () => {

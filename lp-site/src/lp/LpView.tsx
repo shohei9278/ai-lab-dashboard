@@ -41,7 +41,7 @@ export function LpView({ lp, title, topCta, signup, tool }: { lp: Lp; title: str
       <h1 className={`font-bold leading-tight ${layout === "left" ? "text-4xl sm:text-6xl sm:leading-[1.15]" : "text-3xl sm:text-5xl sm:leading-tight"}`}>{lp.headline}</h1>
       <p className="text-lg opacity-85">{lp.subheadline}</p>
       <div>{topCta}</div>
-      <p className="text-xs opacity-70">{isTool ? "無料・登録不要で、このページですぐに使えます。" : "現在準備中のサービスです。事前登録は無料です。"}</p>
+      <p className="text-xs opacity-70">{isTool ? "無料・登録不要で、このページですぐに使えます。" : "作るかどうかを決めるために、使ってみたい人を募っています。登録は無料です。"}</p>
     </div>
   );
 
@@ -148,7 +148,7 @@ export function LpView({ lp, title, topCta, signup, tool }: { lp: Lp; title: str
         <section id="signup" data-section="signup" className="px-6 py-16" style={{ background: "var(--lp-soft)" }}>
           <div className="mx-auto max-w-md space-y-4 text-center">
             <h2 className="text-xl font-bold">{lp.cta}</h2>
-            <p className="text-sm opacity-80">現在準備中のサービスです。メールアドレスを登録いただくと、提供を始めるときにご案内します。登録は無料です。</p>
+            <p className="text-sm opacity-80">このサービスは、作るかどうかを決めるために、使ってみたい人がどれくらいいるかを確かめている段階です。提供することになったら、登録いただいたメールアドレスにお知らせします。登録は無料です。</p>
             {signup}
           </div>
         </section>
@@ -314,7 +314,7 @@ function Preview({ p }: { p: NonNullable<Lp["preview"]> }) {
           </div>
         )}
       </div>
-      <figcaption className="border-t border-[color:var(--border)] px-4 py-2 text-[11px] opacity-60">画面はイメージです（開発中）</figcaption>
+      <figcaption className="border-t border-[color:var(--border)] px-4 py-2 text-[11px] opacity-60">画面はイメージです（まだ作っていません）</figcaption>
     </figure>
   );
 }

@@ -15,6 +15,10 @@ export function ToolFrame({ html, title, onUse }: { html: string; title: string;
     function onMessage(e: MessageEvent) {
       if (e.source !== ref.current?.contentWindow || typeof e.data !== "object" || !e.data) return;
       if (e.data.__lab === "height" && typeof e.data.h === "number") setHeight(Math.max(240, Math.min(4000, e.data.h)));
+      // ツールが知らせた結果の一文を、ページのシェアのボタンに渡す
+      if (e.data.__lab === "share-text" && typeof e.data.text === "string") {
+        window.dispatchEvent(new CustomEvent("lab-share-text", { detail: e.data.text.slice(0, 200) }));
+      }
       if (e.data.__lab === "use" && !used.current) {
         used.current = true;
         onUse?.();

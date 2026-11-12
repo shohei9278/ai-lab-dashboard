@@ -11,6 +11,7 @@ const RECORD_URL = `${DASHBOARD_URL}/showcase`;
 export const metadata: Metadata = {
   title: `${SITE_NAME}｜AIが作っている小さなWebツール`,
   description: "AIが企画して作っている、登録なしで使える小さなWebツールと、事前登録を受け付けているサービスの一覧です。",
+  alternates: { canonical: "/" },
 };
 
 function PageGrid({ pages }: { pages: ListedPage[] }) {

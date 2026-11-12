@@ -5,7 +5,7 @@ import { gaEvent } from "@/lib/ga";
 import { isExcluded, visitorId } from "./visitor";
 
 // 開いたことを1回だけ記録する。あわせて、どの部分まで読まれたかをGAに送る
-export function Tracker({ slug, version }: { slug: string; version: number }) {
+export function Tracker({ slug, version, scroll = true }: { slug: string; version: number; scroll?: boolean }) {
   useEffect(() => {
     if (isExcluded()) return;
     fetch("/api/track", {
@@ -33,21 +33,22 @@ export function Tracker({ slug, version }: { slug: string; version: number }) {
     );
     document.querySelectorAll("[data-section]").forEach((el) => observer.observe(el));
 
-    // どこまで読んだか（25%ごと。自由にデザインしたページは、枠の中から同じものが届く）
+    // どこまで読んだか（25%ごと。自由にデザインしたページは、枠の中から同じものが届くので、ここでは数えない）
+    // 一気に下まで動いたときも、途中の段（75%など）を飛ばさずに送る
     let depth = 0;
     const onScroll = () => {
       const h = document.documentElement;
       const p = Math.floor(((h.scrollTop + innerHeight) / h.scrollHeight) * 4) * 25;
-      if (p > depth) {
-        depth = p;
-        if (p >= 50) gaEvent("scroll_depth", { lp_slug: slug, lp_version: version, percent: p });
+      while (depth < p) {
+        depth += 25;
+        if (depth >= 50) gaEvent("scroll_depth", { lp_slug: slug, lp_version: version, percent: depth });
       }
     };
-    addEventListener("scroll", onScroll, { passive: true });
+    if (scroll) addEventListener("scroll", onScroll, { passive: true });
     return () => {
       observer.disconnect();
       removeEventListener("scroll", onScroll);
     };
-  }, [slug, version]);
+  }, [slug, version, scroll]);
   return null;
 }

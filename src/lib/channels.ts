@@ -28,6 +28,8 @@ const has = (host: string, ...names: string[]) => names.some((n) => host === n |
 
 export function channelOf(view: Pick<View, "source" | "referrer">, postPlatform: Map<string, string>, siteHost?: string | null): { key: ChannelKey; host?: string } {
   if (view.source === "index") return { key: "index" };
+  // ほかのページの下の「ほかのツール」から来た人（?s=related）
+  if (view.source === "related") return { key: "site" };
   const platform = view.source ? postPlatform.get(view.source) : undefined;
   if (platform === "x" || platform === "threads" || platform === "bluesky") return { key: platform };
   const host = hostOf(view.referrer);

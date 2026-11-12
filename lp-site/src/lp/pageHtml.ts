@@ -35,7 +35,7 @@ document.addEventListener("click",function(e){
   e.preventDefault();
 },true);
 document.addEventListener("focusin",function(e){if(!started&&e.target.type==="email"){started=true;ev("form_start")}});
-addEventListener("scroll",function(){var h=document.documentElement;var p=Math.floor((h.scrollTop+innerHeight)/h.scrollHeight*4)*25;if(p>depth){depth=p;if(p>=50)ev("scroll_depth",{percent:p})}},{passive:true});
+addEventListener("scroll",function(){var h=document.documentElement;var p=Math.floor((h.scrollTop+innerHeight)/h.scrollHeight*4)*25;while(depth<p){depth+=25;if(depth>=50)ev("scroll_depth",{percent:depth})}},{passive:true});
 function msg(text,cls){if(!form)return;var p=form.querySelector(".lab-error");if(!p){p=document.createElement("p");p.setAttribute("role","alert");form.appendChild(p)}p.className=cls;p.textContent=text}
 if(form)form.addEventListener("submit",function(e){
   e.preventDefault();

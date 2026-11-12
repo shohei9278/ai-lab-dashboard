@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings } from "../src/lib/db";
 import { addIntervention, hideIntervention, listInterventions } from "../src/lib/interventions";
-import { getProject, holdProject, jstToday, resumeDueHolds } from "../src/lib/loop";
+import { getProject, holdProject, jstToday, resumeDueHolds, trafficCapacity } from "../src/lib/loop";
+import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
 import { skitHtml } from "../src/lib/recordSkit";
@@ -118,4 +119,26 @@ test("外部バックアップ: 日付つきの写しだけを数えて、古い
   const names = ["ai-lab-2026-11-03.db.gz", "ai-lab-2026-11-01.db.gz", "ai-lab-2026-11-02.db.gz", "note.txt", "test-delete-me.db.gz"];
   assert.deepEqual(expiredOffsite(names, 2), ["ai-lab-2026-11-01.db.gz"]);
   assert.deepEqual(expiredOffsite(names, 3), []);
+});
+
+test("育てられる案件の数: 直近7日の本物の訪問から出し、シミュレーションは数えない・最低2件", () => {
+  saveSettings({ judgeMinVisits: 100, judgeAfterDays: 7 });
+  db().prepare("DELETE FROM metrics").run();
+  assert.deepEqual(trafficCapacity(), { perDay: 0, projects: 2 });
+  const id = addProject();
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 91, 0, 0, 'real')").run(id, day(-1));
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 5000, 0, 0, 'simulated')").run(id, day(-1));
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 700, 0, 0, 'real')").run(id, day(-20));
+  // 91人 / 7日 = 1日13人。14日で182人なので、100人に届くのは1件 → 最低の2件
+  assert.deepEqual(trafficCapacity(), { perDay: 13, projects: 2 });
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 259, 0, 0, 'real')").run(id, day(-2));
+  // 350人 / 7日 = 1日50人。14日で700人なので7件
+  assert.deepEqual(trafficCapacity(), { perDay: 50, projects: 7 });
+});
+
+test("ツールの利用: 入力欄を押しただけでは数えず、結果の一文をシェア用に知らせられる", () => {
+  const html = wrapToolHtml("<p>x</p>");
+  assert.match(html, /var F="input,select,textarea,label"/);
+  assert.match(html, /t\.closest\(F\)\)return/);
+  assert.match(html, /window\.labShare=function/);
 });

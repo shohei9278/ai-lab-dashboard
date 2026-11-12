@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { M_PLUS_Rounded_1c, Noto_Sans_JP, Noto_Serif_JP } from "next/font/google";
 import Script from "next/script";
-import { GA_MEASUREMENT_ID, SITE_NAME } from "@/lib/site";
+import { GA_MEASUREMENT_ID, SITE_NAME, SITE_URL } from "@/lib/site";
 import { ExcludedNotice } from "./ExcludedNotice";
 import "./globals.css";
 
@@ -12,12 +12,12 @@ const rounded = M_PLUS_Rounded_1c({ variable: "--font-rounded", subsets: ["latin
 const mincho = Noto_Serif_JP({ variable: "--font-mincho", subsets: ["latin"], weight: ["400", "700"], preload: false });
 
 // シェア画像などのURLを絶対URLにするための基準（Vercel が本番のドメインを渡してくれる）
-const base = process.env.SITE_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000");
+const base = SITE_URL;
 
 export const metadata: Metadata = {
   metadataBase: new URL(base),
   title: SITE_NAME,
-  description: `${SITE_NAME} が準備中のサービスの、事前登録ページです。`,
+  description: `${SITE_NAME} の、登録なしで使える小さなWebツールと、作るかどうかを確かめているサービスのページです。`,
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
