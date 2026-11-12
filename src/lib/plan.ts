@@ -1,6 +1,6 @@
 import { callJson, isObj, isStr } from "./ai";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
-import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, logEvent, planImprove, projectTotals } from "./loop";
+import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, logEvent, planImprove, projectTotals, trafficCapacity } from "./loop";
 import { endReasons, headline } from "./experiment";
 import { funnelText } from "./funnel";
 import { AUTO_PLATFORMS, autoPlatforms, postAllowed, type AutoPlatform } from "./snsApi";
@@ -194,6 +194,18 @@ function liveProjects(): LivePj[] {
 type Reacts = { reactions_at: string | null; likes: number | null; replies: number | null; reposts: number | null };
 const reactText = (x: Reacts) => (x.reactions_at ? ` 反応: いいね${x.likes ?? 0} 返信${x.replies ?? 0} リポスト${x.reposts ?? 0}` : " 反応: まだ未集計");
 
+// 場所ごとの、宣伝の投稿の数・そこからの訪問・1訪問あたりの費用（直近14日）。お金のかかる場所に偏らないように
+export function platformCostText(): string {
+  const s = getSettings();
+  const rows = db().prepare("SELECT platform, COUNT(*) AS n, COALESCE(SUM(visits), 0) AS v FROM sns_posts WHERE status = 'posted' AND author = 'ai' AND posted_at >= datetime('now', '-14 days') GROUP BY platform").all() as { platform: string; n: number; v: number }[];
+  if (!rows.length) return "場所ごとの1訪問あたりの費用（直近14日）: まだ投稿がない";
+  return `場所ごとの1訪問あたりの費用（直近14日の宣伝の投稿）: ${rows.map((r) => {
+    const cost = (AUTO_PLATFORMS[r.platform as AutoPlatform]?.costUsd ?? 0) * r.n * s.usdJpy;
+    const per = cost === 0 ? "無料" : r.v ? `1訪問 約${Math.round(cost / r.v)}円` : `訪問0で約${Math.round(cost)}円`;
+    return `${AUTO_PLATFORMS[r.platform as AutoPlatform]?.label ?? r.platform} ${r.n}件・訪問${r.v}人・${per}`;
+  }).join(" / ")}`;
+}
+
 function planMaterial(): string {
   const s = getSettings();
   const now = jstNow();
@@ -240,6 +252,8 @@ function planMaterial(): string {
     `最近の計画と結果:\n${past.join("\n") || "（まだなし。今日が最初の計画）"}`,
     `公開サイトの一覧から来た人（投稿のリンクとは別。累計）: ${(() => { const r = db().prepare("SELECT COALESCE(SUM(index_visits), 0) AS v, COALESCE(SUM(index_uses), 0) AS u FROM projects WHERE demo = 0").get() as { v: number; u: number }; return `訪問${r.v}人・登録/利用${r.u}人`; })()}`,
     postStatsText() || "効いた手の集計: まだ投稿がない",
+    platformCostText(),
+    (() => { const c = trafficCapacity(); return `今の流入で育てられる案件の数: 直近7日の訪問は1日あたり約${c.perDay}人。判断の基準（1件${s.judgeMinVisits}人）まで${s.judgeAfterDays * 2}日で届けられるのは${c.projects}件くらい（公開中の案件がこれより多いと、1件あたりの訪問が薄まって、どれも判断できない。宣伝の投稿は、見込みのある少数の案件に集める）`; })(),
     `運営者からの提案（提案箱にあなたが入れたもの。返事待ち）:\n${(db().prepare("SELECT id, title, how FROM plan_requests WHERE source = 'human' AND status = 'open' ORDER BY id DESC LIMIT 10").all() as { id: number; title: string; how: string | null }[]).map((r) => `- 【${r.id}】${r.title}${r.how ? `: ${r.how}` : ""}`).join("\n") || "（なし）"}`,
     `提案箱（あなたたちAIからのお願い・定例会議の提案。直近30日）:\n${(db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-30 days') ORDER BY id DESC").all() as RequestRow[]).map((r) => `- 「${r.title}」→ ${r.status === "open" ? "まだ返事なし" : r.status === "done" ? `やった${r.decided_at ? `（${jstDateTime(r.decided_at)}）` : ""}` : "見送り"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`).join("\n") || "（まだなし）"}`,
     `教訓:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,

@@ -356,7 +356,7 @@ async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, mo
     system: `あなたはLP（サービス紹介ページ）のコピーライター兼デザイナーです。${isTool
       ? "このページには、すでに動くツール本体が埋め込まれていて、訪問者はその場で無料・登録不要で使えます。ツールを使ってもらい、気に入ったらシェアしてもらうことが目的です。"
       : "サービスはまだ開発前で、メールの事前登録で需要を確かめます。"}
-守ること:
+守ること:${isTool ? "" : "\n- まだ作ると決まっていないサービスで、このページは使いたい人がどれくらいいるかを確かめるためのもの。「開発中」「先行利用」「近日公開」「リリース予定」のように、作ることや提供の時期が決まっているかのようには書かない。「作るかどうかを決めるために、使ってみたい人を募っています」「提供することになったら、メールでお知らせします」のように、正直に書く"}
 - 架空の利用者数・実績・お客様の声・受賞歴などは書かない
 - 「必ず」「誰でも」などの誇大表現は使わない
 - ターゲットが自分ごとだと感じる、具体的な言葉で書く
@@ -398,7 +398,7 @@ async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp): Promise<Review> {
     projectId: p.id,
     system: `あなたはLPの公開前チェック担当です。次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
 - 架空の利用者数・実績・お客様の声・受賞歴・具体的な効果の数字を断言している
-- 「必ず」「誰でも」「100%」などの誇大表現がある
+- 「必ず」「誰でも」「100%」などの誇大表現がある${p.kind === "tool" ? "" : "\n- 「開発中」「先行利用」「近日公開」など、まだ作ると決まっていないのに、作ることや提供の時期が決まっているかのような書き方"}
 ${p.kind === "tool"
   ? "- ページの中のツールでできること以上のことを、できるかのように書いている"
   : "- 開発前なのに、すぐ使えるかのように書いている"}
@@ -442,7 +442,8 @@ export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtm
 - フォームは送信しない（ボタンは type="button"）。入力は端末の中だけで処理する
 - 名前・メールアドレスなど個人を特定できる情報は入力させない
 - スマホ幅（360px）でも崩れない。prefers-color-scheme でライト・ダークの両方で読めるようにする
-- 日本語。開いた瞬間に使い方が分かり、結果はすぐ画面に表示する。結果は、シェアしたくなる見せ方を工夫する
+- 日本語。開いた瞬間に使い方が分かるようにする。入力欄は空にし、入力例は placeholder で見せる（入力例の値で、結果を最初から出しておかない。結果は利用者が入力・選択・ボタンを押したときにすぐ表示する）。すぐ試したい人のために「例で試す」ボタンを置いてもよい
+- 結果は、シェアしたくなる見せ方を工夫する。結果が出るたびに、その結果を伝える短い一文（60文字くらい。個人を特定できる内容は入れない）を作り、window.labShare && window.labShare("その一文") を呼ぶ（ページのシェアのボタンの文に使われる）
 - 架空の統計を事実のように書かない。診断・占いのような遊びのツールは、そうと分かる一言を入れる。医療・法律・お金の助言はしない
 - 実在の人物・団体のデータは、正確だと確信できるものだけを使う。不確かなら使わない
 - 全体で40,000文字以内。データの一覧は代表的なものに絞り、何百件も書き連ねない。読みやすく、動作の確かなコードにする
@@ -936,7 +937,7 @@ export function judgePrompt(p: ProjectRow, trigger: JudgeTrigger = "visits") {
 - collect: 今のまま、もう少し集客してから判断する
 - kill: 需要が見込めないので撤退する`;
   const slowNote = trigger === "slow"
-    ? `\n今回は、公開（または前回の判断）から${s.judgeAfterDays}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
+    ? `\n今回は、公開（または前回の判断）から${s.judgeAfterDays}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。訪問が判断の基準（${s.judgeMinVisits}人）に届いていない間の kill は、自動では実行されず人の判断に回る。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
     : "";
   return {
     all,
@@ -1060,6 +1061,15 @@ async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Pr
   if (d.decision === "rethink" && p.mode === "auto") {
     await applyRethink(projectId, d, "ai");
     return null;
+  }
+
+  // 訪問が判断の基準に届いていない撤退は、全自動でも人に回す（数人の数字で需要がないと決めないため）
+  const visits = projectTotals(projectId).visits;
+  if (d.decision === "kill" && p.mode === "auto" && s.fullAuto && visits < s.judgeMinVisits) {
+    const note = `訪問が${visits}人で、判断の基準（${s.judgeMinVisits}人）に届いていないため、自動では撤退せずに判断をお願いしています`;
+    logEvent(projectId, "system", "auto-blocked", note);
+    setStage(projectId, "deciding");
+    return addApproval(projectId, "decision", DECISION_LABEL[d.decision], `${d.reason}\n（${note}）`, d);
   }
 
   // 全自動: 続ける・撤退もAIの判断のまま進める（広告費の上限を超えて集客を続けるのは、お金がかかるので人に回す）
@@ -1577,6 +1587,16 @@ async function announcePublish(projectId: number) {
     if (await publishLp(p)) {
       logEvent(projectId, "system", "publish", `第${p.lp_version}版の${p.kind === "tool" ? "ツール" : "LP"}を公開しました: ${publicUrl(projectId) ?? slugOf(projectId)}`);
       db().prepare("UPDATE projects SET published_at = COALESCE(published_at, datetime('now')) WHERE id = ?").run(projectId);
+      // 初めて公開したときは、企画で決めた最初の届け方を、運営者がやること（提案箱）に入れる
+      // フォロワーがほぼいない自動投稿だけでは、判断に必要な訪問が集まらないため
+      if (!p.published_at && p.first_channel) {
+        addProposal({
+          title: `「${p.title}」を、対象の人がいる場所に届ける`,
+          how: `${p.first_channel}\nページ: ${publicUrl(projectId) ?? slugOf(projectId)}`,
+          why: "自動投稿だけでは届く人数に限りがあり、判断の基準の訪問まで集まらないため（企画のときにAIが決めた最初の届け方）",
+          target: "human", source: "plan", scene: "公開", projectId,
+        });
+      }
       // 無料の場所（Threads・Bluesky）には、公開したその場で1件投稿する（まだ投稿していない場所だけ）
       const { postOnPublish } = await import("./sns");
       if (p.stage !== "hold") await postOnPublish(projectId); // 保留中は、ページを直しても宣伝はしない
@@ -1725,6 +1745,19 @@ export function simulatedDays(project: ProjectRow, days: number) {
 
 export type DailyResult = { ran: boolean; message: string; projectIds: number[] };
 
+// 今の流入で、判断の基準の訪問まで届けられる案件の数。案件を増やすほど1件あたりの訪問が薄まり、どれも判断できなくなるため
+// 直近7日の本物の訪問から1日あたりを出し、(判断までの日数 × 2) のうちに基準へ届く件数とする。並行して比べられるよう最低2件
+export function trafficCapacity(): { perDay: number; projects: number } {
+  const s = getSettings();
+  // metrics.day は日本時間の日付。今日を含む7日間（6日前〜今日）を数える
+  const today = jstToday();
+  const since = new Date(Date.parse(`${today}T00:00:00Z`) - 6 * 86_400_000).toISOString().slice(0, 10);
+  const v = (db().prepare("SELECT COALESCE(SUM(m.visits), 0) AS n FROM metrics m JOIN projects p ON p.id = m.project_id WHERE m.source != 'simulated' AND p.demo = 0 AND m.day >= ? AND m.day <= ?").get(since, today) as { n: number }).n;
+  const perDay = Math.round((v / 7) * 10) / 10;
+  const projects = Math.max(2, Math.floor((perDay * s.judgeAfterDays * 2) / Math.max(1, s.judgeMinVisits)));
+  return { perDay, projects };
+}
+
 const gDaily = globalThis as unknown as { __aiLabDailyRunning?: boolean };
 
 export async function runDaily({ force = false } = {}): Promise<DailyResult> {
@@ -1744,6 +1777,8 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     const live = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0 AND growth_phase = 0").get() as { n: number }).n;
     if (pending >= s.maxPending) return skip(`承認待ちが${pending}件たまっているため、アイデア出しを休みました（上限${s.maxPending}件）`);
     if (live >= s.maxLive) return skip(`集客中の案件が${live}件あるため、アイデア出しを休みました（上限${s.maxLive}件）`);
+    const cap = trafficCapacity();
+    if (live >= cap.projects) return skip(`直近7日の訪問は1日あたり約${cap.perDay}人で、集客中の${live}件を${s.judgeAfterDays * 2}日のうちに判断の基準（${s.judgeMinVisits}人）まで届けられる見込みがないため、アイデア出しを休みました（今の流入で育てられるのは${cap.projects}件まで）`);
     const paused = planPausesNew();
     if (paused) return skip(`今日の計画で、新しい案件づくりを休むと決めたため休みました（${paused}）`);
 

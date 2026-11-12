@@ -10,6 +10,8 @@ import { ShareButtons, ToolSection } from "./ToolSection";
 import { FreePage } from "./FreePage";
 import { FeedbackWidget } from "./FeedbackWidget";
 import { imgOriginsOf } from "@/lp/pageHtml";
+import { RelatedPages } from "./RelatedPages";
+import { PageSummary } from "./PageSummary";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +21,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   if (!lp) return { title: SITE_NAME };
   const title = `${lp.title}｜${SITE_NAME}`;
   // シェア画像は、同じ階層の opengraph-image.tsx が自動で付ける
+  // canonical: 投稿ごとの目印（?s=…）付きのURLを、同じページとして扱わせる
+  // 受付を終えたページは、検索結果に出さない
   return {
     title,
     description: lp.content.subheadline,
+    alternates: { canonical: `/${slug}` },
+    ...(lp.status === "closed" ? { robots: { index: false, follow: true } } : {}),
     openGraph: { title, description: lp.content.subheadline, siteName: SITE_NAME, type: "website", locale: "ja_JP" },
     twitter: { card: "summary_large_image", title, description: lp.content.subheadline },
   };
@@ -36,7 +42,8 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
     return (
       <main className="mx-auto max-w-2xl px-4 py-24 text-center">
         <h1 className="text-xl font-bold">{lp.title}</h1>
-        <p className="mt-3 text-ink-2">このサービスの事前登録の受付は終了しました。ご関心をお寄せいただき、ありがとうございました。</p>
+        <p className="mt-3 text-ink-2">{lp.content.tool ? "このツールの公開は終了しました。" : "このサービスの事前登録の受付は終了しました。"}ご関心をお寄せいただき、ありがとうございました。</p>
+        <div className="mt-12 text-left"><RelatedPages slug={lp.slug} /></div>
       </main>
     );
   }
@@ -45,8 +52,10 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
   if (lp.content.page && !lp.content.tool) {
     return (
       <main>
-        <Tracker slug={lp.slug} version={lp.version} />
+        <Tracker slug={lp.slug} version={lp.version} scroll={false} />
         <FreePage slug={lp.slug} version={lp.version} html={lp.content.page.html} title={lp.title} imgOrigins={imgOriginsOf(lp.content.design?.illustration?.url, lp.content.page.html)} operator={`運営: ${SITE_NAME}`} />
+        <PageSummary title={lp.title} lp={lp.content} />
+        <RelatedPages slug={lp.slug} />
         <FeedbackWidget slug={lp.slug} version={lp.version} kind="lp" />
       </main>
     );
@@ -66,6 +75,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
         }
         tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} /> : undefined}
       />
+      <RelatedPages slug={lp.slug} />
       <FeedbackWidget slug={lp.slug} version={lp.version} kind={lp.content.tool ? "tool" : "lp"} />
     </main>
   );

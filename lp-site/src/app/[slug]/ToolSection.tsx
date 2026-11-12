@@ -33,12 +33,20 @@ export function ShareButtons({ slug, version, text }: { slug: string; version: n
     gaEvent("share", { lp_slug: slug, lp_version: version, method });
   };
   const [url, setUrl] = useState("");
+  // ツールで結果が出たら、その結果の一文をシェアの文の頭に付ける（出ていなければ決まった文のまま）
+  const [result, setResult] = useState("");
+  useEffect(() => {
+    const on = (e: Event) => setResult(String((e as CustomEvent).detail ?? "").slice(0, 200));
+    window.addEventListener("lab-share-text", on);
+    return () => window.removeEventListener("lab-share-text", on);
+  }, []);
+  const shareText = result ? `${result}\n${text}` : text;
   // シェアするリンクには、どこから来たかの目印（?s=…）を引き継がない
   useEffect(() => setUrl(window.location.origin + window.location.pathname), []);
   return (
     <div className="flex flex-wrap justify-center gap-3">
       <a
-        href={`https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`}
+        href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(url)}`}
         target="_blank"
         rel="noreferrer"
         onClick={() => shared("x")}

@@ -9,3 +9,6 @@ export const GA_MEASUREMENT_ID = /^G-[A-Z0-9]{4,20}$/.test(ga) ? ga : "";
 
 // 実験のダッシュボード（公開サイト・通知・動画から同じものを使う）
 export const DASHBOARD_URL = "https://ai-lab-dashboard-production-fc9e.up.railway.app";
+
+// このサイトのURL（シェア画像・canonical・sitemap の絶対URLの基準）。Vercel が本番のドメインを渡してくれる
+export const SITE_URL = (process.env.SITE_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "http://localhost:3000")).replace(/\/+$/, "");
