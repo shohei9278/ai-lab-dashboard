@@ -9,7 +9,7 @@ import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
 import { pageSystem } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
-import { officeSnapshot, roomOf } from "../src/lib/office";
+import { officeNumbers, officeSnapshot, roomOf } from "../src/lib/office";
 import { stateAt, tallyAt } from "../src/lib/officeShared";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
@@ -268,4 +268,18 @@ test("オフィス: 呼んだ目的で部屋を決め、3分たつと休憩室�
     { at: "2026-11-11 15:30:00", member: "google" as const, room: "pr" as const, doing: "d", project: null, yen: 3 },
   ];
   assert.deepEqual(tallyAt(evs, "2026-11-11 15:30:00"), { anthropic: { calls: 1, yen: 10 }, openai: { calls: 0, yen: 0 }, google: { calls: 1, yen: 3 } });
+});
+
+test("オフィス: 上の帯の数字は、日本時間の今日の訪問と、デモでない案件だけを数える", () => {
+  const before = officeNumbers();
+  const live = addProject("live");
+  const demo = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, demo) VALUES ('d', 't', 'p', 's', 'h', 'r', 'live', 'm', 1)").run().lastInsertRowid);
+  const ins = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, ?, ?, 0, 'real')");
+  ins.run(live, jstToday(), 7, 1);
+  ins.run(live, day(-1), 100, 9);
+  ins.run(demo, jstToday(), 50, 5);
+  const after = officeNumbers();
+  assert.equal(after.visitsToday - before.visitsToday, 7);
+  assert.equal(after.convToday - before.convToday, 1);
+  assert.equal(after.live - before.live, 1);
 });

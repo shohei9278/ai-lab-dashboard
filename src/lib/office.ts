@@ -1,4 +1,6 @@
-import { db, getSettings } from "./db";
+import { db, getSettings, monthSpendUsd } from "./db";
+import { jstToday } from "./loop";
+import { waitingItems } from "./overview";
 import { modelInfo } from "./models";
 import type { Member, OfficeEvent, OfficeHappening, OfficeLine, Room } from "./officeShared";
 
@@ -55,7 +57,29 @@ export function officeSnapshot() {
       return member ? [{ at: r.at, member, kind: "proposal" as const, text: `提案があります: ${r.title}`.slice(0, 80) }] : [];
     }),
   ].sort((a, b) => a.at.localeCompare(b.at));
-  return { now: new Date().toISOString().replace("T", " ").slice(0, 19), events, lines, happenings };
+  return { now: new Date().toISOString().replace("T", " ").slice(0, 19), events, lines, happenings, numbers: officeNumbers() };
 }
 
 export type OfficeSnapshot = ReturnType<typeof officeSnapshot>;
+
+// 画面の上の帯に出す、いまの数字（ホーム・ライブと同じ数え方。再生中も、いまの数字を出す）
+export function officeNumbers() {
+  const s = getSettings();
+  const today = jstToday();
+  const m = db().prepare("SELECT COALESCE(SUM(m.visits), 0) AS v, COALESCE(SUM(m.signups), 0) AS c FROM metrics m JOIN projects p ON p.id = m.project_id WHERE p.demo = 0 AND m.day = ?").get(today) as { v: number; c: number };
+  // 日本時間の今日の0時（UTC の文字列）から
+  const start = new Date(Date.parse(`${today}T00:00:00+09:00`)).toISOString().replace("T", " ").slice(0, 19);
+  const costToday = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS c FROM ai_calls WHERE at >= ?").get(start) as { c: number }).c;
+  const live = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0").get() as { n: number }).n;
+  const waiting = waitingItems().filter((w) => !w.demo);
+  return {
+    visitsToday: m.v,
+    convToday: m.c,
+    costTodayJpy: Math.round(costToday * s.usdJpy),
+    monthJpy: Math.round(monthSpendUsd() * s.usdJpy),
+    budgetJpy: s.monthlyBudgetJpy,
+    live,
+    waiting: waiting.length,
+    stuck: waiting.filter((w) => w.kind === "stuck").length,
+  };
+}

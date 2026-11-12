@@ -53,7 +53,22 @@ const KEYFRAMES = `
 @keyframes office-rest { 0%, 100% { transform: scale(1) } 50% { transform: scale(1.04) } }
 @keyframes office-pop { 0% { transform: translateY(8px) scale(.8); opacity: 0 } 12% { transform: translateY(0) scale(1); opacity: 1 } 85% { opacity: 1 } 100% { transform: translateY(-6px); opacity: 0 } }
 @keyframes office-burst { from { transform: translateY(0); opacity: 1 } to { transform: translateY(-60px); opacity: 0 } }
+@keyframes office-ticker { from { transform: translateX(0) } to { transform: translateX(-50%) } }
+.office-ticker:hover > div { animation-play-state: paused }
 `;
+
+// 上の帯の1つの数字
+function Chip({ label, value, tone, href }: { label: string; value: string; tone?: "good" | "warn" | "muted"; href?: string }) {
+  const color = tone === "good" ? "var(--good)" : tone === "warn" ? "var(--accent)" : undefined;
+  const body = (
+    <>
+      <span className="text-[10px] text-muted sm:text-xs">{label}</span>
+      <span className="num text-sm font-bold sm:text-base" style={{ color }}>{value}</span>
+    </>
+  );
+  const cls = "flex flex-col rounded-lg border border-line bg-surface px-2 py-1";
+  return href ? <a href={href} className={`${cls} hover:bg-surface-2`} style={tone === "warn" ? { borderColor: "var(--accent)" } : undefined}>{body}</a> : <div className={cls}>{body}</div>;
+}
 
 export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
   const [snap, setSnap] = useState(initial);
@@ -94,7 +109,16 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
   const lineOf = (m: Member): OfficeLine | undefined =>
     [...snap.lines].reverse().find((l) => l.member === m && toMs(l.at) <= t && t - toMs(l.at) <= LINE_SECONDS * 1000);
   const happening = [...snap.happenings].reverse().find((h) => toMs(h.at) <= t && t - toMs(h.at) <= HAPPENING_SECONDS * 1000);
-  const recent = snap.events.filter((e) => toMs(e.at) <= t).slice(-5).reverse();
+  // 下の帯に流す最近の動き（社員の作業・提案・出来事）。新しい順に12件
+  type Tick = { at: string; text: string; color?: string; strong?: boolean };
+  const ticks: Tick[] = [
+    ...snap.events.filter((e) => toMs(e.at) <= t).slice(-12).map((e) => ({ at: e.at, text: `${nameOf(e.member)}: ${ROOMS[e.room]}で${e.doing}${e.project ? `（${e.project}）` : ""}`, color: COLOR[e.member] })),
+    ...snap.lines.filter((l) => l.kind === "proposal" && toMs(l.at) <= t).map((l) => ({ at: l.at, text: `❗ ${nameOf(l.member)}: ${l.text}`, color: "var(--accent)", strong: true })),
+    ...snap.happenings.filter((h) => toMs(h.at) <= t).map((h) => ({ at: h.at, text: `${HAPPENING[h.kind].icon} ${h.title ? `「${h.title}」` : "案件"}${HAPPENING[h.kind].label}`, strong: true })),
+  ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
+  const working = ORDER.filter((m) => state[m].room !== "lounge").length;
+  const n = snap.numbers;
+  const yen = (v: number) => `${v.toLocaleString("ja-JP")}円`;
 
   // 歩く: 部屋が変わったら、廊下の点を1つずつたどる
   const [pos, setPos] = useState<Record<Member, Pt>>(() => Object.fromEntries(ORDER.map((m) => [m, seatOf("lounge", m)])) as Record<Member, Pt>);
@@ -145,6 +169,16 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
         <span className="num text-ink-2">{jstHM(at)}</span>
         <span className="ml-auto text-xs text-muted">社員を押すと、いま何をしているかが出ます</span>
       </div>
+
+      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6 sm:gap-2" aria-label="いまの数字">
+        <Chip label={replaying ? "その時刻の稼働" : "稼働・待機"} value={`${working}・${3 - working}`} tone={working ? "good" : "muted"} />
+        <Chip label="今日の訪問" value={`${n.visitsToday}人`} />
+        <Chip label="今日の登録・利用" value={`${n.convToday}人`} tone={n.convToday ? "good" : undefined} />
+        <Chip label="今日のAIの費用" value={yen(n.costTodayJpy)} />
+        <Chip label="今月の予算" value={`${Math.round((n.monthJpy / Math.max(1, n.budgetJpy)) * 100)}%`} tone={n.monthJpy > n.budgetJpy * 0.8 ? "warn" : undefined} />
+        <Chip label={n.stuck ? `確認待ち（止まっている ${n.stuck}）` : "確認待ち"} value={`${n.waiting}件`} tone={n.waiting ? "warn" : undefined} href="/#waiting" />
+      </div>
+      <p className="-mt-1 text-[10px] text-muted">数字は、再生中もいまのものです（稼働・待機だけ、再生している時刻のもの）。公開・集客中は{n.live}件。</p>
 
       <div className="card relative aspect-[3/4] w-full overflow-hidden sm:aspect-[16/10]">
         {(Object.keys(ROOM_BOX) as Room[]).map((r) => {
@@ -242,22 +276,18 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
         </section>
       )}
 
-      <section className="card p-3">
-        <h2 className="mb-1 text-sm font-bold">最近の動き</h2>
-        {recent.length ? (
-          <ul className="space-y-0.5 text-xs">
-            {recent.map((e, i) => (
-              <li key={`${e.at}-${i}`} className="flex gap-2">
-                <span className="num text-muted">{jstHM(e.at)}</span>
-                <span style={{ color: COLOR[e.member] }}>{nameOf(e.member)}</span>
-                <span className="text-ink-2">{ROOMS[e.room]}で{e.doing}{e.project ? `（${e.project}）` : ""}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-xs text-muted">まだ動きはありません。</p>
-        )}
-      </section>
+      {ticks.length > 0 && (
+        <div className="office-ticker card overflow-hidden py-2" aria-label="最近の動き">
+          <div className="flex w-max gap-8 whitespace-nowrap px-3 text-xs" style={{ animation: `office-ticker ${Math.max(20, ticks.length * 5)}s linear infinite` }}>
+            {[0, 1].map((copy) => ticks.map((k, i) => (
+              <span key={`${copy}-${i}`} aria-hidden={copy === 1} className={k.strong ? "font-bold" : undefined}>
+                <span className="num mr-1 text-muted">{jstHM(k.at)}</span>
+                <span style={{ color: k.color }}>{k.text}</span>
+              </span>
+            )))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
