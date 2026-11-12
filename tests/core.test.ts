@@ -7,6 +7,8 @@ import { getProject, holdProject, jstToday, resumeDueHolds, trafficCapacity } fr
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
+import { pageSystem } from "../src/lib/freePage";
+import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
 import { skitHtml } from "../src/lib/recordSkit";
@@ -203,4 +205,33 @@ test("判断の会議: 全自動で進んだ判断や、意見がそろった判
   const failed = listMeetings("judge").find((m) => m.key === `judge-${r1}`)!.items.at(-1)!;
   assert.equal(failed.title, "判断を取得できませんでした");
   assert.equal(failed.text, undefined);
+});
+
+test("プロンプトの比較: 指示は1か所だけ差し替え、ふだんの指示は変えない", () => {
+  const base = pageSystem();
+  assert.ok(base.startsWith("あなたは、SNSで"));
+  assert.equal(pageSystem({ role: false }), base.slice(base.indexOf("\n") + 1));
+  assert.ok(pageSystem({ reader: true }).includes("書き始める前に") && !base.includes("書き始める前に"));
+  const short = pageSystem({ shortRules: true });
+  assert.ok(short.length < base.length && short.includes('id="signup"') === base.includes('id="signup"'));
+  assert.ok(short.includes("作ることや提供の時期が決まっているかのように書かない"));
+});
+
+test("プロンプトの比較: 始める前に、項目・案件・キーを確かめる。集計は変えた方の勝ちと点の差", () => {
+  const lpId = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, lp) VALUES ('t', 't', 'p', 's', 'h', 'r', 'live', 'm', 'lp', '{}')").run().lastInsertRowid);
+  const toolId = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, lp) VALUES ('t', 't', 'p', 's', 'h', 'r', 'live', 'm', 'tool', '{}')").run().lastInsertRowid);
+  assert.throws(() => startPromptTest(lpId, "nope"), /項目/);
+  assert.throws(() => startPromptTest(toolId, "role"), /事前登録LP/);
+  assert.throws(() => startPromptTest(lpId, "role"), /APIキー/); // テストではキーがない
+  const ins = db().prepare("INSERT INTO prompt_tests (project_id, factor, model_id, status, score_a, score_b) VALUES (?, ?, 'claude-opus-5-5', ?, ?, ?)");
+  ins.run(lpId, "role", "done", 6, 5);
+  ins.run(lpId, "role", "done", 5, 7);
+  ins.run(lpId, "role", "done", 6, 6);
+  ins.run(lpId, "rules", "error", null, null);
+  const role = factorSummary().find((r) => r.factor === "role")!;
+  assert.deepEqual(role, { factor: "role", n: 3, bWins: 1, ties: 1, diff: 0.3 });
+  assert.equal(factorSummary().find((r) => r.factor === "rules")!.n, 0);
+  // 途中で止まったままの比較は、失敗として閉じる
+  db().prepare("INSERT INTO prompt_tests (at, project_id, factor, model_id) VALUES (datetime('now', '-2 hours'), ?, 'reader', 'claude-opus-5-5')").run(lpId);
+  assert.equal(listPromptTests().find((t) => t.factor === "reader")!.status, "error");
 });

@@ -20,7 +20,7 @@ function PageTabs({ tabs, current, label }: { tabs: { href: string; label: strin
 
 // AIの成績
 export function LabTabs({ current }: { current: string }) {
-  return <PageTabs current={current} label="AIの成績のページ" tabs={[{ href: "/lab", label: "AIの成績" }, { href: "/lab/tests", label: "基礎テスト" }]} />;
+  return <PageTabs current={current} label="AIの成績のページ" tabs={[{ href: "/lab", label: "AIの成績" }, { href: "/lab/tests", label: "基礎テスト" }, { href: "/lab/prompts", label: "プロンプトの比較" }]} />;
 }
 
 // 資料

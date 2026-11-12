@@ -482,6 +482,24 @@ CREATE TABLE IF NOT EXISTS notes (
   body TEXT NOT NULL DEFAULT '',
   project_id INTEGER REFERENCES projects(id)
 );
+-- プロンプトの比較（AIの成績）: 同じ案件・同じAIで、指示の渡し方だけを変えたLPを2つ作り、3社が作り方を伏せて画面で採点する
+-- 作ったLPは案件には使わない。a は今の渡し方、b は変えた渡し方
+CREATE TABLE IF NOT EXISTS prompt_tests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at TEXT,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  factor TEXT NOT NULL, -- role / rules / refs / reader / effort / review
+  model_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running', -- running / done / error
+  a_json TEXT, -- {shots, pc, issues, chars}
+  b_json TEXT,
+  score_a REAL,
+  score_b REAL,
+  judges TEXT, -- JSON（PageJudge[]）
+  cost_usd REAL,
+  error TEXT
+);
 CREATE TABLE IF NOT EXISTS lessons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
