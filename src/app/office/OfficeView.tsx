@@ -1,165 +1,69 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { OfficeSnapshot } from "@/lib/office";
 import { HAPPENING, MEMBERS, ROOMS, stateAt, tallyAt, toMs, type Member, type MemberState, type OfficeLine, type OfficeShop, type Room } from "@/lib/officeShared";
 import { ROBOT_CSS, Robot, type RobotMood } from "./Robot";
 
-// オフィス（試作）の画面。斜め上から見た床の上で、ロボット社員（動画と同じ絵）が動いて「いま何をしているか」を見せる
-// - 社員は部屋ごとに決まった席に座る（会議室はテーブルを囲む）。部屋を移るときは、廊下を通って歩く
-// - 作業中は小さく動き、手が空くと休憩室のソファに戻る
-// - 公開・撤退・続けるの出来事は、画面の上に演出を出す
+// オフィスの画面。画像のAIで作ったオフィスの背景（public/office/office.jpg、人物なし）の上に、
+// ロボット社員（動画と同じ絵）・吹き出し・店の看板・押せる場所を重ねて「いま何をしているか」を見せる
+// - 位置はすべて背景の画像の中の％（背景を作り直したら、下の座標も合わせ直す）
+// - 社員は部屋ごとに決まった席に座る。部屋を移るときは、出入口と廊下を通って歩く
 // - だれかが3分以内に動いていれば「いま」を映す。だれも動いていなければ、確認が必要なもののお知らせだけを出し、直近24時間の動きはボタンで再生する
 // - 部屋・家具・店を押すと、その機能の画面に移る（メニューはそのまま残す）
 
 type Pt = { x: number; y: number };
-const tint = (c: string, p: number) => `color-mix(in srgb, ${c} ${p}%, var(--surface))`;
-// 部屋。押すと、その部屋に合う機能の画面に移る（go はその説明）
-const ROOM_BOX: Record<Room, { left: number; top: number; width: number; height: number; icon: string; bg: string; edge: string; href: string; go: string }> = {
-  dev: { left: 3, top: 3, width: 44, height: 44, icon: "💻", bg: tint("var(--series-google)", 20), edge: tint("var(--series-google)", 50), href: "/projects", go: "案件の一覧を見る" },
-  meeting: { left: 53, top: 3, width: 44, height: 44, icon: "🗣️", bg: tint("var(--series-anthropic)", 20), edge: tint("var(--series-anthropic)", 50), href: "/meetings", go: "会議の記録を見る" },
-  pr: { left: 3, top: 53, width: 44, height: 44, icon: "📣", bg: tint("var(--series-openai)", 20), edge: tint("var(--series-openai)", 50), href: "/growth", go: "集客と投稿を見る" },
-  lounge: { left: 53, top: 53, width: 44, height: 44, icon: "☕", bg: tint("var(--text)", 8), edge: tint("var(--text)", 28), href: "/diary", go: "日報と社員の声を見る" },
+type Rect = { l: number; t: number; r: number; b: number };
+const BG = { src: "/office/office.jpg", w: 1536, h: 1024 };
+
+// 部屋（押すと、その部屋に合う機能の画面に移る）。rect は押せる範囲、label は名札の位置
+const ROOM_AREA: Record<Room, { rect: Rect; label: Pt; icon: string; href: string; go: string }> = {
+  dev: { rect: { l: 15.6, t: 7.8, r: 48.2, b: 37.1 }, label: { x: 21, y: 10 }, icon: "💻", href: "/projects", go: "案件の一覧を見る" },
+  meeting: { rect: { l: 51.8, t: 7.8, r: 84.6, b: 37.1 }, label: { x: 53.5, y: 10 }, icon: "🗣️", href: "/meetings", go: "会議の記録を見る" },
+  pr: { rect: { l: 10.4, t: 38.1, r: 46.9, b: 64.9 }, label: { x: 11.5, y: 40.5 }, icon: "📣", href: "/growth", go: "集客と投稿を見る" },
+  lounge: { rect: { l: 53.4, t: 38.1, r: 90.5, b: 64.9 }, label: { x: 55, y: 40.5 }, icon: "☕", href: "/diary", go: "日報と社員の声を見る" },
 };
-// 高さ（px）を、画面の幅に合わせて縮める倍率（PCの幅で1。スマホでは小さくなる。床の広さは％なので、高さだけを合わせる）
-const ScaleCtx = createContext(1);
-const DESIGN_WIDTH = 1180; // 高さを決めたときの画面の幅
-
-// 斜め上から見た形にする傾き（床）と、その上で立った向きに戻す傾き（ロボット・吹き出し・モニター）
-const ISO = "rotateX(60deg) rotateZ(-45deg)";
-const UPRIGHT = "rotateZ(45deg) rotateX(-60deg)";
-
-// 床の上の箱（x・y・幅・奥行きは床の％、h は高さ px）。上の面と、手前に見える2つの側面（y の大きい側と x の小さい側）を描く
-function Box({ x, y, w, d, h, top, side, side2, round, radius, href, label }: { x: number; y: number; w: number; d: number; h: number; top: string; side: string; side2?: string; round?: boolean; radius?: string; href?: string; label?: string }) {
-  const r = round ? "50%" : radius ?? "6px";
-  h = h * useContext(ScaleCtx);
-  return (
-    // リンクでない箱（机・テーブル・ラグなど）は押す操作を通して、下の部屋の床（リンク）に届くようにする
-    <div className="absolute" style={{ left: `${x}%`, top: `${y}%`, width: `${w}%`, height: `${d}%`, transformStyle: "preserve-3d", pointerEvents: href ? undefined : "none" }}>
-      {!round && <div className="absolute left-0 top-full w-full" style={{ height: h, background: side, transformOrigin: "top", transform: "rotateX(90deg)" }} />}
-      {!round && <div className="absolute right-full top-0 h-full" style={{ width: h, background: side2 ?? `color-mix(in srgb, ${side} 80%, #000)`, transformOrigin: "right", transform: "rotateY(90deg)" }} />}
-      {round && <div className="absolute inset-0" style={{ borderRadius: r, background: side, transform: `translateZ(${h / 2}px)` }} />}
-      {href ? (
-        <a href={href} aria-label={label} title={label} className="office-hot absolute inset-0 block border border-line" style={{ borderRadius: r, background: top, transform: `translateZ(${h}px)`, pointerEvents: "auto" }} />
-      ) : (
-        <div className="absolute inset-0 border border-line" style={{ borderRadius: r, background: top, transform: `translateZ(${h}px)` }} />
-      )}
-    </div>
-  );
-}
-
-// 奥の2辺に立てる壁（窓つき）。left = 左奥の辺（y = 0）、right = 右奥の辺（x = 100）
-const WALL_H = 64;
-function Wall({ side }: { side: "left" | "right" }) {
-  const wallH = WALL_H * useContext(ScaleCtx);
-  const windows = (
-    <div className="absolute inset-[14%_6%] flex gap-[4%]" style={{ flexDirection: side === "left" ? "row" : "column" }}>
-      {[0, 1, 2, 3, 4].map((i) => (
-        <div key={i} className="flex-1 rounded-[3px] border border-line" style={{ background: "linear-gradient(160deg, color-mix(in srgb, var(--series-google) 30%, var(--surface)) 0%, var(--surface) 70%)" }} />
-      ))}
-    </div>
-  );
-  const wall = "linear-gradient(0deg, color-mix(in srgb, var(--text) 10%, var(--surface)), color-mix(in srgb, var(--text) 4%, var(--surface)))";
-  return side === "left" ? (
-    <div className="pointer-events-none absolute left-0 top-0 w-full border border-line" style={{ height: wallH, background: wall, transformOrigin: "top", transform: "rotateX(90deg)" }}>{windows}</div>
-  ) : (
-    <div className="pointer-events-none absolute left-full top-0 h-full border border-line" style={{ width: wallH, background: wall.replace("0deg", "90deg"), transformOrigin: "left", transform: "rotateY(-90deg)" }}>{windows}</div>
-  );
-}
-
-// 立てて置く絵文字（観葉植物など）
-function Prop({ x, y, z = 12, icon, size = "clamp(16px, 2.6vw, 30px)" }: { x: number; y: number; z?: number; icon: string; size?: string }) {
-  return (
-    <Bill x={x} y={y} z={z}>
-      <span className="pointer-events-none block leading-none" style={{ fontSize: size }} aria-hidden>{icon}</span>
-    </Bill>
-  );
-}
-
-// 立てて置く物を、機能の画面へのリンクにする（押せることが分かるよう、光って説明が出る）
-function Hot({ href, label, children }: { href: string; label: string; children: React.ReactNode }) {
-  return (
-    <a href={href} aria-label={label} title={label} className="office-hot group relative block rounded-md">
-      {children}
-      <span className="pointer-events-none absolute bottom-full left-1/2 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded bg-[color:var(--text)] px-1.5 py-0.5 text-[10px] text-[color:var(--bg)] group-hover:block group-focus-visible:block">{label}</span>
-    </a>
-  );
-}
-
-// 床の模様（部屋はタイルの目地、廊下は板張り）
-const TILE = "repeating-linear-gradient(0deg, transparent 0 22px, color-mix(in srgb, var(--text) 5%, transparent) 22px 23px), repeating-linear-gradient(90deg, transparent 0 22px, color-mix(in srgb, var(--text) 5%, transparent) 22px 23px)";
-const BOARDS = "repeating-linear-gradient(90deg, transparent 0 14px, color-mix(in srgb, var(--text) 6%, transparent) 14px 15px)";
-
-// 案件通りの店（オフィスの手前の通りに並ぶ）。今日訪問があれば明かりがつき、撤退した店はシャッターを閉める。社員が作業中の店は、その社員の色で光る
-const SHOP_ICON: Record<OfficeShop["kind"], string> = { lp: "✉️", tool: "🛠️" };
-const SHOP_STATUS: Record<OfficeShop["status"], string> = { open: "", growing: "🌱", hold: "💤", closed: "🔒" };
-function Shop({ shop, x, workers, hot }: { shop: OfficeShop; x: number; workers: Member[]; hot?: boolean }) {
-  const lit = shop.visitsToday > 0;
-  const closed = shop.status === "closed";
-  const glow = workers[0] ? COLOR[workers[0]] : hot ? "var(--accent)" : null;
-  const front = closed
-    ? "repeating-linear-gradient(180deg, #8a9099 0 3px, #6f757e 3px 6px)"
-    : lit
-      ? "linear-gradient(180deg, transparent 0 30%, #ffe08a 30% 85%, transparent 85%), color-mix(in srgb, var(--text) 12%, var(--surface))"
-      : "linear-gradient(180deg, transparent 0 30%, color-mix(in srgb, var(--text) 30%, var(--surface)) 30% 85%, transparent 85%), color-mix(in srgb, var(--text) 12%, var(--surface))";
-  const roof = shop.status === "growing" ? tint("var(--series-openai)", 35) : shop.status === "hold" || closed ? tint("var(--text)", 20) : tint("var(--series-anthropic)", 30);
-  return (
-    <>
-      <Box x={x} y={104} w={10} d={8} h={30} top={roof} side={front} side2="color-mix(in srgb, var(--text) 22%, var(--surface))" />
-      <Bill x={x + 5} y={108} z={34}>
-        {/* 看板は小さく（種類・状態・今日の訪問）。社員が作業中の店だけ、名前と作業中の社員を出す */}
-        <a
-          href={`/projects/${shop.id}`}
-          className="office-hot block w-max rounded-full border bg-surface px-1.5 py-0.5 text-center text-[9px] leading-tight shadow-sm sm:text-[11px]"
-          style={{ borderColor: glow ?? "var(--border)", boxShadow: glow ? `0 0 10px ${glow}` : undefined, opacity: closed ? 0.6 : 1 }}
-          title={`${shop.title}（今日の訪問 ${shop.visitsToday}人）`}
-          aria-label={`${shop.title}（今日の訪問 ${shop.visitsToday}人）`}
-        >
-          {(workers.length > 0 || hot) && <span className="block max-w-[8rem] truncate font-bold">{shop.title}</span>}
-          <span className="num block whitespace-nowrap">{SHOP_ICON[shop.kind]}{SHOP_STATUS[shop.status]} {closed ? "終了" : `👤${shop.visitsToday}${shop.convToday ? ` ✓${shop.convToday}` : ""}`}</span>
-          {workers.length > 0 && <span className="block font-bold" style={{ color: glow ?? undefined }}>{workers.map((m) => MEMBERS.find((x) => x.id === m)!.name).join("・")}が作業中</span>}
-        </a>
-      </Bill>
-    </>
-  );
-}
-
-// 床の上の点（x・y は床の％、z は高さ px）に、立った向きで置く。下の真ん中がその点に来る
-function Bill({ x, y, z, move, children }: { x: number; y: number; z: number; move?: boolean; children: React.ReactNode }) {
-  z = z * useContext(ScaleCtx);
-  return (
-    <div
-      className="absolute h-0 w-0"
-      style={{ left: `${x}%`, top: `${y}%`, transformStyle: "preserve-3d", transform: `translateZ(${z}px)`, transition: move ? `left ${HOP_MS}ms linear, top ${HOP_MS}ms linear` : undefined }}
-    >
-      <div className="absolute left-0 top-0 h-0 w-0" style={{ transform: UPRIGHT, transformStyle: "preserve-3d" }}>
-        <div className="absolute bottom-0 left-0 -translate-x-1/2">{children}</div>
-      </div>
-    </div>
-  );
-}
+// 部屋の中の物（押すと、その機能の画面に移る）
+const OBJECTS: { rect: Rect; href: string; label: string; badge?: "proposals" }[] = [
+  { rect: { l: 58.3, t: 9.6, r: 72.8, b: 17.4 }, href: "/plan", label: "ホワイトボード: 毎日の計画を見る" },
+  { rect: { l: 25.7, t: 40, r: 38.4, b: 45.9 }, href: "/proposals", label: "掲示板: 提案箱を見る", badge: "proposals" },
+  { rect: { l: 37.8, t: 9.3, r: 45.2, b: 19.5 }, href: "/lab", label: "サーバー: AIの成績を見る" },
+  { rect: { l: 61.8, t: 39.8, r: 78.1, b: 48.8 }, href: "/notes", label: "本棚: 資料と教訓を見る" },
+  { rect: { l: 79.8, t: 42, r: 84, b: 51.8 }, href: "/live", label: "コーヒーマシン: ライブ（AIの処理の記録）を見る" },
+];
 const ORDER: Member[] = ["anthropic", "openai", "google"];
-// 席（％）。社員ごとに決まった席に座る
+// 席（ロボットの足もとの位置）。社員ごとに決まった席に座る
 const SEATS: Record<Room, Pt[]> = {
-  dev: [{ x: 9, y: 32 }, { x: 21, y: 32 }, { x: 33, y: 32 }],
-  pr: [{ x: 9, y: 82 }, { x: 21, y: 82 }, { x: 33, y: 82 }],
-  meeting: [{ x: 63, y: 27 }, { x: 72, y: 35 }, { x: 84, y: 33 }], // テーブルの手前側に並ぶ（奥だと吹き出しが画面の上にはみ出す）
-  lounge: [{ x: 63, y: 82 }, { x: 75, y: 82 }, { x: 87, y: 82 }],
+  dev: [{ x: 24.7, y: 31.3 }, { x: 32.9, y: 31.3 }, { x: 40.7, y: 31.3 }],
+  meeting: [{ x: 60.2, y: 31.5 }, { x: 65.8, y: 34.5 }, { x: 71.6, y: 31.5 }],
+  pr: [{ x: 20.8, y: 63 }, { x: 29.6, y: 63 }, { x: 38.7, y: 63 }],
+  lounge: [{ x: 64.5, y: 60.5 }, { x: 69.7, y: 60.5 }, { x: 74.9, y: 60.5 }], // ソファの手前
 };
-// 部屋の出入り口（廊下の上の点）。左の部屋と右の部屋の間は、真ん中を通る
-const DOOR: Record<Room, Pt> = { dev: { x: 25, y: 50 }, pr: { x: 25, y: 50 }, meeting: { x: 75, y: 50 }, lounge: { x: 75, y: 50 } };
-const CENTER: Pt = { x: 50, y: 50 };
-const LEFT: Room[] = ["dev", "pr"];
+// 作業中に光らせるモニター（開発室と広報デスクの、社員ごとの机）
+const MONITORS: Partial<Record<Room, Pt[]>> = {
+  dev: [{ x: 25.4, y: 22 }, { x: 33.2, y: 22 }, { x: 41.7, y: 22 }],
+  pr: [{ x: 20.5, y: 51.8 }, { x: 29.3, y: 51.8 }, { x: 38.4, y: 51.8 }],
+};
+// 部屋の出入口。部屋の間は、真ん中の廊下（x = 50）を通る
+const DOOR: Record<Room, Pt> = { dev: { x: 47, y: 31 }, meeting: { x: 53, y: 31 }, pr: { x: 46, y: 57 }, lounge: { x: 54, y: 57 } };
+const HALL_X = 50;
+// 案件通りの店の看板の位置（背景の店は6軒）
+const SHOP_SPOTS: Pt[] = [{ x: 15.6, y: 72 }, { x: 27.7, y: 72 }, { x: 40, y: 72 }, { x: 60.5, y: 72 }, { x: 72.6, y: 72 }, { x: 85, y: 72 }]; // ひさしの上
+
 const seatOf = (room: Room, m: Member) => SEATS[room][ORDER.indexOf(m)];
 function pathBetween(from: Room, to: Room, m: Member): Pt[] {
   if (from === to) return [seatOf(to, m)];
-  const cross = LEFT.includes(from) !== LEFT.includes(to);
-  return [DOOR[from], ...(cross ? [CENTER] : []), DOOR[to], seatOf(to, m)];
+  const a = DOOR[from];
+  const b = DOOR[to];
+  return [a, { x: HALL_X, y: a.y }, { x: HALL_X, y: b.y }, b, seatOf(to, m)];
 }
+const pct = (r: Rect) => ({ left: `${r.l}%`, top: `${r.t}%`, width: `${r.r - r.l}%`, height: `${r.b - r.t}%` });
 
 const COLOR: Record<Member, string> = { anthropic: "var(--series-anthropic)", openai: "var(--series-openai)", google: "var(--series-google)" };
 const WORK_ICON: Record<Room, string> = { dev: "⌨️", meeting: "💬", pr: "📮", lounge: "☕" };
+const SHOP_ICON: Record<OfficeShop["kind"], string> = { lp: "✉️", tool: "🛠️" };
+const SHOP_STATUS: Record<OfficeShop["status"], string> = { open: "", growing: "🌱", hold: "💤", closed: "🔒" };
 const STEP_MS = 2500;
 const HOP_MS = 550; // 廊下の1区間を歩く時間
 const LINE_SECONDS = 120; // 吹き出しを出しておく長さ
@@ -168,6 +72,35 @@ const HAPPENING_SECONDS = 90; // 出来事の演出を出しておく長さ
 const jstHM = (utc: string) => new Date(toMs(utc) + 9 * 3600_000).toISOString().slice(11, 16);
 const nowUtc = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 const nameOf = (m: Member) => MEMBERS.find((x) => x.id === m)!.name;
+
+// 押せる場所（透明。乗せる・選ぶと枠が光り、説明が出る）
+function HotArea({ rect, href, label, children }: { rect: Rect; href: string; label: string; children?: React.ReactNode }) {
+  return (
+    <a href={href} aria-label={label} className="office-hot group absolute rounded-lg hover:bg-white/10 focus-visible:bg-white/10" style={pct(rect)}>
+      <span className="pointer-events-none absolute left-1/2 top-0 z-30 hidden -translate-x-1/2 -translate-y-full whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 text-[10px] text-white group-hover:block group-focus-visible:block sm:text-xs">{label}</span>
+      {children}
+    </a>
+  );
+}
+
+// 案件通りの店の看板。今日の訪問があれば明るく、撤退した店は薄く。社員が作業中の店は、その社員の色で光る
+function ShopSign({ shop, at, workers, hot }: { shop: OfficeShop; at: Pt; workers: Member[]; hot?: boolean }) {
+  const closed = shop.status === "closed";
+  const glow = workers[0] ? COLOR[workers[0]] : hot ? "var(--accent)" : null;
+  return (
+    <a
+      href={`/projects/${shop.id}`}
+      aria-label={`${shop.title}（今日の訪問 ${shop.visitsToday}人）`}
+      title={`${shop.title}（今日の訪問 ${shop.visitsToday}人）`}
+      className="office-hot absolute z-10 w-max -translate-x-1/2 -translate-y-full rounded-full border bg-black/70 px-1.5 py-0.5 text-center text-[9px] leading-tight text-white shadow backdrop-blur-sm sm:text-[11px]"
+      style={{ left: `${at.x}%`, top: `${at.y}%`, borderColor: glow ?? "rgba(255,255,255,.25)", boxShadow: glow ? `0 0 12px ${glow}` : undefined, opacity: closed ? 0.6 : 1 }}
+    >
+      {(workers.length > 0 || hot) && <span className="block max-w-[8rem] truncate font-bold">{shop.title}</span>}
+      <span className="num block whitespace-nowrap">{SHOP_ICON[shop.kind]}{SHOP_STATUS[shop.status]} {closed ? "終了" : `👤${shop.visitsToday}${shop.convToday ? ` ✓${shop.convToday}` : ""}`}</span>
+      {workers.length > 0 && <span className="block font-bold" style={{ color: glow ?? undefined }}>{workers.map(nameOf).join("・")}が作業中</span>}
+    </a>
+  );
+}
 
 const KEYFRAMES = `
 @keyframes office-walk { from { transform: translateY(0) } to { transform: translateY(-4px) } }
@@ -318,17 +251,6 @@ export function OfficeView({ initial, owner = false, numbers = true }: { initial
 
   const sel = selected ? { m: selected, s: state[selected], c: tally[selected], line: lineOf(selected) } : null;
 
-  // 画面の幅に合わせて、高さの倍率を決める
-  const sceneRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-  useEffect(() => {
-    const el = sceneRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(([e]) => setScale(Math.max(0.35, Math.min(1, e.contentRect.width / DESIGN_WIDTH))));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   return (
     // data-demo-ok: このボタン（社員を押す・再生する）は見るだけで何も変えないので、来訪者にも押せるようにする（GuestGuard の対象外）
     <div className="space-y-3" data-demo-ok>
@@ -371,124 +293,71 @@ export function OfficeView({ initial, owner = false, numbers = true }: { initial
         </div>
       )}
 
-      <ScaleCtx.Provider value={scale}>
       <div className="gap-3 lg:grid lg:grid-cols-[1fr_15rem]">
-      <div ref={sceneRef} className="office-scene card relative aspect-[4/3] w-full overflow-hidden sm:aspect-[16/10]" style={{ background: "linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%)" }}>
-        {/* 床（斜め上から見た形に傾ける）。部屋・机・ロボットはこの上に置き、ロボットと吹き出しは立った向きに戻す */}
-        <div className="absolute left-[52%] top-[47%] aspect-square w-[64%] sm:left-[46%] sm:top-[45%] sm:w-[60%]" style={{ transform: `translate(-50%, -50%) ${ISO}`, transformStyle: "preserve-3d" }}>
-          <Box x={0} y={0} w={100} d={100} h={6} top={`${BOARDS}, color-mix(in srgb, #b98a5a 16%, var(--surface-2))`} side="color-mix(in srgb, var(--text) 18%, var(--surface-2))" />
-          <Wall side="left" />
-          <Wall side="right" />
-          {(Object.keys(ROOM_BOX) as Room[]).map((r) => {
-            const b = ROOM_BOX[r];
-            return <Box key={r} x={b.left} y={b.top} w={b.width} d={b.height} h={12} top={`${TILE}, ${b.bg}`} side={b.edge} href={b.href} label={`${ROOMS[r]}: ${b.go}`} />;
-          })}
-          {/* 家具: 開発室と広報デスクの机とモニター（席の奥＝画面の右上に置く）、会議室のテーブル、休憩室のソファ */}
-          {(["dev", "pr"] as Room[]).flatMap((r) =>
-            SEATS[r].map((p, i) => {
-              const on = ORDER.some((m) => state[m].room === r && ORDER.indexOf(m) === i && !walking[m]);
-              return (
-                <Fragment key={`${r}${i}`}>
-                  <Box x={p.x + 1} y={p.y - 10} w={10} d={6} h={22} top="var(--surface)" side="color-mix(in srgb, var(--text) 25%, var(--surface))" />
-                  <Bill x={p.x + 6} y={p.y - 8} z={22}>
-                    <span className="pointer-events-none block h-[clamp(10px,2.4vw,18px)] w-[clamp(14px,3.4vw,26px)] rounded-[3px] border-2 border-[#2a2f3a]" style={{ background: on ? COLOR[ORDER[i]] : "#3a4150", boxShadow: on ? `0 0 10px ${COLOR[ORDER[i]]}` : undefined }} />
-                  </Bill>
-                </Fragment>
-              );
-            }),
-          )}
-          <Box x={68} y={16} w={14} d={14} h={20} top="var(--surface)" side="color-mix(in srgb, var(--text) 25%, var(--surface))" round />
-          <Box x={58} y={88} w={34} d={6} h={18} top="color-mix(in srgb, var(--series-anthropic) 25%, var(--surface))" side="color-mix(in srgb, var(--series-anthropic) 45%, var(--surface))" />
-          {/* 開発室: 奥の壁ぎわのサーバーラック（光る点） */}
-          {[26, 33].map((x) => (
-            <Box key={x} x={x} y={4} w={6} d={5} h={52} top="#2a2f3a" side="repeating-linear-gradient(0deg, #2a2f3a 0 7px, #3d4554 7px 8px), #2a2f3a" side2="#1f232c" href="/lab" label="サーバー: AIの成績を見る" />
-          ))}
-          {[26, 33].map((x) => (
-            <Bill key={x} x={x + 3} y={9} z={30}>
-              <span className="pointer-events-none flex gap-[2px]" aria-hidden>{["#5aa9f0", "#58cfa6", "#f08a2a"].map((c, i) => <i key={i} className="block h-[3px] w-[3px] rounded-full" style={{ background: c, boxShadow: `0 0 4px ${c}`, animation: `rb-blink ${1.4 + i * 0.7}s infinite` }} />)}</span>
-            </Bill>
-          ))}
-          {/* 会議室: 奥のホワイトボードと、テーブルの奥の椅子 */}
-          <Bill x={86} y={6} z={12}>
-            <Hot href="/plan" label="ホワイトボード: 毎日の計画を見る">
-              <span className="block h-[clamp(26px,5vw,48px)] w-[clamp(40px,8vw,78px)] rounded-[3px] border-2 border-[#9aa0aa] bg-white p-[6%]" aria-hidden>
-                <span className="block h-[2px] w-[70%] rounded bg-[#5aa9f0]" />
-                <span className="mt-[8%] block h-[2px] w-[50%] rounded bg-[#f08a2a]" />
-                <span className="mt-[8%] block h-[2px] w-[60%] rounded bg-[#58cfa6]" />
-              </span>
-            </Hot>
-          </Bill>
-          {[{ x: 66, y: 12 }, { x: 80, y: 12 }].map((c) => (
-            <Box key={c.x} x={c.x} y={c.y} w={4} d={4} h={16} top="color-mix(in srgb, var(--series-anthropic) 35%, var(--surface))" side="color-mix(in srgb, var(--series-anthropic) 55%, var(--surface))" radius="3px" />
-          ))}
-          {/* 広報デスク: 掲示板 */}
-          <Bill x={44} y={56} z={12}>
-            <Hot href="/proposals" label={`掲示板: 提案箱を見る${n.proposals ? `（返事待ち ${n.proposals}件）` : ""}`}>
-              <span className="grid h-[clamp(22px,4.4vw,42px)] w-[clamp(30px,6vw,56px)] grid-cols-3 gap-[2px] rounded-[3px] border-2 border-[#a8865c] bg-[#d9b98e] p-[3px]" aria-hidden>
-                {["#ffd166", "#f7f7f4", "#9be7c4", "#f7f7f4", "#ffadad", "#bde0fe"].map((c, i) => <i key={i} className="block rounded-[1px]" style={{ background: c }} />)}
-              </span>
-              {n.proposals > 0 && <span className="num absolute -right-2 -top-2 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-bold text-accent-ink">{n.proposals}</span>}
-            </Hot>
-          </Bill>
-          {/* 休憩室: ラグ・本棚・コーヒーマシン */}
-          <Box x={58} y={60} w={34} d={22} h={13} top="repeating-linear-gradient(90deg, color-mix(in srgb, var(--series-openai) 22%, var(--surface)) 0 10px, color-mix(in srgb, var(--series-openai) 14%, var(--surface)) 10px 20px)" side="color-mix(in srgb, var(--series-openai) 30%, var(--surface))" radius="10px" />
-          <Box x={93} y={58} w={4} d={18} h={46} top="#8a6a48" side="#7a5c3d" side2="repeating-linear-gradient(0deg, #6b4f33 0 2px, #e76f51 2px 7px, #2a9d8f 7px 11px, #e9c46a 11px 15px, #264653 15px 19px), #6b4f33" href="/notes" label="本棚: 資料と教訓を見る" />
-          <Box x={86} y={56} w={4} d={4} h={26} top="#3d4554" side="#2a2f3a" href="/live" label="コーヒーマシン: ライブ（AIの処理の記録）を見る" />
-          <Prop x={88} y={58} z={26} icon="☕" size="clamp(10px, 1.6vw, 16px)" />
-          {/* 観葉植物（廊下の端と部屋の角） */}
-          <Prop x={3} y={50} z={6} icon="🪴" />
-          <Prop x={50} y={97} z={6} icon="🪴" />
-          <Prop x={44} y={44} z={12} icon="🌿" />
-          <Prop x={93} y={93} z={12} icon="🪴" />
-          {/* 案件通り（オフィスの手前の通り）と、案件の店 */}
-          <Box x={0} y={101} w={100} d={16} h={3} top="linear-gradient(180deg, color-mix(in srgb, var(--text) 8%, var(--surface-2)) 0 70%, color-mix(in srgb, var(--text) 16%, var(--surface-2)) 70%)" side="color-mix(in srgb, var(--text) 25%, var(--surface-2))" />
-          <Bill x={-2} y={110} z={8}>
-            <span className="whitespace-nowrap rounded-md bg-surface/90 px-1 py-0.5 text-[9px] font-bold text-ink-2 shadow-sm sm:px-1.5 sm:text-xs">🏪 案件通り</span>
-          </Bill>
-          {snap.shops.map((shop, i) => (
-            <Shop key={shop.id} shop={shop} x={snap.shops.length > 1 ? 3 + (i * 76) / (snap.shops.length - 1) : 45} workers={ORDER.filter((m) => !walking[m] && state[m].projectId === shop.id)} hot={hot === `s:${shop.id}`} />
-          ))}
-          {(Object.keys(ROOM_BOX) as Room[]).map((r) => (
-            <Bill key={r} x={ROOM_BOX[r].left + 4} y={ROOM_BOX[r].top + 6} z={14}>
-              <a href={ROOM_BOX[r].href} aria-label={`${ROOMS[r]}: ${ROOM_BOX[r].go}`} className="office-hot group block whitespace-nowrap rounded-md bg-surface/90 px-1 py-0.5 text-[9px] font-bold text-ink-2 shadow-sm sm:px-1.5 sm:text-xs">
-                {ROOM_BOX[r].icon} {ROOMS[r]}<span className="hidden font-normal group-hover:inline group-focus-visible:inline"> → {ROOM_BOX[r].go}</span>
-              </a>
-            </Bill>
-          ))}
+      <div className="office-scene card relative w-full overflow-hidden bg-[#0f1a2e] p-0" style={{ aspectRatio: `${BG.w} / ${BG.h}` }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={BG.src} alt="AIの社員のオフィス（開発室・会議室・広報デスク・休憩室と、手前の案件通り）" className="absolute inset-0 h-full w-full select-none object-cover" draggable={false} />
 
-          {MEMBERS.map((m) => {
-            const s = state[m.id];
-            const line = lineOf(m.id);
-            const p = pos[m.id];
-            // 同じ部屋で同じことをしている社員がほかにいれば、吹き出しは先の1人だけに出す（同じ文が重ならないように）
-            const shared = !line && !!s.doing && ORDER.slice(0, ORDER.indexOf(m.id)).some((o) => state[o].room === s.room && state[o].doing === s.doing && !lineOf(o));
-            // 全員休憩中は、Claude だけが「休憩中」と案内する
-            const idleSay = idle && m.id === "anthropic" && times.length > 0 ? "いまは休憩中です。今日の動きは「直近24時間を見る」で見られます" : null;
-            const mood: RobotMood = happening?.kind === "publish" ? "happy" : line?.kind === "proposal" ? "alert" : line ? "talk" : s.doing ? "work" : "rest";
-            const anim = walking[m.id] ? "office-walk .28s ease-in-out infinite alternate" : s.doing ? "office-work 1.2s ease-in-out infinite" : "office-rest 3s ease-in-out infinite";
-            return (
-              <Bill key={m.id} x={p.x} y={p.y} z={12} move>
-                <button type="button" data-demo-ok onClick={() => setSelected(selected === m.id ? null : m.id)} className="flex flex-col items-center" aria-label={`${m.name}: ${s.doing ?? "休憩中"}`}>
-                  {!walking[m.id] && !shared && (line || s.doing || idleSay) && (
-                    <span className="mb-1 line-clamp-2 w-max max-w-[7rem] rounded-lg border border-line bg-surface px-1.5 py-1 text-left text-[10px] leading-snug shadow sm:max-w-[12rem] sm:px-2 sm:text-xs">
-                      {line ? (
-                        <span style={{ color: line.kind === "proposal" ? "var(--accent)" : undefined }}>{line.kind === "proposal" ? "❗ " : ""}{line.text}</span>
-                      ) : s.doing ? (
-                        <span className="text-ink-2">{WORK_ICON[s.room]} {s.doing}{s.project ? `（${s.project}）` : ""}</span>
-                      ) : (
-                        <span className="text-ink-2">💤 {idleSay}</span>
-                      )}
-                    </span>
-                  )}
-                  <span className="block" style={{ animation: anim, transformOrigin: "50% 100%", filter: selected === m.id || hot === `m:${m.id}` ? `drop-shadow(0 0 8px ${COLOR[m.id]})` : undefined, ["--rb-h" as string]: "clamp(40px, 8vw, 80px)" }}>
-                    <Robot member={m.id} mood={mood} />
+        {/* 部屋と物（押すと機能の画面へ）。部屋の名札も押せる */}
+        {(Object.keys(ROOM_AREA) as Room[]).map((r) => (
+          <HotArea key={r} rect={ROOM_AREA[r].rect} href={ROOM_AREA[r].href} label={`${ROOMS[r]}: ${ROOM_AREA[r].go}`} />
+        ))}
+        {OBJECTS.map((o) => (
+          <HotArea key={o.href} rect={o.rect} href={o.href} label={o.badge === "proposals" && n.proposals ? `${o.label}（返事待ち ${n.proposals}件）` : o.label}>
+            {o.badge === "proposals" && n.proposals > 0 && <span className="num pointer-events-none absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-bold text-accent-ink">{n.proposals}</span>}
+          </HotArea>
+        ))}
+        {(Object.keys(ROOM_AREA) as Room[]).map((r) => (
+          <Link key={r} href={ROOM_AREA[r].href} aria-label={`${ROOMS[r]}: ${ROOM_AREA[r].go}`} className="office-hot group absolute z-10 whitespace-nowrap rounded-md bg-black/60 px-1 py-0.5 text-[9px] font-bold text-white backdrop-blur-sm sm:px-1.5 sm:text-xs" style={{ left: `${ROOM_AREA[r].label.x}%`, top: `${ROOM_AREA[r].label.y}%` }}>
+            {ROOM_AREA[r].icon} {ROOMS[r]}<span className="hidden font-normal group-hover:inline group-focus-visible:inline"> → {ROOM_AREA[r].go}</span>
+          </Link>
+        ))}
+
+        {/* 作業中の社員の机のモニターが、その社員の色で光る */}
+        {(Object.keys(MONITORS) as Room[]).flatMap((r) => MONITORS[r]!.map((p, i) => {
+          const m = ORDER[i];
+          const on = state[m].room === r && !walking[m];
+          return on ? <span key={`${r}${i}`} className="pointer-events-none absolute h-[3%] w-[4%] -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ left: `${p.x}%`, top: `${p.y}%`, background: COLOR[m], opacity: 0.55, filter: "blur(6px)", animation: "rb-blink 2.4s infinite" }} aria-hidden /> : null;
+        }))}
+
+        {/* 案件通りの店の看板 */}
+        {snap.shops.slice(0, SHOP_SPOTS.length).map((shop, i) => (
+          <ShopSign key={shop.id} shop={shop} at={SHOP_SPOTS[i]} workers={ORDER.filter((m) => !walking[m] && state[m].projectId === shop.id)} hot={hot === `s:${shop.id}`} />
+        ))}
+
+        {/* ロボット社員（足もとが席の位置に来る） */}
+        {MEMBERS.map((m) => {
+          const s = state[m.id];
+          const line = lineOf(m.id);
+          const p = pos[m.id];
+          const shared = !line && !!s.doing && ORDER.slice(0, ORDER.indexOf(m.id)).some((o) => state[o].room === s.room && state[o].doing === s.doing && !lineOf(o));
+          const idleSay = idle && m.id === "anthropic" && times.length > 0 ? "いまは休憩中です。今日の動きは「直近24時間の動きを見る」で見られます" : null;
+          const mood: RobotMood = happening?.kind === "publish" ? "happy" : line?.kind === "proposal" ? "alert" : line ? "talk" : s.doing ? "work" : "rest";
+          const anim = walking[m.id] ? "office-walk .28s ease-in-out infinite alternate" : s.doing ? "office-work 1.2s ease-in-out infinite" : "office-rest 3s ease-in-out infinite";
+          const edge = p.x < 22 ? "left-0" : p.x > 78 ? "right-0" : "left-1/2 -translate-x-1/2";
+          return (
+            <div key={m.id} className="absolute z-20" style={{ left: `${p.x}%`, top: `${p.y}%`, transition: `left ${HOP_MS}ms linear, top ${HOP_MS}ms linear` }}>
+              <button type="button" data-demo-ok onClick={() => setSelected(selected === m.id ? null : m.id)} className="absolute bottom-0 left-0 flex -translate-x-1/2 flex-col items-center" aria-label={`${m.name}: ${s.doing ?? "休憩中"}`}>
+                {!walking[m.id] && !shared && (line || s.doing || idleSay) && (
+                  <span className={`absolute bottom-full mb-1 line-clamp-2 w-max max-w-[7rem] rounded-lg border border-white/20 bg-black/75 px-1.5 py-1 text-left text-[10px] leading-snug text-white shadow-lg backdrop-blur-sm sm:max-w-[13rem] sm:px-2 sm:text-xs ${edge}`}>
+                    {line ? (
+                      <span style={{ color: line.kind === "proposal" ? "#ffd166" : undefined }}>{line.kind === "proposal" ? "❗ " : ""}{line.text}</span>
+                    ) : s.doing ? (
+                      <span>{WORK_ICON[s.room]} {s.doing}{s.project ? `（${s.project}）` : ""}</span>
+                    ) : (
+                      <span>💤 {idleSay}</span>
+                    )}
                   </span>
-                  <span className="mt-0.5 rounded bg-surface/80 px-1 text-[10px] font-bold sm:text-xs" style={{ color: COLOR[m.id] }}>{m.name}</span>
-                </button>
-              </Bill>
-            );
-          })}
-        </div>
+                )}
+                <span className="block" style={{ animation: anim, transformOrigin: "50% 100%", filter: selected === m.id || hot === `m:${m.id}` ? `drop-shadow(0 0 8px ${COLOR[m.id]})` : "drop-shadow(0 4px 6px rgba(0,0,0,.45))", ["--rb-h" as string]: "clamp(28px, 4.8vw, 66px)" }}>
+                  <Robot member={m.id} mood={mood} />
+                </span>
+                {/* スマホ幅では名前の札が重なるので出さない（押すと名前と状態が出る） */}
+                <span className="mt-0.5 hidden rounded bg-black/60 px-1 text-xs font-bold sm:inline-block" style={{ color: COLOR[m.id] }}>{m.name}</span>
+              </button>
+            </div>
+          );
+        })}
 
         {happening && (
           <div key={happening.at} className="pointer-events-none absolute left-1/2 top-[18%] z-20 -translate-x-1/2 -translate-y-1/2 text-center" style={{ animation: "office-pop 4s ease-out forwards" }}>
@@ -502,7 +371,6 @@ export function OfficeView({ initial, owner = false, numbers = true }: { initial
             </div>
           </div>
         )}
-
       </div>
       {/* aside はサイドメニューに使っているので、ここは section にする（来訪者の画面のテストがメニューを aside で探すため） */}
       <section className="card mt-3 space-y-3 p-3 lg:mt-0" aria-label="社員の状態">
@@ -530,7 +398,6 @@ export function OfficeView({ initial, owner = false, numbers = true }: { initial
         <p className="text-[10px] text-muted">👤 は今日の訪問、✓ は今日の登録・利用。店を押すと、その案件の画面に移ります。</p>
       </section>
       </div>
-      </ScaleCtx.Provider>
 
       {replaying && (
         <div className="flex items-center gap-2">

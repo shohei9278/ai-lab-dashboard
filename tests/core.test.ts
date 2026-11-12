@@ -296,7 +296,7 @@ test("オフィス: 案件通りの店は、公開した案件のうち集客中
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 4, 1, 0, 'real')").run(open, jstToday());
   const shops = officeShops();
   const ids = shops.map((x) => x.id);
-  for (const id of [open, growing, hold, killed]) assert.ok(ids.includes(id) || shops.length === 8);
+  for (const id of [open, growing, hold, killed]) assert.ok(ids.includes(id) || shops.length === 6);
   assert.ok(!ids.includes(oldKilled) && !ids.includes(notPublished));
   const o = shops.find((x) => x.id === open);
   if (o) assert.deepEqual([o.status, o.visitsToday, o.convToday], ["open", 4, 1]);

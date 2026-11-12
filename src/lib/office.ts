@@ -91,7 +91,7 @@ export function officeNumbers() {
   };
 }
 
-// 案件通りの店: 公開中・保留・育てる段階の案件と、7日以内に撤退した案件（新しい順に8件まで）。今日の訪問と登録・利用も付ける
+// 案件通りの店: 公開中・保留・育てる段階の案件と、7日以内に撤退した案件（新しい順に6件まで（背景の店は6軒））。今日の訪問と登録・利用も付ける
 export function officeShops(): OfficeShop[] {
   const today = jstToday();
   const rows = db().prepare(
@@ -101,7 +101,7 @@ export function officeShops(): OfficeShop[] {
      FROM projects p
      WHERE p.demo = 0 AND p.published_at IS NOT NULL
        AND (p.stage IN ('live', 'hold', 'deciding') OR (p.stage = 'killed' AND p.updated_at >= datetime('now', '-7 days')))
-     ORDER BY (p.stage = 'killed'), p.id DESC LIMIT 8`,
+     ORDER BY (p.stage = 'killed'), p.id DESC LIMIT 6`,
   ).all(today, today) as { id: number; title: string; kind: string; stage: string; growth_phase: number; v: number; c: number }[];
   return rows.map((r) => ({
     id: r.id, title: r.title, kind: r.kind === "tool" ? "tool" : "lp",
