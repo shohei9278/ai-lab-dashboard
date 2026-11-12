@@ -2,7 +2,7 @@ import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
 import { claudeModelId } from "./ai";
 import { getProject } from "./loop";
 import { judgePages, pageSystem, shootPage, staticPageIssues, writePageHtml, type PageCheck, type PageJudge } from "./freePage";
-import { pickRefs } from "./designRefs";
+import { pickRefs, type DesignRef } from "./designRefs";
 import { imgOriginsOf } from "../../lp-site/src/lp/pageHtml";
 import type { Lp } from "../../lp-site/src/lp/content";
 
@@ -73,10 +73,13 @@ export function startPromptTest(projectId: number, factor: unknown): number {
   if (!modelId) throw new Error("Claude のAPIキーがないため、比較できません");
   const cost = estimateJpy(factor);
   if (monthSpendUsd() * s.usdJpy + cost > s.monthlyBudgetJpy) throw new Error(`今月の予算の残りが、比較1回分（約${cost}円）に足りません`);
-  if (factor === "refs" && !pickRefs(p.target, 3).length) throw new Error("参考のLPがまだ登録されていないため、見本の比較はできません");
+  // 見本は、確かめた3件をそのまま使う（3件そろわなければ、条件がそろわないので始めない）
+  const refs = factor === "refs" ? pickRefs(p.target, 3) : [];
+  if (factor === "refs" && refs.length < 3) throw new Error(`参考のLPが${refs.length}件しかないため、見本の比較はできません（3件必要）`);
   const id = Number(db().prepare("INSERT INTO prompt_tests (project_id, factor, model_id) VALUES (?, ?, ?)").run(p.id, factor, modelId).lastInsertRowid);
-  void runPromptTest(id, p, factor, modelId).catch((e) => {
-    db().prepare("UPDATE prompt_tests SET status = 'error', error = ?, finished_at = datetime('now'), cost_usd = ? WHERE id = ?")
+  void runPromptTest(id, p, factor, modelId, refs).catch((e) => {
+    // 途中で止まったと見なして閉じた比較は、上書きしない
+    db().prepare("UPDATE prompt_tests SET status = 'error', error = ?, finished_at = datetime('now'), cost_usd = ? WHERE id = ? AND status = 'running'")
       .run((e instanceof Error ? e.message : String(e)).slice(0, 300), spentOn(id), id);
   });
   return id;
@@ -89,13 +92,13 @@ function spentOn(id: number): number {
 }
 
 // 片方の渡し方で、LPを作って画面を撮る
-async function makeSide(p: ProjectRow, lp: Lp, factor: Factor, changed: boolean, modelId: string, name: string): Promise<{ check: PageCheck; side: Side }> {
+async function makeSide(p: ProjectRow, lp: Lp, factor: Factor, changed: boolean, modelId: string, name: string, refs: DesignRef[]): Promise<{ check: PageCheck; side: Side }> {
   const opts = {
     modelId,
     purpose: LP_PURPOSE,
     system: pageSystem({ role: !(changed && factor === "role"), shortRules: changed && factor === "rules", reader: changed && factor === "reader" }),
     effort: changed && factor === "effort" ? ("medium" as const) : undefined,
-    refs: changed && factor === "refs" ? pickRefs(p.target, 3) : undefined,
+    refs: changed && factor === "refs" ? refs : undefined,
   };
   let html = await writePageHtml(p, lp, opts);
   if (changed && factor === "review") html = await writePageHtml(p, lp, { ...opts, prevHtml: html, instruction: REVIEW_NOTE });
@@ -106,15 +109,19 @@ async function makeSide(p: ProjectRow, lp: Lp, factor: Factor, changed: boolean,
   return { check, side: { shots: check.shots, pc: check.pc, issues, chars: html.length } };
 }
 
-async function runPromptTest(id: number, p: ProjectRow, factor: Factor, modelId: string) {
+async function runPromptTest(id: number, p: ProjectRow, factor: Factor, modelId: string, refs: DesignRef[]) {
   const lp = JSON.parse(p.lp!) as Lp;
-  const [a, b] = await Promise.all([
-    makeSide(p, lp, factor, false, modelId, `cmp${id}-a`),
-    makeSide(p, lp, factor, true, modelId, `cmp${id}-b`),
+  // 片方が失敗しても、もう片方が終わるまで待つ（費用をすべて数えてから記録するため）
+  const [ra, rb] = await Promise.allSettled([
+    makeSide(p, lp, factor, false, modelId, `cmp${id}-a`, refs),
+    makeSide(p, lp, factor, true, modelId, `cmp${id}-b`, refs),
   ]);
+  if (ra.status === "rejected") throw ra.reason;
+  if (rb.status === "rejected") throw rb.reason;
+  const [a, b] = [ra.value, rb.value];
   const f = FACTORS[factor];
   const j = await judgePages(p, a.check, b.check, { a: `今の渡し方（${f.a}）`, b: `変えた渡し方（${f.b}）` }, JUDGE_PURPOSE);
-  db().prepare("UPDATE prompt_tests SET status = 'done', finished_at = datetime('now'), a_json = ?, b_json = ?, score_a = ?, score_b = ?, judges = ?, cost_usd = ? WHERE id = ?")
+  db().prepare("UPDATE prompt_tests SET status = 'done', finished_at = datetime('now'), a_json = ?, b_json = ?, score_a = ?, score_b = ?, judges = ?, cost_usd = ? WHERE id = ? AND status = 'running'")
     .run(JSON.stringify(a.side), JSON.stringify(b.side), j.scoreA, j.scoreB, JSON.stringify(j.judges), spentOn(id), id);
 }
 
