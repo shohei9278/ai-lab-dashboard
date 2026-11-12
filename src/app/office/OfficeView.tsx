@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { OfficeSnapshot } from "@/lib/office";
 import { HAPPENING, MEMBERS, ROOMS, stateAt, tallyAt, toMs, type Member, type OfficeLine, type Room } from "@/lib/officeShared";
 import { ROBOT_CSS, Robot, type RobotMood } from "./Robot";
@@ -19,25 +19,63 @@ const ROOM_BOX: Record<Room, { left: number; top: number; width: number; height:
   pr: { left: 3, top: 53, width: 44, height: 44, icon: "📣", bg: tint("var(--series-openai)", 14), edge: tint("var(--series-openai)", 40) },
   lounge: { left: 53, top: 53, width: 44, height: 44, icon: "☕", bg: tint("var(--text)", 6), edge: tint("var(--text)", 22) },
 };
+// 高さ（px）を、画面の幅に合わせて縮める倍率（PCの幅で1。スマホでは小さくなる。床の広さは％なので、高さだけを合わせる）
+const ScaleCtx = createContext(1);
+const DESIGN_WIDTH = 1180; // 高さを決めたときの画面の幅
+
 // 斜め上から見た形にする傾き（床）と、その上で立った向きに戻す傾き（ロボット・吹き出し・モニター）
 const ISO = "rotateX(60deg) rotateZ(-45deg)";
 const UPRIGHT = "rotateZ(45deg) rotateX(-60deg)";
 
 // 床の上の箱（x・y・幅・奥行きは床の％、h は高さ px）。上の面と、手前に見える2つの側面（y の大きい側と x の小さい側）を描く
-function Box({ x, y, w, d, h, top, side, round }: { x: number; y: number; w: number; d: number; h: number; top: string; side: string; round?: boolean }) {
-  const r = round ? "50%" : "6px";
+function Box({ x, y, w, d, h, top, side, side2, round, radius }: { x: number; y: number; w: number; d: number; h: number; top: string; side: string; side2?: string; round?: boolean; radius?: string }) {
+  const r = round ? "50%" : radius ?? "6px";
+  h = h * useContext(ScaleCtx);
   return (
     <div className="absolute" style={{ left: `${x}%`, top: `${y}%`, width: `${w}%`, height: `${d}%`, transformStyle: "preserve-3d" }}>
       {!round && <div className="absolute left-0 top-full w-full" style={{ height: h, background: side, transformOrigin: "top", transform: "rotateX(90deg)" }} />}
-      {!round && <div className="absolute right-full top-0 h-full" style={{ width: h, background: `color-mix(in srgb, ${side} 80%, #000)`, transformOrigin: "right", transform: "rotateY(90deg)" }} />}
+      {!round && <div className="absolute right-full top-0 h-full" style={{ width: h, background: side2 ?? `color-mix(in srgb, ${side} 80%, #000)`, transformOrigin: "right", transform: "rotateY(90deg)" }} />}
       {round && <div className="absolute inset-0" style={{ borderRadius: r, background: side, transform: `translateZ(${h / 2}px)` }} />}
       <div className="absolute inset-0 border border-line" style={{ borderRadius: r, background: top, transform: `translateZ(${h}px)` }} />
     </div>
   );
 }
 
+// 奥の2辺に立てる壁（窓つき）。left = 左奥の辺（y = 0）、right = 右奥の辺（x = 100）
+const WALL_H = 64;
+function Wall({ side }: { side: "left" | "right" }) {
+  const wallH = WALL_H * useContext(ScaleCtx);
+  const windows = (
+    <div className="absolute inset-[14%_6%] flex gap-[4%]" style={{ flexDirection: side === "left" ? "row" : "column" }}>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <div key={i} className="flex-1 rounded-[3px] border border-line" style={{ background: "linear-gradient(160deg, color-mix(in srgb, var(--series-google) 30%, var(--surface)) 0%, var(--surface) 70%)" }} />
+      ))}
+    </div>
+  );
+  const wall = "linear-gradient(0deg, color-mix(in srgb, var(--text) 10%, var(--surface)), color-mix(in srgb, var(--text) 4%, var(--surface)))";
+  return side === "left" ? (
+    <div className="absolute left-0 top-0 w-full border border-line" style={{ height: wallH, background: wall, transformOrigin: "top", transform: "rotateX(90deg)" }}>{windows}</div>
+  ) : (
+    <div className="absolute left-full top-0 h-full border border-line" style={{ width: wallH, background: wall.replace("0deg", "90deg"), transformOrigin: "left", transform: "rotateY(-90deg)" }}>{windows}</div>
+  );
+}
+
+// 立てて置く絵文字（観葉植物など）
+function Prop({ x, y, z = 12, icon, size = "clamp(16px, 2.6vw, 30px)" }: { x: number; y: number; z?: number; icon: string; size?: string }) {
+  return (
+    <Bill x={x} y={y} z={z}>
+      <span className="block leading-none" style={{ fontSize: size }} aria-hidden>{icon}</span>
+    </Bill>
+  );
+}
+
+// 床の模様（部屋はタイルの目地、廊下は板張り）
+const TILE = "repeating-linear-gradient(0deg, transparent 0 22px, color-mix(in srgb, var(--text) 5%, transparent) 22px 23px), repeating-linear-gradient(90deg, transparent 0 22px, color-mix(in srgb, var(--text) 5%, transparent) 22px 23px)";
+const BOARDS = "repeating-linear-gradient(90deg, transparent 0 14px, color-mix(in srgb, var(--text) 6%, transparent) 14px 15px)";
+
 // 床の上の点（x・y は床の％、z は高さ px）に、立った向きで置く。下の真ん中がその点に来る
 function Bill({ x, y, z, move, children }: { x: number; y: number; z: number; move?: boolean; children: React.ReactNode }) {
+  z = z * useContext(ScaleCtx);
   return (
     <div
       className="absolute h-0 w-0"
@@ -191,6 +229,17 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
 
   const sel = selected ? { m: selected, s: state[selected], c: tally[selected], line: lineOf(selected) } : null;
 
+  // 画面の幅に合わせて、高さの倍率を決める
+  const sceneRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  useEffect(() => {
+    const el = sceneRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setScale(Math.max(0.35, Math.min(1, e.contentRect.width / DESIGN_WIDTH))));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <div className="space-y-3">
       <style>{KEYFRAMES + ROBOT_CSS}</style>
@@ -212,13 +261,16 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
       </div>
       <p className="-mt-1 text-[10px] text-muted">数字は、再生中もいまのものです（稼働・待機だけ、再生している時刻のもの）。公開・集客中は{n.live}件。</p>
 
-      <div className="card relative aspect-[10/8] w-full overflow-hidden sm:aspect-[16/9]" style={{ background: "linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%)" }}>
+      <ScaleCtx.Provider value={scale}>
+      <div ref={sceneRef} className="card relative aspect-[10/8] w-full overflow-hidden sm:aspect-[16/9]" style={{ background: "linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%)" }}>
         {/* 床（斜め上から見た形に傾ける）。部屋・机・ロボットはこの上に置き、ロボットと吹き出しは立った向きに戻す */}
         <div className="absolute left-1/2 top-[57%] aspect-square w-[68%] sm:w-[64%]" style={{ transform: `translate(-50%, -50%) ${ISO}`, transformStyle: "preserve-3d" }}>
-          <Box x={0} y={0} w={100} d={100} h={6} top="var(--surface-2)" side="color-mix(in srgb, var(--text) 18%, var(--surface-2))" />
+          <Box x={0} y={0} w={100} d={100} h={6} top={`${BOARDS}, color-mix(in srgb, #b98a5a 16%, var(--surface-2))`} side="color-mix(in srgb, var(--text) 18%, var(--surface-2))" />
+          <Wall side="left" />
+          <Wall side="right" />
           {(Object.keys(ROOM_BOX) as Room[]).map((r) => {
             const b = ROOM_BOX[r];
-            return <Box key={r} x={b.left} y={b.top} w={b.width} d={b.height} h={12} top={b.bg} side={b.edge} />;
+            return <Box key={r} x={b.left} y={b.top} w={b.width} d={b.height} h={12} top={`${TILE}, ${b.bg}`} side={b.edge} />;
           })}
           {/* 家具: 開発室と広報デスクの机とモニター（席の奥＝画面の右上に置く）、会議室のテーブル、休憩室のソファ */}
           {(["dev", "pr"] as Room[]).flatMap((r) =>
@@ -236,6 +288,42 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
           )}
           <Box x={68} y={16} w={14} d={14} h={20} top="var(--surface)" side="color-mix(in srgb, var(--text) 25%, var(--surface))" round />
           <Box x={58} y={88} w={34} d={6} h={18} top="color-mix(in srgb, var(--series-anthropic) 25%, var(--surface))" side="color-mix(in srgb, var(--series-anthropic) 45%, var(--surface))" />
+          {/* 開発室: 奥の壁ぎわのサーバーラック（光る点） */}
+          {[26, 33].map((x) => (
+            <Box key={x} x={x} y={4} w={6} d={5} h={52} top="#2a2f3a" side="repeating-linear-gradient(0deg, #2a2f3a 0 7px, #3d4554 7px 8px), #2a2f3a" side2="#1f232c" />
+          ))}
+          {[26, 33].map((x) => (
+            <Bill key={x} x={x + 3} y={9} z={30}>
+              <span className="flex gap-[2px]" aria-hidden>{["#5aa9f0", "#58cfa6", "#f08a2a"].map((c, i) => <i key={i} className="block h-[3px] w-[3px] rounded-full" style={{ background: c, boxShadow: `0 0 4px ${c}`, animation: `rb-blink ${1.4 + i * 0.7}s infinite` }} />)}</span>
+            </Bill>
+          ))}
+          {/* 会議室: 奥のホワイトボードと、テーブルの奥の椅子 */}
+          <Bill x={86} y={6} z={12}>
+            <span className="block h-[clamp(26px,5vw,48px)] w-[clamp(40px,8vw,78px)] rounded-[3px] border-2 border-[#9aa0aa] bg-white p-[6%]" aria-hidden>
+              <span className="block h-[2px] w-[70%] rounded bg-[#5aa9f0]" />
+              <span className="mt-[8%] block h-[2px] w-[50%] rounded bg-[#f08a2a]" />
+              <span className="mt-[8%] block h-[2px] w-[60%] rounded bg-[#58cfa6]" />
+            </span>
+          </Bill>
+          {[{ x: 66, y: 12 }, { x: 80, y: 12 }].map((c) => (
+            <Box key={c.x} x={c.x} y={c.y} w={4} d={4} h={16} top="color-mix(in srgb, var(--series-anthropic) 35%, var(--surface))" side="color-mix(in srgb, var(--series-anthropic) 55%, var(--surface))" radius="3px" />
+          ))}
+          {/* 広報デスク: 掲示板 */}
+          <Bill x={44} y={56} z={12}>
+            <span className="grid h-[clamp(22px,4.4vw,42px)] w-[clamp(30px,6vw,56px)] grid-cols-3 gap-[2px] rounded-[3px] border-2 border-[#a8865c] bg-[#d9b98e] p-[3px]" aria-hidden>
+              {["#ffd166", "#f7f7f4", "#9be7c4", "#f7f7f4", "#ffadad", "#bde0fe"].map((c, i) => <i key={i} className="block rounded-[1px]" style={{ background: c }} />)}
+            </span>
+          </Bill>
+          {/* 休憩室: ラグ・本棚・コーヒーマシン */}
+          <Box x={58} y={60} w={34} d={22} h={13} top="repeating-linear-gradient(90deg, color-mix(in srgb, var(--series-openai) 22%, var(--surface)) 0 10px, color-mix(in srgb, var(--series-openai) 14%, var(--surface)) 10px 20px)" side="color-mix(in srgb, var(--series-openai) 30%, var(--surface))" radius="10px" />
+          <Box x={93} y={58} w={4} d={18} h={46} top="#8a6a48" side="#7a5c3d" side2="repeating-linear-gradient(0deg, #6b4f33 0 2px, #e76f51 2px 7px, #2a9d8f 7px 11px, #e9c46a 11px 15px, #264653 15px 19px), #6b4f33" />
+          <Box x={86} y={56} w={4} d={4} h={26} top="#3d4554" side="#2a2f3a" />
+          <Prop x={88} y={58} z={26} icon="☕" size="clamp(10px, 1.6vw, 16px)" />
+          {/* 観葉植物（廊下の端と部屋の角） */}
+          <Prop x={3} y={50} z={6} icon="🪴" />
+          <Prop x={50} y={97} z={6} icon="🪴" />
+          <Prop x={44} y={44} z={12} icon="🌿" />
+          <Prop x={93} y={93} z={12} icon="🪴" />
           {(Object.keys(ROOM_BOX) as Room[]).map((r) => (
             <Bill key={r} x={ROOM_BOX[r].left + 4} y={ROOM_BOX[r].top + 6} z={14}>
               <span className="whitespace-nowrap rounded-md bg-surface/90 px-1 py-0.5 text-[9px] font-bold text-ink-2 shadow-sm sm:px-1.5 sm:text-xs">{ROOM_BOX[r].icon} {ROOMS[r]}</span>
@@ -285,6 +373,7 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
           </div>
         )}
       </div>
+      </ScaleCtx.Provider>
 
       {times.length > 0 && (
         <div className="flex items-center gap-2">
