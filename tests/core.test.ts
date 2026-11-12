@@ -10,7 +10,7 @@ import { listMeetings } from "../src/lib/meetings";
 import { pageSystem } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
 import { officeSnapshot, roomOf } from "../src/lib/office";
-import { stateAt } from "../src/lib/officeShared";
+import { stateAt, tallyAt } from "../src/lib/officeShared";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
 import { skitHtml } from "../src/lib/recordSkit";
@@ -244,7 +244,7 @@ test("オフィス: 呼んだ目的で部屋を決め、3分たつと休憩室�
   assert.equal(roomOf("判断（裏比較）"), "meeting");
   assert.equal(roomOf("アイデアの採点"), "meeting");
   assert.equal(roomOf("SNS投稿の下書き"), "pr");
-  const ev = [{ at: "2026-11-12 10:00:00", member: "anthropic" as const, room: "dev" as const, doing: "LPのデザイン", project: "x" }];
+  const ev = [{ at: "2026-11-12 10:00:00", member: "anthropic" as const, room: "dev" as const, doing: "LPのデザイン", project: "x", yen: 10 }];
   assert.equal(stateAt(ev, "2026-11-12 10:02:00").anthropic.room, "dev");
   assert.equal(stateAt(ev, "2026-11-12 10:04:00").anthropic.room, "lounge");
   assert.equal(stateAt(ev, "2026-11-12 09:59:00").anthropic.room, "lounge");
@@ -255,4 +255,17 @@ test("オフィス: 呼んだ目的で部屋を決め、3分たつと休憩室�
   const snap = officeSnapshot();
   assert.equal(snap.events.some((e) => e.doing.startsWith("Xへの自動投稿")), false);
   assert.equal(snap.events.some((e) => e.member === "openai" && e.room === "meeting"), true);
+  // 公開・撤退・続けるは出来事として取り、ほかの記録は取らない
+  const pid = addProject();
+  db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (?, 'system', 'publish', 'x'), (?, 'system', 'collect', 'y')").run(pid, pid);
+  const kinds = officeSnapshot().happenings.map((h) => h.kind);
+  assert.ok(kinds.includes("publish") && !kinds.includes("collect" as never));
+  // 費用と回数は、その時刻までの、その日（日本時間）の分だけ数える
+  const evs = [
+    { at: "2026-11-11 14:59:00", member: "anthropic" as const, room: "dev" as const, doing: "a", project: null, yen: 100 }, // 日本時間 11/11 23:59
+    { at: "2026-11-11 15:01:00", member: "anthropic" as const, room: "dev" as const, doing: "b", project: null, yen: 10 }, // 日本時間 11/12 0:01
+    { at: "2026-11-11 16:00:00", member: "anthropic" as const, room: "dev" as const, doing: "c", project: null, yen: 5 },
+    { at: "2026-11-11 15:30:00", member: "google" as const, room: "pr" as const, doing: "d", project: null, yen: 3 },
+  ];
+  assert.deepEqual(tallyAt(evs, "2026-11-11 15:30:00"), { anthropic: { calls: 1, yen: 10 }, openai: { calls: 0, yen: 0 }, google: { calls: 1, yen: 3 } });
 });

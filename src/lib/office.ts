@@ -1,6 +1,6 @@
-import { db } from "./db";
+import { db, getSettings } from "./db";
 import { modelInfo } from "./models";
-import type { Member, OfficeEvent, OfficeLine, Room } from "./officeShared";
+import type { Member, OfficeEvent, OfficeHappening, OfficeLine, Room } from "./officeShared";
 
 // オフィスの画面（試作）: AIの社員3人が、いま何をしているかを部屋の位置で見せる
 // - AIを呼んだ記録（ai_calls の目的）から、どの部屋で働いているかを決める
@@ -30,13 +30,19 @@ const memberOf = (modelId: string | null): Member | null => {
 
 export function officeSnapshot() {
   const calls = db().prepare(
-    `SELECT c.at, c.purpose, c.model_id, p.title FROM ai_calls c LEFT JOIN projects p ON p.id = c.project_id
+    `SELECT c.at, c.purpose, c.model_id, c.cost_usd, p.title FROM ai_calls c LEFT JOIN projects p ON p.id = c.project_id
      WHERE c.at >= datetime('now', '-1 day') AND c.error IS NULL ORDER BY c.id`,
-  ).all() as { at: string; purpose: string; model_id: string; title: string | null }[];
+  ).all() as { at: string; purpose: string; model_id: string; cost_usd: number; title: string | null }[];
+  const usdJpy = getSettings().usdJpy;
   const events: OfficeEvent[] = calls.flatMap((c) => {
     const member = memberOf(c.model_id);
-    return member ? [{ at: c.at, member, room: roomOf(c.purpose), doing: doingOf(c.purpose), project: c.title }] : [];
+    return member ? [{ at: c.at, member, room: roomOf(c.purpose), doing: doingOf(c.purpose), project: c.title, yen: Math.round(c.cost_usd * usdJpy * 10) / 10 }] : [];
   });
+  // 公開・撤退・続ける（会社全体の出来事）
+  const happenings = (db().prepare(
+    `SELECT e.at, e.kind, p.title FROM events e LEFT JOIN projects p ON p.id = e.project_id
+     WHERE e.kind IN ('publish', 'close', 'grow') AND e.at >= datetime('now', '-1 day') AND COALESCE(p.demo, 0) = 0 ORDER BY e.id`,
+  ).all() as { at: string; kind: OfficeHappening["kind"]; title: string | null }[]);
   const voices = db().prepare("SELECT at, model_id, text FROM voices WHERE at >= datetime('now', '-1 day') ORDER BY id").all() as { at: string; model_id: string | null; text: string }[];
   const proposals = db().prepare("SELECT created_at AS at, proposer, title FROM plan_requests WHERE proposer IS NOT NULL AND created_at >= datetime('now', '-1 day') ORDER BY id").all() as { at: string; proposer: string; title: string }[];
   const lines: OfficeLine[] = [
@@ -49,7 +55,7 @@ export function officeSnapshot() {
       return member ? [{ at: r.at, member, kind: "proposal" as const, text: `提案があります: ${r.title}`.slice(0, 80) }] : [];
     }),
   ].sort((a, b) => a.at.localeCompare(b.at));
-  return { now: new Date().toISOString().replace("T", " ").slice(0, 19), events, lines };
+  return { now: new Date().toISOString().replace("T", " ").slice(0, 19), events, lines, happenings };
 }
 
 export type OfficeSnapshot = ReturnType<typeof officeSnapshot>;
