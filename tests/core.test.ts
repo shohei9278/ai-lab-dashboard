@@ -198,4 +198,9 @@ test("判断の会議: 全自動で進んだ判断や、意見がそろった判
   const split = ms.find((m) => m.key === `judge-${r2}`)!;
   assert.match(split.conclusion, /^担当の判断「撤退」を人の判断に回した・意見が割れた（撤退・集客を見直す）・争点: 届いていないのか$/);
   assert.equal(split.items.at(-1)!.title, "議論: 最初は「集客を見直す」→ 最後は「集客を見直す」");
+  // 判断に失敗したAIのエラーの文は、会議室に出さない
+  db().prepare("INSERT INTO shadow_judgments (round_id, project_id, approval_id, lp_version, model_id, is_primary, decision, error) VALUES (?, ?, NULL, 1, 'gemini-3.1-pro-preview', 0, NULL, 'secret https://internal.example/key')").run(r1, id);
+  const failed = listMeetings("judge").find((m) => m.key === `judge-${r1}`)!.items.at(-1)!;
+  assert.equal(failed.title, "判断を取得できませんでした");
+  assert.equal(failed.text, undefined);
 });

@@ -1,8 +1,8 @@
-import { db } from './db'
-import { BOTTLENECK_LABEL, planProgress, type PlanRow } from './plan'
-import type { DebateResult } from './loop'
-import { modelInfo } from './models'
-import type { AdhocContent } from './adhoc'
+import { db } from "./db";
+import { BOTTLENECK_LABEL, planProgress, type PlanRow } from "./plan";
+import type { DebateResult } from "./loop";
+import { modelInfo } from "./models";
+import type { AdhocContent } from "./adhoc";
 
 // 会議室: AIの社員どうしのやり取りを「議事録」として並べる。新しくAIを呼ばず、今あるデータから作る
 // - アイデア会議（3社が案を出し、作者を伏せて採点し合う）
@@ -11,278 +11,244 @@ import type { AdhocContent } from './adhoc'
 // - 朝会（毎朝の計画。日替わりの担当）
 // - 週の定例会議（3社が振り返り、改善案を出し合って採点する）
 
-export type MeetingKind = 'adhoc' | 'idea' | 'copy' | 'design' | 'judge' | 'plan' | 'weekly'
+export type MeetingKind = "adhoc" | "idea" | "copy" | "design" | "judge" | "plan" | "weekly";
 export const MEETING_LABEL: Record<MeetingKind, string> = {
-  adhoc: '臨時会議（あなたの議題）',
-  idea: 'アイデア会議',
-  copy: '文章と構成の会議',
-  design: 'デザインの会議',
-  judge: '判断の会議',
-  plan: '朝会（今日の計画）',
-  weekly: '週の定例会議',
-}
+  adhoc: "臨時会議（あなたの議題）", idea: "アイデア会議", copy: "文章と構成の会議", design: "デザインの会議", judge: "判断の会議", plan: "朝会（今日の計画）", weekly: "週の定例会議",
+};
 
-export type MeetingItem = { who: string | null; title: string; text?: string; score?: number | null; won?: boolean; scores?: { who: string; score: number; reason?: string }[] }
+export type MeetingItem = { who: string | null; title: string; text?: string; score?: number | null; won?: boolean; scores?: { who: string; score: number; reason?: string }[] };
 export type FollowUp = {
-  split: NonNullable<AdhocContent['split']>
-  dueAt: string // 振り返る日（日本時間の YYYY-MM-DD）
-  due: boolean
-  before: { days: number; visits: number; conversions: number } // 会議の前の7日
-  after: { days: number; visits: number; conversions: number } // 会議のあと（振り返る日まで）
-  actions: { title: string; status: string }[] // 会議で決めたことを、実際にやったか
-  revisit?: AdhocContent['revisit']
-}
+  split: NonNullable<AdhocContent["split"]>;
+  dueAt: string; // 振り返る日（日本時間の YYYY-MM-DD）
+  due: boolean;
+  before: { days: number; visits: number; conversions: number }; // 会議の前の7日
+  after: { days: number; visits: number; conversions: number }; // 会議のあと（振り返る日まで）
+  actions: { title: string; status: string }[]; // 会議で決めたことを、実際にやったか
+  revisit?: AdhocContent["revisit"];
+};
 export type Meeting = {
-  key: string
-  kind: MeetingKind
-  at: string
-  title: string
-  attendees: string[]
-  conclusion: string
-  items: MeetingItem[]
-  projectId?: number | null
-  hiddenAuthors?: boolean
-  followUp?: FollowUp
-}
+  key: string; kind: MeetingKind; at: string; title: string; attendees: string[]; conclusion: string;
+  items: MeetingItem[]; projectId?: number | null; hiddenAuthors?: boolean; followUp?: FollowUp;
+};
 
-const jday = (d: Date) => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(d)
+const jday = (d: Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(d);
 
 // 会議の前後の数字（全案件の訪問・登録/利用の合計。デモ・仮の数字は除く）
 function windowTotals(from: string, to: string): { days: number; visits: number; conversions: number } {
-  const r = db().prepare("SELECT COALESCE(SUM(m.visits), 0) AS v, COALESCE(SUM(m.signups), 0) AS c FROM metrics m JOIN projects p ON p.id = m.project_id WHERE p.demo = 0 AND m.source != 'simulated' AND m.day >= ? AND m.day < ?").get(from, to) as { v: number; c: number }
-  const days = Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000))
-  return { days, visits: r.v, conversions: r.c }
+  const r = db().prepare(
+    "SELECT COALESCE(SUM(m.visits), 0) AS v, COALESCE(SUM(m.signups), 0) AS c FROM metrics m JOIN projects p ON p.id = m.project_id WHERE p.demo = 0 AND m.source != 'simulated' AND m.day >= ? AND m.day < ?",
+  ).get(from, to) as { v: number; c: number };
+  const days = Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000));
+  return { days, visits: r.v, conversions: r.c };
 }
 
 export function followUpOf(id: number, at: string, c: AdhocContent): FollowUp | undefined {
-  if (!c.split) return undefined
-  const start = jday(new Date(Date.parse(at.replace(' ', 'T') + 'Z')))
-  const dueAt = jday(new Date(Date.parse(`${start}T00:00:00+09:00`) + c.split.checkAfterDays * 86_400_000))
-  const today = jday(new Date())
-  const end = today < dueAt ? today : dueAt
-  const acts = db().prepare('SELECT title, status FROM plan_requests WHERE meeting_id = ?').all(id) as { title: string; status: string }[]
+  if (!c.split) return undefined;
+  const start = jday(new Date(Date.parse(at.replace(" ", "T") + "Z")));
+  const dueAt = jday(new Date(Date.parse(`${start}T00:00:00+09:00`) + c.split.checkAfterDays * 86_400_000));
+  const today = jday(new Date());
+  const end = today < dueAt ? today : dueAt;
+  const acts = db().prepare("SELECT title, status FROM plan_requests WHERE meeting_id = ?").all(id) as { title: string; status: string }[];
   return {
-    split: c.split,
-    dueAt,
-    due: today >= dueAt,
+    split: c.split, dueAt, due: today >= dueAt,
     before: windowTotals(jday(new Date(Date.parse(`${start}T00:00:00+09:00`) - 7 * 86_400_000)), start),
     after: windowTotals(start, end),
-    actions: acts.map((a) => ({ title: a.title, status: a.status === 'done' ? 'やった' : a.status === 'declined' ? '見送り' : '返事待ち' })),
+    actions: acts.map((a) => ({ title: a.title, status: a.status === "done" ? "やった" : a.status === "declined" ? "見送り" : "返事待ち" })),
     revisit: c.revisit,
-  }
+  };
 }
 
-const uniq = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))]
-const since = (days: number) => `-${days} days`
+const uniq = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))];
+const since = (days: number) => `-${days} days`;
 
 function ideaMeetings(days: number): Meeting[] {
-  const rows = db().prepare("SELECT * FROM idea_candidates WHERE practice = 0 AND at >= datetime('now', ?) ORDER BY id").all(since(days)) as { id: number; at: string; batch_id: string; label: string; author_model: string; title: string; payload: string; avg_score: number | null; selected: number }[]
-  const scores = db().prepare("SELECT candidate_id, scorer_model, score, reason FROM idea_scores WHERE candidate_id IN (SELECT id FROM idea_candidates WHERE at >= datetime('now', ?))").all(since(days)) as { candidate_id: number; scorer_model: string; score: number; reason: string | null }[]
-  const by = new Map<string, typeof rows>()
-  for (const r of rows) by.set(r.batch_id, [...(by.get(r.batch_id) ?? []), r])
+  const rows = db().prepare("SELECT * FROM idea_candidates WHERE practice = 0 AND at >= datetime('now', ?) ORDER BY id").all(since(days)) as
+    { id: number; at: string; batch_id: string; label: string; author_model: string; title: string; payload: string; avg_score: number | null; selected: number }[];
+  const scores = db().prepare("SELECT candidate_id, scorer_model, score, reason FROM idea_scores WHERE candidate_id IN (SELECT id FROM idea_candidates WHERE at >= datetime('now', ?))").all(since(days)) as
+    { candidate_id: number; scorer_model: string; score: number; reason: string | null }[];
+  const by = new Map<string, typeof rows>();
+  for (const r of rows) by.set(r.batch_id, [...(by.get(r.batch_id) ?? []), r]);
   return [...by].map(([batch, list]) => {
-    const items = list
-      .map((c) => {
-        const idea = JSON.parse(c.payload) as { target?: string; problem?: string }
-        return {
-          who: c.author_model,
-          title: `案${c.label}「${c.title}」`,
-          text: [idea.target && `対象: ${idea.target}`, idea.problem && `困りごと: ${idea.problem}`].filter(Boolean).join(' / '),
-          score: c.avg_score,
-          won: !!c.selected,
-          scores: scores.filter((s) => s.candidate_id === c.id).map((s) => ({ who: s.scorer_model, score: s.score, reason: s.reason ?? undefined })),
-        }
-      })
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    const won = list.filter((c) => c.selected).map((c) => `「${c.title}」`)
+    const items = list.map((c) => {
+      const idea = JSON.parse(c.payload) as { target?: string; problem?: string };
+      return {
+        who: c.author_model, title: `案${c.label}「${c.title}」`, text: [idea.target && `対象: ${idea.target}`, idea.problem && `困りごと: ${idea.problem}`].filter(Boolean).join(" / "),
+        score: c.avg_score, won: !!c.selected,
+        scores: scores.filter((s) => s.candidate_id === c.id).map((s) => ({ who: s.scorer_model, score: s.score, reason: s.reason ?? undefined })),
+      };
+    }).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    const won = list.filter((c) => c.selected).map((c) => `「${c.title}」`);
     return {
-      key: `idea-${batch}`,
-      kind: 'idea' as const,
-      at: list[0].at,
-      title: `アイデア会議（${list.length}案）`,
+      key: `idea-${batch}`, kind: "idea" as const, at: list[0].at, title: `アイデア会議（${list.length}案）`,
       attendees: uniq([...list.map((c) => c.author_model), ...items.flatMap((i) => i.scores.map((s) => s.who))]),
-      conclusion: won.length ? `${won.join('・')}を案件にすることに決定` : 'どの案も見送り',
-      items,
-    }
-  })
+      conclusion: won.length ? `${won.join("・")}を案件にすることに決定` : "どの案も見送り", items,
+    };
+  });
 }
 
 function copyMeetings(days: number): Meeting[] {
-  const rows = db().prepare(`SELECT c.*, p.title AS ptitle FROM lp_candidates c JOIN projects p ON p.id = c.project_id WHERE p.demo = 0 AND c.at >= datetime('now', ?) ORDER BY c.id`).all(since(days)) as { id: number; at: string; project_id: number; version: number; label: string; author_model: string; lp: string; avg_score: number | null; selected: number; ptitle: string }[]
-  const scores = db().prepare("SELECT candidate_id, scorer_model, score, reason FROM lp_candidate_scores WHERE candidate_id IN (SELECT id FROM lp_candidates WHERE at >= datetime('now', ?))").all(since(days)) as { candidate_id: number; scorer_model: string; score: number; reason: string | null }[]
-  const by = new Map<string, typeof rows>()
-  for (const r of rows) by.set(`${r.project_id}-${r.version}`, [...(by.get(`${r.project_id}-${r.version}`) ?? []), r])
+  const rows = db().prepare(
+    `SELECT c.*, p.title AS ptitle FROM lp_candidates c JOIN projects p ON p.id = c.project_id WHERE p.demo = 0 AND c.at >= datetime('now', ?) ORDER BY c.id`,
+  ).all(since(days)) as { id: number; at: string; project_id: number; version: number; label: string; author_model: string; lp: string; avg_score: number | null; selected: number; ptitle: string }[];
+  const scores = db().prepare("SELECT candidate_id, scorer_model, score, reason FROM lp_candidate_scores WHERE candidate_id IN (SELECT id FROM lp_candidates WHERE at >= datetime('now', ?))").all(since(days)) as
+    { candidate_id: number; scorer_model: string; score: number; reason: string | null }[];
+  const by = new Map<string, typeof rows>();
+  for (const r of rows) by.set(`${r.project_id}-${r.version}`, [...(by.get(`${r.project_id}-${r.version}`) ?? []), r]);
   return [...by].map(([k, list]) => {
     // 公開の判断がまだのあいだは、案件の画面と同じく作者を伏せる
-    const hidden = !!db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'publish' AND status = 'pending'").get(list[0].project_id)
-    const items = list
-      .map((c) => ({
-        who: hidden ? null : c.author_model,
-        title: `案${c.label}「${(JSON.parse(c.lp) as { headline?: string }).headline ?? ''}」`,
-        score: c.avg_score,
-        won: !!c.selected,
-        scores: scores.filter((s) => s.candidate_id === c.id).map((s) => ({ who: s.scorer_model, score: s.score, reason: s.reason ?? undefined })),
-      }))
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    const win = list.find((c) => c.selected)
+    const hidden = !!db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'publish' AND status = 'pending'").get(list[0].project_id);
+    const items = list.map((c) => ({
+      who: hidden ? null : c.author_model, title: `案${c.label}「${(JSON.parse(c.lp) as { headline?: string }).headline ?? ""}」`,
+      score: c.avg_score, won: !!c.selected,
+      scores: scores.filter((s) => s.candidate_id === c.id).map((s) => ({ who: s.scorer_model, score: s.score, reason: s.reason ?? undefined })),
+    })).sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    const win = list.find((c) => c.selected);
     return {
-      key: `copy-${k}`,
-      kind: 'copy' as const,
-      at: list[0].at,
-      title: `${list[0].ptitle}（第${list[0].version}版）`,
-      projectId: list[0].project_id,
-      hiddenAuthors: hidden,
+      key: `copy-${k}`, kind: "copy" as const, at: list[0].at, title: `${list[0].ptitle}（第${list[0].version}版）`, projectId: list[0].project_id, hiddenAuthors: hidden,
       attendees: uniq([...(hidden ? [] : list.map((c) => c.author_model)), ...items.flatMap((i) => i.scores.map((s) => s.who))]),
-      conclusion: win ? `案${win.label}に決定（平均 ${win.avg_score?.toFixed(1) ?? '—'}点）` : '決まらず',
-      items,
-    }
-  })
+      conclusion: win ? `案${win.label}に決定（平均 ${win.avg_score?.toFixed(1) ?? "—"}点）` : "決まらず", items,
+    };
+  });
 }
 
 function designMeetings(days: number): Meeting[] {
-  const rows = db().prepare(`SELECT c.*, p.title AS ptitle FROM page_candidates c JOIN projects p ON p.id = c.project_id WHERE p.demo = 0 AND c.model IS NOT NULL AND c.at >= datetime('now', ?) ORDER BY c.id`).all(since(days)) as { id: number; at: string; project_id: number; version: number; model: string; score: number | null; reason: string | null; selected: number; judges: string | null; ptitle: string }[]
-  const by = new Map<string, typeof rows>()
-  for (const r of rows) by.set(`${r.project_id}-${r.version}`, [...(by.get(`${r.project_id}-${r.version}`) ?? []), r])
-  return [...by]
-    .filter(([, l]) => l.length === 2)
-    .map(([k, list]) => {
-      const judges = list[0].judges ? (JSON.parse(list[0].judges) as { modelId: string; a: number; b: number; reason: string }[]) : []
-      const items = list.map((c, i) => ({
-        who: c.model,
-        title: 'ページのデザイン案',
-        score: c.score,
-        won: !!c.selected,
-        scores: judges.map((j) => ({ who: j.modelId, score: i === 0 ? j.a : j.b, reason: j.reason })),
-      }))
-      const win = list.find((c) => c.selected)
-      return {
-        key: `design-${k}`,
-        kind: 'design' as const,
-        at: list[0].at,
-        title: `${list[0].ptitle}（第${list[0].version}版）`,
-        projectId: list[0].project_id,
-        attendees: uniq([...list.map((c) => c.model), ...judges.map((j) => j.modelId)]),
-        conclusion: win ? `${modelInfo(win.model).label}の案に決定（3社の採点の平均 ${win.score?.toFixed(1) ?? '—'}点）` : '決まらず',
-        items,
-      }
-    })
+  const rows = db().prepare(
+    `SELECT c.*, p.title AS ptitle FROM page_candidates c JOIN projects p ON p.id = c.project_id WHERE p.demo = 0 AND c.model IS NOT NULL AND c.at >= datetime('now', ?) ORDER BY c.id`,
+  ).all(since(days)) as { id: number; at: string; project_id: number; version: number; model: string; score: number | null; reason: string | null; selected: number; judges: string | null; ptitle: string }[];
+  const by = new Map<string, typeof rows>();
+  for (const r of rows) by.set(`${r.project_id}-${r.version}`, [...(by.get(`${r.project_id}-${r.version}`) ?? []), r]);
+  return [...by].filter(([, l]) => l.length === 2).map(([k, list]) => {
+    const judges = list[0].judges ? (JSON.parse(list[0].judges) as { modelId: string; a: number; b: number; reason: string }[]) : [];
+    const items = list.map((c, i) => ({
+      who: c.model, title: "ページのデザイン案", score: c.score, won: !!c.selected,
+      scores: judges.map((j) => ({ who: j.modelId, score: i === 0 ? j.a : j.b, reason: j.reason })),
+    }));
+    const win = list.find((c) => c.selected);
+    return {
+      key: `design-${k}`, kind: "design" as const, at: list[0].at, title: `${list[0].ptitle}（第${list[0].version}版）`, projectId: list[0].project_id,
+      attendees: uniq([...list.map((c) => c.model), ...judges.map((j) => j.modelId)]),
+      conclusion: win ? `${modelInfo(win.model).label}の案に決定（3社の採点の平均 ${win.score?.toFixed(1) ?? "—"}点）` : "決まらず", items,
+    };
+  });
 }
 
 // 判断の会議: 撤退・継続の判断ごとに、担当のAIとほかの社員がそれぞれ出した判断と理由（shadow_judgments の1回）
-// 意見が割れて、人の判断が必要だったときは、そのあとの議論（debates）も付ける
+// 意見が割れて人の判断が必要だったときは、そのあとの議論（debates）も付ける
 // （以前は議論があった回だけを出していたため、全自動で進んだ判断や、意見がそろった判断が会議室に出なかった）
-type JudgeRow = { id: number; round_id: number; at: string; project_id: number; approval_id: number | null; lp_version: number; model_id: string; is_primary: number; decision: string | null; confidence: number | null; reason: string | null; next_action: string | null; error: string | null; ptitle: string }
-const DEC: Record<string, string> = { continue: '続ける', improve: '改善', kill: '撤退', collect: 'データを集める', rethink: '集客を見直す' }
+type JudgeRow = {
+  round_id: number; at: string; project_id: number; approval_id: number | null; lp_version: number; model_id: string; is_primary: number;
+  decision: string | null; confidence: number | null; reason: string | null; next_action: string | null; ptitle: string;
+};
+const DEC: Record<string, string> = { continue: "続ける", improve: "改善", kill: "撤退", collect: "データを集める", rethink: "集客を見直す" };
+const decLabel = (d: string | null) => (d ? DEC[d] ?? d : "判断できず");
+
+// 表示する回の議論だけを読む。壊れた1件があっても、会議室全体は止めない
+function debatesFor(roundIds: number[]): Map<number, DebateResult> {
+  const out = new Map<number, DebateResult>();
+  if (!roundIds.length) return out;
+  const rows = db().prepare(`SELECT round_id, payload FROM debates WHERE payload IS NOT NULL AND round_id IN (${roundIds.map(() => "?").join(",")})`).all(...roundIds) as { round_id: number; payload: string }[];
+  for (const r of rows) {
+    try {
+      out.set(r.round_id, JSON.parse(r.payload) as DebateResult);
+    } catch {
+      // 読めない議論は付けない
+    }
+  }
+  return out;
+}
 
 function judgeMeetings(days: number): Meeting[] {
-  const rows = db()
-    .prepare(
-      `SELECT s.*, p.title AS ptitle FROM shadow_judgments s JOIN projects p ON p.id = s.project_id
+  // エラーの文（error 列）は、来訪者にも見える会議室には出さないので読まない
+  const rows = db().prepare(
+    `SELECT s.round_id, s.at, s.project_id, s.approval_id, s.lp_version, s.model_id, s.is_primary, s.decision, s.confidence, s.reason, s.next_action, p.title AS ptitle
+     FROM shadow_judgments s JOIN projects p ON p.id = s.project_id
      WHERE s.round_id > 0 AND p.demo = 0 AND s.round_id IN (SELECT id FROM shadow_judgments WHERE is_primary = 1 AND at >= datetime('now', ?))
      ORDER BY s.round_id, s.is_primary DESC, s.id`,
-    )
-    .all(since(days)) as JudgeRow[]
-  const debates = new Map(
-    (db().prepare("SELECT round_id, status, payload FROM debates WHERE payload IS NOT NULL").all() as { round_id: number; status: string; payload: string }[])
-      .map((d) => [d.round_id, JSON.parse(d.payload) as DebateResult]),
-  )
-  const rounds = new Map<number, JudgeRow[]>()
-  for (const r of rows) rounds.set(r.round_id, [...(rounds.get(r.round_id) ?? []), r])
+  ).all(since(days)) as JudgeRow[];
+  const rounds = new Map<number, JudgeRow[]>();
+  for (const r of rows) rounds.set(r.round_id, [...(rounds.get(r.round_id) ?? []), r]);
+  const debates = debatesFor([...rounds.keys()]);
+  const pct = (c: number | null) => (c === null ? "" : `（自信 ${Math.round(c * 100)}%）`);
   return [...rounds.entries()].map(([roundId, list]) => {
-    const primary = list.find((r) => r.is_primary) ?? list[0]
-    const decided = list.filter((r) => r.decision)
-    const kinds = uniq(decided.map((r) => r.decision))
-    const debate = debates.get(roundId)
-    const pct = (c: number | null) => (c === null ? '' : `（自信 ${Math.round(c * 100)}%）`)
+    const primary = list.find((r) => r.is_primary) ?? list[0];
+    const decided = list.filter((r) => r.decision);
+    const kinds = uniq(decided.map((r) => r.decision));
+    const debate = debates.get(roundId);
     const items: MeetingItem[] = list.map((r) => ({
       who: r.model_id,
-      title: r.decision ? `${r.is_primary ? '担当の判断' : '意見'}「${DEC[r.decision] ?? r.decision}」${pct(r.confidence)}` : '判断できなかった',
-      text: r.decision ? `${r.reason ?? ''}${r.next_action ? `\n次にやること: ${r.next_action}` : ''}` : r.error ?? undefined,
-    }))
-    if (debate) items.push(...debate.positions.map((x) => ({ who: x.modelId, title: `議論: 最初は「${DEC[x.first] ?? x.first}」→ 最後は「${DEC[x.final] ?? x.final}」`, text: x.argument })))
-    const primaryLabel = DEC[primary.decision ?? ''] ?? '判断できず'
-    const agreement = decided.length <= 1 ? '' : kinds.length === 1 ? `${decided.length}社とも同じ判断` : `意見が割れた（${kinds.map((k) => DEC[k] ?? k).join('・')}）`
-    const route = primary.approval_id ? '人の判断に回した' : 'そのまま進めた'
+      title: r.decision ? `${r.is_primary ? "担当の判断" : "意見"}「${decLabel(r.decision)}」${pct(r.confidence)}` : "判断を取得できませんでした",
+      text: r.decision ? `${r.reason ?? ""}${r.next_action ? `\n次にやること: ${r.next_action}` : ""}` : undefined,
+    }));
+    if (debate) items.push(...debate.positions.map((x) => ({ who: x.modelId, title: `議論: 最初は「${decLabel(x.first)}」→ 最後は「${decLabel(x.final)}」`, text: x.argument })));
+    const agreement = decided.length <= 1 ? "" : kinds.length === 1 ? `${decided.length}社とも同じ判断` : `意見が割れた（${kinds.map(decLabel).join("・")}）`;
+    const route = primary.approval_id ? "人の判断に回した" : "そのまま進めた";
     return {
-      key: `judge-${roundId}`,
-      kind: 'judge' as const,
-      at: primary.at,
-      title: `${primary.ptitle}（第${primary.lp_version}版）`,
-      projectId: primary.project_id,
+      key: `judge-${roundId}`, kind: "judge" as const, at: primary.at, title: `${primary.ptitle}（第${primary.lp_version}版）`, projectId: primary.project_id,
       attendees: uniq(list.map((r) => r.model_id)),
-      conclusion: `担当の判断「${primaryLabel}」を${route}${agreement ? `・${agreement}` : ''}${debate ? `・争点: ${debate.issue}` : ''}`,
+      conclusion: `担当の判断「${decLabel(primary.decision)}」を${route}${agreement ? `・${agreement}` : ""}${debate ? `・争点: ${debate.issue}` : ""}`,
       items,
-    }
-  })
+    };
+  });
 }
 
 function planMeetings(days: number): Meeting[] {
-  const rows = db().prepare("SELECT * FROM daily_plans WHERE created_at >= datetime('now', ?) ORDER BY id").all(since(days)) as PlanRow[]
+  const rows = db().prepare("SELECT * FROM daily_plans WHERE created_at >= datetime('now', ?) ORDER BY id").all(since(days)) as PlanRow[];
   return rows.map((p) => {
-    const g = planProgress(p)
+    const g = planProgress(p);
     return {
-      key: `plan-${p.id}`,
-      kind: 'plan' as const,
-      at: p.created_at,
-      title: `${p.day.slice(5).replace('-', '/')}の朝会`,
+      key: `plan-${p.id}`, kind: "plan" as const, at: p.created_at, title: `${p.day.slice(5).replace("-", "/")}の朝会`,
       attendees: [p.model_id],
-      conclusion: `ネック「${BOTTLENECK_LABEL[g.content.bottleneck].split('（')[0]}」: ${g.content.focus}（予定 ${g.done}/${g.total}件 済み）`,
-      items: [{ who: p.model_id, title: '振り返り', text: g.content.review }],
-    }
-  })
+      conclusion: `ネック「${BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}」: ${g.content.focus}（予定 ${g.done}/${g.total}件 済み）`,
+      items: [{ who: p.model_id, title: "振り返り", text: g.content.review }],
+    };
+  });
 }
 
 export type WeeklyContent = {
-  members: { modelId: string; review: string; proposals: { title: string; how: string; why: string; target: 'human' | 'system' }[] }[]
-  ranked: { title: string; proposer: string; score: number; scores: { who: string; score: number }[] }[]
-  summary: string
-  chair: string
-}
-export type WeeklyRow = { id: number; at: string; period_start: string; period_end: string; chair_model: string; content: string; report_id: number | null }
+  members: { modelId: string; review: string; proposals: { title: string; how: string; why: string; target: "human" | "system" }[] }[];
+  ranked: { title: string; proposer: string; score: number; scores: { who: string; score: number }[] }[];
+  summary: string; chair: string;
+};
+export type WeeklyRow = { id: number; at: string; period_start: string; period_end: string; chair_model: string; content: string; report_id: number | null };
 
 function weeklyMeetings(days: number): Meeting[] {
-  const rows = db().prepare("SELECT * FROM meetings WHERE kind = 'weekly' AND at >= datetime('now', ?) ORDER BY id").all(since(days)) as WeeklyRow[]
+  const rows = db().prepare("SELECT * FROM meetings WHERE kind = 'weekly' AND at >= datetime('now', ?) ORDER BY id").all(since(days)) as WeeklyRow[];
   return rows.map((r) => {
-    const c = JSON.parse(r.content) as WeeklyContent
+    const c = JSON.parse(r.content) as WeeklyContent;
     return {
-      key: `meeting-${r.id}`,
-      kind: 'weekly' as const,
-      at: r.at,
-      title: `${r.period_start.slice(5).replace('-', '/')}〜${r.period_end.slice(5).replace('-', '/')} の定例会議`,
+      key: `meeting-${r.id}`, kind: "weekly" as const, at: r.at, title: `${r.period_start.slice(5).replace("-", "/")}〜${r.period_end.slice(5).replace("-", "/")} の定例会議`,
       attendees: uniq(c.members.map((m) => m.modelId)),
       conclusion: c.summary,
-      items: [...c.members.map((m) => ({ who: m.modelId, title: '振り返り', text: m.review })), ...c.ranked.map((p, i) => ({ who: p.proposer, title: `提案「${p.title}」`, score: p.score, won: i < 3, scores: p.scores }))],
-    }
-  })
+      items: [
+        ...c.members.map((m) => ({ who: m.modelId, title: "振り返り", text: m.review })),
+        ...c.ranked.map((p, i) => ({ who: p.proposer, title: `提案「${p.title}」`, score: p.score, won: i < 3, scores: p.scores })),
+      ],
+    };
+  });
 }
 
 function adhocMeetings(days: number): Meeting[] {
-  const rows = db().prepare("SELECT * FROM meetings WHERE kind = 'adhoc' AND at >= datetime('now', ?) ORDER BY id").all(since(days)) as WeeklyRow[]
+  const rows = db().prepare("SELECT * FROM meetings WHERE kind = 'adhoc' AND at >= datetime('now', ?) ORDER BY id").all(since(days)) as WeeklyRow[];
   return rows.map((r) => {
-    const c = JSON.parse(r.content) as AdhocContent
+    const c = JSON.parse(r.content) as AdhocContent;
     return {
-      key: `meeting-${r.id}`,
-      kind: 'adhoc' as const,
-      at: r.at,
-      title: `議題「${c.topic}」`,
-      followUp: followUpOf(r.id, r.at, c),
+      key: `meeting-${r.id}`, kind: "adhoc" as const, at: r.at, title: `議題「${c.topic}」`, followUp: followUpOf(r.id, r.at, c),
       attendees: uniq(c.rounds.map((x) => x.modelId)),
       conclusion: `${c.conclusion}（議長 ${modelInfo(c.chair).label}）`,
-      items: [...c.rounds.map((x) => ({ who: x.modelId, title: x.changed ? '意見（議論のあと考えを変えた）' : '意見', text: `最初: ${x.opinion}${x.final ? `\n最後: ${x.final}` : ''}` })), ...c.actions.map((a) => ({ who: c.chair, title: `やること「${a.title}」（${a.target === 'human' ? '運営者' : '仕組み'}）→ 提案箱へ`, text: a.how }))],
-    }
-  })
+      items: [
+        ...c.rounds.map((x) => ({ who: x.modelId, title: x.changed ? "意見（議論のあと考えを変えた）" : "意見", text: `最初: ${x.opinion}${x.final ? `\n最後: ${x.final}` : ""}` })),
+        ...c.actions.map((a) => ({ who: c.chair, title: `やること「${a.title}」（${a.target === "human" ? "運営者" : "仕組み"}）→ 提案箱へ`, text: a.how })),
+      ],
+    };
+  });
 }
 
 export function listMeetings(kind?: MeetingKind, days = 30): Meeting[] {
   const all: Record<MeetingKind, () => Meeting[]> = {
     adhoc: () => adhocMeetings(days),
-    idea: () => ideaMeetings(days),
-    copy: () => copyMeetings(days),
-    design: () => designMeetings(days),
-    judge: () => judgeMeetings(days),
-    plan: () => planMeetings(days),
-    weekly: () => weeklyMeetings(days),
-  }
-  const kinds = kind ? [kind] : (Object.keys(all) as MeetingKind[])
-  return kinds.flatMap((k) => all[k]()).sort((a, b) => b.at.localeCompare(a.at))
+    idea: () => ideaMeetings(days), copy: () => copyMeetings(days), design: () => designMeetings(days),
+    judge: () => judgeMeetings(days), plan: () => planMeetings(days), weekly: () => weeklyMeetings(days),
+  };
+  const kinds = kind ? [kind] : (Object.keys(all) as MeetingKind[]);
+  return kinds.flatMap((k) => all[k]()).sort((a, b) => b.at.localeCompare(a.at));
 }
