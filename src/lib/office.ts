@@ -2,7 +2,7 @@ import { db, getSettings, monthSpendUsd } from "./db";
 import { jstToday } from "./loop";
 import { waitingItems } from "./overview";
 import { modelInfo } from "./models";
-import type { Member, OfficeEvent, OfficeHappening, OfficeLine, Room } from "./officeShared";
+import type { Member, OfficeEvent, OfficeHappening, OfficeLine, OfficeShop, Room } from "./officeShared";
 
 // オフィスの画面（試作）: AIの社員3人が、いま何をしているかを部屋の位置で見せる
 // - AIを呼んだ記録（ai_calls の目的）から、どの部屋で働いているかを決める
@@ -32,13 +32,13 @@ const memberOf = (modelId: string | null): Member | null => {
 
 export function officeSnapshot() {
   const calls = db().prepare(
-    `SELECT c.at, c.purpose, c.model_id, c.cost_usd, p.title FROM ai_calls c LEFT JOIN projects p ON p.id = c.project_id
+    `SELECT c.at, c.purpose, c.model_id, c.cost_usd, c.project_id, p.title FROM ai_calls c LEFT JOIN projects p ON p.id = c.project_id
      WHERE c.at >= datetime('now', '-1 day') AND c.error IS NULL ORDER BY c.id`,
-  ).all() as { at: string; purpose: string; model_id: string; cost_usd: number; title: string | null }[];
+  ).all() as { at: string; purpose: string; model_id: string; cost_usd: number; project_id: number | null; title: string | null }[];
   const usdJpy = getSettings().usdJpy;
   const events: OfficeEvent[] = calls.flatMap((c) => {
     const member = memberOf(c.model_id);
-    return member ? [{ at: c.at, member, room: roomOf(c.purpose), doing: doingOf(c.purpose), project: c.title, yen: Math.round(c.cost_usd * usdJpy * 10) / 10 }] : [];
+    return member ? [{ at: c.at, member, room: roomOf(c.purpose), doing: doingOf(c.purpose), project: c.title, projectId: c.project_id, yen: Math.round(c.cost_usd * usdJpy * 10) / 10 }] : [];
   });
   // 公開・撤退・続ける（会社全体の出来事）
   const happenings = (db().prepare(
@@ -57,7 +57,7 @@ export function officeSnapshot() {
       return member ? [{ at: r.at, member, kind: "proposal" as const, text: `提案があります: ${r.title}`.slice(0, 80) }] : [];
     }),
   ].sort((a, b) => a.at.localeCompare(b.at));
-  return { now: new Date().toISOString().replace("T", " ").slice(0, 19), events, lines, happenings, numbers: officeNumbers() };
+  return { now: new Date().toISOString().replace("T", " ").slice(0, 19), events, lines, happenings, numbers: officeNumbers(), shops: officeShops() };
 }
 
 export type OfficeSnapshot = ReturnType<typeof officeSnapshot>;
@@ -82,4 +82,23 @@ export function officeNumbers() {
     waiting: waiting.length,
     stuck: waiting.filter((w) => w.kind === "stuck").length,
   };
+}
+
+// 案件通りの店: 公開中・保留・育てる段階の案件と、7日以内に撤退した案件（新しい順に8件まで）。今日の訪問と登録・利用も付ける
+export function officeShops(): OfficeShop[] {
+  const today = jstToday();
+  const rows = db().prepare(
+    `SELECT p.id, p.title, p.kind, p.stage, p.growth_phase,
+       COALESCE((SELECT SUM(m.visits) FROM metrics m WHERE m.project_id = p.id AND m.day = ?), 0) AS v,
+       COALESCE((SELECT SUM(m.signups) FROM metrics m WHERE m.project_id = p.id AND m.day = ?), 0) AS c
+     FROM projects p
+     WHERE p.demo = 0 AND p.published_at IS NOT NULL
+       AND (p.stage IN ('live', 'hold', 'deciding') OR (p.stage = 'killed' AND p.updated_at >= datetime('now', '-7 days')))
+     ORDER BY (p.stage = 'killed'), p.id DESC LIMIT 8`,
+  ).all(today, today) as { id: number; title: string; kind: string; stage: string; growth_phase: number; v: number; c: number }[];
+  return rows.map((r) => ({
+    id: r.id, title: r.title, kind: r.kind === "tool" ? "tool" : "lp",
+    status: r.stage === "killed" ? "closed" : r.stage === "hold" ? "hold" : r.growth_phase ? "growing" : "open",
+    visitsToday: r.v, convToday: r.c,
+  }));
 }

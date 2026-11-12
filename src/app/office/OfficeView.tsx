@@ -2,7 +2,7 @@
 
 import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { OfficeSnapshot } from "@/lib/office";
-import { HAPPENING, MEMBERS, ROOMS, stateAt, tallyAt, toMs, type Member, type OfficeLine, type Room } from "@/lib/officeShared";
+import { HAPPENING, MEMBERS, ROOMS, stateAt, tallyAt, toMs, type Member, type MemberState, type OfficeLine, type OfficeShop, type Room } from "@/lib/officeShared";
 import { ROBOT_CSS, Robot, type RobotMood } from "./Robot";
 
 // オフィス（試作）の画面。斜め上から見た床の上で、ロボット社員（動画と同じ絵）が動いて「いま何をしているか」を見せる
@@ -73,6 +73,40 @@ function Prop({ x, y, z = 12, icon, size = "clamp(16px, 2.6vw, 30px)" }: { x: nu
 const TILE = "repeating-linear-gradient(0deg, transparent 0 22px, color-mix(in srgb, var(--text) 5%, transparent) 22px 23px), repeating-linear-gradient(90deg, transparent 0 22px, color-mix(in srgb, var(--text) 5%, transparent) 22px 23px)";
 const BOARDS = "repeating-linear-gradient(90deg, transparent 0 14px, color-mix(in srgb, var(--text) 6%, transparent) 14px 15px)";
 
+// 案件通りの店（オフィスの手前の通りに並ぶ）。今日訪問があれば明かりがつき、撤退した店はシャッターを閉める。社員が作業中の店は、その社員の色で光る
+const SHOP_ICON: Record<OfficeShop["kind"], string> = { lp: "✉️", tool: "🛠️" };
+const SHOP_STATUS: Record<OfficeShop["status"], string> = { open: "", growing: "🌱", hold: "💤", closed: "🔒" };
+function Shop({ shop, x, workers }: { shop: OfficeShop; x: number; workers: Member[] }) {
+  const lit = shop.visitsToday > 0;
+  const closed = shop.status === "closed";
+  const glow = workers[0] ? COLOR[workers[0]] : null;
+  const front = closed
+    ? "repeating-linear-gradient(180deg, #8a9099 0 3px, #6f757e 3px 6px)"
+    : lit
+      ? "linear-gradient(180deg, transparent 0 30%, #ffe08a 30% 85%, transparent 85%), color-mix(in srgb, var(--text) 12%, var(--surface))"
+      : "linear-gradient(180deg, transparent 0 30%, color-mix(in srgb, var(--text) 30%, var(--surface)) 30% 85%, transparent 85%), color-mix(in srgb, var(--text) 12%, var(--surface))";
+  const roof = shop.status === "growing" ? tint("var(--series-openai)", 35) : shop.status === "hold" || closed ? tint("var(--text)", 20) : tint("var(--series-anthropic)", 30);
+  return (
+    <>
+      <Box x={x} y={104} w={10} d={8} h={30} top={roof} side={front} side2="color-mix(in srgb, var(--text) 22%, var(--surface))" />
+      <Bill x={x + 5} y={108} z={34}>
+        {/* 看板は小さく（種類・状態・今日の訪問）。社員が作業中の店だけ、名前と作業中の社員を出す */}
+        <a
+          href={`/projects/${shop.id}`}
+          className="block w-max rounded-full border bg-surface px-1.5 py-0.5 text-center text-[9px] leading-tight shadow-sm sm:text-[11px]"
+          style={{ borderColor: glow ?? "var(--border)", boxShadow: glow ? `0 0 10px ${glow}` : undefined, opacity: closed ? 0.6 : 1 }}
+          title={`${shop.title}（今日の訪問 ${shop.visitsToday}人）`}
+          aria-label={`${shop.title}（今日の訪問 ${shop.visitsToday}人）`}
+        >
+          {workers.length > 0 && <span className="block max-w-[8rem] truncate font-bold">{shop.title}</span>}
+          <span className="num block whitespace-nowrap">{SHOP_ICON[shop.kind]}{SHOP_STATUS[shop.status]} {closed ? "終了" : `👤${shop.visitsToday}${shop.convToday ? ` ✓${shop.convToday}` : ""}`}</span>
+          {workers.length > 0 && <span className="block font-bold" style={{ color: glow ?? undefined }}>{workers.map((m) => MEMBERS.find((x) => x.id === m)!.name).join("・")}が作業中</span>}
+        </a>
+      </Bill>
+    </>
+  );
+}
+
 // 床の上の点（x・y は床の％、z は高さ px）に、立った向きで置く。下の真ん中がその点に来る
 function Bill({ x, y, z, move, children }: { x: number; y: number; z: number; move?: boolean; children: React.ReactNode }) {
   z = z * useContext(ScaleCtx);
@@ -138,6 +172,22 @@ function Chip({ label, value, tone, href }: { label: string; value: string; tone
   );
   const cls = "flex flex-col rounded-lg border border-line bg-surface px-2 py-1";
   return href ? <a href={href} className={`${cls} hover:bg-surface-2`} style={tone === "warn" ? { borderColor: "var(--accent)" } : undefined}>{body}</a> : <div className={cls}>{body}</div>;
+}
+
+// 横の一覧の1人分（PC幅だけ）
+function MemberRow({ member, s, c, line, walking }: { member: Member; s: MemberState; c: { calls: number; yen: number }; line?: OfficeLine; walking: boolean }) {
+  return (
+    <div className="flex gap-2 border-t border-line pt-2 first-of-type:border-0 first-of-type:pt-0">
+      <span className="shrink-0" style={{ ["--rb-h" as string]: "40px" }}>
+        <Robot member={member} mood={line?.kind === "proposal" ? "alert" : line ? "talk" : s.doing ? "work" : "rest"} />
+      </span>
+      <div className="min-w-0 space-y-0.5 text-xs">
+        <p><b style={{ color: COLOR[member] }}>{nameOf(member)}</b> <span className="text-muted">{walking ? "移動中" : ROOMS[s.room]}</span></p>
+        <p className="text-ink-2">{s.doing && s.since ? `${s.doing}${s.project ? `（${s.project}）` : ""}・${jstHM(s.since)}から` : "休憩中"}</p>
+        <p className="num text-muted">この日 {c.calls}回・約{Math.round(c.yen)}円</p>
+      </div>
+    </div>
+  );
 }
 
 export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
@@ -262,9 +312,10 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
       <p className="-mt-1 text-[10px] text-muted">数字は、再生中もいまのものです（稼働・待機だけ、再生している時刻のもの）。公開・集客中は{n.live}件。</p>
 
       <ScaleCtx.Provider value={scale}>
-      <div ref={sceneRef} className="card relative aspect-[10/8] w-full overflow-hidden sm:aspect-[16/9]" style={{ background: "linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%)" }}>
+      <div className="gap-3 lg:grid lg:grid-cols-[1fr_15rem]">
+      <div ref={sceneRef} className="card relative aspect-[10/9] w-full overflow-hidden sm:aspect-[16/11]" style={{ background: "linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%)" }}>
         {/* 床（斜め上から見た形に傾ける）。部屋・机・ロボットはこの上に置き、ロボットと吹き出しは立った向きに戻す */}
-        <div className="absolute left-1/2 top-[57%] aspect-square w-[68%] sm:w-[64%]" style={{ transform: `translate(-50%, -50%) ${ISO}`, transformStyle: "preserve-3d" }}>
+        <div className="absolute left-[52%] top-[50%] aspect-square w-[64%] sm:left-[46%] sm:top-[47%] sm:w-[60%]" style={{ transform: `translate(-50%, -50%) ${ISO}`, transformStyle: "preserve-3d" }}>
           <Box x={0} y={0} w={100} d={100} h={6} top={`${BOARDS}, color-mix(in srgb, #b98a5a 16%, var(--surface-2))`} side="color-mix(in srgb, var(--text) 18%, var(--surface-2))" />
           <Wall side="left" />
           <Wall side="right" />
@@ -324,6 +375,14 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
           <Prop x={50} y={97} z={6} icon="🪴" />
           <Prop x={44} y={44} z={12} icon="🌿" />
           <Prop x={93} y={93} z={12} icon="🪴" />
+          {/* 案件通り（オフィスの手前の通り）と、案件の店 */}
+          <Box x={0} y={101} w={100} d={16} h={3} top="linear-gradient(180deg, color-mix(in srgb, var(--text) 8%, var(--surface-2)) 0 70%, color-mix(in srgb, var(--text) 16%, var(--surface-2)) 70%)" side="color-mix(in srgb, var(--text) 25%, var(--surface-2))" />
+          <Bill x={-2} y={110} z={8}>
+            <span className="whitespace-nowrap rounded-md bg-surface/90 px-1 py-0.5 text-[9px] font-bold text-ink-2 shadow-sm sm:px-1.5 sm:text-xs">🏪 案件通り</span>
+          </Bill>
+          {snap.shops.map((shop, i) => (
+            <Shop key={shop.id} shop={shop} x={snap.shops.length > 1 ? 3 + (i * 76) / (snap.shops.length - 1) : 45} workers={ORDER.filter((m) => !walking[m] && state[m].projectId === shop.id)} />
+          ))}
           {(Object.keys(ROOM_BOX) as Room[]).map((r) => (
             <Bill key={r} x={ROOM_BOX[r].left + 4} y={ROOM_BOX[r].top + 6} z={14}>
               <span className="whitespace-nowrap rounded-md bg-surface/90 px-1 py-0.5 text-[9px] font-bold text-ink-2 shadow-sm sm:px-1.5 sm:text-xs">{ROOM_BOX[r].icon} {ROOMS[r]}</span>
@@ -372,6 +431,31 @@ export function OfficeView({ initial }: { initial: OfficeSnapshot }) {
             </div>
           </div>
         )}
+      </div>
+      <aside className="card hidden space-y-3 p-3 lg:block" aria-label="社員の状態">
+        <h2 className="text-sm font-bold">社員の状態</h2>
+        {MEMBERS.map((m) => <MemberRow key={m.id} member={m.id} s={state[m.id]} c={tally[m.id]} line={lineOf(m.id)} walking={walking[m.id]} />)}
+        <h2 className="border-t border-line pt-2 text-sm font-bold">🏪 案件通り</h2>
+        {snap.shops.length ? (
+          <ul className="space-y-1 text-xs">
+            {snap.shops.map((shop) => {
+              const workers = ORDER.filter((m) => !walking[m] && state[m].projectId === shop.id);
+              return (
+                <li key={shop.id} className="flex items-baseline gap-1">
+                  <span aria-hidden>{SHOP_ICON[shop.kind]}</span>
+                  <a href={`/projects/${shop.id}`} className="min-w-0 flex-1 truncate hover:underline" style={{ color: workers[0] ? COLOR[workers[0]] : undefined, opacity: shop.status === "closed" ? 0.6 : 1 }}>
+                    {shop.title}{SHOP_STATUS[shop.status] ? ` ${SHOP_STATUS[shop.status]}` : ""}
+                  </a>
+                  <span className="num shrink-0 text-muted">{shop.status === "closed" ? "終了" : `👤${shop.visitsToday}${shop.convToday ? ` ✓${shop.convToday}` : ""}`}</span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="text-xs text-muted">公開中の案件はありません。</p>
+        )}
+        <p className="text-[10px] text-muted">👤 は今日の訪問、✓ は今日の登録・利用。店を押すと、その案件の画面に移ります。</p>
+      </aside>
       </div>
       </ScaleCtx.Provider>
 

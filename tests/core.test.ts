@@ -9,7 +9,7 @@ import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
 import { pageSystem } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
-import { officeNumbers, officeSnapshot, roomOf } from "../src/lib/office";
+import { officeNumbers, officeShops, officeSnapshot, roomOf } from "../src/lib/office";
 import { stateAt, tallyAt } from "../src/lib/officeShared";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
@@ -244,7 +244,7 @@ test("オフィス: 呼んだ目的で部屋を決め、3分たつと休憩室�
   assert.equal(roomOf("判断（裏比較）"), "meeting");
   assert.equal(roomOf("アイデアの採点"), "meeting");
   assert.equal(roomOf("SNS投稿の下書き"), "pr");
-  const ev = [{ at: "2026-11-12 10:00:00", member: "anthropic" as const, room: "dev" as const, doing: "LPのデザイン", project: "x", yen: 10 }];
+  const ev = [{ at: "2026-11-12 10:00:00", member: "anthropic" as const, room: "dev" as const, doing: "LPのデザイン", project: "x", projectId: 1, yen: 10 }];
   assert.equal(stateAt(ev, "2026-11-12 10:02:00").anthropic.room, "dev");
   assert.equal(stateAt(ev, "2026-11-12 10:04:00").anthropic.room, "lounge");
   assert.equal(stateAt(ev, "2026-11-12 09:59:00").anthropic.room, "lounge");
@@ -262,10 +262,10 @@ test("オフィス: 呼んだ目的で部屋を決め、3分たつと休憩室�
   assert.ok(kinds.includes("publish") && !kinds.includes("collect" as never));
   // 費用と回数は、その時刻までの、その日（日本時間）の分だけ数える
   const evs = [
-    { at: "2026-11-11 14:59:00", member: "anthropic" as const, room: "dev" as const, doing: "a", project: null, yen: 100 }, // 日本時間 11/11 23:59
-    { at: "2026-11-11 15:01:00", member: "anthropic" as const, room: "dev" as const, doing: "b", project: null, yen: 10 }, // 日本時間 11/12 0:01
-    { at: "2026-11-11 16:00:00", member: "anthropic" as const, room: "dev" as const, doing: "c", project: null, yen: 5 },
-    { at: "2026-11-11 15:30:00", member: "google" as const, room: "pr" as const, doing: "d", project: null, yen: 3 },
+    { at: "2026-11-11 14:59:00", member: "anthropic" as const, room: "dev" as const, doing: "a", project: null, projectId: null, yen: 100 }, // 日本時間 11/11 23:59
+    { at: "2026-11-11 15:01:00", member: "anthropic" as const, room: "dev" as const, doing: "b", project: null, projectId: null, yen: 10 }, // 日本時間 11/12 0:01
+    { at: "2026-11-11 16:00:00", member: "anthropic" as const, room: "dev" as const, doing: "c", project: null, projectId: null, yen: 5 },
+    { at: "2026-11-11 15:30:00", member: "google" as const, room: "pr" as const, doing: "d", project: null, projectId: null, yen: 3 },
   ];
   assert.deepEqual(tallyAt(evs, "2026-11-11 15:30:00"), { anthropic: { calls: 1, yen: 10 }, openai: { calls: 0, yen: 0 }, google: { calls: 1, yen: 3 } });
 });
@@ -282,4 +282,24 @@ test("オフィス: 上の帯の数字は、日本時間の今日の訪問と、
   assert.equal(after.visitsToday - before.visitsToday, 7);
   assert.equal(after.convToday - before.convToday, 1);
   assert.equal(after.live - before.live, 1);
+});
+
+test("オフィス: 案件通りの店は、公開した案件のうち集客中・保留・育てる段階と、7日以内の撤退だけ。今日の訪問も付ける", () => {
+  const mk = (stage: string, extra = "") => Number(db().prepare(`INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, published_at${extra ? ", growth_phase" : ""}) VALUES ('店${stage}${extra}', 't', 'p', 's', 'h', 'r', ?, 'm', datetime('now')${extra ? ", 1" : ""})`).run(stage).lastInsertRowid);
+  const open = mk("live");
+  const growing = mk("live", "g");
+  const hold = mk("hold");
+  const killed = mk("killed");
+  const oldKilled = mk("killed");
+  db().prepare("UPDATE projects SET updated_at = datetime('now', '-10 days') WHERE id = ?").run(oldKilled);
+  const notPublished = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id) VALUES ('未公開', 't', 'p', 's', 'h', 'r', 'live', 'm')").run().lastInsertRowid);
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 4, 1, 0, 'real')").run(open, jstToday());
+  const shops = officeShops();
+  const ids = shops.map((x) => x.id);
+  for (const id of [open, growing, hold, killed]) assert.ok(ids.includes(id) || shops.length === 8);
+  assert.ok(!ids.includes(oldKilled) && !ids.includes(notPublished));
+  const o = shops.find((x) => x.id === open);
+  if (o) assert.deepEqual([o.status, o.visitsToday, o.convToday], ["open", 4, 1]);
+  const g = shops.find((x) => x.id === growing);
+  if (g) assert.equal(g.status, "growing");
 });
