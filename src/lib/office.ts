@@ -4,11 +4,12 @@ import { waitingItems } from "./overview";
 import { openRequests } from "./plan";
 import { pendingCount } from "./views";
 import { modelInfo } from "./models";
+import { liveFeed } from "./live";
 import type { Member, OfficeEvent, OfficeHappening, OfficeLine, OfficeShop, Room } from "./officeShared";
 
 // オフィスの画面（試作）: AIの社員3人が、いま何をしているかを部屋の位置で見せる
 // - AIを呼んだ記録（ai_calls の目的）から、どの部屋で働いているかを決める
-// - 社員の声と、提案箱に入れた提案は、吹き出しにする
+// - 社員の声、提案箱に入れた提案、ライブの「AIの会話」（提案・採点・判断・議論）は、吹き出しにする
 // - 直近の動きがないときは、画面の側で直近24時間の動きを早送りで再生する
 // 時刻はすべて UTC の "YYYY-MM-DD HH:MM:SS"
 
@@ -32,7 +33,40 @@ const memberOf = (modelId: string | null): Member | null => {
   return p === "anthropic" || p === "openai" || p === "google" ? p : null;
 };
 
-export function officeSnapshot() {
+const isMember = (p: string | null): p is Member => p === "anthropic" || p === "openai" || p === "google";
+const plusSeconds = (at: string, s: number) => new Date(Date.parse(at.replace(" ", "T") + "Z") + s * 1000).toISOString().replace("T", " ").slice(0, 19);
+export const TALK_GAP_SECONDS = 20;
+
+// ライブの「AIの会話」を、話した社員の吹き出しにする（社員でない話し手＝SNSの投稿・コメント・返信の案は出さない）
+// 採点などは同じ時刻に何件も書かれるので、同じ社員・同じ時刻のものは20秒ずつずらして、順に吹き出しに出す
+export function officeTalks({ guest = false } = {}): OfficeLine[] {
+  const since = plusSeconds(new Date().toISOString().replace("T", " ").slice(0, 19), -86_400);
+  // つぶやきと提案箱への提案は、オフィスでは別に取って吹き出しに出しているので、ここでは除く（二重にしない）
+  const items = liveFeed({ guest })
+    .filter((f) => isMember(f.provider) && f.at.replace("T", " ") >= since && !f.kind.startsWith("つぶやき（") && f.kind !== "提案箱に提案")
+    .reverse();
+  const seen = new Map<string, number>();
+  return items.map((f) => {
+    const at = f.at.replace("T", " ").slice(0, 19);
+    const key = `${f.provider}|${at}`;
+    const k = seen.get(key) ?? 0;
+    seen.set(key, k + 1);
+    return { at: plusSeconds(at, k * TALK_GAP_SECONDS), member: f.provider as Member, kind: "talk" as const, about: f.kind, text: f.text.slice(0, 400), project: f.project };
+  });
+}
+
+// 発言から作る動きの短い言い方（発言の見出しは「「案件名」を採点」のように長いので、何をしているかだけにする）
+export function talkDoing(about: string): string {
+  if (about.startsWith("臨時会議")) return "臨時会議";
+  if (/採点/.test(about)) return "採点";
+  if (/アイデア/.test(about)) return "アイデア出し";
+  if (/議論/.test(about)) return "判断の議論";
+  if (/判断/.test(about)) return "判断";
+  return doingOf(about);
+}
+
+// guest: 来た人の画面か（AIの会話の伏せ方をライブ画面とそろえる）
+export function officeSnapshot({ guest = false } = {}) {
   const calls = db().prepare(
     `SELECT c.at, c.purpose, c.model_id, c.cost_usd, c.project_id, p.title FROM ai_calls c LEFT JOIN projects p ON p.id = c.project_id
      WHERE c.at >= datetime('now', '-1 day') AND c.error IS NULL ORDER BY c.id`,
@@ -49,6 +83,10 @@ export function officeSnapshot() {
   ).all() as { at: string; kind: OfficeHappening["kind"]; title: string | null }[]);
   const voices = db().prepare("SELECT at, model_id, text FROM voices WHERE at >= datetime('now', '-1 day') ORDER BY id").all() as { at: string; model_id: string | null; text: string }[];
   const proposals = db().prepare("SELECT created_at AS at, proposer, title FROM plan_requests WHERE proposer IS NOT NULL AND created_at >= datetime('now', '-1 day') ORDER BY id").all() as { at: string; proposer: string; title: string }[];
+  const talks = officeTalks({ guest });
+  // 話している社員は、その発言に合う部屋にいる（AIを呼んだ時刻と、発言の時刻は少しずれるため）
+  events.push(...talks.map((l) => ({ at: l.at, member: l.member, room: roomOf(l.about ?? ""), doing: talkDoing(l.about ?? ""), project: l.project ?? null, projectId: null, yen: 0, talk: true })));
+  events.sort((a, b) => a.at.localeCompare(b.at));
   const lines: OfficeLine[] = [
     ...voices.flatMap((v) => {
       const member = memberOf(v.model_id);
@@ -58,6 +96,7 @@ export function officeSnapshot() {
       const member = memberOf(r.proposer);
       return member ? [{ at: r.at, member, kind: "proposal" as const, text: `提案があります: ${r.title}`.slice(0, 80) }] : [];
     }),
+    ...talks,
   ].sort((a, b) => a.at.localeCompare(b.at));
   return { now: new Date().toISOString().replace("T", " ").slice(0, 19), events, lines, happenings, numbers: officeNumbers(), shops: officeShops() };
 }
@@ -91,7 +130,8 @@ export function officeNumbers() {
   };
 }
 
-// 案件通りの店: 公開中・保留・育てる段階の案件と、7日以内に撤退した案件（新しい順に6件まで（背景の店は6軒））。今日の訪問と登録・利用も付ける
+// 案件の展示: 公開中・保留・育てる段階の案件と、7日以内に撤退した案件（今日の訪問が多い順。撤退した案件は最後）。今日の訪問と登録・利用も付ける
+// 案件は増えていくので、画面ではすべてを絵に並べず、数と上位だけを見せる
 export function officeShops(): OfficeShop[] {
   const today = jstToday();
   const rows = db().prepare(
@@ -101,7 +141,7 @@ export function officeShops(): OfficeShop[] {
      FROM projects p
      WHERE p.demo = 0 AND p.published_at IS NOT NULL
        AND (p.stage IN ('live', 'hold', 'deciding') OR (p.stage = 'killed' AND p.updated_at >= datetime('now', '-7 days')))
-     ORDER BY (p.stage = 'killed'), p.id DESC LIMIT 6`,
+     ORDER BY (p.stage = 'killed'), v DESC, p.id DESC LIMIT 50`,
   ).all(today, today) as { id: number; title: string; kind: string; stage: string; growth_phase: number; v: number; c: number }[];
   return rows.map((r) => ({
     id: r.id, title: r.title, kind: r.kind === "tool" ? "tool" : "lp",

@@ -38,7 +38,7 @@ export function IdeaForm({ authors }: { authors: string[] }) {
           variant="primary"
           disabled={!!busy || !!ideaBusy}
           onClick={async () => {
-            if (await run("3社のAIがアイデアを考えて採点しています…（1〜2分ほど。ライブ画面でも見られます）", { action: "ideas", theme, count })) setTheme("");
+            if (await run("3社のAIがアイデアを考えて採点しています…（1〜2分ほど。ホームのライブでも見られます）", { action: "ideas", theme, count })) setTheme("");
           }}
         >
           アイデアを出す

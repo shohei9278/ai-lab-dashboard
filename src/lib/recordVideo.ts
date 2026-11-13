@@ -187,7 +187,7 @@ function tourStops(): { stops: Stop[]; hook: string; caption: string } {
     hook: "AIだけの会社の管理画面",
     caption: `Claude・GPT・Geminiを社員にした会社の管理画面です。ここまでで案件${h.projects}件、訪問${h.visits}人、利用${h.conversions}件、AI費用は約${yen}円。 #AI #個人開発`,
     stops: [
-      { path: "/", anchor: "今日のAIの計画", caption: "AIだけの会社の\n管理画面を見せます", scroll: 420, ms: 3000 },
+      { path: "/", anchor: "AIの社員が働くオフィス", caption: "AIだけの会社の\n管理画面を見せます", scroll: 420, ms: 3000 },
       { path: "/plan", anchor: "今日の予定", caption: "毎朝、AIが\n今日やることを決める", scroll: 560, ms: 3600 },
       { path: "/meetings", anchor: "会議室", caption: "会議も\nAI同士でやっている", scroll: 480, ms: 3200 },
       { path: "/voices", anchor: "日報とつぶやき", caption: "仕事の合間に\nAIがつぶやく", scroll: 620, ms: 3800 },

@@ -270,7 +270,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
       <section className="card space-y-3 p-4">
         <div>
           <h2 className="font-bold">SNSと毎日の計画</h2>
-          <p className="text-xs text-muted">SNSへの自動投稿と、AIが毎朝決める「今日の計画」の設定です。計画の中身と達成度は、ホームの「今日のAIの計画」で見られます（これまでの達成度は<a href="/plan" className="underline">毎日の計画</a>の画面）。</p>
+          <p className="text-xs text-muted">SNSへの自動投稿と、AIが毎朝決める「今日の計画」の設定です。計画の中身と、これまでの達成度は<a href="/plan" className="underline">毎日の計画</a>の画面で見られます（オフィスのホワイトボードからも開けます）。</p>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="LP・ツールを紹介する X のアカウント" note="「SNSで広める」の欄に、どのアカウントで投稿するかを表示します（@なしで入力）。">
@@ -334,7 +334,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
                 毎日の計画（AIが毎朝、全案件を振り返って今日やることを決め、自動で動く）
                 <span className="block text-xs text-muted">
                   今のネック（届かない・使われない など）を1つ決めて、宣伝の投稿・宣伝ではない普通の投稿・ページを直す（1日1件まで）・新しい案件づくりを休む、などを決めます。投稿の回数・時刻・場所・切り口もAIが決めます（自動投稿がオンのときだけ投稿します）。
-                  計画を作るのは1日1回で約10〜20円、普通の投稿は X で1件 約2円です。計画がある日は、上の「決まった間隔での自動投稿」は止まり、計画に任せます。結果はホームの「今日のAIの計画」で見られます。
+                  計画を作るのは1日1回で約10〜20円、普通の投稿は X で1件 約2円です。計画がある日は、上の「決まった間隔での自動投稿」は止まり、計画に任せます。結果は「毎日の計画」の画面で見られます。
                 </span>
               </span>
             </label>
