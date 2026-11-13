@@ -7,7 +7,7 @@ import { getProject, holdProject, jstToday, resumeDueHolds, trafficCapacity } fr
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
-import { pageSystem } from "../src/lib/freePage";
+import { isGoogleFonts, pageSystem, staticPageIssues } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
 import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, showcaseOfficeSnapshot, talkDoing } from "../src/lib/office";
 import { projectShot, reachText, showcaseProjectRows, showcaseShotFile } from "../src/lib/showcase";
@@ -423,4 +423,13 @@ test("概要ページの写真の読み出し口: 載せる案件の、公開し
   assert.equal(showcaseShotFile(draft), null);
   assert.ok(showcaseProjectRows().some((p) => p.id === killed));
   assert.equal(showcaseProjectRows().some((p) => p.id === draft), false);
+});
+
+test("自由なデザインのページ: Google Fonts の読み込みは、末尾の / がない形でも決まりの違反にしない。ほかのホストは違反", () => {
+  for (const ok of ["https://fonts.googleapis.com", "https://fonts.googleapis.com/", "https://fonts.googleapis.com/css2?family=Noto+Sans+JP", "https://fonts.gstatic.com", "https://fonts.gstatic.com/s/x.woff2"]) assert.ok(isGoogleFonts(ok), ok);
+  for (const ng of ["http://fonts.googleapis.com/css2", "https://fonts.gstatic.com.example.com/x", "https://example.com/fonts.googleapis.com", "//fonts.googleapis.com", "/style.css"]) assert.equal(isGoogleFonts(ng), false, ng);
+  const page = (links: string) => `<html><head>${links}</head><body><form id="signup"><input type="email"></form></body></html>`;
+  const fontIssues = (html: string) => staticPageIssues(html).filter((x) => x.includes("Google Fonts"));
+  assert.deepEqual(fontIssues(page('<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP" rel="stylesheet">')), []);
+  assert.equal(fontIssues(page('<link rel="stylesheet" href="https://cdn.example.com/a.css">')).length, 1);
 });
