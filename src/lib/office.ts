@@ -149,3 +149,25 @@ export function officeShops(): OfficeShop[] {
     visitsToday: r.v, convToday: r.c,
   }));
 }
+
+// 概要ページ（/showcase、パスワードなしで開ける）のオフィス。来訪者が見るだけなので、運営の中身は渡さない
+// - 吹き出しは、設定で載せると決めた社員の声だけ。AIの会話（提案・採点・判断・議論）と提案箱の提案の中身は出さない
+// - 案件の名前は、公開した・終わった実案件のものだけ（まだ公開していない案件の名前は伏せる）
+// - 判断待ち・提案箱・確認待ち・予算の数字は出さない
+export function showcaseOfficeSnapshot() {
+  const s = getSettings();
+  const snap = officeSnapshot({ guest: true });
+  const open = db().prepare("SELECT id, title FROM projects WHERE demo = 0 AND (public_version IS NOT NULL OR stage IN ('continued','killed'))").all() as { id: number; title: string }[];
+  const ids = new Set(open.map((p) => p.id));
+  const titles = new Set(open.map((p) => p.title));
+  const shown = (e: OfficeEvent) => (e.projectId !== null ? ids.has(e.projectId) : !!e.project && titles.has(e.project));
+  return {
+    ...snap,
+    // 会話から作った動きの言い方に案件名（「〜」）が残るときは、まとめた言い方にする
+    events: snap.events.map((e) => ({ ...e, doing: e.doing.includes("「") ? "話し合い" : e.doing, ...(shown(e) ? {} : { project: null, projectId: null }) })),
+    lines: s.showcaseVoices ? snap.lines.filter((l) => l.kind === "voice") : [],
+    happenings: snap.happenings.filter((h) => !!h.title && titles.has(h.title)),
+    shops: snap.shops.filter((x) => ids.has(x.id)),
+    numbers: { ...snap.numbers, monthJpy: 0, budgetJpy: 0, waiting: 0, stuck: 0, approvals: 0, proposals: 0 },
+  };
+}

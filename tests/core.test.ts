@@ -9,7 +9,8 @@ import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
 import { pageSystem } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
-import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, talkDoing } from "../src/lib/office";
+import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, showcaseOfficeSnapshot, talkDoing } from "../src/lib/office";
+import { projectShot, reachText } from "../src/lib/showcase";
 import { stateAt, tallyAt, toMs } from "../src/lib/officeShared";
 import { liveFeed } from "../src/lib/live";
 import { indexCounts } from "../src/lib/publish";
@@ -359,4 +360,41 @@ test("オフィス: 案件の展示は、公開した案件のうち集客中・
   if (o) assert.deepEqual([o.status, o.visitsToday, o.convToday], ["open", 4, 1]);
   const g = shops.find((x) => x.id === growing);
   if (g) assert.equal(g.status, "growing");
+});
+
+test("概要ページのオフィス: AIの会話・提案の中身・未公開の案件名・判断待ちの数を出さず、声は設定で載せるときだけ出す", () => {
+  const draft = addProject("lp");
+  db().prepare("UPDATE projects SET title = '概要テストの下書き' WHERE id = ?").run(draft);
+  const open = addProject("live");
+  db().prepare("UPDATE projects SET title = '概要テストの公開', public_version = 1, published_at = datetime('now') WHERE id = ?").run(open);
+  const ins = db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd, project_id) VALUES (?, 'claude-opus-5-5', 1, 1, 0, ?)");
+  ins.run("LP作成", draft);
+  ins.run("LP作成", open);
+  db().prepare("INSERT INTO voices (model_id, scene, text) VALUES ('gpt-5.6-sol', '朝会', '概要テストの声')").run();
+  db().prepare("INSERT INTO idea_candidates (at, batch_id, label, author_model, title, payload) VALUES (datetime('now'), 'showcase-t', 'A', 'claude-opus-5-5', '概要テストの案', '{}')").run();
+  saveSettings({ showcaseVoices: false });
+  const snap = showcaseOfficeSnapshot();
+  const json = JSON.stringify(snap);
+  assert.equal(json.includes("概要テストの下書き"), false);
+  assert.equal(json.includes("概要テストの案"), false);
+  assert.ok(snap.events.some((e) => e.project === "概要テストの公開"));
+  assert.equal(snap.lines.length, 0);
+  assert.equal(snap.numbers.approvals + snap.numbers.proposals + snap.numbers.waiting, 0);
+  saveSettings({ showcaseVoices: true });
+  const v = showcaseOfficeSnapshot().lines;
+  assert.ok(v.some((l) => l.text === "概要テストの声") && v.every((l) => l.kind === "voice"));
+  saveSettings({ showcaseVoices: false });
+});
+
+test("概要ページの案件: 訪問と成果を率でなく人数で書き、公開した版の確認で撮った画面を使う", () => {
+  assert.equal(reachText("lp", 0, 0), "まだ訪問なし");
+  assert.equal(reachText("lp", 12, 0), "訪問12人・まだ登録なし");
+  assert.equal(reachText("tool", 30, 2), "訪問30人・利用2件");
+  const id = addProject("live");
+  const v = db().prepare("INSERT INTO lp_versions (project_id, version, lp, test) VALUES (?, ?, '{}', ?)");
+  v.run(id, 1, JSON.stringify({ kind: "page", ok: true, issues: [], shots: ["sp1.jpg"], pc: "pc.jpg", at: "x" }));
+  v.run(id, 2, JSON.stringify({ ok: true, errors: [], screenshot: "tool-v2.png", at: "x" }));
+  assert.equal(projectShot({ id, public_version: 1, lp_version: 2 }), "pc.jpg");
+  assert.equal(projectShot({ id, public_version: null, lp_version: 2 }), "tool-v2.png");
+  assert.equal(projectShot({ id, public_version: 3, lp_version: 3 }), null);
 });
