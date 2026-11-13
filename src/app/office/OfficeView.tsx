@@ -251,6 +251,12 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
       moved.push(m);
       roomRef.current[m] = to;
       all[m].forEach(clearTimeout);
+      // 端末で「動きを減らす」にしている人には、廊下を歩かせず、行き先の席にそのまま置く（CSSの動きを止めるだけでは、歩く座標の更新が残るため）
+      if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        const seat = seatOf(to, m);
+        all[m] = [setTimeout(() => setPos((c) => ({ ...c, [m]: seat })), 0)];
+        return;
+      }
       const path = pathBetween(from, to, m);
       all[m] = [
         setTimeout(() => setWalking((w) => ({ ...w, [m]: true })), 0),
