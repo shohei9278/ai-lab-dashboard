@@ -1,24 +1,10 @@
 import { NextResponse } from "next/server";
 import { liveSnapshot } from "@/lib/live";
-import { ideaRunning, logEvent, practiceIdeas, simulateDays } from "@/lib/loop";
 
 export const dynamic = "force-dynamic";
 
 // ホームのライブの欄が数秒ごとに読みに来る
+// （練習用の「アイデア出しを見る」と仮テストを始めるPOSTは、呼ぶ画面がなくなったので消した。AIを呼ぶ指示は、ライブの欄の指示のボタンから）
 export async function GET(req: Request) {
   return NextResponse.json(liveSnapshot({ guest: req.headers.get("x-viewer") !== "owner" }), { headers: { "Cache-Control": "no-store" } });
-}
-
-// ライブの欄から、アイデア出しだけを始める（終わるまで待たずにすぐ返す。進み具合はライブ画面に流れる）
-export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { action?: string; days?: number };
-  const busy = ideaRunning();
-  if (busy) return NextResponse.json({ error: `いま「${busy}」が動いています。終わってからもう一度押してください` }, { status: 409 });
-  if (body.action === "simulate") {
-    const days = Math.min(7, Math.max(1, Number(body.days) || 5));
-    simulateDays(days).catch((e) => logEvent(null, "system", "idea-error", `アイデア出しの仮テストに失敗: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
-    return NextResponse.json({ ok: true });
-  }
-  practiceIdeas().catch((e) => logEvent(null, "system", "idea-error", `アイデア出し（見るだけ）に失敗: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
-  return NextResponse.json({ ok: true });
 }

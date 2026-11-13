@@ -40,7 +40,9 @@ export type ReplayLog = { key: string; at: string; member: string; head: string;
 const norm = (s: string) => s.replace("T", " ").slice(0, 19);
 const FRESH_SECONDS = 180; // 再生中、この時刻の直前に出た会話を光らせる長さ
 const MOBILE_ITEMS = 3; // スマホで最初に出す数（残りは「もっと見る」）
-const LONG_CHARS = 90; // スマホで、これより長い発言には「続きを読む」を付ける（4行に収まらないことが多い）
+// スマホで「続きを読む」を付けるか: 4行に収まらなそうなもの（改行ごとに、1行あたりの文字数で何行になるかを数える）
+const LINE_CHARS = 22; // スマホ幅で1行に入るおおよその文字数
+const clamped = (text: string) => text.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / LINE_CHARS)), 0) > 4;
 
 // owner: 運営者のときだけ、指示のボタン（controls）を出す（AIを呼ぶので、来た人には出さない）
 // replay: オフィスで再生中のときだけ渡す。会話とログを、その時刻までに合わせる（いまAIがやっていることは「いま」の話なので出さない）
@@ -177,7 +179,7 @@ export function LivePanel({ initial, owner = false, replay = null, controls }: {
               </div>
               {/* スマホでは1件を4行までにして、長いものは「続きを読む」で開く（PCでは全文） */}
               <p className={`mt-0.5 whitespace-pre-wrap text-[13px] leading-relaxed ${opened.has(f.key) ? "" : "line-clamp-4 lg:line-clamp-none"}`}>{f.text}</p>
-              {f.text.length > LONG_CHARS && (
+              {clamped(f.text) && (
                 <button type="button" data-demo-ok onClick={() => setOpened((o) => { const n = new Set(o); if (n.has(f.key)) n.delete(f.key); else n.add(f.key); return n; })} className="self-start text-[11px] text-accent underline lg:hidden">
                   {opened.has(f.key) ? "閉じる" : "続きを読む"}
                 </button>
