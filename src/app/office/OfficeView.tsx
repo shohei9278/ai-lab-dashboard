@@ -81,11 +81,11 @@ const nowUtc = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 const nameOf = (m: Member) => MEMBERS.find((x) => x.id === m)!.name;
 
 // 押せる場所（透明。乗せる・選ぶと枠が光り、説明が出る）
-function HotArea({ rect, href, label, children }: { rect: Rect; href: string; label: string; children?: React.ReactNode }) {
+function HotArea({ rect, href, label, children, onClick }: { rect: Rect; href: string; label: string; children?: React.ReactNode; onClick?: () => void }) {
   return (
     // 部屋や物の範囲そのものは、ロボットや名札より後ろのまま（乗せても前に出さない。前に出すと、部屋の中のロボットが押せなくなる）
     // 光らせ方に filter を使うと重なりの層ができて説明が名札の後ろに隠れるので、枠線と薄い色だけにする（説明だけが前に出る）
-    <a href={href} aria-label={label} className="office-area group absolute rounded-lg hover:bg-white/10 focus-visible:bg-white/10" style={pct(rect)}>
+    <a href={href} aria-label={label} onClick={onClick} className="office-area group absolute rounded-lg hover:bg-white/10 focus-visible:bg-white/10" style={pct(rect)}>
       {/* 説明は枠の上に出す。絵の上の端に近いものは上に出すと切れるので、大きな部屋は枠の内側の下、小さな物は枠の下に出す。
           左右の端に近いものは、真ん中にそろえると切れるので、端の側にそろえる */}
       <span className={`pointer-events-none absolute z-30 hidden ${rect.r > 85 ? "right-0" : rect.l < 15 ? "left-0" : "left-1/2 -translate-x-1/2"} ${rect.t >= 12 ? "top-0 -translate-y-full" : rect.b - rect.t > 15 ? "bottom-1" : "top-full mt-1"} whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 text-[10px] text-white group-hover:block group-focus-visible:block sm:text-xs`}>{label}</span>
@@ -184,6 +184,17 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
   const [selected, setSelected] = useState<Member | null>(null);
   const [hot, setHot] = useState<string | null>(null);
   const [side, setSide] = useState<SideTab>(live ? "live" : "members");
+  // ページのどこかで #live へのリンク（ホームの下のリンク・右下のバッジなど）が押されたら、ライブのタブを開く
+  // （同じページの中の移動では、URLの # が変わった知らせが出ないことがあるので、押されたこと自体を拾う）
+  useEffect(() => {
+    if (!live) return;
+    const open = () => setSide("live");
+    const onClick = (e: MouseEvent) => { if ((e.target as Element | null)?.closest?.('a[href$="#live"]')) open(); };
+    const onHash = () => { if (window.location.hash === "#live") open(); };
+    document.addEventListener("click", onClick, true);
+    window.addEventListener("hashchange", onHash);
+    return () => { document.removeEventListener("click", onClick, true); window.removeEventListener("hashchange", onHash); };
+  }, [live]);
 
   // 10秒ごとに新しい記録を読む
   useEffect(() => {
@@ -355,7 +366,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
           const count = o.badge ? n[o.badge] : 0;
           const what = o.badge === "approvals" ? (owner ? "判断待ち" : "運営者の確認待ち") : "返事待ち";
           return (
-            <HotArea key={o.href} rect={o.rect} href={o.href} label={count ? `${o.label}（${what} ${count}件）` : o.label}>
+            <HotArea key={o.href} rect={o.rect} href={o.href} onClick={o.href === "#live" ? () => setSide("live") : undefined} label={count ? `${o.label}（${what} ${count}件）` : o.label}>
               {count > 0 && <span className="num pointer-events-none absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-bold text-accent-ink">{count}</span>}
             </HotArea>
           );
@@ -530,7 +541,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
           <p className="num text-xs text-ink-2">この日のAIの呼び出し: {sel.c.calls}回・約{Math.round(sel.c.yen)}円</p>
           {sel.recent.length > 0 && (
             <div className="border-t border-line pt-2">
-              <p className="mb-1 text-xs text-muted">最近の発言（新しい順・全文。ほかの社員の発言も、<a href="#live" className="underline">ライブ</a>のタブで見られます）</p>
+              <p className="mb-1 text-xs text-muted">最近の発言（新しい順・全文。ほかの社員の発言も、<a href="#live" onClick={() => setSide("live")} className="underline">ライブ</a>のタブで見られます）</p>
               <ol className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
                 {sel.recent.map((l, i) => (
                   <li key={`${l.at}${i}`} className="text-xs">
