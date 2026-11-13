@@ -15,6 +15,8 @@ export const ROOMS: Record<Room, string> = { dev: "開発室", meeting: "会議�
 export type OfficeEvent = { at: string; member: Member; room: Room; doing: string; project: string | null; projectId: number | null; yen: number; talk?: boolean };
 // 案件の展示（公開中・保留・育てる段階と、7日以内に撤退した案件）
 export type OfficeShop = { id: number; title: string; kind: "lp" | "tool"; status: "open" | "hold" | "growing" | "closed"; visitsToday: number; convToday: number };
+// 「公開中」として数える案件（集客中と、育てる段階。保留と受付終了は数えない。ホームの「公開・集客中」と同じ考え方）
+export const isOpenShop = (s: OfficeShop) => s.status === "open" || s.status === "growing";
 // 会社全体の出来事（公開・撤退・続ける）。画面の上に演出として出す
 export type OfficeHappening = { at: string; kind: "publish" | "close" | "grow"; title: string | null };
 export const HAPPENING: Record<OfficeHappening["kind"], { label: string }> = {

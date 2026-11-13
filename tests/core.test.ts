@@ -11,7 +11,7 @@ import { pageSystem } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
 import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, showcaseOfficeSnapshot, talkDoing } from "../src/lib/office";
 import { projectShot, reachText, showcaseProjectRows, showcaseShotFile } from "../src/lib/showcase";
-import { stateAt, tallyAt, toMs } from "../src/lib/officeShared";
+import { isOpenShop, stateAt, tallyAt, toMs } from "../src/lib/officeShared";
 import { liveFeed } from "../src/lib/live";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
@@ -360,6 +360,9 @@ test("オフィス: 案件の展示は、公開した案件のうち集客中・
   if (o) assert.deepEqual([o.status, o.visitsToday, o.convToday], ["open", 4, 1]);
   const g = shops.find((x) => x.id === growing);
   if (g) assert.equal(g.status, "growing");
+  // 看板の「公開中」は、集客中と育てる段階だけ（保留と受付終了は数えない）
+  const st = (id: number) => shops.find((x) => x.id === id);
+  assert.deepEqual([open, growing, hold, killed].map((id) => isOpenShop(st(id)!)), [true, true, false, false]);
 });
 
 test("概要ページのオフィス: AIの会話・提案の中身・未公開の案件名・判断待ちの数を出さず、声は設定で載せるときだけ出す", () => {

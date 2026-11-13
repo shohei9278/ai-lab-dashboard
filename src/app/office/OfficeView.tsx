@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { OfficeSnapshot } from "@/lib/office";
 import type { LiveSnapshot } from "@/lib/live";
 import { LivePanel } from "./LivePanel";
-import { HAPPENING, MEMBERS, ROOMS, stateAt, tallyAt, toMs, type Member, type MemberState, type OfficeHappening, type OfficeLine, type OfficeShop, type Room } from "@/lib/officeShared";
+import { HAPPENING, MEMBERS, ROOMS, isOpenShop, stateAt, tallyAt, toMs, type Member, type MemberState, type OfficeHappening, type OfficeLine, type OfficeShop, type Room } from "@/lib/officeShared";
 import { Icon, type IconName } from "./Icons";
 import { ROBOT_CSS, Robot, type RobotMood } from "./Robot";
 
@@ -81,11 +81,11 @@ const nowUtc = () => new Date().toISOString().replace("T", " ").slice(0, 19);
 const nameOf = (m: Member) => MEMBERS.find((x) => x.id === m)!.name;
 
 // 押せる場所（透明。乗せる・選ぶと枠が光り、説明が出る）
-function HotArea({ rect, href, label, children }: { rect: Rect; href: string; label: string; children?: React.ReactNode }) {
+function HotArea({ rect, href, label, children, onClick }: { rect: Rect; href: string; label: string; children?: React.ReactNode; onClick?: () => void }) {
   return (
     // 部屋や物の範囲そのものは、ロボットや名札より後ろのまま（乗せても前に出さない。前に出すと、部屋の中のロボットが押せなくなる）
     // 光らせ方に filter を使うと重なりの層ができて説明が名札の後ろに隠れるので、枠線と薄い色だけにする（説明だけが前に出る）
-    <a href={href} aria-label={label} className="office-area group absolute rounded-lg hover:bg-white/10 focus-visible:bg-white/10" style={pct(rect)}>
+    <a href={href} aria-label={label} onClick={onClick} className="office-area group absolute rounded-lg hover:bg-white/10 focus-visible:bg-white/10" style={pct(rect)}>
       {/* 説明は枠の上に出す。絵の上の端に近いものは上に出すと切れるので、大きな部屋は枠の内側の下、小さな物は枠の下に出す。
           左右の端に近いものは、真ん中にそろえると切れるので、端の側にそろえる */}
       <span className={`pointer-events-none absolute z-30 hidden ${rect.r > 85 ? "right-0" : rect.l < 15 ? "left-0" : "left-1/2 -translate-x-1/2"} ${rect.t >= 12 ? "top-0 -translate-y-full" : rect.b - rect.t > 15 ? "bottom-1" : "top-full mt-1"} whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 text-[10px] text-white group-hover:block group-focus-visible:block sm:text-xs`}>{label}</span>
@@ -97,7 +97,7 @@ function HotArea({ rect, href, label, children }: { rect: Rect; href: string; la
 // 案件の展示の看板。案件は増えていくので、1つずつ並べず「公開中の数・今日の訪問・登録」をまとめて出す。
 // 社員が案件の作業をしているときは、その案件の名前と社員を、社員の色で光らせて出す
 function ShowcaseSign({ shops, working, link = true }: { shops: OfficeShop[]; working: { m: Member; id: number | null; title: string }[]; link?: boolean }) {
-  const open = shops.filter((s) => s.status !== "closed");
+  const open = shops.filter(isOpenShop);
   const visits = open.reduce((a, s) => a + s.visitsToday, 0);
   const conv = open.reduce((a, s) => a + s.convToday, 0);
   // 作業中の案件が2件以上あるときは、1件だけを出すと取り違えるので「◯件を作業中」にして、案件の一覧へ移す
@@ -186,6 +186,17 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
   const [selected, setSelected] = useState<Member | null>(null);
   const [hot, setHot] = useState<string | null>(null);
   const [side, setSide] = useState<SideTab>(live ? "live" : "members");
+  // ページのどこかで #live へのリンク（ホームの下のリンク・右下のバッジなど）が押されたら、ライブのタブを開く
+  // （同じページの中の移動では、URLの # が変わった知らせが出ないことがあるので、押されたこと自体を拾う）
+  useEffect(() => {
+    if (!live) return;
+    const open = () => setSide("live");
+    const onClick = (e: MouseEvent) => { if ((e.target as Element | null)?.closest?.('a[href$="#live"]')) open(); };
+    const onHash = () => { if (window.location.hash === "#live") open(); };
+    document.addEventListener("click", onClick, true);
+    window.addEventListener("hashchange", onHash);
+    return () => { document.removeEventListener("click", onClick, true); window.removeEventListener("hashchange", onHash); };
+  }, [live]);
 
   // 10秒ごとに新しい記録を読む
   useEffect(() => {
@@ -242,11 +253,34 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
   const yen = (v: number) => `${v.toLocaleString("ja-JP")}円`;
 
   // 歩く: 部屋が変わったら、廊下の点を1つずつたどる
-  const [pos, setPos] = useState<Record<Member, Pt>>(() => Object.fromEntries(ORDER.map((m) => [m, seatOf("lounge", m)])) as Record<Member, Pt>);
+  // 最初は、開いた時点にいる部屋の席から始める（休憩室から始めると、ずっと作業していた社員まで、開くたびに歩いてくるように見えるため）
+  const [startRooms] = useState(() => {
+    const st = stateAt(initial.events, initial.now);
+    return Object.fromEntries(ORDER.map((m) => [m, st[m].room])) as Record<Member, Room>;
+  });
+  const [pos, setPos] = useState<Record<Member, Pt>>(() => Object.fromEntries(ORDER.map((m) => [m, seatOf(startRooms[m], m)])) as Record<Member, Pt>);
   const [walking, setWalking] = useState<Record<Member, boolean>>({ anthropic: false, openai: false, google: false });
-  const roomRef = useRef<Record<Member, Room>>({ anthropic: "lounge", openai: "lounge", google: "lounge" });
+  const roomRef = useRef<Record<Member, Room>>({ ...startRooms });
   const timers = useRef<Record<Member, ReturnType<typeof setTimeout>[]>>({ anthropic: [], openai: [], google: [] });
   const rooms = ORDER.map((m) => state[m].room).join(",");
+  // 端末の「動きを減らす」設定。途中で変わったときも拾い、歩いている途中なら、その場で行き先の席に置く
+  const reduced = useRef(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reduced.current = mq.matches;
+    const onChange = () => {
+      reduced.current = mq.matches;
+      if (!mq.matches) return;
+      for (const m of ORDER) {
+        timers.current[m].forEach(clearTimeout);
+        timers.current[m] = [];
+      }
+      setPos(Object.fromEntries(ORDER.map((m) => [m, seatOf(roomRef.current[m], m)])) as Record<Member, Pt>);
+      setWalking({ anthropic: false, openai: false, google: false });
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
   useEffect(() => {
     const next = rooms.split(",") as Room[];
     const all = timers.current;
@@ -260,7 +294,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
       roomRef.current[m] = to;
       all[m].forEach(clearTimeout);
       // 端末で「動きを減らす」にしている人には、廊下を歩かせず、行き先の席にそのまま置く（CSSの動きを止めるだけでは、歩く座標の更新が残るため）
-      if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (reduced.current) {
         const seat = seatOf(to, m);
         all[m] = [setTimeout(() => setPos((c) => ({ ...c, [m]: seat })), 0)];
         return;
@@ -357,7 +391,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
           const count = o.badge ? n[o.badge] : 0;
           const what = o.badge === "approvals" ? (owner ? "判断待ち" : "運営者の確認待ち") : "返事待ち";
           return (
-            <HotArea key={o.href} rect={o.rect} href={o.href} label={count ? `${o.label}（${what} ${count}件）` : o.label}>
+            <HotArea key={o.href} rect={o.rect} href={o.href} onClick={o.href === "#live" ? () => setSide("live") : undefined} label={count ? `${o.label}（${what} ${count}件）` : o.label}>
               {count > 0 && <span className="num pointer-events-none absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 text-[9px] font-bold text-accent-ink">{count}</span>}
             </HotArea>
           );
@@ -471,7 +505,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
             )}
             {side === "shops" && (
               <section className="space-y-3" aria-label="案件の展示">
-        <h2 className="flex items-center gap-1 text-sm font-bold"><Icon name="shop" />案件の展示<span className="num ml-auto text-xs font-normal text-muted">公開中 {snap.shops.filter((x) => x.status !== "closed").length}件</span></h2>
+        <h2 className="flex items-center gap-1 text-sm font-bold"><Icon name="shop" />案件の展示<span className="num ml-auto text-xs font-normal text-muted">公開中 {snap.shops.filter(isOpenShop).length}件</span></h2>
         {/* 案件は増えていくので、作業中の案件と、今日の訪問が多い順に5件だけ出し、残りは案件の一覧で見る */}
         {snap.shops.length ? (() => {
           const busy = new Set(ORDER.filter((m) => !walking[m]).map((m) => state[m].projectId));
@@ -536,7 +570,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
           <p className="num text-xs text-ink-2">この日のAIの呼び出し: {sel.c.calls}回・約{Math.round(sel.c.yen)}円</p>
           {sel.recent.length > 0 && (
             <div className="border-t border-line pt-2">
-              <p className="mb-1 text-xs text-muted">最近の発言（新しい順・全文{showcase ? "" : <>。ほかの社員の発言も、<a href="#live" className="underline">ライブ</a>のタブで見られます</>}）</p>
+              <p className="mb-1 text-xs text-muted">最近の発言（新しい順・全文{showcase ? "" : <>。ほかの社員の発言も、<a href="#live" onClick={() => setSide("live")} className="underline">ライブ</a>のタブで見られます</>}）</p>
               <ol className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
                 {sel.recent.map((l, i) => (
                   <li key={`${l.at}${i}`} className="text-xs">
