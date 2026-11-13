@@ -6,15 +6,16 @@ import { MEMBERS, type Member } from "./officeShared";
 // 概要ページ（/showcase）に載せるもの。来訪者が見るので、公開した・終わった実案件と、集計した数字だけを扱う
 
 // 概要ページに載せる案件: 実案件のうち、公開したもの・終わったものだけ（まだ公開していないアイデアや下書きは出さない）
+// 案件のカードと、概要ページのオフィス（showcaseOfficeSnapshot）の両方がこの条件を使う
 export function showcaseProjectRows(): ProjectRow[] {
   return db().prepare("SELECT * FROM projects WHERE demo = 0 AND (public_version IS NOT NULL OR stage IN ('continued','killed')) ORDER BY id DESC").all() as ProjectRow[];
 }
 
-// 案件の画面写真: 公開した版（なければ最新の版）の確認で撮ったもの。
+// 案件の画面写真: 公開した版の確認で撮ったもの。一度も公開していない案件（公開せずに終えたものなど）は、承認していない版なので出さない
 // 自由にデザインしたLPは PC の一番上（なければスマホの1画面目）、動くツールは自動テストで撮ったもの
-export function projectShot(p: Pick<ProjectRow, "id" | "public_version" | "lp_version">): string | null {
-  const v = p.public_version ?? p.lp_version;
-  const row = db().prepare("SELECT test FROM lp_versions WHERE project_id = ? AND version = ? ORDER BY id DESC LIMIT 1").get(p.id, v) as { test: string | null } | undefined;
+export function projectShot(p: Pick<ProjectRow, "id" | "public_version">): string | null {
+  if (p.public_version === null) return null;
+  const row = db().prepare("SELECT test FROM lp_versions WHERE project_id = ? AND version = ? ORDER BY id DESC LIMIT 1").get(p.id, p.public_version) as { test: string | null } | undefined;
   if (!row?.test) return null;
   try {
     const t = JSON.parse(row.test) as { kind?: string; pc?: string; shots?: string[]; screenshot?: string };
@@ -32,6 +33,12 @@ export function reachText(kind: ProjectRow["kind"], visits: number, conversions:
   return conversions ? `訪問${visits}人・${noun}${conversions}件` : `訪問${visits}人・まだ${noun}なし`;
 }
 
+// 概要ページの写真の読み出し口（/api/showcase/shot/[id]）が返すファイル: 概要ページに載せる案件の、公開した版の写真だけ
+export function showcaseShotFile(projectId: number): string | null {
+  const p = showcaseProjectRows().find((x) => x.id === projectId);
+  return p ? projectShot(p) : null;
+}
+
 export type ShowcaseProject = { id: number; title: string; kind: ProjectRow["kind"]; stage: ProjectRow["stage"]; author: Member | null; authorLabel: string; visits: number; conversions: number; shot: string | null; published: boolean };
 
 export function showcaseProjects(): ShowcaseProject[] {
@@ -39,7 +46,7 @@ export function showcaseProjects(): ShowcaseProject[] {
     const t = projectTotals(p.id);
     const m = modelInfo(p.idea_model ?? p.model_id);
     const author = m.provider === "anthropic" || m.provider === "openai" || m.provider === "google" ? m.provider : null;
-    return { id: p.id, title: p.title, kind: p.kind, stage: p.stage, author, authorLabel: m.label, visits: t.visits, conversions: t.signups, shot: projectShot(p), published: p.public_version !== null };
+    return { id: p.id, title: p.title, kind: p.kind, stage: p.stage, author, authorLabel: m.label, visits: t.visits, conversions: t.signups, shot: projectShot(p) ? `/api/showcase/shot/${p.id}?v=${p.public_version}` : null, published: p.public_version !== null };
   });
 }
 

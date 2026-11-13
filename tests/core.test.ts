@@ -10,7 +10,7 @@ import { listMeetings } from "../src/lib/meetings";
 import { pageSystem } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
 import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, showcaseOfficeSnapshot, talkDoing } from "../src/lib/office";
-import { projectShot, reachText } from "../src/lib/showcase";
+import { projectShot, reachText, showcaseProjectRows, showcaseShotFile } from "../src/lib/showcase";
 import { stateAt, tallyAt, toMs } from "../src/lib/officeShared";
 import { liveFeed } from "../src/lib/live";
 import { indexCounts } from "../src/lib/publish";
@@ -394,7 +394,30 @@ test("概要ページの案件: 訪問と成果を率でなく人数で書き、
   const v = db().prepare("INSERT INTO lp_versions (project_id, version, lp, test) VALUES (?, ?, '{}', ?)");
   v.run(id, 1, JSON.stringify({ kind: "page", ok: true, issues: [], shots: ["sp1.jpg"], pc: "pc.jpg", at: "x" }));
   v.run(id, 2, JSON.stringify({ ok: true, errors: [], screenshot: "tool-v2.png", at: "x" }));
-  assert.equal(projectShot({ id, public_version: 1, lp_version: 2 }), "pc.jpg");
-  assert.equal(projectShot({ id, public_version: null, lp_version: 2 }), "tool-v2.png");
-  assert.equal(projectShot({ id, public_version: 3, lp_version: 3 }), null);
+  assert.equal(projectShot({ id, public_version: 1 }), "pc.jpg");
+  assert.equal(projectShot({ id, public_version: 2 }), "tool-v2.png");
+  assert.equal(projectShot({ id, public_version: 3 }), null);
+  // 一度も公開していない案件は、最新の版に写真があっても出さない
+  assert.equal(projectShot({ id, public_version: null }), null);
+});
+
+test("概要ページの写真の読み出し口: 載せる案件の、公開した版の写真だけを返す", () => {
+  const v = db().prepare("INSERT INTO lp_versions (project_id, version, lp, test) VALUES (?, ?, '{}', ?)");
+  const shot = (file: string) => JSON.stringify({ ok: true, errors: [], screenshot: file, at: "x" });
+  // 公開中: 公開した第1版の写真だけ。そのあとの未公開の第2版の写真は返さない
+  const live = addProject("live");
+  db().prepare("UPDATE projects SET public_version = 1, lp_version = 2 WHERE id = ?").run(live);
+  v.run(live, 1, shot("live-v1.png"));
+  v.run(live, 2, shot("live-v2.png"));
+  assert.equal(showcaseShotFile(live), "live-v1.png");
+  // 公開せずに終えた案件: 概要ページには載るが、承認していない版の写真は返さない
+  const killed = addProject("killed");
+  v.run(killed, 1, shot("killed-v1.png"));
+  assert.equal(showcaseShotFile(killed), null);
+  // 作成中の案件: 概要ページに載らないので返さない
+  const draft = addProject("lp");
+  v.run(draft, 1, shot("draft-v1.png"));
+  assert.equal(showcaseShotFile(draft), null);
+  assert.ok(showcaseProjectRows().some((p) => p.id === killed));
+  assert.equal(showcaseProjectRows().some((p) => p.id === draft), false);
 });

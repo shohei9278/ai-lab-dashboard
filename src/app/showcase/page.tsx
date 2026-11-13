@@ -226,7 +226,7 @@ function ProjectCard({ p, url }: { p: ShowcaseProject; url: string | null }) {
       <div className="relative aspect-[16/10] overflow-hidden border-b border-line bg-surface-2">
         {p.shot ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={`/api/screenshots/${p.shot}`} alt={`${p.title} の画面`} loading="lazy" className="absolute inset-0 h-full w-full object-cover object-top" />
+          <img src={p.shot} alt={`${p.title} の画面`} loading="lazy" className="absolute inset-0 h-full w-full object-cover object-top" />
         ) : (
           <div className="grid h-full place-items-center text-muted"><Icon name={p.kind === "tool" ? "tool" : "page"} className="h-8 w-8" label="画面写真なし" /></div>
         )}

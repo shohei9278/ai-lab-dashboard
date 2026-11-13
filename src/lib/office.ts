@@ -5,6 +5,7 @@ import { openRequests } from "./plan";
 import { pendingCount } from "./views";
 import { modelInfo } from "./models";
 import { liveFeed } from "./live";
+import { showcaseProjectRows } from "./showcase";
 import type { Member, OfficeEvent, OfficeHappening, OfficeLine, OfficeShop, Room } from "./officeShared";
 
 // オフィスの画面（試作）: AIの社員3人が、いま何をしているかを部屋の位置で見せる
@@ -157,7 +158,7 @@ export function officeShops(): OfficeShop[] {
 export function showcaseOfficeSnapshot() {
   const s = getSettings();
   const snap = officeSnapshot({ guest: true });
-  const open = db().prepare("SELECT id, title FROM projects WHERE demo = 0 AND (public_version IS NOT NULL OR stage IN ('continued','killed'))").all() as { id: number; title: string }[];
+  const open = showcaseProjectRows();
   const ids = new Set(open.map((p) => p.id));
   const titles = new Set(open.map((p) => p.title));
   const shown = (e: OfficeEvent) => (e.projectId !== null ? ids.has(e.projectId) : !!e.project && titles.has(e.project));
