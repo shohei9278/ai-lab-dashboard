@@ -96,7 +96,7 @@ function HotArea({ rect, href, label, children, onClick }: { rect: Rect; href: s
 
 // 案件の展示の看板。案件は増えていくので、1つずつ並べず「公開中の数・今日の訪問・登録」をまとめて出す。
 // 社員が案件の作業をしているときは、その案件の名前と社員を、社員の色で光らせて出す
-function ShowcaseSign({ shops, working }: { shops: OfficeShop[]; working: { m: Member; id: number | null; title: string }[] }) {
+function ShowcaseSign({ shops, working, link = true }: { shops: OfficeShop[]; working: { m: Member; id: number | null; title: string }[]; link?: boolean }) {
   const open = shops.filter(isOpenShop);
   const visits = open.reduce((a, s) => a + s.visitsToday, 0);
   const conv = open.reduce((a, s) => a + s.convToday, 0);
@@ -106,11 +106,12 @@ function ShowcaseSign({ shops, working }: { shops: OfficeShop[]; working: { m: M
   const who = working.map((x) => nameOf(x.m)).filter((n, i, a) => a.indexOf(n) === i).join("・");
   const glow = working.length ? COLOR[working[0].m] : null;
   const doing = w ? `${who}が作業中: ${w.title}` : projects.length > 1 ? `${who}が${projects.length}件の案件を作業中` : null;
+  const Tag = link ? "a" : "div";
   return (
-    <a
-      href={w?.id ? `/projects/${w.id}` : "/projects"}
+    <Tag
+      href={link ? (w?.id ? `/projects/${w.id}` : "/projects") : undefined}
       aria-label={doing ?? `公開中の案件 ${open.length}件・今日の訪問 ${visits}人`}
-      className="office-hot absolute z-10 w-max max-w-[37%] rounded-lg border bg-black/75 px-2 py-1 text-left text-[10px] leading-snug text-white shadow backdrop-blur-sm sm:text-xs"
+      className={`${link ? "office-hot " : ""}absolute z-10 w-max max-w-[37%] rounded-lg border bg-black/75 px-2 py-1 text-left text-[10px] leading-snug text-white shadow backdrop-blur-sm sm:text-xs`}
       style={{ left: `${SHOWCASE.x}%`, top: `${SHOWCASE.y}%`, borderColor: glow ?? "rgba(255,255,255,.25)", boxShadow: glow ? `0 0 12px ${glow}` : undefined }}
     >
       <span className="num flex items-center gap-2 whitespace-nowrap">
@@ -120,7 +121,7 @@ function ShowcaseSign({ shops, working }: { shops: OfficeShop[]; working: { m: M
       </span>
       {/* スマホ幅では展示台が隠れるので、作業中の案件名は出さない（絵の下の一覧で見られる） */}
       {doing && <span className="hidden truncate font-bold sm:block" style={{ color: glow ?? undefined }}>{doing}</span>}
-    </a>
+    </Tag>
   );
 }
 
@@ -175,7 +176,8 @@ function MemberRow({ member, s, c, line, walking, onHot }: { member: Member; s: 
 // owner: 運営者かどうか（お知らせの言い方を変える）/ numbers: 上の数字の帯を出すか（ホームの中では、上に同じ数字があるので出さない）
 // live: 下に出すライブの欄の最初のデータ（渡したときだけ出す。再生の時刻に合わせるため、オフィスの中に置く）
 // controls: ライブの欄に出す、運営者の指示のボタン（運営者のときだけ渡す）
-export function OfficeView({ initial, owner = false, numbers = true, live, controls }: { initial: OfficeSnapshot; owner?: boolean; numbers?: boolean; live?: LiveSnapshot; controls?: React.ReactNode }) {
+// showcase: 概要ページ（/showcase）の、来訪者が見るだけの形。部屋や物から機能の画面に移らず、横の欄も出さない。データは /api/showcase/office から読む
+export function OfficeView({ initial, owner = false, numbers = true, live, controls, showcase = false }: { initial: OfficeSnapshot; owner?: boolean; numbers?: boolean; live?: LiveSnapshot; controls?: React.ReactNode; showcase?: boolean }) {
   const [snap, setSnap] = useState(initial);
   const [now, setNow] = useState(initial.now);
   const [step, setStep] = useState(0);
@@ -199,11 +201,11 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
   // 10秒ごとに新しい記録を読む
   useEffect(() => {
     const t = setInterval(async () => {
-      const r = await fetch("/api/office", { cache: "no-store" }).catch(() => null);
+      const r = await fetch(showcase ? "/api/showcase/office" : "/api/office", { cache: "no-store" }).catch(() => null);
       if (r?.ok) setSnap((await r.json()) as OfficeSnapshot);
     }, 10_000);
     return () => clearInterval(t);
-  }, []);
+  }, [showcase]);
 
   // 再生する時刻の並び（動き・吹き出し・出来事の時刻）
   const times = useMemo(
@@ -340,7 +342,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
           {!replaying ? (liveNow ? "● いま（作業中）" : "● いま（全員休憩中）") : <><Icon name={paused ? "pause" : "play"} className="mr-1 h-[1em] w-[1em]" />{paused ? "一時停止中（直近24時間）" : "直近24時間を再生中"}</>}
         </span>
         <span className="num text-ink-2">{jstHM(at)}</span>
-        <span className="ml-auto text-xs text-muted">部屋・家具・案件の看板を押すと、その機能の画面に移ります</span>
+        <span className="ml-auto text-xs text-muted">{showcase ? "社員を押すと、いまの作業が出ます" : "部屋・家具・案件の看板を押すと、その機能の画面に移ります"}</span>
       </div>
 
       {numbers && (<>
@@ -373,19 +375,19 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
         </div>
       )}
 
-      <div className="gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_21rem]">
+      <div className={showcase ? "" : "gap-3 lg:grid lg:grid-cols-[minmax(0,1fr)_21rem]"}>
       <div className="office-scene card relative w-full overflow-hidden bg-[#e6e6e6] p-0" style={{ aspectRatio: `${BG.w} / ${BG.h}` }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={BG.src} style={{ imageRendering: "pixelated" }} alt="AIの社員のオフィス（開発室・会議室・広報デスク・休憩室・社長室・案件の展示）" className="absolute inset-0 h-full w-full select-none object-cover" draggable={false} />
 
-        {/* 部屋と物（押すと機能の画面へ）。部屋の名札も押せる */}
-        {(Object.keys(ROOM_META) as Room[]).map((r) => (
+        {/* 部屋と物（押すと機能の画面へ）。部屋の名札も押せる。概要ページでは押せる場所を置かず、名札だけ出す */}
+        {!showcase && (Object.keys(ROOM_META) as Room[]).map((r) => (
           <HotArea key={r} rect={ROOM_AT[r].rect} href={ROOM_META[r].href} label={`${ROOMS[r]}: ${ROOM_META[r].go}`} />
         ))}
-        {AREAS.map((a) => (
+        {!showcase && AREAS.map((a) => (
           <HotArea key={a.name} rect={a.rect} href={a.href} label={`${a.name}: ${a.go}`} />
         ))}
-        {OBJECTS.map((o) => {
+        {!showcase && OBJECTS.map((o) => {
           const count = o.badge ? n[o.badge] : 0;
           const what = o.badge === "approvals" ? (owner ? "判断待ち" : "運営者の確認待ち") : "返事待ち";
           return (
@@ -397,7 +399,11 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
         {[
           ...(Object.keys(ROOM_META) as Room[]).map((r) => ({ key: r, at: ROOM_AT[r].label, icon: ROOM_META[r].icon, name: ROOMS[r], href: ROOM_META[r].href, go: ROOM_META[r].go })),
           ...AREAS.map((a) => ({ key: a.name, at: a.label, icon: a.icon, name: a.name, href: a.href, go: a.go })),
-        ].map((r) => (
+        ].map((r) => showcase ? (
+          <span key={r.key} className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md bg-black/60 px-1 py-0.5 text-[9px] font-bold text-white backdrop-blur-sm sm:px-1.5 sm:text-xs" style={{ left: `${r.at.x}%`, top: `${r.at.y}%` }}>
+            <Icon name={r.icon} className="mr-0.5 h-[1em] w-[1em]" />{r.name}
+          </span>
+        ) : (
           <Link key={r.key} href={r.href} aria-label={`${r.name}: ${r.go}`} className="office-hot group absolute z-10 whitespace-nowrap rounded-md bg-black/60 px-1 py-0.5 text-[9px] font-bold text-white backdrop-blur-sm sm:px-1.5 sm:text-xs" style={{ left: `${r.at.x}%`, top: `${r.at.y}%` }}>
             <Icon name={r.icon} className="mr-0.5 h-[1em] w-[1em]" />{r.name}<span className="hidden font-normal group-hover:inline group-focus-visible:inline"> → {r.go}</span>
           </Link>
@@ -411,7 +417,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
         }))}
 
         {/* 案件の展示台の看板 */}
-        <ShowcaseSign shops={snap.shops} working={ORDER.filter((m) => !walking[m] && state[m].project).map((m) => ({ m, id: state[m].projectId, title: state[m].project! }))} />
+        <ShowcaseSign link={!showcase} shops={snap.shops} working={ORDER.filter((m) => !walking[m] && state[m].project).map((m) => ({ m, id: state[m].projectId, title: state[m].project! }))} />
 
         {/* ロボット社員（足もとが席の位置に来る） */}
         {MEMBERS.map((m) => {
@@ -467,7 +473,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
       {/* オフィスの横の欄（スマホでは絵の下）: ライブ・社員の状態・案件をタブで切り替える。最初はライブ（ロボットの動きと会話を一緒に見るため）
           PCでは絵と同じ高さにそろえ、中だけスクロールする（欄の中身で行の高さが伸びないよう、中身は absolute で置く）
           aside はサイドメニューに使っているので、ここは div と section にする（来訪者の画面のテストがメニューを aside で探すため） */}
-      <div id="live" className="card mt-3 scroll-mt-4 p-0 lg:relative lg:mt-0">
+      {!showcase && <div id="live" className="card mt-3 scroll-mt-4 p-0 lg:relative lg:mt-0">
         <div className="flex flex-col lg:absolute lg:inset-0">
           <div role="tablist" aria-label="オフィスの横の欄" className="flex gap-1 border-b border-line p-2">
             {SIDE_TABS.filter((x) => x.id !== "live" || live).map((x) => (
@@ -534,7 +540,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
             )}
           </div>
         </div>
-      </div>
+      </div>}
       </div>
 
       {replaying && (
@@ -564,7 +570,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
           <p className="num text-xs text-ink-2">この日のAIの呼び出し: {sel.c.calls}回・約{Math.round(sel.c.yen)}円</p>
           {sel.recent.length > 0 && (
             <div className="border-t border-line pt-2">
-              <p className="mb-1 text-xs text-muted">最近の発言（新しい順・全文。ほかの社員の発言も、<a href="#live" onClick={() => setSide("live")} className="underline">ライブ</a>のタブで見られます）</p>
+              <p className="mb-1 text-xs text-muted">最近の発言（新しい順・全文{showcase ? "" : <>。ほかの社員の発言も、<a href="#live" onClick={() => setSide("live")} className="underline">ライブ</a>のタブで見られます</>}）</p>
               <ol className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
                 {sel.recent.map((l, i) => (
                   <li key={`${l.at}${i}`} className="text-xs">
