@@ -83,7 +83,9 @@ const nameOf = (m: Member) => MEMBERS.find((x) => x.id === m)!.name;
 // 押せる場所（透明。乗せる・選ぶと枠が光り、説明が出る）
 function HotArea({ rect, href, label, children }: { rect: Rect; href: string; label: string; children?: React.ReactNode }) {
   return (
-    <a href={href} aria-label={label} className="office-hot group absolute rounded-lg hover:z-30 hover:bg-white/10 focus-visible:z-30 focus-visible:bg-white/10" style={pct(rect)}>
+    // 部屋や物の範囲そのものは、ロボットや名札より後ろのまま（乗せても前に出さない。前に出すと、部屋の中のロボットが押せなくなる）
+    // 光らせ方に filter を使うと重なりの層ができて説明が名札の後ろに隠れるので、枠線と薄い色だけにする（説明だけが前に出る）
+    <a href={href} aria-label={label} className="office-area group absolute rounded-lg hover:bg-white/10 focus-visible:bg-white/10" style={pct(rect)}>
       {/* 説明は枠の上に出す。絵の上の端に近いものは上に出すと切れるので、大きな部屋は枠の内側の下、小さな物は枠の下に出す。
           左右の端に近いものは、真ん中にそろえると切れるので、端の側にそろえる */}
       <span className={`pointer-events-none absolute z-30 hidden ${rect.r > 85 ? "right-0" : rect.l < 15 ? "left-0" : "left-1/2 -translate-x-1/2"} ${rect.t >= 12 ? "top-0 -translate-y-full" : rect.b - rect.t > 15 ? "bottom-1" : "top-full mt-1"} whitespace-nowrap rounded bg-black/80 px-1.5 py-0.5 text-[10px] text-white group-hover:block group-focus-visible:block sm:text-xs`}>{label}</span>
@@ -98,12 +100,16 @@ function ShowcaseSign({ shops, working }: { shops: OfficeShop[]; working: { m: M
   const open = shops.filter((s) => s.status !== "closed");
   const visits = open.reduce((a, s) => a + s.visitsToday, 0);
   const conv = open.reduce((a, s) => a + s.convToday, 0);
-  const w = working[0];
-  const glow = w ? COLOR[w.m] : null;
+  // 作業中の案件が2件以上あるときは、1件だけを出すと取り違えるので「◯件を作業中」にして、案件の一覧へ移す
+  const projects = [...new Map(working.map((x) => [x.id ?? x.title, x])).values()];
+  const w = projects.length === 1 ? projects[0] : null;
+  const who = working.map((x) => nameOf(x.m)).filter((n, i, a) => a.indexOf(n) === i).join("・");
+  const glow = working.length ? COLOR[working[0].m] : null;
+  const doing = w ? `${who}が作業中: ${w.title}` : projects.length > 1 ? `${who}が${projects.length}件の案件を作業中` : null;
   return (
     <a
       href={w?.id ? `/projects/${w.id}` : "/projects"}
-      aria-label={w ? `${w.title}（${working.map((x) => nameOf(x.m)).join("・")}が作業中）` : `公開中の案件 ${open.length}件・今日の訪問 ${visits}人`}
+      aria-label={doing ?? `公開中の案件 ${open.length}件・今日の訪問 ${visits}人`}
       className="office-hot absolute z-10 w-max max-w-[37%] rounded-lg border bg-black/75 px-2 py-1 text-left text-[10px] leading-snug text-white shadow backdrop-blur-sm sm:text-xs"
       style={{ left: `${SHOWCASE.x}%`, top: `${SHOWCASE.y}%`, borderColor: glow ?? "rgba(255,255,255,.25)", boxShadow: glow ? `0 0 12px ${glow}` : undefined }}
     >
@@ -113,7 +119,7 @@ function ShowcaseSign({ shops, working }: { shops: OfficeShop[]; working: { m: M
         {conv > 0 && <span className="flex items-center gap-0.5"><Icon name="check" label="今日の登録・利用" />{conv}</span>}
       </span>
       {/* スマホ幅では展示台が隠れるので、作業中の案件名は出さない（絵の下の一覧で見られる） */}
-      {w && <span className="hidden truncate font-bold sm:block" style={{ color: glow ?? undefined }}>{working.map((x) => nameOf(x.m)).join("・")}が作業中: {w.title}</span>}
+      {doing && <span className="hidden truncate font-bold sm:block" style={{ color: glow ?? undefined }}>{doing}</span>}
     </a>
   );
 }
@@ -126,6 +132,8 @@ const KEYFRAMES = `
 @keyframes office-burst { from { transform: translateY(0); opacity: 1 } to { transform: translateY(-60px); opacity: 0 } }
 .office-hot { cursor: pointer; transition: filter .15s, box-shadow .15s }
 .office-hot:hover, .office-hot:focus-visible { filter: brightness(1.08) saturate(1.25); outline: 2px solid var(--accent); outline-offset: 2px }
+.office-area { cursor: pointer }
+.office-area:hover, .office-area:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 @media (prefers-reduced-motion: reduce) { .office-scene * { animation: none !important; transition: none !important } }
 `;
 
