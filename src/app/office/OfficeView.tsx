@@ -251,11 +251,34 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
   const yen = (v: number) => `${v.toLocaleString("ja-JP")}円`;
 
   // 歩く: 部屋が変わったら、廊下の点を1つずつたどる
-  const [pos, setPos] = useState<Record<Member, Pt>>(() => Object.fromEntries(ORDER.map((m) => [m, seatOf("lounge", m)])) as Record<Member, Pt>);
+  // 最初は、開いた時点にいる部屋の席から始める（休憩室から始めると、ずっと作業していた社員まで、開くたびに歩いてくるように見えるため）
+  const [startRooms] = useState(() => {
+    const st = stateAt(initial.events, initial.now);
+    return Object.fromEntries(ORDER.map((m) => [m, st[m].room])) as Record<Member, Room>;
+  });
+  const [pos, setPos] = useState<Record<Member, Pt>>(() => Object.fromEntries(ORDER.map((m) => [m, seatOf(startRooms[m], m)])) as Record<Member, Pt>);
   const [walking, setWalking] = useState<Record<Member, boolean>>({ anthropic: false, openai: false, google: false });
-  const roomRef = useRef<Record<Member, Room>>({ anthropic: "lounge", openai: "lounge", google: "lounge" });
+  const roomRef = useRef<Record<Member, Room>>({ ...startRooms });
   const timers = useRef<Record<Member, ReturnType<typeof setTimeout>[]>>({ anthropic: [], openai: [], google: [] });
   const rooms = ORDER.map((m) => state[m].room).join(",");
+  // 端末の「動きを減らす」設定。途中で変わったときも拾い、歩いている途中なら、その場で行き先の席に置く
+  const reduced = useRef(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    reduced.current = mq.matches;
+    const onChange = () => {
+      reduced.current = mq.matches;
+      if (!mq.matches) return;
+      for (const m of ORDER) {
+        timers.current[m].forEach(clearTimeout);
+        timers.current[m] = [];
+      }
+      setPos(Object.fromEntries(ORDER.map((m) => [m, seatOf(roomRef.current[m], m)])) as Record<Member, Pt>);
+      setWalking({ anthropic: false, openai: false, google: false });
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
   useEffect(() => {
     const next = rooms.split(",") as Room[];
     const all = timers.current;
@@ -269,7 +292,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
       roomRef.current[m] = to;
       all[m].forEach(clearTimeout);
       // 端末で「動きを減らす」にしている人には、廊下を歩かせず、行き先の席にそのまま置く（CSSの動きを止めるだけでは、歩く座標の更新が残るため）
-      if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      if (reduced.current) {
         const seat = seatOf(to, m);
         all[m] = [setTimeout(() => setPos((c) => ({ ...c, [m]: seat })), 0)];
         return;
