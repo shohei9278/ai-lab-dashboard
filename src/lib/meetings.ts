@@ -8,7 +8,7 @@ import type { AdhocContent } from "./adhoc";
 // - アイデア会議（3社が案を出し、作者を伏せて採点し合う）
 // - 文章と構成の会議・デザインの会議（作り比べと採点）
 // - 判断の会議（撤退・継続などで意見が分かれたときの議論）
-// - 朝会（毎朝の計画。日替わりの担当）
+// - 朝会（毎朝の計画。ほかの社員が先に意見を出し、日替わりの担当が計画を書く）
 // - 週の定例会議（3社が振り返り、改善案を出し合って採点する）
 
 export type MeetingKind = "adhoc" | "idea" | "copy" | "design" | "judge" | "plan" | "weekly";
@@ -195,11 +195,15 @@ function planMeetings(days: number): Meeting[] {
   const rows = db().prepare("SELECT * FROM daily_plans WHERE created_at >= datetime('now', ?) ORDER BY id").all(since(days)) as PlanRow[];
   return rows.map((p) => {
     const g = planProgress(p);
+    const ops = Array.isArray(g.content.opinions) ? g.content.opinions : [];
     return {
       key: `plan-${p.id}`, kind: "plan" as const, at: p.created_at, title: `${p.day.slice(5).replace("-", "/")}の朝会`,
-      attendees: [p.model_id],
-      conclusion: `ネック「${BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}」: ${g.content.focus}（予定 ${g.done}/${g.total}件 済み）`,
-      items: [{ who: p.model_id, title: "振り返り", text: g.content.review }],
+      attendees: uniq([p.model_id, ...ops.map((o) => o.modelId)]),
+      conclusion: `ネック「${BOTTLENECK_LABEL[g.content.bottleneck].split("（")[0]}」: ${g.content.focus}（担当 ${modelInfo(p.model_id).label}・予定 ${g.done}/${g.total}件 済み）`,
+      items: [
+        ...ops.map((o) => ({ who: o.modelId, title: "意見（今のネックと、今日やるべきこと）", text: o.text })),
+        { who: p.model_id, title: ops.length ? "振り返り（意見を読んで、担当が計画を書いた）" : "振り返り", text: g.content.review },
+      ],
     };
   });
 }
