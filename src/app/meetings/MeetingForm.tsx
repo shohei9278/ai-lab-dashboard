@@ -14,7 +14,7 @@ export function MeetingForm({ members, running }: { members: { id: string; label
   if (running) {
     return (
       <p className="text-sm">
-        いま「{running}」の会議をしています（1〜3分ほど）。<Link href="/live" className="text-accent underline">ライブで様子を見る</Link>
+        いま「{running}」の会議をしています（1〜3分ほど）。<Link href="/#live" className="text-accent underline">ホームのライブで様子を見る</Link>
       </p>
     );
   }

@@ -9,6 +9,9 @@ import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
 import { pageSystem } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
+import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, talkDoing } from "../src/lib/office";
+import { isOpenShop, stateAt, tallyAt, toMs } from "../src/lib/officeShared";
+import { liveFeed } from "../src/lib/live";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
 import { skitHtml } from "../src/lib/recordSkit";
@@ -234,4 +237,129 @@ test("プロンプトの比較: 始める前に、項目・案件・キーを確
   // 途中で止まったままの比較は、失敗として閉じる
   db().prepare("INSERT INTO prompt_tests (at, project_id, factor, model_id) VALUES (datetime('now', '-2 hours'), ?, 'reader', 'claude-opus-5-5')").run(lpId);
   assert.equal(listPromptTests().find((t) => t.factor === "reader")!.status, "error");
+});
+
+test("オフィス: 呼んだ目的で部屋を決め、3分たつと休憩室に戻る。SNSのAPIは社員に数えない", () => {
+  assert.equal(roomOf("LPのデザイン"), "dev");
+  assert.equal(roomOf("ツール作成"), "dev");
+  assert.equal(roomOf("判断（裏比較）"), "meeting");
+  assert.equal(roomOf("アイデアの採点"), "meeting");
+  assert.equal(roomOf("SNS投稿の下書き"), "pr");
+  const ev = [{ at: "2026-11-12 10:00:00", member: "anthropic" as const, room: "dev" as const, doing: "LPのデザイン", project: "x", projectId: 1, yen: 10 }];
+  assert.equal(stateAt(ev, "2026-11-12 10:02:00").anthropic.room, "dev");
+  assert.equal(stateAt(ev, "2026-11-12 10:04:00").anthropic.room, "lounge");
+  assert.equal(stateAt(ev, "2026-11-12 09:59:00").anthropic.room, "lounge");
+  assert.equal(stateAt(ev, "2026-11-12 10:01:00").openai.room, "lounge");
+  const ins = db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, 1, 0)");
+  ins.run("Xへの自動投稿", "x-api");
+  ins.run("判断", "gpt-5.6-sol");
+  const snap = officeSnapshot();
+  assert.equal(snap.events.some((e) => e.doing.startsWith("Xへの自動投稿")), false);
+  assert.equal(snap.events.some((e) => e.member === "openai" && e.room === "meeting"), true);
+  // 公開・撤退・続けるは出来事として取り、ほかの記録は取らない
+  const pid = addProject();
+  db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (?, 'system', 'publish', 'x'), (?, 'system', 'collect', 'y')").run(pid, pid);
+  const kinds = officeSnapshot().happenings.map((h) => h.kind);
+  assert.ok(kinds.includes("publish") && !kinds.includes("collect" as never));
+  // 費用と回数は、その時刻までの、その日（日本時間）の分だけ数える
+  const evs = [
+    { at: "2026-11-11 14:59:00", member: "anthropic" as const, room: "dev" as const, doing: "a", project: null, projectId: null, yen: 100 }, // 日本時間 11/11 23:59
+    { at: "2026-11-11 15:01:00", member: "anthropic" as const, room: "dev" as const, doing: "b", project: null, projectId: null, yen: 10 }, // 日本時間 11/12 0:01
+    { at: "2026-11-11 16:00:00", member: "anthropic" as const, room: "dev" as const, doing: "c", project: null, projectId: null, yen: 5 },
+    { at: "2026-11-11 15:30:00", member: "google" as const, room: "pr" as const, doing: "d", project: null, projectId: null, yen: 3 },
+  ];
+  assert.deepEqual(tallyAt(evs, "2026-11-11 15:30:00"), { anthropic: { calls: 1, yen: 10 }, openai: { calls: 0, yen: 0 }, google: { calls: 1, yen: 3 } });
+});
+
+test("オフィス: ライブのAIの会話（提案・採点）を、話した社員の吹き出しにする。同じ時刻のものはずらし、24時間より前は出さない", () => {
+  const cand = db().prepare("INSERT INTO idea_candidates (at, batch_id, label, author_model, title, payload) VALUES (?, 'office-t', ?, ?, ?, ?)");
+  const score = db().prepare("INSERT INTO idea_scores (candidate_id, scorer_model, score, reason) VALUES (?, ?, ?, ?)");
+  const at = new Date(Date.now() - 600_000).toISOString().replace("T", " ").slice(0, 19);
+  const a = Number(cand.run(at, "A", "claude-opus-5-5", "会話テストA", JSON.stringify({ reason: "狙いA" })).lastInsertRowid);
+  const b = Number(cand.run(at, "B", "claude-opus-5-5", "会話テストB", JSON.stringify({ reason: "狙いB" })).lastInsertRowid);
+  score.run(a, "gpt-5.6-sol", 72, "理由A");
+  score.run(b, "gpt-5.6-sol", 55, "理由B");
+  cand.run("2000-01-01 00:00:00", "C", "claude-opus-5-5", "会話テスト古い", JSON.stringify({}));
+  const talks = officeTalks().filter((l) => /会話テスト/.test(`${l.about}${l.text}`));
+  assert.ok(talks.every((l) => l.kind === "talk"));
+  assert.equal(talks.some((l) => /会話テスト古い/.test(l.text)), false);
+  const gpt = talks.filter((l) => l.member === "openai");
+  assert.deepEqual(gpt.map((l) => l.about).sort(), ["「会話テストA」を採点", "「会話テストB」を採点"]);
+  assert.ok(gpt.some((l) => l.text.startsWith("72点。理由A")));
+  // 同じ社員・同じ時刻の2件は、20秒ずらして順に出す
+  const times = gpt.map((l) => toMs(l.at)).sort();
+  assert.equal(times[1] - times[0], TALK_GAP_SECONDS * 1000);
+  assert.equal(talks.filter((l) => l.member === "anthropic").length, 2);
+  // 吹き出しの一覧にも入る
+  assert.ok(officeSnapshot().lines.some((l) => l.kind === "talk" && l.about === "アイデアを提案" && l.text.includes("会話テストA")));
+  // 議事録に保存した臨時会議も、意見・反論・結論（議長）として出す
+  const content = { topic: "会話テストの議題", rounds: [{ modelId: "gemini-3.1-pro-preview", opinion: "意見G", final: "最終G", changed: true }], conclusion: "結論C", actions: [], chair: "claude-opus-5-5" };
+  db().prepare("INSERT INTO meetings (period_start, period_end, chair_model, content, kind, topic) VALUES ('d', 'd', 'claude-opus-5-5', ?, 'adhoc', ?)").run(JSON.stringify(content), content.topic);
+  const meet = officeTalks().filter((l) => l.about?.startsWith("臨時会議「会話テストの議題」"));
+  assert.deepEqual(meet.map((l) => [l.member, l.about, l.text]), [
+    ["google", "臨時会議「会話テストの議題」で意見", "意見G"],
+    ["google", "臨時会議「会話テストの議題」で考えを変えた", "最終G"],
+    ["anthropic", "臨時会議「会話テストの議題」の結論（議長）", "結論C"],
+  ]);
+  // 話している間は会議室にいる扱い。ただし回数と費用には数えない
+  const snap = officeSnapshot();
+  const talkEv = snap.events.filter((e) => e.talk && e.doing === "臨時会議");
+  assert.ok(talkEv.length >= 3 && talkEv.every((e) => e.room === "meeting" && e.yen === 0));
+  assert.equal(talkDoing("「会話テストA」を採点"), "採点");
+  const last = talkEv[talkEv.length - 1];
+  assert.deepEqual(tallyAt(talkEv, last.at), { anthropic: { calls: 0, yen: 0 }, openai: { calls: 0, yen: 0 }, google: { calls: 0, yen: 0 } });
+});
+
+test("ライブ: AIの会話に、つぶやき・朝会の計画・調べ物の答えも出す。調べ物は来た人に出さず、オフィスではつぶやきを二重にしない", () => {
+  db().prepare("INSERT INTO voices (model_id, scene, text) VALUES ('gpt-5.6-sol', '朝会', '出力テストのつぶやき')").run();
+  db().prepare("INSERT INTO daily_plans (day, model_id, content) VALUES ('1999-01-01', 'gemini-3.1-pro-preview', ?)").run(JSON.stringify({ focus: "出力テストの方針", bottleneck: "reach", evidence: "訪問が少ない" }));
+  db().prepare("INSERT INTO research (question, status, summary, model_id) VALUES ('出力テストの問い', 'answered', '出力テストの答え', 'claude-opus-5-5')").run();
+  const owner = liveFeed();
+  const voice = owner.find((f) => f.text === "出力テストのつぶやき");
+  assert.equal(voice?.kind, "つぶやき（朝会）");
+  assert.equal(voice?.provider, "openai");
+  const plan = owner.find((f) => f.kind === "朝会で今日の計画" && f.text.startsWith("出力テストの方針"));
+  assert.ok(plan && plan.text.includes("訪問が少ない") && plan.provider === "google");
+  assert.ok(owner.some((f) => f.kind === "調べ物の答え" && f.text.includes("出力テストの答え")));
+  assert.equal(liveFeed({ guest: true }).some((f) => f.kind === "調べ物の答え"), false);
+  // オフィスでは、つぶやきは吹き出し（voice）として別に取っているので、会話（talk）には入れない
+  assert.equal(officeTalks().some((l) => l.text === "出力テストのつぶやき"), false);
+  assert.ok(officeTalks().some((l) => l.about === "朝会で今日の計画" && l.text.startsWith("出力テストの方針")));
+});
+
+test("オフィス: 上の帯の数字は、日本時間の今日の訪問と、デモでない案件だけを数える", () => {
+  const before = officeNumbers();
+  const live = addProject("live");
+  const demo = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, demo) VALUES ('d', 't', 'p', 's', 'h', 'r', 'live', 'm', 1)").run().lastInsertRowid);
+  const ins = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, ?, ?, 0, 'real')");
+  ins.run(live, jstToday(), 7, 1);
+  ins.run(live, day(-1), 100, 9);
+  ins.run(demo, jstToday(), 50, 5);
+  const after = officeNumbers();
+  assert.equal(after.visitsToday - before.visitsToday, 7);
+  assert.equal(after.convToday - before.convToday, 1);
+  assert.equal(after.live - before.live, 1);
+});
+
+test("オフィス: 案件の展示は、公開した案件のうち集客中・保留・育てる段階と、7日以内の撤退だけ。今日の訪問も付ける", () => {
+  const mk = (stage: string, extra = "") => Number(db().prepare(`INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, published_at${extra ? ", growth_phase" : ""}) VALUES ('店${stage}${extra}', 't', 'p', 's', 'h', 'r', ?, 'm', datetime('now')${extra ? ", 1" : ""})`).run(stage).lastInsertRowid);
+  const open = mk("live");
+  const growing = mk("live", "g");
+  const hold = mk("hold");
+  const killed = mk("killed");
+  const oldKilled = mk("killed");
+  db().prepare("UPDATE projects SET updated_at = datetime('now', '-10 days') WHERE id = ?").run(oldKilled);
+  const notPublished = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id) VALUES ('未公開', 't', 'p', 's', 'h', 'r', 'live', 'm')").run().lastInsertRowid);
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 4, 1, 0, 'real')").run(open, jstToday());
+  const shops = officeShops();
+  const ids = shops.map((x) => x.id);
+  for (const id of [open, growing, hold, killed]) assert.ok(ids.includes(id));
+  assert.ok(!ids.includes(oldKilled) && !ids.includes(notPublished));
+  const o = shops.find((x) => x.id === open);
+  if (o) assert.deepEqual([o.status, o.visitsToday, o.convToday], ["open", 4, 1]);
+  const g = shops.find((x) => x.id === growing);
+  if (g) assert.equal(g.status, "growing");
+  // 看板の「公開中」は、集客中と育てる段階だけ（保留と受付終了は数えない）
+  const st = (id: number) => shops.find((x) => x.id === id);
+  assert.deepEqual([open, growing, hold, killed].map((id) => isOpenShop(st(id)!)), [true, true, false, false]);
 });

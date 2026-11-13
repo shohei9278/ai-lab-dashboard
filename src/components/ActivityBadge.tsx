@@ -54,7 +54,7 @@ export function ActivityBadge() {
   if (!items.length && !done.length) return null;
   return (
     // スクロールしても見えるように、画面の右下に固定して出す
-    <Link href="/live" className="fixed bottom-4 right-4 z-50 flex max-w-[min(28rem,calc(100vw-2rem))] items-center gap-2 rounded-full border bg-surface px-3 py-2 text-xs shadow-lg hover:bg-surface-2" style={{ borderColor: items.length ? "var(--accent)" : "var(--good)" }} title="ライブ画面で見る">
+    <Link href="/#live" className="fixed bottom-4 right-4 z-50 flex max-w-[min(28rem,calc(100vw-2rem))] items-center gap-2 rounded-full border bg-surface px-3 py-2 text-xs shadow-lg hover:bg-surface-2" style={{ borderColor: items.length ? "var(--accent)" : "var(--good)" }} title="ホームのライブで見る">
       <style>{`@keyframes lab-badge { 0%,100% { opacity: 1 } 50% { opacity: .3 } } .lab-badge { animation: lab-badge 1.4s ease-in-out infinite } @media (prefers-reduced-motion: reduce) { .lab-badge { animation: none } }`}</style>
       {items.length ? (
         <>

@@ -1,7 +1,7 @@
 import { isOwner } from "@/lib/viewer";
 import Link from "next/link";
 import { db, getSettings } from "@/lib/db";
-import { getModel } from "@/lib/models";
+import { getModel, modelInfo } from "@/lib/models";
 import { autoPublishStats } from "@/lib/loop";
 import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
 import { SignupTrend } from "@/components/SignupTrend";
@@ -11,15 +11,20 @@ import { ShowMore } from "@/components/ShowMore";
 import { KillSwitch } from "@/components/KillSwitch";
 import { Stat } from "@/components/ui";
 import { budgetState } from "@/lib/budget";
-import { planProgress, todayPlan } from "@/lib/plan";
-import { PlanSummary, PlanTasks, RequestCount, unreviewedPostCount } from "./plan/PlanView";
-import { Replan } from "./plan/PlanActions";
+import { unreviewedPostCount } from "@/lib/postStats";
+import { officeSnapshot } from "@/lib/office";
+import { OfficeView } from "./office/OfficeView";
+import { liveSnapshot } from "@/lib/live";
+import { OwnerActions } from "./office/OwnerActions";
+import { adhocRunning } from "@/lib/adhoc";
+import { members } from "@/lib/weekly";
+import { ideaAuthors } from "@/lib/loop";
+import { xConfigured } from "@/lib/xPost";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const s = getSettings();
-  const plan = s.dailyPlan ? todayPlan() : undefined;
   const hasSimulated = !!db().prepare("SELECT 1 FROM metrics WHERE source = 'simulated' LIMIT 1").get();
   // 場所ごとの最後の自動投稿が失敗していたら出す
   const xLastError = db().prepare(
@@ -32,6 +37,7 @@ export default async function Home() {
   const you = owner ? "あなた" : "運営者";
   const waiting = waitingItems();
   const autoStats = autoPublishStats();
+  const unseenPosts = owner ? unreviewedPostCount() : 0;
   const diff = o.todaySignups - o.yesterdaySignups;
   const budgetRatio = s.monthlyBudgetJpy ? o.aiJpy / s.monthlyBudgetJpy : 0;
   const bud = budgetState();
@@ -87,13 +93,29 @@ export default async function Home() {
         <Stat label="今月AIが自動で処理した数" value={`${o.aiCallsMonth}回`} sub={`今日 ${o.aiCallsToday}回・アイデア出し、ページ作成、投稿、判断など`} />
       </div>
 
+      {/* オフィス（AIの社員のいまの様子）。来訪者・運営者とも、大きな数字のすぐ下に出す（専用のページは作らない） */}
+      <section aria-labelledby="office-title" className="space-y-2">
+        <h2 id="office-title" className="font-bold">AIの社員が働くオフィス</h2>
+        <p className="text-sm text-ink-2">Claude・GPT・Gemini のロボットの社員が、いま何をしているかを部屋の位置で見せています。</p>
+        {/* ライブ（AIの会話と処理のログ）は、もとは別の画面だったが、オフィスと同じ「いま何をしているか」を見せるものなので、オフィスの下にまとめた */}
+        <OfficeView initial={officeSnapshot({ guest: !owner })} owner={owner} numbers={!owner} live={liveSnapshot({ guest: !owner })}
+          controls={owner ? (
+            <OwnerActions
+              meeting={{ members: members().map((id) => ({ id, label: modelInfo(id).label, color: `var(--series-${modelInfo(id).provider})` })), running: adhocRunning() }}
+              ideaAuthors={ideaAuthors().map((id) => getModel(id).label)}
+              viral={{ ready: xConfigured(), yen: Math.round((s.viralSearchCount + s.wantsSearchCount) * 0.005 * 150) }}
+            />
+          ) : undefined}
+        />
+      </section>
+
       {/* 止まっているもの */}
       <section id="waiting" className="card scroll-mt-4 p-4" style={waiting.length ? { borderColor: "var(--accent)" } : undefined}>
         <Head title={`${you}の確認・対応`} note="AIだけで公開したものの確認と、AIが人に回したもの（チェックで問題が残った・上限に達したなど）です。古い順で、行を押すと案件の画面に移動します。" />
         {waiting.length === 0 ? (
           <p className="text-sm text-ink-2">いまは確認することはありません。AIが自動で進めています。</p>
         ) : (
-          <ShowMore as="ul" initial={5} className="divide-y divide-line">
+          <ShowMore as="ul" initial={3} className="divide-y divide-line">
             {waiting.map((w) => {
               const label = w.kind === "stuck"
                 ? { title: "AIの作業が途中で停止", action: "作り直しを指示する" }
@@ -143,38 +165,15 @@ export default async function Home() {
             {autoStats.reviewed > 0 ? `＝${pct(autoStats.bad / autoStats.reviewed, 0)}` : ""}）
           </p>
         )}
+        {owner && unseenPosts > 0 && (
+          <p className="mt-3 border-t border-line pt-3 text-xs text-ink-2">
+            AIだけで出した投稿のうち、まだ見ていないもの <b className="num">{unseenPosts}件</b>（直近3日）
+            <Link href="/growth#posts" className="ml-2 text-accent underline">確かめる</Link>
+          </p>
+        )}
       </section>
 
-      {/* 今日のAIの計画 */}
-      {s.dailyPlan && (
-        <section id="plan" className="card scroll-mt-4 space-y-3 p-4">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="font-bold">今日のAIの計画</h2>
-            <span className="flex flex-wrap items-center gap-3 text-sm">
-              {owner && <Replan label={plan ? "作り直す（約10〜20円）" : "今日の計画を作る（約10〜20円）"} />}
-              <Link href="/plan" className="text-accent underline">AIの見立て・これまでの達成度</Link>
-            </span>
-          </div>
-          {plan ? (
-            <>
-              <PlanSummary plan={plan} />
-              <RequestCount owner={owner} />
-              {owner && unreviewedPostCount() > 0 && (
-                <p className="text-sm">
-                  AIだけで出した投稿のうち、まだ見ていないもの <b className="num">{unreviewedPostCount()}件</b>（直近3日）
-                  <Link href="/growth#posts" className="ml-2 text-accent underline">確かめる</Link>
-                </p>
-              )}
-              <details className="group border-t border-line pt-2">
-                <summary className="cursor-pointer text-sm text-ink-2">今日の予定を開く（{planProgress(plan).done}/{planProgress(plan).total}件 済み）</summary>
-                <div className="mt-2"><PlanTasks plan={plan} owner={owner} /></div>
-              </details>
-            </>
-          ) : (
-            <p className="text-sm text-ink-2">今日の計画はまだありません。毎朝{Math.min(s.dailyHour, 8)}時以降の自動の見回り（5分ごと）で、AIが全案件を振り返って作ります。</p>
-          )}
-        </section>
-      )}
+      {/* 今日のAIの計画は、オフィスのホワイトボードとメニューの「毎日の計画」から見る（ホームには置かない） */}
 
       {/* SNSの自動投稿が止まっているときだけ知らせる（一覧は集客のページ） */}
       {xLastError && (
@@ -235,7 +234,7 @@ export default async function Home() {
         <span className="text-muted">詳しく見る:</span>
         <Link href="/projects" className="text-accent underline">案件の段階とアイデア出し</Link>
         <Link href="/growth" className="text-accent underline">集客とSNSの投稿</Link>
-        <Link href="/live" className="text-accent underline">AIの処理ログ</Link>
+        <Link href="/#live" className="text-accent underline">AIの会話と処理ログ</Link>
         <Link href="/voices" className="text-accent underline">社員の声</Link>
         <Link href="/lab" className="text-accent underline">AIの成績</Link>
         <Link href="/notes" className="text-accent underline">教訓と資料</Link>

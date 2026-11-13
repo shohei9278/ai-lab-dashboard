@@ -26,7 +26,7 @@ export default async function PlanPage() {
   return (
     <div className="space-y-6">
       <PageIntro title="毎日の計画" actions={owner && s.dailyPlan ? <Replan label={plan ? "計画を作り直す（約10〜20円）" : "今日の計画を作る（約10〜20円）"} /> : undefined}>
-        <Link href="/#plan" className="underline">ホームに戻る</Link>。毎朝（{Math.min(s.dailyHour, 8)}時以降）、AIが公開中の全案件と最近の結果を振り返り、今いちばんのネックを1つ決めて、今日やること（宣伝の投稿・普通の投稿・ページを直す・新しい案件を休む など）を決めます。
+        毎朝（{Math.min(s.dailyHour, 8)}時以降）、AIが公開中の全案件と最近の結果を振り返り、今いちばんのネックを1つ決めて、今日やること（宣伝の投稿・普通の投稿・ページを直す・新しい案件を休む など）を決めます。
         時刻が来た予定から自動で実行し、翌朝その結果を振り返って次の計画に活かします。投稿は場所ごとに直近24時間で{s.postSafetyPerDay}件の安全装置があり、返信・フォロー・いいねなど、他人への働きかけはしません。
       </PageIntro>
       {notes.length > 0 && <div className="card space-y-1 p-3 text-sm text-ink-2">{notes.map((n) => <p key={n}>{n}</p>)}</div>}
