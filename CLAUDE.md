@@ -9,6 +9,7 @@ Claude・GPT・Gemini を社員にした会社の実験のダッシュボード�
   - 「コミットして」はコミットだけ。「pushして」「コミットしてpush」はpushまで（PRがすでにあるブランチなら、pushでPRに入る）
   - 「PRを作って」「コミットしてデプロイ」は、コミット・push・PRの作成まで。マージはしない
   - 本番に出す（マージする）のは「マージして」と言われてから
+  - 運営者が Auto-fix をオンにしたPRでは、CIの失敗・競合・レビューの指摘の直しを、聞かずにそのPRのブランチへコミットしてpushしてよい（マージはしない）
 - マージは通常のマージ（スカッシュしない）。人の手の記録がコミットIDにリンクしているため
 - コミットの末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`、PR本文の末尾に `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 - 人が見つけた不具合や、人の判断が入った変更の PR には、`src/lib/interventions.ts` の `FIRST` に「人の手の記録」を1件足す。人が実際に言ったこと・決めたことだけを書き、言っていない判断を書かない。自動のテストやCIが見つけた不具合には足さない
