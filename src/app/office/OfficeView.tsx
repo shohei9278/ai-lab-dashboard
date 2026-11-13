@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { OfficeSnapshot } from "@/lib/office";
 import type { LiveSnapshot } from "@/lib/live";
 import { LivePanel } from "./LivePanel";
-import { HAPPENING, MEMBERS, ROOMS, stateAt, tallyAt, toMs, type Member, type MemberState, type OfficeHappening, type OfficeLine, type OfficeShop, type Room } from "@/lib/officeShared";
+import { HAPPENING, MEMBERS, ROOMS, isOpenShop, stateAt, tallyAt, toMs, type Member, type MemberState, type OfficeHappening, type OfficeLine, type OfficeShop, type Room } from "@/lib/officeShared";
 import { Icon, type IconName } from "./Icons";
 import { ROBOT_CSS, Robot, type RobotMood } from "./Robot";
 
@@ -97,7 +97,7 @@ function HotArea({ rect, href, label, children }: { rect: Rect; href: string; la
 // 案件の展示の看板。案件は増えていくので、1つずつ並べず「公開中の数・今日の訪問・登録」をまとめて出す。
 // 社員が案件の作業をしているときは、その案件の名前と社員を、社員の色で光らせて出す
 function ShowcaseSign({ shops, working }: { shops: OfficeShop[]; working: { m: Member; id: number | null; title: string }[] }) {
-  const open = shops.filter((s) => s.status !== "closed");
+  const open = shops.filter(isOpenShop);
   const visits = open.reduce((a, s) => a + s.visitsToday, 0);
   const conv = open.reduce((a, s) => a + s.convToday, 0);
   // 作業中の案件が2件以上あるときは、1件だけを出すと取り違えるので「◯件を作業中」にして、案件の一覧へ移す
@@ -465,7 +465,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
             )}
             {side === "shops" && (
               <section className="space-y-3" aria-label="案件の展示">
-        <h2 className="flex items-center gap-1 text-sm font-bold"><Icon name="shop" />案件の展示<span className="num ml-auto text-xs font-normal text-muted">公開中 {snap.shops.filter((x) => x.status !== "closed").length}件</span></h2>
+        <h2 className="flex items-center gap-1 text-sm font-bold"><Icon name="shop" />案件の展示<span className="num ml-auto text-xs font-normal text-muted">公開中 {snap.shops.filter(isOpenShop).length}件</span></h2>
         {/* 案件は増えていくので、作業中の案件と、今日の訪問が多い順に5件だけ出し、残りは案件の一覧で見る */}
         {snap.shops.length ? (() => {
           const busy = new Set(ORDER.filter((m) => !walking[m]).map((m) => state[m].projectId));
