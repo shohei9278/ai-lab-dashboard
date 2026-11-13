@@ -90,7 +90,7 @@ ${s.byType.map(fmt).join("\n")}`;
 }
 
 // 型がまだ付いていない投稿（計画を使う前の投稿・決まった間隔の自動投稿）に、AIが型を付ける。安いモデルで、1回に60件まで
-export async function classifyUntyped(): Promise<number> {
+export async function classifyUntyped(ask: typeof callJson = callJson): Promise<number> {
   // 普通の投稿は、番号が重ならないよう p を付けて区別する
   const rows = [
     ...(db().prepare("SELECT id, angle, text FROM sns_posts WHERE status = 'posted' AND author = 'ai' AND angle_type IS NULL ORDER BY id DESC LIMIT 50").all() as { id: number; angle: string | null; text: string }[])
@@ -99,7 +99,7 @@ export async function classifyUntyped(): Promise<number> {
       .map((r) => ({ key: `p${r.id}`, table: "plan_tasks", ...r })),
   ];
   if (!rows.length) return 0;
-  const out = await callJson<{ types: { id: string; type: string }[] }>({
+  const out = await ask<{ types: { id: string; type: string }[] }>({
     purpose: "投稿の切り口の分類",
     modelId: hasKey("anthropic") ? "claude-haiku-5-5" : undefined,
     system: `SNSの投稿を、切り口の型に分けます。型: ${Object.entries(ANGLE_TYPES).map(([k, v]) => `${k}（${v}）`).join(" / ")}

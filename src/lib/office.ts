@@ -17,7 +17,7 @@ import type { Member, OfficeEvent, OfficeHappening, OfficeLine, OfficeShop, Room
 // AIを呼んだ目的から部屋を決める（作る・確かめる → 開発室、考える・決める・採点 → 会議室、発信 → 広報デスク）
 export function roomOf(purpose: string): Room {
   if (/投稿|SNS|返信|日報|レポート|note|動画|反応|話題の投稿|欲しい/.test(purpose)) return "pr";
-  if (/判断|議論|会議|アイデア|採点|計画|教訓|作戦|声の選別|比較（採点）/.test(purpose)) return "meeting";
+  if (/判断|議論|会議|朝会|アイデア|採点|計画|教訓|作戦|声の選別|比較（採点）/.test(purpose)) return "meeting";
   if (/LP|ツール|デザイン|イラスト|アイコン|画像|動作確認|プロンプトの比較/.test(purpose)) return "dev";
   return "meeting";
 }
@@ -59,6 +59,7 @@ export function officeTalks({ guest = false } = {}): OfficeLine[] {
 // 発言から作る動きの短い言い方（発言の見出しは「「案件名」を採点」のように長いので、何をしているかだけにする）
 export function talkDoing(about: string): string {
   if (about.startsWith("臨時会議")) return "臨時会議";
+  if (about.startsWith("朝会")) return "朝会";
   if (/採点/.test(about)) return "採点";
   if (/アイデア/.test(about)) return "アイデア出し";
   if (/議論/.test(about)) return "判断の議論";

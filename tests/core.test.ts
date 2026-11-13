@@ -7,6 +7,7 @@ import { getProject, holdProject, jstToday, resumeDueHolds, trafficCapacity } fr
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
+import { PLAN_MODELS, createPlan, planModelStats, standupMembers, type PlanContent } from "../src/lib/plan";
 import { pageSystem } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
 import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, showcaseOfficeSnapshot, talkDoing } from "../src/lib/office";
@@ -423,4 +424,107 @@ test("概要ページの写真の読み出し口: 載せる案件の、公開し
   assert.equal(showcaseShotFile(draft), null);
   assert.ok(showcaseProjectRows().some((p) => p.id === killed));
   assert.equal(showcaseProjectRows().some((p) => p.id === draft), false);
+});
+
+// 朝会のテスト用: AIを呼ばず、目的と担当ごとに仮の応答を返す。呼ばれた目的と社員を残す
+function fakeAsk(opts: { fail?: string[] } = {}) {
+  const calls: { purpose: string; modelId: string; user: string }[] = [];
+  const ask = async <T,>(o: { purpose: string; modelId?: string; system: string; user: string; validate: (v: unknown) => v is T }): Promise<T> => {
+    const modelId = o.modelId ?? "";
+    calls.push({ purpose: o.purpose, modelId, user: o.user });
+    let v: unknown;
+    if (o.purpose === "朝会（意見）") {
+      if (opts.fail?.includes(modelId)) throw new Error("仮の失敗");
+      v = { opinion: `意見テスト${modelId}: 今のネックは届かないこと。@someone に聞いた話ではない` };
+    } else if (o.purpose === "毎日の計画") {
+      v = { bottleneck: "reach", evidence: "訪問が少ない", certainty: "low", review: "朝会テストの振り返り", focus: "朝会テストの方針", goals: [], pause_new: false, idea_note: "", tasks: [], research: null };
+    } else if (o.purpose === "投稿の切り口の分類") {
+      v = { types: [] };
+    } else throw new Error(`想定していない呼び出し: ${o.purpose}`);
+    assert.ok(o.validate(v), o.purpose);
+    return v as T;
+  };
+  return { ask, calls };
+}
+const KEY_ENV = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"];
+async function withKeys<T>(keys: string[], fn: () => Promise<T>): Promise<T> {
+  const before = KEY_ENV.map((k) => process.env[k]);
+  KEY_ENV.forEach((k) => { if (keys.includes(k)) process.env[k] = "test-dummy"; else delete process.env[k]; });
+  try { return await fn(); } finally { KEY_ENV.forEach((k, i) => { if (before[i] === undefined) delete process.env[k]; else process.env[k] = before[i]; }); }
+}
+const planRow = (id: number) => db().prepare("SELECT * FROM daily_plans WHERE id = ?").get(id) as { model_id: string; content: string };
+
+test("朝会: 担当以外の2社が先に意見を出し、担当はそれを読んで計画を書く。議事録・ライブ・オフィスに出る", async () => {
+  db().prepare("DELETE FROM daily_plans").run();
+  const { ask, calls } = fakeAsk();
+  const id = await withKeys(KEY_ENV, () => createPlan({ force: true, ask }));
+  const row = planRow(id);
+  const chair = row.model_id;
+  const ops = calls.filter((c) => c.purpose === "朝会（意見）");
+  assert.equal(ops.length, 2);
+  assert.ok(!ops.some((c) => c.modelId === chair));
+  assert.equal(new Set(ops.map((c) => c.modelId)).size, 2);
+  // 担当は1回だけ呼ばれ、2社の意見を読んでいる
+  const plan = calls.filter((c) => c.purpose === "毎日の計画");
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].modelId, chair);
+  assert.ok(ops.every((c) => plan[0].user.includes(`意見テスト${c.modelId}`)));
+  // 意見は計画と一緒に残す（アカウント名は伏せる）
+  const content = JSON.parse(row.content) as PlanContent;
+  assert.deepEqual(content.opinions?.map((o) => o.modelId).sort(), ops.map((c) => c.modelId).sort());
+  assert.ok(content.opinions!.every((o) => o.text.includes("@***") && !o.text.includes("@someone")));
+  // 会議室の議事録: 出席は3社、意見のあとに担当の振り返り
+  const m = listMeetings("plan").find((x) => x.key === `plan-${id}`)!;
+  assert.equal(m.attendees.length, 3);
+  assert.deepEqual(m.items.map((x) => x.who), [...content.opinions!.map((o) => o.modelId), chair]);
+  // ライブ: 保存した意見を1社1件ずつ出す（途中経過のメモと二重にしない）。来た人にも出す
+  for (const guest of [false, true]) {
+    const feed = liveFeed({ guest }).filter((f) => f.kind === "朝会で意見");
+    assert.equal(feed.length, 2);
+    assert.equal(new Set(feed.map((f) => f.who)).size, 2);
+  }
+  // オフィス: 意見を出した社員の吹き出しになり、会議室で「朝会」をしている
+  assert.equal(officeTalks().filter((l) => l.about === "朝会で意見").length, 2);
+  assert.ok(officeSnapshot().events.some((e) => e.talk && e.doing === "朝会" && e.room === "meeting"));
+  assert.equal(roomOf("朝会（意見）"), "meeting");
+  // 担当ごとの達成度は、担当の単位のまま（意見を出した社員の日にはならない）
+  db().prepare("UPDATE daily_plans SET day = '1999-02-01' WHERE id = ?").run(id);
+  const stats = planModelStats();
+  assert.deepEqual(stats.map((s) => s.modelId), [chair]);
+  assert.equal(stats[0].days, 1);
+});
+
+test("朝会: 意見が1社分しか取れなくても計画を作り、キーのない会社は飛ばす", async () => {
+  db().prepare("DELETE FROM daily_plans").run();
+  // 意見が全員分取れなくても、計画は作れる（意見の欄は残さない）
+  const none = fakeAsk({ fail: PLAN_MODELS });
+  const id = await withKeys(KEY_ENV, () => createPlan({ force: true, ask: none.ask }));
+  const chair = planRow(id).model_id;
+  assert.equal(none.calls.filter((x) => x.purpose === "朝会（意見）").length, 2);
+  assert.equal((JSON.parse(planRow(id).content) as PlanContent).opinions, undefined);
+  assert.equal((JSON.parse(planRow(id).content) as PlanContent).focus, "朝会テストの方針");
+  // 担当以外のうち1社だけ失敗させて、作り直す（作り直しは同じ担当）
+  const others = PLAN_MODELS.filter((x) => x !== chair);
+  const one = fakeAsk({ fail: [others[0]] });
+  const id2 = await withKeys(KEY_ENV, () => createPlan({ force: true, ask: one.ask }));
+  assert.equal(id2, id);
+  assert.equal(planRow(id).model_id, chair);
+  assert.deepEqual((JSON.parse(planRow(id).content) as PlanContent).opinions?.map((o) => o.modelId), [others[1]]);
+  assert.equal(listMeetings("plan").find((x) => x.key === `plan-${id}`)!.attendees.length, 2);
+  // キーが担当の会社だけなら、意見は聞かない
+  db().prepare("DELETE FROM daily_plans").run();
+  const solo = fakeAsk();
+  const id3 = await withKeys(["OPENAI_API_KEY"], () => createPlan({ force: true, ask: solo.ask }));
+  assert.equal(planRow(id3).model_id, "gpt-5.6-sol");
+  assert.equal(solo.calls.filter((x) => x.purpose === "朝会（意見）").length, 0);
+  assert.equal((JSON.parse(planRow(id3).content) as PlanContent).opinions, undefined);
+  // キーが2社なら、もう1社だけに聞く
+  await withKeys(["OPENAI_API_KEY", "GEMINI_API_KEY"], async () => {
+    assert.deepEqual(standupMembers("gpt-5.6-sol"), ["gemini-3.1-pro-preview"]);
+    assert.deepEqual(standupMembers("gemini-3.1-pro-preview"), ["gpt-5.6-sol"]);
+  });
+  // 担当が製品ループのAI（3社の候補にないモデル）でも、同じ会社の社員には聞かない
+  await withKeys(KEY_ENV, async () => {
+    assert.deepEqual(standupMembers("claude-sonnet-5-5"), ["gpt-5.6-sol", "gemini-3.1-pro-preview"]);
+  });
 });
