@@ -13,5 +13,5 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const file = /^\d+$/.test(id) ? showcaseShotFile(Number(id)) : null;
   const p = file ? screenshotPath(file) : null;
   if (!file || !p) return new Response("Not found", { status: 404 });
-  return new Response(fs.readFileSync(p), { headers: { "Content-Type": file.endsWith(".jpg") ? "image/jpeg" : "image/png", "Cache-Control": "public, max-age=300" } });
+  return new Response(fs.readFileSync(p), { headers: { "Content-Type": file.endsWith(".jpg") ? "image/jpeg" : "image/png", "Cache-Control": "no-store" } });
 }
