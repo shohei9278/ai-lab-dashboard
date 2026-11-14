@@ -129,9 +129,18 @@ export function overview() {
       .all() as (EventRow & { title: string | null; demo: number | null })[],
   );
 
+  // 今日、登録・利用があった案件（多い順）。ホームの数字の下に、どの案件かを出す
+  const todayByProject = db()
+    .prepare(
+      `SELECT p.id, p.title, p.kind, SUM(m.signups) AS signups FROM metrics m JOIN projects p ON p.id = m.project_id
+       WHERE p.demo = 0 AND m.day = ? GROUP BY p.id HAVING SUM(m.signups) > 0 ORDER BY signups DESC, p.id DESC`,
+    )
+    .all(localDay(now)) as { id: number; title: string; kind: ProjectRow["kind"]; signups: number }[];
+
   return {
     settings: s,
     todaySignups: signupsOn(localDay(now)),
+    todayByProject,
     yesterdaySignups: signupsOn(localDay(yesterday)),
     totalSignups: cs,
     totalVisits: cv,

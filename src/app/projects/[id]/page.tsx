@@ -116,7 +116,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <HoldPanel id={p.id} held={p.stage === "hold"} reason={p.hold_reason} until={p.hold_until} today={jstToday()} blocked={approvals.length > 0 || !!buildingNow(p.id)} />
       )}
       {!owner && p.stage === "hold" && (
-        <div className="card p-4 text-sm text-ink-2">⏸ 公開中・集客お休み（{p.hold_until}まで）。ページは開けます。宣伝と判断を止めています。</div>
+        <div className="card p-4 text-sm text-ink-2">公開中・集客お休み（{p.hold_until}まで）。ページは開けます。宣伝と判断を止めています。</div>
       )}
 
       {/* 一番見たい数字を上に置く */}
