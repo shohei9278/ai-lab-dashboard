@@ -64,8 +64,8 @@ export type Review = { ok: boolean; issues: string[] };
 export const STAGE_LABEL: Record<Stage, string> = {
   idea: "アイデア",
   lp: "作成",
-  live: "集客中",
-  hold: "保留",
+  live: "公開中・集客中",
+  hold: "公開中・集客お休み",
   deciding: "判断待ち",
   continued: "継続",
   killed: "撤退",
@@ -1691,11 +1691,11 @@ export const jstToday = () => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia
 // 保留にする。すでに保留中なら、理由と再開日を更新する（延長）
 export function holdProject(projectId: number, reason: string, until: string, seasonal = false) {
   const p = getProject(projectId);
-  if (!p || !["live", "hold"].includes(p.stage)) throw new Error("集客中か保留中の案件だけ保留にできます");
-  if (buildingNow(projectId)) throw new Error("この案件はAIが作業中です。終わってから保留にしてください");
+  if (!p || !["live", "hold"].includes(p.stage)) throw new Error("集客中かお休み中の案件だけ、集客をお休みにできます");
+  if (buildingNow(projectId)) throw new Error("この案件はAIが作業中です。終わってから集客をお休みにしてください");
   if (db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(projectId)) throw new Error("この案件には承認待ちがあります。先に判断してください");
   const why = reason.trim().slice(0, 200);
-  if (!why) throw new Error("保留にする理由を書いてください");
+  if (!why) throw new Error("集客をお休みにする理由を書いてください");
   const day = (s: string) => Date.parse(`${s}T00:00:00Z`);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(until) || Number.isNaN(day(until))) throw new Error("再開日の形式が正しくありません");
   const days = Math.round((day(until) - day(jstToday())) / 86_400_000);
@@ -1704,16 +1704,16 @@ export function holdProject(projectId: number, reason: string, until: string, se
   if (days > max) throw new Error(`再開日は${max}日以内にしてください${seasonal ? "" : "（季節ものは「季節もの」に印を付けると1年まで）"}`);
   const extending = p.stage === "hold";
   db().prepare("UPDATE projects SET stage = 'hold', hold_reason = ?, hold_until = ?, updated_at = datetime('now') WHERE id = ?").run(why, until, projectId);
-  logEvent(projectId, "human", "hold", `${extending ? "保留の期間を変更しました" : "保留にしました"}（${until}に集客へ戻します。それまで宣伝・判断・改善を止めます）`);
+  logEvent(projectId, "human", "hold", `${extending ? "集客のお休みの期間を変更しました" : "集客をお休みにしました"}（公開は続けます。${until}に集客へ戻します。それまで宣伝・判断・改善を止めます）`);
 }
 
 // 集客に戻す。保留中に増えた訪問では、戻った瞬間に判断しない
 export function resumeProject(projectId: number, by: "human" | "system" = "human") {
   const p = getProject(projectId);
-  if (p?.stage !== "hold") throw new Error("保留中の案件ではありません");
+  if (p?.stage !== "hold") throw new Error("集客をお休みしている案件ではありません");
   db().prepare("UPDATE projects SET stage = 'live', hold_reason = NULL, hold_until = NULL, resumed_at = datetime('now'), judged_visits = ?, updated_at = datetime('now') WHERE id = ?")
     .run(projectTotals(projectId).visits, projectId);
-  logEvent(projectId, by, "resume", by === "human" ? "保留をやめて、集客に戻しました" : "再開日になったので、保留から集客に戻しました");
+  logEvent(projectId, by, "resume", by === "human" ? "集客のお休みをやめて、集客に戻しました" : "再開日になったので、集客のお休みから集客に戻しました");
 }
 
 // 再開日が来た案件を、集客に戻す（毎回の定期処理から呼ぶ）

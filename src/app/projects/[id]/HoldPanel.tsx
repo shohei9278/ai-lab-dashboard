@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 
-// 案件を保留にする・戻す。公開は続けたまま、宣伝・判断・改善を止める（季節ものなど、今は集客しても届かない案件のため）
+// 案件の集客をお休みにする（中の段階は hold）・戻す。公開は続けたまま、宣伝・判断・改善を止める（季節ものなど、今は集客しても届かない案件のため）
 export function HoldPanel({ id, held, reason, until, today, blocked }: {
   id: number; held: boolean; reason: string | null; until: string | null; today: string;
-  blocked: boolean; // 承認待ちやAIの作業中は、保留にできない
+  blocked: boolean; // 承認待ちやAIの作業中は、お休みにできない
 }) {
   const { run, busy, error } = useLoopAction();
   const later = (days: number) => new Date(Date.parse(`${today}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
@@ -37,9 +37,9 @@ export function HoldPanel({ id, held, reason, until, today, blocked }: {
         </label>
         <ActionButton
           disabled={!!busy || blocked || !why.trim() || !date}
-          onClick={() => run("保留にしています…", { action: "hold", projectId: id, reason: why, until: date, seasonal })}
+          onClick={() => run("集客をお休みにしています…", { action: "hold", projectId: id, reason: why, until: date, seasonal })}
         >
-          {held ? "理由と再開日を変更する" : "保留にする"}
+          {held ? "理由と再開日を変更する" : "集客をお休みにする"}
         </ActionButton>
       </div>
       {blocked && <p className="text-xs text-muted">承認待ちかAIの作業中のあいだは、変更できません。</p>}
@@ -51,8 +51,8 @@ export function HoldPanel({ id, held, reason, until, today, blocked }: {
     return (
       <div className="card space-y-3 p-4">
         <div>
-          <h2 className="font-bold">⏸ 保留中</h2>
-          <p className="mt-1 text-sm text-ink-2">{until}に自動で集客へ戻します。理由: {reason}</p>
+          <h2 className="font-bold">⏸ 公開中・集客お休み（{until}まで）</h2>
+          <p className="mt-1 text-sm text-ink-2">この日に自動で集客へ戻します。理由: {reason}</p>
           <p className="mt-1 text-xs text-muted">公開と、訪問・利用・外の声の記録は続けています。宣伝の投稿、撤退や継続の判断、ページの改善は止めています。</p>
         </div>
         <ActionButton variant="primary" disabled={!!busy} onClick={() => run("集客に戻しています…", { action: "resume", projectId: id })}>
@@ -65,7 +65,7 @@ export function HoldPanel({ id, held, reason, until, today, blocked }: {
 
   return (
     <details className="card p-4">
-      <summary className="cursor-pointer text-sm font-medium">この案件を保留にする</summary>
+      <summary className="cursor-pointer text-sm font-medium">この案件の集客をお休みにする</summary>
       <div className="mt-3 space-y-3">
         <p className="text-xs text-muted">季節ものなど、今は集客しても届かない案件を休ませます。公開と記録は続け、宣伝・判断・改善だけを止めます。AIの成績の利用率には入れません。</p>
         {form}
