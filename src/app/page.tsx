@@ -89,7 +89,7 @@ export default async function Home() {
           value={`${o.todaySignups}人`}
           sub={<>前日比 {diff >= 0 ? "+" : ""}{diff}人・累計 {o.totalSignups}人</>}
         />
-        <Stat label="公開・集客中" value={`${o.liveReal}件`} sub={`これまでに作った案件 ${o.projectsReal}件`} />
+        <Stat label="公開中・集客中" value={`${o.liveReal}件`} sub={`これまでに作った案件 ${o.projectsReal}件`} />
         <Stat label="今月AIが自動で処理した数" value={`${o.aiCallsMonth}回`} sub={`今日 ${o.aiCallsToday}回・アイデア出し、ページ作成、投稿、判断など`} />
       </div>
 

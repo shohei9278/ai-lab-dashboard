@@ -51,7 +51,7 @@ test("保留: 理由と再開日を確かめ、再開日に集客へ戻す", () 
 });
 
 test("保留: 集客中でない案件は保留にできない", () => {
-  assert.throws(() => holdProject(addProject("idea"), "x", day(5)), /集客中か保留中/);
+  assert.throws(() => holdProject(addProject("idea"), "x", day(5)), /集客中かお休み中/);
 });
 
 test("一覧から来た人: 目印のある訪問者だけを1人1回数える", () => {
