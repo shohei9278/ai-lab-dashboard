@@ -69,7 +69,7 @@ const pct = (r: Rect) => ({ left: `${r.l}%`, top: `${r.t}%`, width: `${r.r - r.l
 
 const COLOR: Record<Member, string> = { anthropic: "var(--series-anthropic)", openai: "var(--series-openai)", google: "var(--series-google)" };
 const SHOP_ICON: Record<OfficeShop["kind"], { icon: IconName; label: string }> = { lp: { icon: "page", label: "LP" }, tool: { icon: "tool", label: "ツール" } };
-const SHOP_STATUS: Record<OfficeShop["status"], { icon: IconName; label: string } | null> = { open: null, growing: { icon: "sprout", label: "育てる段階" }, hold: { icon: "pause", label: "集客お休み" }, closed: { icon: "lock", label: "受付終了" } };
+const SHOP_STATUS: Record<OfficeShop["status"], { icon: IconName; label: string } | null> = { open: null, growing: { icon: "sprout", label: "育てる段階" }, hold: { icon: "pause", label: "公開中・集客お休み" }, closed: { icon: "lock", label: "受付終了" } };
 const HAPPENING_ICON: Record<OfficeHappening["kind"], IconName> = { publish: "party", close: "box", grow: "sprout" };
 const STEP_MS = 2500;
 const HOP_MS = 550; // 廊下の1区間を歩く時間
