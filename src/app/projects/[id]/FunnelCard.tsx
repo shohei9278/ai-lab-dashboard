@@ -78,7 +78,7 @@ export function FunnelCard({ f, isTool, projectId, all, liveVersion, channels }:
           </ol>
           {!f.hasEvents && (
             <p className="text-xs text-muted">
-              「読んだ」「ボタン」「入力」の数は、公開サイトにページの中の動きの記録がまだ届いていないため0になっています（Supabase の表の追加と、LPサイトの反映が必要です）。
+              この版では、まだ「読んだ」「ボタン」「入力」の記録がありません。訪問が少ないうちは、どの人も半分まで読まずに離れると0のままです（記録の仕組みは動いています）。
             </p>
           )}
           <div className="grid gap-4 text-sm sm:grid-cols-2">

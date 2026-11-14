@@ -51,7 +51,7 @@ export function HoldPanel({ id, held, reason, until, today, blocked }: {
     return (
       <div className="card space-y-3 p-4">
         <div>
-          <h2 className="font-bold">⏸ 公開中・集客お休み（{until}まで）</h2>
+          <h2 className="font-bold">公開中・集客お休み（{until}まで）</h2>
           <p className="mt-1 text-sm text-ink-2">この日に自動で集客へ戻します。理由: {reason}</p>
           <p className="mt-1 text-xs text-muted">公開と、訪問・利用・外の声の記録は続けています。宣伝の投稿、撤退や継続の判断、ページの改善は止めています。</p>
         </div>

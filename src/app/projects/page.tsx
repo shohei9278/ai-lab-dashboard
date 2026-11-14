@@ -10,10 +10,10 @@ import { DailyCard } from "@/components/DailyCard";
 
 export const dynamic = "force-dynamic";
 
-const COLUMNS: { stages: Stage[]; title: string; who: string }[] = [
+const COLUMNS: { stages: Stage[]; title: string; who: string; id?: string }[] = [
   { stages: ["idea"], title: "① アイデア", who: "3社のAIが出して採点し、上位を進める" },
   { stages: ["lp"], title: "② 作成", who: "AIがLPやツールを作ってチェック。通れば自動で公開" },
-  { stages: ["live"], title: "③ 公開中・集客中", who: "AIがSNSに投稿して人を呼ぶ。届いていなければ集客を見直し、「続ける」になった案件は育てる" },
+  { stages: ["live"], id: "marketing", title: "③ 公開中・集客中", who: "AIがSNSに投稿して人を呼ぶ。届いていなければ集客を見直し、「続ける」になった案件は育てる" },
   { stages: ["deciding"], title: "④ 判断", who: "AIが続ける・改善・集客の見直し・撤退を決める" },
   { stages: ["continued", "killed", "rejected"], title: "⑤ 結果", who: "終わった案件。AIが教訓を残す" },
 ];
@@ -44,7 +44,7 @@ export default function ProjectsPage() {
             {COLUMNS.map((col) => {
               const items = projects.filter((p) => col.stages.includes(p.stage));
               return (
-                <div key={col.title} className="space-y-2 rounded-xl bg-surface-2 p-2">
+                <div key={col.title} id={col.id} className="scroll-mt-4 space-y-2 rounded-xl bg-surface-2 p-2">
                   <div className="px-1">
                     <div className="text-sm font-bold">{col.title} <span className="num font-normal text-muted">{items.length}</span></div>
                     <div className="text-xs text-muted">{col.who}</div>
@@ -58,7 +58,7 @@ export default function ProjectsPage() {
         {/* 集客お休み（hold）の案件は、集客中の列に混ぜず、ある時だけ別の欄に出す */}
         {projects.some((p) => p.stage === "hold") && (
           <div className="mt-3 rounded-xl bg-surface-2 p-2">
-            <div className="px-1 text-sm font-bold">⏸ 公開中・集客お休み <span className="num font-normal text-muted">{projects.filter((p) => p.stage === "hold").length}</span></div>
+            <div className="px-1 text-sm font-bold">公開中・集客お休み <span className="num font-normal text-muted">{projects.filter((p) => p.stage === "hold").length}</span></div>
             <div className="px-1 text-xs text-muted">公開と記録は続けたまま、宣伝・判断・改善を止めている案件。再開日に自動で集客へ戻る</div>
             <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {projects.filter((p) => p.stage === "hold").sort((a, b) => (a.hold_until ?? "").localeCompare(b.hold_until ?? "")).map((p) => (

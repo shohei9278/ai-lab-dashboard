@@ -26,12 +26,13 @@ export function MockBadge({ mock }: { mock: boolean }) {
   );
 }
 
-export function Stat({ label, value, sub }: { label: string; value: React.ReactNode; sub?: React.ReactNode }) {
+export function Stat({ label, value, sub, children }: { label: string; value: React.ReactNode; sub?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="card p-4">
       <div className="text-xs text-muted">{label}</div>
       <div className="num mt-1 text-2xl font-bold">{value}</div>
       {sub && <div className="mt-1 text-xs text-ink-2">{sub}</div>}
+      {children}
     </div>
   );
 }

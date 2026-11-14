@@ -2,7 +2,7 @@ import { isOwner } from "@/lib/viewer";
 import Link from "next/link";
 import { db, getSettings } from "@/lib/db";
 import { getModel, modelInfo } from "@/lib/models";
-import { autoPublishStats } from "@/lib/loop";
+import { CONV, autoPublishStats } from "@/lib/loop";
 import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
 import { SignupTrend } from "@/components/SignupTrend";
 import { costEfficiency } from "@/lib/cost";
@@ -88,8 +88,31 @@ export default async function Home() {
           label="今日の登録・利用"
           value={`${o.todaySignups}人`}
           sub={<>前日比 {diff >= 0 ? "+" : ""}{diff}人・累計 {o.totalSignups}人</>}
-        />
-        <Stat label="公開中・集客中" value={`${o.liveReal}件`} sub={`これまでに作った案件 ${o.projectsReal}件`} />
+        >
+          {/* どの案件で登録・利用があったかを、その場で分かるようにする */}
+          {o.todayByProject.length > 0 && (
+            <ul className="mt-2 space-y-0.5 border-t border-line pt-2 text-xs">
+              {o.todayByProject.slice(0, 3).map((p) => (
+                <li key={p.id} className="flex items-baseline gap-2">
+                  <Link href={`/projects/${p.id}`} className="min-w-0 flex-1 truncate text-accent hover:underline">{p.title}</Link>
+                  <span className="num shrink-0 text-ink-2">{CONV[p.kind].noun} {p.signups}人</span>
+                </li>
+              ))}
+              {o.todayByProject.length > 3 && <li className="text-muted">ほか{o.todayByProject.length - 3}件</li>}
+            </ul>
+          )}
+        </Stat>
+        <Stat label="公開中・集客中" value={`${o.liveReal}件`} sub={`これまでに作った案件 ${o.projectsReal}件`}>
+          {/* 集客中の案件の名前と、案件の一覧の「公開中・集客中」の列へのリンク */}
+          {o.live.length > 0 && (
+            <ul className="mt-2 space-y-0.5 border-t border-line pt-2 text-xs">
+              {o.live.filter(({ p }) => !p.demo).slice(0, 3).map(({ p }) => (
+                <li key={p.id} className="truncate"><Link href={`/projects/${p.id}`} className="text-accent hover:underline">{p.title}</Link></li>
+              ))}
+            </ul>
+          )}
+          <Link href="/projects#marketing" className="mt-1 inline-block text-xs text-accent hover:underline">案件の一覧で見る →</Link>
+        </Stat>
         <Stat label="今月AIが自動で処理した数" value={`${o.aiCallsMonth}回`} sub={`今日 ${o.aiCallsToday}回・アイデア出し、ページ作成、投稿、判断など`} />
       </div>
 
