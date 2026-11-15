@@ -433,3 +433,57 @@ test("自由なデザインのページ: Google Fonts の読み込みは、末�
   assert.deepEqual(fontIssues(page('<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP" rel="stylesheet">')), []);
   assert.equal(fontIssues(page('<link rel="stylesheet" href="https://cdn.example.com/a.css">')).length, 1);
 });
+
+test("チェックの評価: 例は40件（問題なし15・問題あり25）で、種類ごとに5件。問題ありの例は土台から1か所だけ変わっている", async () => {
+  const { CHECK_EVAL_CASES, CHECK_EVAL_BASES, CHECK_EVAL_TYPE_LABEL, checkEvalInput } = await import("../src/lib/checkEvalCases");
+  assert.equal(CHECK_EVAL_CASES.length, 40);
+  assert.equal(new Set(CHECK_EVAL_CASES.map((c) => c.id)).size, 40);
+  assert.equal(CHECK_EVAL_CASES.filter((c) => c.expect === "ok").length, 15);
+  for (const t of Object.keys(CHECK_EVAL_TYPE_LABEL)) assert.equal(CHECK_EVAL_CASES.filter((c) => c.type === t).length, 5, t);
+  for (const c of CHECK_EVAL_CASES) {
+    const base = JSON.stringify(CHECK_EVAL_BASES[c.base].lp);
+    const now = JSON.stringify(checkEvalInput(c).lp);
+    if (c.edit) assert.notEqual(now, base, `${c.id} は土台から変わっていない`);
+    else assert.equal(now, base);
+    // 提供時期・すぐ使える の決まりは事前登録LPのチェックにだけあるので、ツールの土台には使わない
+    if (c.type === "timing" || c.type === "ready") assert.equal(CHECK_EVAL_BASES[c.base].kind, "lp", c.id);
+  }
+  // 例を作っても土台は書き換わらない
+  checkEvalInput(CHECK_EVAL_CASES.find((c) => c.id === "ng-fake-ratio")!);
+  assert.doesNotMatch(CHECK_EVAL_BASES.ratio.lp.subheadline, /2,300人/);
+  // 問題なしの土台に、今の決まりで止まる言い方を残さない
+  for (const b of Object.values(CHECK_EVAL_BASES)) assert.doesNotMatch(JSON.stringify(b.lp), /開発中|近日公開|先行利用|必ず|100%/, b.title);
+});
+
+test("チェックの評価: 見逃し・止めすぎ・種類ごとの数を正しく数え、答えが取れなかった例は数に入れない", async () => {
+  const { summarizeCheckEval } = await import("../src/lib/checkEval");
+  const run = { id: 1, at: "2026-11-15 00:00:00", finished_at: null, model_id: "claude-opus-5-5", prompt_hash: "x", status: "done" as const, cost_usd: 0.5, error: null };
+  const row = (case_id: string, expect: "ok" | "ng", type: string | null, got_ok: number | null, issues: string[] = []) =>
+    ({ eval_id: 1, case_id, expect, type, got_ok, issues: JSON.stringify(issues), error: null }) as Parameters<typeof summarizeCheckEval>[1][number];
+  const s = summarizeCheckEval(run, [
+    row("ng-fake-ratio", "ng", "fake", 0), row("ng-fake-bingo", "ng", "fake", 1), row("ng-hype-size", "ng", "hype", 0),
+    row("ok-ratio", "ok", null, 1), row("ok-bingo", "ok", null, 0, ["数字の断言"]), row("ok-match", "ok", null, null),
+  ]);
+  assert.deepEqual(s.ng, { total: 3, caught: 2, missed: 1 });
+  assert.deepEqual(s.ok, { total: 2, passed: 1, blocked: 1 });
+  assert.equal(s.failed, 1);
+  assert.deepEqual(s.byType.find((t) => t.type === "fake"), { type: "fake", label: "架空の実績・利用者数・お客様の声", total: 2, caught: 1 });
+  assert.equal(s.misses[0].caseId, "ng-fake-bingo");
+  assert.deepEqual(s.overblocks[0].issues, ["数字の断言"]);
+});
+
+test("チェックの評価: 本番と同じ指示を使い、見積もりは0円より多い。緊急停止中は始めない", async () => {
+  const { checkPromptHash, estimateCheckEvalJpy, startCheckEval } = await import("../src/lib/checkEval");
+  const { lpReviewPrompt } = await import("../src/lib/loop");
+  const { CHECK_EVAL_CASES, checkEvalInput } = await import("../src/lib/checkEvalCases");
+  const { project, lp } = checkEvalInput(CHECK_EVAL_CASES[0]);
+  assert.match(lpReviewPrompt(project, lp).system, /公開前チェック担当/);
+  assert.match(checkPromptHash(), /^[0-9a-f]{8}$/);
+  assert.ok(estimateCheckEvalJpy("claude-opus-5-5") > 0);
+  saveSettings({ killSwitch: true });
+  try {
+    assert.throws(() => startCheckEval("claude-opus-5-5"));
+  } finally {
+    saveSettings({ killSwitch: false });
+  }
+});
