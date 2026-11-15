@@ -28,9 +28,20 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
   const dirty = JSON.stringify(v) !== saved;
   useEffect(() => {
     if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    // ブラウザを閉じる・読み込み直すとき（returnValue も入れないと、知らせが出ないブラウザがある）
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    // 画面の中のリンク（メニューなど）で移るときは beforeunload が動かないので、押したときに確かめる
+    const leave = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target as Element | null)?.closest("a[href]") as HTMLAnchorElement | null;
+      if (!a || a.target === "_blank" || a.hasAttribute("download")) return;
+      const url = new URL(a.href, location.href);
+      if (url.origin !== location.origin || (url.pathname === location.pathname && url.search === location.search)) return;
+      if (!window.confirm("保存していない変更があります。保存せずに移りますか？")) { e.preventDefault(); e.stopPropagation(); }
+    };
     window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
+    document.addEventListener("click", leave, true);
+    return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", leave, true); };
   }, [dirty]);
   const set = <K extends keyof typeof v>(k: K, val: (typeof v)[K]) => setV((s) => ({ ...s, [k]: val }));
   const num = (k: keyof typeof v) => ({
