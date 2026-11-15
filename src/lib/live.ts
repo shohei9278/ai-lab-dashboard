@@ -24,6 +24,7 @@ export type FeedItem = {
 
 export const FEED_LIMIT = 60; // AIの会話に出す数（新しい順）
 const RESEARCH_KIND = "調べ物の答え";
+const PLAN_OPINION_KIND = "朝会で意見"; // plan.ts の collectOpinions がライブに流すときと同じ名前
 const norm = (s: string) => s.replace("T", " ").slice(0, 19); // 時刻の書き方をそろえて並べる
 const label = (id: string) => modelInfo(id).label;
 const provider = (id: string) => (id.endsWith("-api") || id.startsWith("gpt-image") ? null : modelInfo(id).provider);
@@ -92,6 +93,8 @@ function feed(): FeedItem[] {
   const plans = db().prepare("SELECT id, created_at, model_id, content FROM daily_plans ORDER BY id DESC LIMIT 3").all() as { id: number; created_at: string; model_id: string; content: string }[];
   for (const p of plans) {
     const c = JSON.parse(p.content) as Partial<PlanContent>;
+    // 朝会で担当より先に出た、ほかの社員の意見（発言の時刻は保存していないので、計画の時刻の60秒前として並べる）
+    (Array.isArray(c.opinions) ? c.opinions : []).forEach((o, i) => items.push({ key: `dpo${p.id}-${i}`, at: back(p.created_at, 60), who: label(o.modelId), provider: provider(o.modelId), kind: PLAN_OPINION_KIND, text: o.text, project: null }));
     const neck = c.bottleneck ? BOTTLENECK_LABEL[c.bottleneck] : null;
     items.push({ key: `dp${p.id}`, at: p.created_at, who: label(p.model_id), provider: provider(p.model_id), kind: "朝会で今日の計画", text: `${c.focus ?? ""}${neck ? `\nネック: ${neck}${c.evidence ? `（${c.evidence}）` : ""}` : ""}`, project: null });
   }
@@ -120,12 +123,14 @@ function feed(): FeedItem[] {
   for (const r of research) items.push({ key: `rs${r.id}`, at: r.at, who: who(r.model_id), provider: prov(r.model_id), kind: RESEARCH_KIND, text: `${r.question}\n→ ${r.summary}`, project: null });
 
   const adhocSaved = adhoc[0]?.at ?? "";
+  const planSaved = plans[0]?.created_at ?? "";
   const ADHOC_NOTE = new Set(["意見", "反論", "考えを変えた", "結論", "意見が割れたところ"]);
   // まだDBに書かれていない途中経過（届いたばかりのアイデアなど）。DBに書かれた回のものは、DBの方を出す
   const saved = new Set((db().prepare("SELECT DISTINCT batch_id AS b FROM idea_candidates ORDER BY id DESC LIMIT 20").all() as { b: string }[]).map((r) => r.b));
   for (const n of liveNotesList()) {
     if (saved.has(n.batch) && n.kind.startsWith("アイデアを提案")) continue;
     if (n.batch.startsWith("adhoc-") && ADHOC_NOTE.has(n.kind) && n.at <= adhocSaved) continue; // 保存済みの臨時会議の途中経過
+    if (n.batch.startsWith("standup-") && n.kind === PLAN_OPINION_KIND && n.at <= planSaved) continue; // 保存済みの朝会の意見
     items.push({ key: n.key, at: n.at, who: n.who, provider: n.provider, kind: n.kind, text: n.text, project: null });
   }
   return items.sort((a, b) => norm(b.at).localeCompare(norm(a.at))).slice(0, FEED_LIMIT);
@@ -134,7 +139,7 @@ function feed(): FeedItem[] {
 // 来た人には、SNSのコメントの相手と本文を伏せる（AIの返信の案は、@アカウント名を伏せて出す）
 function maskFeedForGuest(f: FeedItem): FeedItem {
   if (f.kind === "コメント") return { ...f, who: "（デモ表示）", text: HIDDEN };
-  if (f.kind === "返信の案") return { ...f, text: maskHandles(f.text) };
+  if (f.kind === "返信の案" || f.kind === PLAN_OPINION_KIND) return { ...f, text: maskHandles(f.text) };
   return f;
 }
 
