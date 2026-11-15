@@ -653,3 +653,57 @@ test("Gemini は、src の中では gemini() からだけ作る（@google/genai 
   const { GEMINI_API_VERSION } = await import("../src/lib/gemini");
   assert.equal(GEMINI_API_VERSION, "v1beta");
 });
+
+test("LPのチェックに渡すツールの中身: 選択肢・最初の値・ボタン・スクリプトの中の日本語の文を取り出し、長いときは切る", async () => {
+  const { toolFactsForReview, lpReviewPrompt } = await import("../src/lib/loop");
+  const html = `<h2>景品を決める</h2><input id="b" type="number" value="30000" min="1000"><select><option>ゆるやか</option><option selected>ふつう</option></select><input type="checkbox" aria-label="参加賞を作る" checked><button>計算する</button><script>const T = { 3000: "ちょっといい調理家電の小物" }; console.log("debug");</script>`;
+  const f = toolFactsForReview(html);
+  assert.match(f, /ふつう（最初に選ばれている）/);
+  assert.match(f, /最初の値 30000/);
+  assert.match(f, /参加賞を作る（checkbox・最初から選ばれている）/);
+  assert.match(f, /計算する/);
+  assert.match(f, /ちょっといい調理家電の小物/);
+  assert.doesNotMatch(f, /debug/); // 日本語を含まない文字列は渡さない
+  assert.ok(toolFactsForReview(html, 20).endsWith("（長いので途中まで）"));
+  // selected がない組は先頭が最初の値。disabled の見出しの選択肢は飛ばす
+  assert.match(toolFactsForReview(`<select><option disabled>選んでください</option><option>1等</option><option>2等</option></select>`), /1等（最初に選ばれている） \/ 2等$/m);
+  // 複数行のテンプレートや長い文も拾い、コメントの中の引用符で崩れない
+  const long = "とても長い結果の文".repeat(30);
+  const js = toolFactsForReview(`<script>// it's a comment\nconst out = \`\${n}等は\n\${yen}円です\`;\nconst l = "${long}";</script>`);
+  assert.match(js, /\$\{n\}等は \$\{yen\}円です/);
+  assert.ok(js.includes(long));
+  // textarea の最初の値と入力例、似た名前の属性（data-value・aria-checked）は取り違えない
+  const tf = toolFactsForReview(`<textarea name="names" placeholder="山田、佐藤">田中\n鈴木</textarea><input type="checkbox" name="x" aria-checked="false" data-value="9"><select><option aria-selected="true">A</option><option>B</option></select>`);
+  assert.match(tf, /names（textarea・最初の値 田中\n鈴木・入力例 山田、佐藤）/);
+  assert.match(tf, /x（checkbox）/);
+  assert.match(tf, /A（最初に選ばれている） \/ B$/m);
+  // 正規表現の中の引用符で、文の読み取りがずれない（割り算はそのまま）
+  assert.match(toolFactsForReview(`<script>const a = t.replace(/"/g, "日本語"); const r = 10 / 2; const b = '二つ目';</script>`), /日本語 \/ 二つ目/);
+  // 長いボタンも捨てず、切ったあとも max を超えない
+  assert.match(toolFactsForReview(`<button>${"とても長いボタンの文言".repeat(8)}</button>`), /とても長いボタンの文言とても/);
+  assert.ok(toolFactsForReview(html, 40).length <= 40);
+  // 渡したときだけ user に入る（評価の例は渡さないので、評価の指示は変わらない）
+  const lp = { headline: "h", subheadline: "s", cta: "c", pains: [], features: [], faq: [] } as never;
+  assert.doesNotMatch(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp).user, /ツールの中身/);
+  assert.match(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp, undefined, f).user, /ツールの中身[\s\S]*ここにない選択肢や例文は、ツールでは作れない[\s\S]*ふつう/);
+  // 途中で切ったときは「ないとは言い切らない」にする
+  assert.match(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp, undefined, toolFactsForReview(html, 20)).user, /途中までしか渡していない/);
+});
+
+test("最初の届け方の実施: 公開のときに提案箱へ入れたお願いの返事を、そのまま記録として読む", async () => {
+  const { firstChannelState, firstChannelLabel } = await import("../src/lib/loop");
+  const { addProposal } = await import("../src/lib/voices");
+  const id = addProject();
+  assert.equal(firstChannelState(id), null);
+  assert.match(firstChannelLabel(null), /記録なし/);
+  // 同じ案件・同じ場面でも、届け方のお願いでないものは読まない
+  addProposal({ title: `別のお願い ${id}`, how: "x", why: "y", target: "human", source: "plan", scene: "公開", projectId: id });
+  assert.equal(firstChannelState(id), null);
+  const pid = addProposal({ title: `「t${id}」を、対象の人がいる場所に届ける`, how: "x", why: "y", target: "human", source: "plan", scene: "公開", projectId: id })!;
+  assert.equal(firstChannelState(id)?.status, "open");
+  assert.match(firstChannelLabel(firstChannelState(id)), /まだやっていない/);
+  db().prepare("UPDATE plan_requests SET status = 'done', note = '2件に相談した', decided_at = datetime('now') WHERE id = ?").run(pid);
+  assert.match(firstChannelLabel(firstChannelState(id)), /運営者がやった（ひとこと: 2件に相談した）/);
+  db().prepare("UPDATE plan_requests SET status = 'declined', note = NULL WHERE id = ?").run(pid);
+  assert.equal(firstChannelLabel(firstChannelState(id)), "運営者が見送った");
+});

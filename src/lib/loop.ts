@@ -270,7 +270,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 - 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案や、知らない人へのDM・個別の勧誘は出さない（スパム扱いされやすいため）
 - 自分の投稿だけ（フォロワーほぼ0では、ほとんど表示されない）にせず、運営者が手でできる直接の接点を最低1つ、数つきで入れる。例: 対象の人が集まるコミュニティ・グループの管理者に、紹介してよいか相談する（2か所）/ 対象に当てはまる知人に使ってもらい、感想を聞く（3人）/ ルールで紹介が認められている場（自己紹介・成果物の共有の場など）に1回だけ載せる
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
-形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
+形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
     user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
@@ -359,7 +359,7 @@ async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, mo
     system: `あなたはLP（サービス紹介ページ）のコピーライター兼デザイナーです。${isTool
       ? "このページには、すでに動くツール本体が埋め込まれていて、訪問者はその場で無料・登録不要で使えます。ツールを使ってもらい、気に入ったらシェアしてもらうことが目的です。"
       : "サービスはまだ開発前で、メールの事前登録で需要を確かめます。"}
-守ること:${isTool ? "" : "\n- まだ作ると決まっていないサービスで、このページは使いたい人がどれくらいいるかを確かめるためのもの。「開発中」「先行利用」「近日公開」「リリース予定」のように、作ることや提供の時期が決まっているかのようには書かない。「作るかどうかを決めるために、使ってみたい人を募っています」「提供することになったら、メールでお知らせします」のように、正直に書く"}
+守ること:${isTool ? "" : "\n- まだ作ると決まっていないサービスで、このページは使いたい人がどれくらいいるかを確かめるためのもの。「開発中」「先行利用」「近日公開」「リリース予定」のように、作ることや提供の時期が決まっているかのようには書かない。「作るかどうかを決めるために、使ってみたい人を募っています」「提供することになったら、メールでお知らせします」のように、正直に書く\n- 見出し・サブ見出し・ボタンの文言・特徴・使い方の手順・使う前後の比較・よくある質問のどこでも同じ。できることを「〜になります」「〜します」「〜できます」と言い切らず、「〜を考えています」「〜を目指しています」「〜できるようにしたいと考えています」と書く（例: 「LINEで知らせます」→「LINEで知らせる形を考えています」、「1枚の画像にまとめます」→「1枚の画像にまとめることを目指しています」）"}
 - 架空の利用者数・実績・お客様の声・受賞歴などは書かない
 - 「必ず」「誰でも」などの誇大表現は使わない
 - ターゲットが自分ごとだと感じる、具体的な言葉で書く
@@ -396,7 +396,7 @@ export const beforeForReview = (before: Lp): Lp => ({ ...before, tool: undefined
 export const toolPageForReview = (page: Lp): Lp => ({ ...page, preview: undefined });
 
 // 公開前チェックの指示文。本番のチェックと、チェックの評価（checkEval.ts）で同じものを使う
-export function lpReviewPrompt(p: Pick<ProjectRow, "kind" | "target" | "solution">, lp: Lp, before?: Lp): { system: string; user: string } {
+export function lpReviewPrompt(p: Pick<ProjectRow, "kind" | "target" | "solution">, lp: Lp, before?: Lp, toolFacts?: string): { system: string; user: string } {
   return {
     system: `あなたはLPの公開前チェック担当です。次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
 - 架空の利用者数・実績・お客様の声・受賞歴・具体的な効果の数字を断言している
@@ -409,19 +409,99 @@ ${p.kind === "tool"
 問題がなければ {"ok":true,"issues":[]}。
 形式: {"ok":true または false,"issues":["問題点"]}
 ${EXTRAS_RULE}`,
-    user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(beforeForReview(before))}` : ""}`,
+    user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}${toolFacts ? `\n\nツールの中身（tool.html から取り出した、選択肢・入力欄の最初の値・画面に出る文言。${toolFacts.endsWith(TOOL_FACTS_CUT) ? "長いので途中までしか渡していない。ここにないからといって、ツールで作れないとは言い切らない" : "ここにない選択肢や例文は、ツールでは作れない"}）:\n${toolFacts}` : ""}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(beforeForReview(before))}` : ""}`,
   };
 }
 
-async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp): Promise<Review> {
+async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp, toolHtml?: string): Promise<Review> {
   const out = await callJson<Review>({
     purpose: "LPチェック",
     projectId: p.id,
-    ...lpReviewPrompt(p, lp, before),
+    ...lpReviewPrompt(p, lp, before, toolHtml ? toolFactsForReview(toolHtml) : undefined),
     validate: isReview,
   });
   takeExtras(out, { modelId: getSettings().loopModel, scene: "LPのチェック", projectId: p.id });
   return { ok: out.ok, issues: out.issues };
+}
+
+// LPのチェックに渡す、ツールの中身の抜き出し。コード全体は長く費用がかかるので、ページの文言と照らすのに要るものだけにする:
+// 選択肢・入力欄の最初の値（開いた直後の状態）・ボタンや見出しの文言・スクリプトの中の日本語の文（テンプレートの例文など）
+// （材料がないと、チェックが「ツールで出るか確かめられない」として止めていた）
+export const TOOL_FACTS_CUT = "…（長いので途中まで）";
+export function toolFactsForReview(html: string, max = 3000): string {
+  const clean = (x: string) => x.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  const lines: string[] = [];
+  // 選択肢は組（select）ごとに見る。selected がなければ、先頭（disabled でないもの）が最初に選ばれる
+  const options = [...html.matchAll(/<select\b[^>]*>([\s\S]*?)<\/select>/gi)].flatMap((sel) => {
+    const opts = [...sel[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map((m) => { const a = tagAttrs(m[1]); return { text: clean(m[2]), selected: a.has("selected"), disabled: a.has("disabled") }; });
+    const first = opts.some((o) => o.selected) ? -1 : opts.findIndex((o) => !o.disabled);
+    return opts.map((o, i) => `${o.text}${o.selected || i === first ? "（最初に選ばれている）" : ""}`).filter(Boolean);
+  });
+  if (options.length) lines.push(`選択肢: ${[...new Set(options)].join(" / ")}`);
+  const field = (a: Map<string, string>, type: string, value?: string) => {
+    const name = a.get("aria-label") || a.get("name") || a.get("id") || "";
+    const parts = [value !== undefined && value !== "" ? `最初の値 ${value}` : "", a.get("min") ? `最小 ${a.get("min")}` : "", a.get("max") ? `最大 ${a.get("max")}` : "", a.get("placeholder") ? `入力例 ${a.get("placeholder")}` : "", a.has("checked") ? "最初から選ばれている" : ""].filter(Boolean);
+    return parts.length || type === "radio" || type === "checkbox" ? `${name || type}（${type}${parts.length ? `・${parts.join("・")}` : ""}）` : "";
+  };
+  const inputs = [
+    ...[...html.matchAll(/<input\b([^>]*)>/gi)].map((m) => { const a = tagAttrs(m[1]); return field(a, a.get("type") || "text", a.get("value")); }),
+    ...[...html.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/gi)].map((m) => field(tagAttrs(m[1]), "textarea", m[2].trim())),
+  ].filter(Boolean);
+  if (inputs.length) lines.push(`入力欄: ${inputs.join(" / ")}`);
+  const labels = [...html.matchAll(/<(button|label|h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => clean(m[2])).filter(Boolean);
+  if (labels.length) lines.push(`ボタン・見出し: ${[...new Set(labels)].join(" / ")}`);
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join("\n");
+  const strings = scriptStrings(scripts).map((x) => x.replace(/\s+/g, " ").trim()).filter((x) => /[ぁ-んァ-ヶ一-龠]/.test(x));
+  if (strings.length) lines.push(`スクリプトの中の文言: ${[...new Set(strings)].join(" / ")}`);
+  const out = lines.join("\n");
+  return out.length > max ? `${out.slice(0, Math.max(0, max - TOOL_FACTS_CUT.length))}${TOOL_FACTS_CUT}` : out;
+}
+
+// タグの属性を、名前ごとに読む（data-value や aria-checked を、value や checked と取り違えないように、名前が完全に同じものだけ）
+function tagAttrs(src: string): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const a of src.matchAll(/([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+)))?/g)) {
+    const name = a[1].toLowerCase();
+    if (!m.has(name)) m.set(name, a[2] ?? a[3] ?? a[4] ?? "");
+  }
+  return m;
+}
+
+// スクリプトの中の文字列を、引用符の種類とエスケープを見ながら取り出す
+// （コメントと正規表現リテラルは飛ばす。バッククォートの中は改行も含める）
+function scriptStrings(js: string): string[] {
+  const out: string[] = [];
+  let prev = ""; // 直前の、空白でない文字（「/」が割り算か正規表現の始まりかを見分ける）
+  for (let i = 0; i < js.length; i++) {
+    const c = js[i];
+    if (c === "/" && js[i + 1] === "/") { const n = js.indexOf("\n", i); i = n < 0 ? js.length : n; continue; }
+    if (c === "/" && js[i + 1] === "*") { const n = js.indexOf("*/", i + 2); i = n < 0 ? js.length : n + 1; continue; }
+    if (c === "/" && (prev === "" || "(,=:[!&|?{};+-*%<>~^".includes(prev) || /\b(return|typeof|case|in|of)$/.test(js.slice(Math.max(0, i - 7), i).trimEnd()))) {
+      let j = i + 1;
+      let inClass = false;
+      for (; j < js.length && js[j] !== "\n"; j++) {
+        if (js[j] === "\\") { j++; continue; }
+        if (js[j] === "[") inClass = true;
+        else if (js[j] === "]") inClass = false;
+        else if (js[j] === "/" && !inClass) break;
+      }
+      i = j;
+      prev = "/";
+      continue;
+    }
+    if (c !== '"' && c !== "'" && c !== "`") { if (!/\s/.test(c)) prev = c; continue; }
+    let j = i + 1;
+    let text = "";
+    for (; j < js.length && js[j] !== c; j++) {
+      if (js[j] === "\\") { text += js[j + 1] ?? ""; j++; continue; }
+      if (js[j] === "\n" && c !== "`") break; // 閉じていない
+      text += js[j];
+    }
+    if (js[j] === c) out.push(text);
+    i = j;
+    prev = c;
+  }
+  return out;
 }
 
 // ---- 動くツールの本体 ----
@@ -836,7 +916,7 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const { shareText, ...page } = await writeLp(p, opts.instruction, opts.keepCore);
   const version = nextVersion(p.id);
   const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html);
-  const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined);
+  const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined, tool.html);
   const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
   let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
@@ -954,7 +1034,7 @@ export function judgePrompt(p: ProjectRow, trigger: JudgeTrigger = "visits") {
 - collect: 今のまま、もう少し集客してから判断する
 - kill: 需要が見込めないので撤退する`;
   const slowNote = trigger === "slow"
-    ? `\n今回は、公開（または前回の判断）から${s.judgeAfterDays}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。訪問が判断の基準（${s.judgeMinVisits}人）に届いていない間の kill は、自動では実行されず人の判断に回る。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
+    ? `\n今回は、公開（または前回の判断）から${s.judgeAfterDays}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。訪問が判断の基準（${s.judgeMinVisits}人）に届いていない間の kill は、自動では実行されず人の判断に回る。最初の届け方をまだやっていない（または見送った）なら、需要の問題ではなく届け方の問題として扱い、それを理由に書くこと。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
     : "";
   return {
     all,
@@ -971,6 +1051,7 @@ rethink の場合、next_action には「どこで（具体的な場所・ハッ
     user: `サービス: ${p.title}（対象: ${p.target}）
 仮説: ${p.hypothesis}
 企画のときに決めた最初の届け方: ${p.first_channel ?? "（なし）"}
+最初の届け方の実施（運営者の手作業）: ${firstChannelLabel(firstChannelState(p.id))}
 企画のときに決めた最初の1週間の検証: ${p.first_test ?? "（なし）"}
 ${p.growth_focus ? `いまの集客の方針（前回の見直しで決めたもの）: ${p.growth_focus}\n` : ""}公開してから: ${p.published_at ? `${Math.floor(daysSinceUtc(p.published_at))}日` : "不明"}${p.judged_at ? ` / 前回の判断から ${Math.floor(daysSinceUtc(p.judged_at))}日` : ""} / 集客の見直し ${p.rethink_count}回${growing ? ` / 育てる段階での実験 ${p.growth_count}回` : ""}
 SNSへの投稿: ${posts}${split}
@@ -1608,7 +1689,7 @@ async function announcePublish(projectId: number) {
       // フォロワーがほぼいない自動投稿だけでは、判断に必要な訪問が集まらないため
       if (!p.published_at && p.first_channel) {
         addProposal({
-          title: `「${p.title}」を、対象の人がいる場所に届ける`,
+          title: `「${p.title}」${FIRST_CHANNEL_TITLE}`,
           how: `${p.first_channel}\nページ: ${publicUrl(projectId) ?? slugOf(projectId)}`,
           why: "自動投稿だけでは届く人数に限りがあり、判断の基準の訪問まで集まらないため（企画のときにAIが決めた最初の届け方）",
           target: "human", source: "plan", scene: "公開", projectId,
@@ -1682,9 +1763,38 @@ export async function maybeAutoJudge(projectId: number) {
   // 保留から戻したばかりの案件は、戻した日から数える
   const since = [p.judged_at ?? publishedAt, p.resumed_at].filter((x): x is string => !!x).sort().at(-1);
   const slow = !!since && daysSinceUtc(since) >= s.judgeAfterDays;
+  // 日数で判断する2日前に、企画で決めた最初の届け方がまだなら、運営者に1回だけ知らせる
+  // （やらないまま判断すると、届け方の問題を需要の問題と取り違えるため）
+  if (since && !slow && !enoughVisits && !budgetHit && daysSinceUtc(since) >= s.judgeAfterDays - 2) remindFirstChannel(p);
   if (!enoughVisits && !budgetHit && !slow) return false;
   await judge(projectId, enoughVisits ? "visits" : budgetHit ? "budget" : "slow");
   return true;
+}
+
+// 企画で決めた最初の届け方（公開したときに、運営者がやることとして提案箱に入れたもの）を、やったかどうか
+// 提案箱の返事（やった・見送り）を、そのまま実施の記録として使う
+// 公開したときに入れる届け方のお願いの題の終わり（ほかの「公開」のお願いと見分けるのに使う）
+const FIRST_CHANNEL_TITLE = "を、対象の人がいる場所に届ける";
+export type FirstChannelState = { status: "open" | "done" | "declined"; note: string | null; at: string };
+export function firstChannelState(projectId: number): FirstChannelState | null {
+  const r = db().prepare(`SELECT status, note, COALESCE(decided_at, created_at) AS at FROM plan_requests
+     WHERE project_id = ? AND target = 'human' AND source = 'plan' AND scene = '公開' AND title LIKE ? ORDER BY id DESC LIMIT 1`)
+    .get(projectId, `%${FIRST_CHANNEL_TITLE}`) as { status: string; note: string | null; at: string } | undefined;
+  if (!r) return null;
+  return { status: r.status === "done" ? "done" : r.status === "declined" ? "declined" : "open", note: r.note, at: r.at };
+}
+export function firstChannelLabel(x: FirstChannelState | null): string {
+  if (!x) return "記録なし（公開したときに提案箱へ入っていない）";
+  if (x.status === "done") return `運営者がやった${x.note ? `（ひとこと: ${x.note}）` : ""}`;
+  if (x.status === "declined") return `運営者が見送った${x.note ? `（理由: ${x.note}）` : ""}`;
+  return "まだやっていない（提案箱で運営者の返事待ち）";
+}
+function remindFirstChannel(p: ProjectRow) {
+  if (firstChannelState(p.id)?.status !== "open") return;
+  const sent = db().prepare("SELECT 1 FROM events WHERE project_id = ? AND kind = 'channel-remind' LIMIT 1").get(p.id);
+  if (sent) return;
+  logEvent(p.id, "system", "channel-remind", "企画で決めた最初の届け方が、まだやっていません。2日ほどで、訪問が少ないまま判断します（提案箱の「運営者へのお願い」）");
+  notifyHuman(`${projectTitle(p.id)}企画で決めた最初の届け方がまだです。2日ほどで判断に入ります（提案箱）`);
 }
 
 // ---- 保留: 今は集客しても届かない案件（季節ものなど）を、公開したまま休ませる ----
