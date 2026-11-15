@@ -22,11 +22,10 @@ export function checkEvalModels(): string[] {
   return [...new Set([loop, ...ids])].filter((id) => hasKey(getModel(id).provider));
 }
 
-// チェックの指示の指紋。事前登録LPとツールの代表の例を、渡す文の全体（system と user）にして作る
-// （指示や、LPの渡し方を変えた前後の結果を見分けるため）
+// チェックの指示と例の指紋。全部の例を、渡す文の全体（system と user）と正解にして作る
+// （指示・LPの渡し方・例のどれかを変えると変わる。変える前の結果とは、そのまま比べられないため）
 export function checkPromptHash(): string {
-  const pick = (kind: "lp" | "tool") => CHECK_EVAL_CASES.find((c) => checkEvalInput(c).project.kind === kind)!;
-  const texts = (["lp", "tool"] as const).map((k) => { const { project, lp } = checkEvalInput(pick(k)); const p = lpReviewPrompt(project, lp); return `${p.system}\n===\n${p.user}`; });
+  const texts = CHECK_EVAL_CASES.map((c) => { const { project, lp } = checkEvalInput(c); const p = lpReviewPrompt(project, lp); return `${c.id}|${c.expect}|${c.type ?? ""}\n${p.system}\n===\n${p.user}`; });
   return createHash("sha256").update(texts.join("\n---\n")).digest("hex").slice(0, 8);
 }
 
@@ -129,6 +128,7 @@ export type CheckEvalSummary = {
   byType: { type: CheckEvalType; label: string; total: number; caught: number }[];
   misses: { caseId: string; type: CheckEvalType | null; note: string }[]; // 見逃した例
   overblocks: { caseId: string; note: string; issues: string[] }[]; // 止めすぎた例
+  failures: { caseId: string; note: string; error: string }[]; // 答えが取れなかった例と、その理由
 };
 
 export function summarizeCheckEval(run: CheckEvalRow, rows: CheckEvalResultRow[]): CheckEvalSummary {
@@ -148,6 +148,7 @@ export function summarizeCheckEval(run: CheckEvalRow, rows: CheckEvalResultRow[]
     }),
     misses: ng.filter((r) => r.got_ok === 1).map((r) => ({ caseId: r.case_id, type: r.type, note: note(r.case_id) })),
     overblocks: ok.filter((r) => r.got_ok === 0).map((r) => ({ caseId: r.case_id, note: note(r.case_id), issues: r.issues ? (JSON.parse(r.issues) as string[]) : [] })),
+    failures: rows.filter((r) => r.got_ok === null).map((r) => ({ caseId: r.case_id, note: note(r.case_id), error: r.error ?? "理由は残っていません" })),
   };
 }
 

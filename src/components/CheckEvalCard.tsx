@@ -26,7 +26,7 @@ function Result({ s, owner, stale }: { s: CheckEvalSummary; owner: boolean; stal
     <div className="space-y-3 rounded-lg border border-line p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="font-medium">{getModel(s.run.model_id).label}</div>
-        <div className="text-xs text-muted">{jstDateTime(s.run.at)}{stale ? "・このあとチェックの指示を変えています" : ""}</div>
+        <div className="text-xs text-muted">{jstDateTime(s.run.at)}{stale ? "・このあとチェックの指示か例を変えています" : ""}</div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="rounded-lg bg-surface-2 p-3">
@@ -47,15 +47,21 @@ function Result({ s, owner, stale }: { s: CheckEvalSummary; owner: boolean; stal
         ))}
       </div>
       {s.failed > 0 && <p className="text-xs text-muted">答えが取れなかった例が{s.failed}件あり、数に入れていません。</p>}
-      {owner && (s.misses.length > 0 || s.overblocks.length > 0) && (
+      {owner && (s.misses.length > 0 || s.overblocks.length > 0 || s.failures.length > 0) && (
         <details className="text-sm">
-          <summary className="cursor-pointer text-xs text-accent">見逃した例・止めすぎた例を見る</summary>
+          <summary className="cursor-pointer text-xs text-accent">見逃した例・止めすぎた例{s.failures.length > 0 ? "・答えが取れなかった例" : ""}を見る</summary>
           <ul className="mt-2 space-y-1.5 text-xs">
             {s.misses.map((m) => <li key={m.caseId}><span style={{ color: "var(--critical)" }}>見逃し</span>　{m.note}<span className="text-muted">（{m.caseId}）</span></li>)}
             {s.overblocks.map((o) => (
               <li key={o.caseId}>
                 <span style={{ color: "var(--warning)" }}>止めすぎ</span>　{o.note}<span className="text-muted">（{o.caseId}）</span>
                 {o.issues.length > 0 && <div className="mt-0.5 text-ink-2">チェックの指摘: {o.issues.join(" / ")}</div>}
+              </li>
+            ))}
+            {s.failures.map((f) => (
+              <li key={f.caseId}>
+                <span className="text-muted">答えが取れなかった</span>　{f.note}<span className="text-muted">（{f.caseId}）</span>
+                <div className="mt-0.5 break-words text-ink-2">理由: {f.error}</div>
               </li>
             ))}
           </ul>
@@ -100,7 +106,7 @@ export function CheckEvalCard({ owner }: { owner: boolean }) {
                   <span className="num">通した {h.ok.passed}/{h.ok.total}</span>
                 </>}
                 {owner && h.run.cost_usd != null && <span className="num">約{Math.round(h.run.cost_usd * s.usdJpy)}円</span>}
-                <span className="text-muted">指示 {h.run.prompt_hash}{h.run.prompt_hash !== o.promptHash ? "（今の指示に変える前）" : ""}</span>
+                <span className="text-muted">指示と例 {h.run.prompt_hash}{h.run.prompt_hash !== o.promptHash ? "（今の指示と例に変える前）" : ""}</span>
               </div>
             ))}
           </ShowMore>
