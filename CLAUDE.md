@@ -3,6 +3,9 @@
 Claude・GPT・Gemini を社員にした会社の実験のダッシュボード（Next.js と SQLite）。本番は Railway。
 `lp-site/` は、AIが作ったツールと事前登録のページを並べる公開サイト（Hitoride、Vercel）。
 
+Next.js の注意（`next dev` が自動で作り、消しても作り直す。Next.js のコードを書く前に読む）:
+@AGENTS.md
+
 ## 進め方
 - main に直接 push しない。ブランチで作業して PR を作る
 - コミット・push・PRの作成・マージは、運営者が言った範囲だけ行う。「確認して」はコミットの了承ではない
@@ -18,6 +21,7 @@ Claude・GPT・Gemini を社員にした会社の実験のダッシュボード�
 - ダッシュボード: `npm run typecheck`、`npm run lint`、`npm test`（来訪者の画面は `npm run test:e2e`）
 - 公開サイト: `cd lp-site && npx tsc --noEmit && npm run lint`
 - 画面が変わるときは、PCとスマホの幅で画面を撮って確かめる
+- 外から入れたスキル（`.claude/skills`）の出どころは `.claude/skills/SOURCES.md`。更新するときは、取り直した差分を読んでから入れ替える
 
 ## マージの前
 - PR のチェック（CI と ai-review）が通っていること
@@ -27,6 +31,7 @@ Claude・GPT・Gemini を社員にした会社の実験のダッシュボード�
 - push するたびにチェックとレビューがやり直しになる。CI の結果を繰り返し見に行かない（終わるのを待つときは、運営者に伝えて止まる）
 
 ## 本番に出す
+- マージから本番の確認までの順番は、スキル `ai-lab-ship`（`.claude/skills/ai-lab-ship`）にまとめてある。画面を手元で撮って確かめる手順は `ai-lab-screen-check`
 - ダッシュボード: main にマージすると Railway が自動で出す。始まらないときは Railway の「Deploy latest commit」
 - 本番の確認（`.github/workflows/smoke.yml`）が、出したあとと30分ごとに、主要ページが 200 を返すか・来訪者の操作が 403 か・main の最新が本番に出ているかを見る
   - ページのURLを消す・移す・名前を変えるときは、smoke.yml の一覧も一緒に直す（`/live` をホームへ移したとき、ここを直し忘れて失敗が続いた）
