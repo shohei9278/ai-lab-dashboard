@@ -3,7 +3,7 @@ import type { RunRow } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
 import { LANG_LABEL, TASK_LABEL, VARIANT_LABEL, type PromptLang, type PromptVariant, type TaskType } from "@/lib/tasks";
 import { jstDateTime, yen } from "@/lib/format";
-import { MockBadge, StatusBadge } from "./ui";
+import { MockBadge, ScrollHint, StatusBadge } from "./ui";
 
 export function RunsTable({ runs, usdJpy }: { runs: RunRow[]; usdJpy: number }) {
   if (!runs.length) {
@@ -14,6 +14,8 @@ export function RunsTable({ runs, usdJpy }: { runs: RunRow[]; usdJpy: number }) 
     );
   }
   return (
+    <>
+    <ScrollHint />
     <div className="card overflow-x-auto">
       <table className="m-scroll w-full text-sm">
         <thead className="text-left text-xs text-muted">
@@ -49,5 +51,6 @@ export function RunsTable({ runs, usdJpy }: { runs: RunRow[]; usdJpy: number }) 
         </tbody>
       </table>
     </div>
+    </>
   );
 }
