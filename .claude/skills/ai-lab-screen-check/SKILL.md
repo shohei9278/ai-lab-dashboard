@@ -31,14 +31,24 @@ AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx tsx <scratchpad>/seed.t
 ```
 
 ## 2. 手元で動かす
-`DASHBOARD_PASSWORD` を付けなければ、すべて運営者として開ける。来訪者の見え方を確かめたいときだけ、仮の値を付けてログインせずに開く。
+`DASHBOARD_PASSWORD` が空なら、すべて運営者として開ける。`.env.local` やシェルに値が入っていると来訪者の画面になるので、起動のコマンドで必ず明示する（コマンドで付けた値は `.env.local` より優先される）。
+- 運営者の画面: `DASHBOARD_PASSWORD=`（空）
+- 来訪者の画面: `DASHBOARD_PASSWORD=<仮の値>` を付けて、ログインせずに開く
 
-後ろに `&` を付けてバックグラウンドで起動し、PID をファイルに控える（コマンドを打つたびにシェルが変わるので、変数ではなくファイルに残す）。
+起動の前に、3472番が空いているかを見る。何か出たら、ほかのサーバーが使っているので、起動せずに止まって運営者に伝える（そのまま進むと、別のサーバーの画面を撮り、片付けで止めてしまう）。
 
 ```bash
-AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx next dev -p 3472 > <scratchpad>/next.log 2>&1 & echo $! > <scratchpad>/next.pid
+lsof -nP -iTCP:3472 -sTCP:LISTEN
 ```
-起動を待つときは、`curl -s -o /dev/null -w "%{http_code}" localhost:3472/` が 200 になるまで数秒おきに見る。
+
+空いていたら、`&` でバックグラウンドにして起動し、PID をファイルに控える（コマンドを打つたびにシェルが変わるので、変数ではなくファイルに残す）。
+
+```bash
+DASHBOARD_PASSWORD= AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx next dev -p 3472 > <scratchpad>/next.log 2>&1 & echo $! > <scratchpad>/next.pid
+```
+起動を待つときは、数秒おきに次の2つを見る。両方そろうまで撮らない。
+- 控えた PID がまだ動いている: `kill -0 "$(cat <scratchpad>/next.pid)"`（失敗したら起動に失敗しているので、`next.log` を読む）
+- `next.log` に `Ready` が出て、`curl -s -o /dev/null -w "%{http_code}" localhost:3472/` が 200
 
 ## 3. 撮る
 ブラウザの窓が小さいことがあるので、Playwright（`playwright-core`、ai-lab の node_modules にある）を headless で使う。ブラウザは `~/Library/Caches/ms-playwright/chromium_headless_shell-*/*/chrome-headless-shell` にあるものを `executablePath` で指す（`npx playwright install` はしない）。
@@ -49,13 +59,13 @@ AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx next dev -p 3472 > <scr
 - 撮った画像は Read で開いて、崩れ・はみ出し・文言を自分の目で見る
 
 ## 4. 片付け
-控えた PID のプロセスだけを止める（`pkill -f` で名前を当てると、ほかのプロセスや呼び出し元まで止めることがある）。`npx` の下で Next.js がさらにプロセスを起こすので、3472番を開いているプロセスも止める。
+自分で起動したものだけを止める（`pkill -f` や、3472番を開いているプロセスをまとめて止めるやり方は、ほかのプロセスまで止めることがある）。`npx` の下で Next.js がさらにプロセスを起こすので、控えた PID と、その下のプロセスを止める。
 
 ```bash
-kill "$(cat <scratchpad>/next.pid)" 2>/dev/null; lsof -ti tcp:3472 -sTCP:LISTEN | xargs kill 2>/dev/null || true
+pid=$(cat <scratchpad>/next.pid); kids=$(pgrep -P "$pid"); grand=$(for k in $kids; do pgrep -P "$k"; done); kill $grand $kids "$pid" 2>/dev/null || true
 rm -f <scratchpad>/check.db <scratchpad>/check.db-wal <scratchpad>/check.db-shm <scratchpad>/seed.ts <scratchpad>/next.pid <scratchpad>/next.log
 ```
-止まったかは `curl -s -o /dev/null -w "%{http_code}" localhost:3472/` が 000 になることで確かめる。
+止まったかは `lsof -nP -iTCP:3472 -sTCP:LISTEN` が何も出さないことで確かめる。まだ残っていたら、出たプロセスが自分の起動したもの（`ps -o ppid=,command= -p <PID>` で `next dev -p 3472` と分かる）かを見てから止める。
 `.claude/launch.json` に一時の起動設定を足したなら、それも消す。
 
 ## 報告

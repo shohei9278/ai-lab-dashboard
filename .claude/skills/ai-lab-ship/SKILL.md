@@ -20,6 +20,8 @@ description: ai-lab の PR をマージして本番に出すまでの手順。�
 3. 本番が止まっているか: `curl -s https://ai-lab-dashboard-production-fc9e.up.railway.app/api/live` の `activities` と `building` が空
    - 空でなければ、終わるまで待つよう運営者に伝える
 4. 人が見つけた不具合や人の判断の入った変更なら、`src/lib/interventions.ts` の `FIRST` に人の手の記録が入っているか
+5. ページの URL を消した・移した・名前を変えた PR なら、`.github/workflows/smoke.yml` の一覧も同じ PR で直っているか
+   - 直っていなければマージしない。同じ PR で直して push し、1 に戻る（マージしてからだと、本番の確認が失敗し続ける main になる）
 
 ## 2. マージ
 ```bash
@@ -35,7 +37,6 @@ git switch main && git pull
   ```
   - 出たかは `npx vercel inspect <出たURL>` の status と、ブラウザで一度開いて確かめる
   - curl で短い間隔に何度も読みに行かない（Vercel の防御で 403 になる）
-- ページの URL を消した・移した・名前を変えたなら、`.github/workflows/smoke.yml` の一覧も同じ PR で直っているか（直っていなければ本番の確認が失敗し続ける）
 
 ## 4. 出たあと
 - 本番の確認（smoke.yml）が、出たあとと30分ごとに主要ページ・来訪者の 403・main の最新が出ているかを見る。結果を繰り返し見に行かない
