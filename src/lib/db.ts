@@ -649,6 +649,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "index_uses", "INTEGER NOT NULL DEFAULT 0"], // そのうち登録・利用した人の数
   ["projects", "hold_reason", "TEXT"], // 保留にした理由（人が書く）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
+  ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
   ["projects", "rethink_count", "INTEGER NOT NULL DEFAULT 0"], // 集客の見直しをした回数
   ["projects", "growth_focus", "TEXT"], // いまの集客の切り口・場所・対象（見直しで変わる）

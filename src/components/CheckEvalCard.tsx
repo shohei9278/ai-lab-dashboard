@@ -95,12 +95,12 @@ export function CheckEvalCard({ owner }: { owner: boolean }) {
               <div key={h.run.id} className="flex flex-wrap gap-x-3 text-ink-2">
                 <span className="num">{jstDateTime(h.run.at)}</span>
                 <span>{getModel(h.run.model_id).label}</span>
-                {h.run.status === "error" ? <span style={{ color: "var(--critical)" }}>途中で止まった{h.run.error ? `（${h.run.error}）` : ""}</span> : <>
+                {h.run.status === "error" ? <span style={{ color: "var(--critical)" }}>{h.run.error ?? "途中で止まった"}</span> : <>
                   <span className="num">止めた {h.ng.caught}/{h.ng.total}</span>
                   <span className="num">通した {h.ok.passed}/{h.ok.total}</span>
                 </>}
                 {owner && h.run.cost_usd != null && <span className="num">約{Math.round(h.run.cost_usd * s.usdJpy)}円</span>}
-                <span className="text-muted">指示 {h.run.prompt_hash}</span>
+                <span className="text-muted">指示 {h.run.prompt_hash}{h.run.prompt_hash !== o.promptHash ? "（今の指示に変える前）" : ""}</span>
               </div>
             ))}
           </ShowMore>
