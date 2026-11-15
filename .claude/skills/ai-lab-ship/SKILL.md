@@ -17,8 +17,12 @@ description: ai-lab の PR をマージして本番に出すまでの手順。�
 2. ai-review のコメント（`gh pr view <番号> --json comments`）を読む
    - 指摘があれば、直すかどうかを判断する。直すなら push して、1 に戻る（push するとチェックはやり直し）
    - 方針が途中で変わったのに PR の説明文が古いままなら、説明文を直す（ai-review は説明文を要件として読む）
-3. 本番が止まっているか: `curl -s https://ai-lab-dashboard-production-fc9e.up.railway.app/api/live` の `activities` と `building` が空
-   - 空でなければ、終わるまで待つよう運営者に伝える
+3. 本番が止まっているか: 次が `idle` と出ること（`activities` と `building` が、どちらも空の配列）
+   ```bash
+   curl -fsS --max-time 20 https://ai-lab-dashboard-production-fc9e.up.railway.app/api/live | jq -e '(.activities|type=="array" and length==0) and (.building|type=="array" and length==0)' >/dev/null && echo idle
+   ```
+   - 何か動いている（`idle` と出ず、エラーもない）なら、終わるまで待つよう運営者に伝える
+   - 取れない・エラーになる（通信の失敗、500、ログインの画面、JSON でない など）ときは、止まっているかが分からないので、マージせずに止まって運営者に伝える
 4. 人が見つけた不具合や人の判断の入った変更なら、`src/lib/interventions.ts` の `FIRST` に人の手の記録が入っているか
 5. ページの URL を消した・移した・名前を変えた PR なら、`.github/workflows/smoke.yml` の一覧も同じ PR で直っているか
    - 直っていなければマージしない。同じ PR で直して push し、1 に戻る（マージしてからだと、本番の確認が失敗し続ける main になる）
@@ -31,7 +35,12 @@ git switch main && git pull
 
 ## 3. 本番に出す
 - **ダッシュボード**: main に入ると Railway が自動で出す。始まらないときは Railway の「Deploy latest commit」を運営者に頼む
-- **公開サイト（`lp-site/` を変えた PR のときだけ）**: main にマージしても出ない。main の最新にそろえた手元で:
+- **公開サイト（`lp-site/` を変えた PR のときだけ）**: main にマージしても出ない。手元のフォルダの中身がそのまま出るので、出す前に、手元が `origin/main` とまったく同じかを確かめる（コミットしていない変更・まだ入っていないファイル・手元だけのコミットがあると、レビューしていない内容を出してしまう）
+  ```bash
+  git fetch origin && test -z "$(git status --porcelain)" && test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" && echo clean
+  ```
+  - `clean` と出なければ出さない。何が違うかを運営者に伝えて止まる（勝手に消したり戻したりしない）
+  - `clean` と出たら:
   ```bash
   cd lp-site && npx vercel deploy --prod --yes
   ```

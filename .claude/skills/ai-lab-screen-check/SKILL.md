@@ -42,9 +42,10 @@ lsof -nP -iTCP:3472 -sTCP:LISTEN
 ```
 
 空いていたら、`&` でバックグラウンドにして起動し、PID をファイルに控える（コマンドを打つたびにシェルが変わるので、変数ではなくファイルに残す）。
+`perl -e 'setpgrp(0,0); exec @ARGV'` を前に付けて、起動したものを専用のプロセスのグループに入れる（グループの番号は控えた PID と同じになる）。片付けでグループごと止めるため。
 
 ```bash
-DASHBOARD_PASSWORD= AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx next dev -p 3472 > <scratchpad>/next.log 2>&1 & echo $! > <scratchpad>/next.pid
+DASHBOARD_PASSWORD= AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off perl -e 'setpgrp(0,0); exec @ARGV or die' npx next dev -p 3472 > <scratchpad>/next.log 2>&1 & echo $! > <scratchpad>/next.pid
 ```
 起動を待つときは、数秒おきに次の2つを見る。両方そろうまで撮らない。
 - 控えた PID がまだ動いている: `kill -0 "$(cat <scratchpad>/next.pid)"`（失敗したら起動に失敗しているので、`next.log` を読む）
@@ -59,13 +60,22 @@ DASHBOARD_PASSWORD= AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx nex
 - 撮った画像は Read で開いて、崩れ・はみ出し・文言を自分の目で見る
 
 ## 4. 片付け
-自分で起動したものだけを止める（`pkill -f` や、3472番を開いているプロセスをまとめて止めるやり方は、ほかのプロセスまで止めることがある）。`npx` の下で Next.js がさらにプロセスを起こすので、控えた PID と、その下のプロセスを止める。
+自分で起動したものだけを止める（`pkill -f` や、3472番を開いているプロセスをまとめて止めるやり方は、ほかのプロセスまで止めることがある）。
+`npx` の下で Next.js がさらにプロセスを起こし、親が先に終わると、下のプロセスは親から外れて残る。そこで、起動のときに作った、控えた PID を番号にしたプロセスのグループごと止める。zsh の組み込みの `kill` はグループの指定を受け付けないことがあるので、`/bin/kill` を使う。
 
 ```bash
-pid=$(cat <scratchpad>/next.pid); kids=$(pgrep -P "$pid"); grand=$(for k in $kids; do pgrep -P "$k"; done); kill $grand $kids "$pid" 2>/dev/null || true
+pid=$(cat <scratchpad>/next.pid); pgrep -g "$pid" -l
+/bin/kill -TERM -"$pid"
+for i in $(seq 1 20); do pgrep -g "$pid" >/dev/null || break; sleep 0.5; done
+pgrep -g "$pid" >/dev/null && echo "still running: $(pgrep -g "$pid" | tr '\n' ' ')" || echo stopped
+```
+最初の `pgrep -g ... -l` で、出てくるのが `node`（npx・next dev・next-server）だけであることを見てから止める。ほかのものが出たら、止めずに運営者に伝える。
+`stopped` と出てから、ファイルを消す（止まりきる前に消すと、終わり際のサーバーが DB やログを作り直すことがある）。`still running` と出たら、残ったものが自分の起動したもの（`ps -o ppid=,command= -p <PID>` で `next dev -p 3472` か `next-server` と分かる）かを見てから `kill -9` で止める。
+
+```bash
 rm -f <scratchpad>/check.db <scratchpad>/check.db-wal <scratchpad>/check.db-shm <scratchpad>/seed.ts <scratchpad>/next.pid <scratchpad>/next.log
 ```
-止まったかは `lsof -nP -iTCP:3472 -sTCP:LISTEN` が何も出さないことで確かめる。まだ残っていたら、出たプロセスが自分の起動したもの（`ps -o ppid=,command= -p <PID>` で `next dev -p 3472` と分かる）かを見てから止める。
+最後に、`lsof -nP -iTCP:3472 -sTCP:LISTEN` が何も出さないことを見る。
 `.claude/launch.json` に一時の起動設定を足したなら、それも消す。
 
 ## 報告
