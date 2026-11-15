@@ -235,7 +235,7 @@ export default async function GrowthPage() {
                 {posted.map((p) => (
                   <tr key={p.id} className="border-b border-line align-top last:border-0">
                     <td className="m-span2 num px-3 py-2 whitespace-nowrap text-xs text-ink-2">{p.posted_at ? jstUtc(p.posted_at) : "—"}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-xs">{label(p.platform)}{p.author === "human" && <span className="block text-muted">あなた</span>}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-xs">{label(p.platform)}{p.author === "human" && <span className="block text-muted">{owner ? "あなた" : "運営者"}</span>}</td>
                     <td className="m-wide px-3 py-2">
                       <Link href={`/projects/${p.project_id}`} className="text-xs text-ink-2 hover:underline">#{p.project_id} {p.title}</Link>
                       <p className="line-clamp-2 text-xs" title={p.text}>{p.text}</p>

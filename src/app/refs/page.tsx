@@ -16,7 +16,7 @@ export default async function RefsPage() {
   return (
     <div className="space-y-6">
       <PageIntro title="デザインの参考">
-        AIがページをデザインするときに見せる、参考のLPです。あなたが選んだページの最初の画面を撮り、AIが雰囲気・業種・構成・配色のタグを付けます。
+        AIがページをデザインするときに見せる、参考のLPです。{owner ? "あなた" : "運営者"}が選んだページの最初の画面を撮り、AIが雰囲気・業種・構成・配色のタグを付けます。
         参考は「雰囲気と質」のためだけに使い、配置や文言はまねさせません。公開サイトには載りません。
         <br />
         <b>今は使っていません。</b>参考あり・なしで作り比べても差がはっきりしなかったため、LPのデザインは「Claude と別の会社のAIの作り比べ」に変えました。集めた参考は残してあります。
@@ -68,6 +68,7 @@ export default async function RefsPage() {
 
       <section className="space-y-2">
         <h2 className="font-bold">ライブラリ（{ok.length}件{waiting ? `・取り込み中 ${waiting}件` : ""}）</h2>
+        {!owner && refs.length > 0 && <p className="text-xs text-muted">（デモ表示）他人のサイトの画面は伏せています。AIが付けたタグとメモだけを出しています。</p>}
         {refs.length === 0 ? (
           <div className="card p-6 text-sm text-ink-2">まだありません。20〜30件あると、案件ごとに合う参考を選べるようになります（2件以上で使い始めます）。</div>
         ) : (
@@ -76,9 +77,8 @@ export default async function RefsPage() {
               const t = r.tags ? (JSON.parse(r.tags) as RefTags) : null;
               return (
                 <li key={r.id} className="card space-y-2 p-3 text-sm">
-                  {r.shot_pc && !owner ? (
-                    <div className="flex aspect-[16/10] items-center justify-center rounded-lg bg-surface-2 px-3 text-center text-xs text-muted">（デモ表示）他人のサイトの画面のため、伏せています</div>
-                  ) : r.shot_pc ? (
+                  {/* 来訪者には他人のサイトの画面を伏せる。伏せた枠を並べると灰色の箱ばかりになるので、枠ごと出さない（伏せていることは一覧の上に1回だけ書く） */}
+                  {r.shot_pc && !owner ? null : r.shot_pc ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={`/api/refs/${r.shot_pc}`} alt={r.title ?? r.url} className="aspect-[16/10] w-full rounded-lg border border-line object-cover object-top" />
                   ) : (

@@ -7,6 +7,7 @@ import { CONV, MODE_LABEL, STAGE_LABEL, ideaAuthors, projectTotals, targetRate }
 import { getModel } from "@/lib/models";
 import { IdeaForm } from "@/components/IdeaForm";
 import { DailyCard } from "@/components/DailyCard";
+import { isOwner } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,8 @@ const COLUMNS: { stages: Stage[]; title: string; who: string; id?: string }[] = 
 ];
 
 // 案件の一覧: アイデアから結果まで、どの段階にいるかを並べる
-export default function ProjectsPage() {
+export default async function ProjectsPage() {
+  const owner = await isOwner();
   const s = getSettings();
   const projects = db().prepare("SELECT * FROM projects ORDER BY updated_at DESC").all() as ProjectRow[];
   const pendingByProject = new Set(
@@ -49,7 +51,7 @@ export default function ProjectsPage() {
                     <div className="text-sm font-bold">{col.title} <span className="num font-normal text-muted">{items.length}</span></div>
                     <div className="text-xs text-muted">{col.who}</div>
                   </div>
-                  <ShowMore initial={5} className="space-y-2">{items.map((p) => <ProjectCard key={p.id} p={p} pending={pendingByProject.has(p.id)} target={targetRate(p.kind, s)} />)}</ShowMore>
+                  <ShowMore initial={5} className="space-y-2">{items.map((p) => <ProjectCard key={p.id} p={p} pending={pendingByProject.has(p.id)} target={targetRate(p.kind, s)} owner={owner} />)}</ShowMore>
                 </div>
               );
             })}
@@ -94,7 +96,7 @@ export default function ProjectsPage() {
   );
 }
 
-function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; target: number }) {
+function ProjectCard({ p, pending, target, owner }: { p: ProjectRow; pending: boolean; target: number; owner: boolean }) {
   const t = ["live", "deciding", "continued", "killed"].includes(p.stage) ? projectTotals(p.id) : null;
   const result = p.stage === "continued" ? { c: "var(--good)", i: "✓" } : p.stage === "killed" ? { c: "var(--critical)", i: "✕" } : p.stage === "rejected" ? { c: "var(--muted)", i: "–" } : null;
   return (
@@ -114,8 +116,8 @@ function ProjectCard({ p, pending, target }: { p: ProjectRow; pending: boolean; 
         </div>
       )}
       {p.improve_count > 0 && <div className="text-xs text-ink-2">改善 {p.improve_count}回（第{p.lp_version}版）</div>}
-      {pending && <div className="text-xs font-medium text-accent">● あなたの判断待ち</div>}
-      {!!p.auto_published && !p.human_review && <div className="text-xs font-medium text-accent">● あとから確認してください</div>}
+      {pending && <div className="text-xs font-medium text-accent">● {owner ? "あなたの判断待ち" : "運営者の判断待ち"}</div>}
+      {!!p.auto_published && !p.human_review && <div className="text-xs font-medium text-accent">● {owner ? "あとから確認してください" : "AIだけで公開（運営者の確認待ち）"}</div>}
       {result && <div className="text-xs font-medium" style={{ color: result.c }}>{result.i} {STAGE_LABEL[p.stage]}</div>}
     </Link>
   );

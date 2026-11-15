@@ -2,7 +2,7 @@
 
 import { NOTIFY_KINDS } from "@/lib/notifyKinds";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ApprovalMode, Settings } from "@/lib/db";
 
 const MODES: { id: ApprovalMode; label: string; body: string }[] = [
@@ -23,6 +23,15 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
     useRatePct: Math.round(initial.targetUseRate * 100),
   });
   const [msg, setMsg] = useState<string | null>(null);
+  // 保存していない変更があるか（保存の帯に出し、ページを離れる前に知らせる）
+  const [saved, setSaved] = useState(() => JSON.stringify(v));
+  const dirty = JSON.stringify(v) !== saved;
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
   const set = <K extends keyof typeof v>(k: K, val: (typeof v)[K]) => setV((s) => ({ ...s, [k]: val }));
   const num = (k: keyof typeof v) => ({
     value: v[k] as number,
@@ -40,6 +49,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
     });
     const data = await res.json();
     setMsg(res.ok ? "保存しました" : data.error);
+    if (res.ok) setSaved(JSON.stringify(v));
     router.refresh();
   }
 
@@ -392,9 +402,10 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
         </div>
       </section>
 
-      <div className="flex items-center gap-3">
+      {/* 保存は画面の下に固定する（設定は長く、上の項目を変えてから保存まで2000pxほど下りる必要があった） */}
+      <div className="sticky bottom-0 z-10 -mx-4 flex items-center gap-3 border-t border-line bg-bg/95 px-4 py-3 backdrop-blur lg:-mx-6 lg:px-6">
         <button onClick={save} className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-ink">保存</button>
-        {msg && <span className="text-sm text-ink-2">{msg}</span>}
+        <span className="text-sm text-ink-2" aria-live="polite">{dirty ? "保存していない変更があります" : msg}</span>
       </div>
     </div>
   );

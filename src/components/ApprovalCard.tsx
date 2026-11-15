@@ -73,7 +73,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
       <div>
         <div className="text-xs text-muted">AIの提案</div>
         <h3 className="font-bold">{a.proposal}</h3>
-        <p className="mt-1 text-sm text-ink-2">{a.reason}</p>
+        <p className="mt-1 text-sm text-ink-2">{shortReason(a)}</p>
       </div>
 
       {a.kind === "idea" && (
@@ -200,4 +200,13 @@ function AutoFix({ approvalId, issues, isTool }: { approvalId: number; issues: s
       <BusyNote busy={busy} error={error} />
     </div>
   );
+}
+
+// チェックで止めた公開の理由は「…自動公開を止めました: 指摘1 / 指摘2」の形で、指摘は下の箇条書きと同じ中身。
+// 同じ文が2回並ばないように、箇条書きを出すときは「: 」より後ろを切る（保存してある理由は変えないので、過去の分にも効く）
+function shortReason(a: ApprovalView): string {
+  const issues = a.review && !a.review.ok ? a.review.issues : [];
+  const i = a.reason.indexOf(": ");
+  if (!issues.length || i < 0 || !a.reason.includes(issues[0])) return a.reason;
+  return `${a.reason.slice(0, i)}。指摘は下のとおりです。`;
 }

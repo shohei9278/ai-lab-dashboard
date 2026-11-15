@@ -73,9 +73,9 @@ export default async function Home() {
         </div>
       )}
 
-      {/* 大きな数字 */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <a
+      {/* 大きな数字。来訪者には、オフィスの上の数字の帯に同じ数字（確認・対応、今日の登録・利用）が出るので、ここでは出さない */}
+      <div className={`grid grid-cols-2 gap-3 ${owner ? "lg:grid-cols-4" : ""}`}>
+        {owner && <a
           href="#waiting"
           className="card block p-4 hover:bg-surface-2"
           style={waiting.length ? { borderColor: "var(--accent)", boxShadow: "inset 4px 0 0 var(--accent)" } : undefined}
@@ -83,8 +83,8 @@ export default async function Home() {
           <div className="text-xs text-muted">{you}の確認・対応</div>
           <div className="num mt-1 text-2xl font-bold" style={{ color: waiting.length ? "var(--accent)" : undefined }}>{waiting.length}件</div>
           <div className="mt-1 text-xs text-ink-2">{waiting.length ? "下の一覧から案件を開けます ↓" : "確認することはありません"}</div>
-        </a>
-        <Stat
+        </a>}
+        {owner && <Stat
           label="今日の登録・利用"
           value={`${o.todaySignups}人`}
           sub={<>前日比 {diff >= 0 ? "+" : ""}{diff}人・累計 {o.totalSignups}人</>}
@@ -101,7 +101,7 @@ export default async function Home() {
               {o.todayByProject.length > 3 && <li className="text-muted">ほか{o.todayByProject.length - 3}件</li>}
             </ul>
           )}
-        </Stat>
+        </Stat>}
         <Stat label="公開中・集客中" value={`${o.liveReal}件`} sub={`これまでに作った案件 ${o.projectsReal}件`}>
           {/* 集客中の案件の名前と、案件の一覧の「公開中・集客中」の列へのリンク */}
           {o.live.length > 0 && (

@@ -9,11 +9,13 @@ export function AppShell({ nav, banner, overlay, children }: { nav: React.ReactN
   if (path === "/showcase") return <main className="mx-auto max-w-5xl px-4 py-8">{children}</main>;
   return (
     <>
+      {/* キーボードで操作する人が、メニューを飛ばして本文へ行けるように（Tab を押したときだけ見える） */}
+      <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:left-2 focus:top-2 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:shadow">本文へ移動</a>
       <div className="lg:flex">
         {nav}
         <div className="min-w-0 flex-1">
           {banner}
-          <main className="mx-auto max-w-6xl px-4 py-6 lg:px-6">{children}</main>
+          <main id="main" tabIndex={-1} className="mx-auto max-w-6xl px-4 py-6 outline-none lg:px-6">{children}</main>
         </div>
       </div>
       {overlay}

@@ -7,6 +7,7 @@ import { LibraryTabs } from "@/components/LabTabs";
 import { CERTAINTY_LABEL, activeLessons } from "@/lib/loop";
 import { NoteActions, NoteEditor } from "./NoteEditor";
 import { jstDate } from "@/lib/format";
+import { isOwner } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ const CERTAINTY_STYLE: Record<NoteCertainty, string> = { once: "var(--muted)", t
 
 export default async function NotesPage({ searchParams }: { searchParams: Promise<{ topic?: string }> }) {
   const { topic } = await searchParams;
+  const owner = await isOwner();
   const notes = listNotes(topic);
   const lessons = activeLessons();
   const all = listNotes();
@@ -24,7 +26,7 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
   return (
     <div className="space-y-6">
       <PageIntro title="社内の知見">
-        実験で分かったことを残す場所です。上は案件が終わるたびにAIの社員が書く「教訓」（次のアイデア出しや計画で参照されます）、下はあなたやAIが書く「実験メモ」（発信の材料用。AIへの入力には使いません）です。
+        実験で分かったことを残す場所です。上は案件が終わるたびにAIの社員が書く「教訓」（次のアイデア出しや計画で参照されます）、下は{owner ? "あなた" : "運営者"}やAIが書く「実験メモ」（発信の材料用。AIへの入力には使いません）です。
         「確からしさ」で、1回見ただけのことと、数字で確かめたことを分けておくと、あとで発信するときに使いやすくなります。
       </PageIntro>
       <LibraryTabs current="/notes" />
@@ -52,10 +54,12 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
 
       <h2 className="font-bold">実験メモ</h2>
 
-      <section className="card p-4">
-        <h2 className="mb-3 font-bold">メモを追加</h2>
-        <NoteEditor initial={{ topic: "other", certainty: "once", title: "", body: "", projectId: null, isPublic: false }} topics={topics} certainties={certainties} projects={projects} />
-      </section>
+      {owner && (
+        <section className="card p-4">
+          <h2 className="mb-3 font-bold">メモを追加</h2>
+          <NoteEditor initial={{ topic: "other", certainty: "once", title: "", body: "", projectId: null, isPublic: false }} topics={topics} certainties={certainties} projects={projects} />
+        </section>
+      )}
 
       <nav className="flex flex-wrap gap-2 text-sm" aria-label="分類で絞り込む">
         <Chip href="/notes" active={!topic}>すべて {all.length}</Chip>
@@ -77,18 +81,18 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
                 <span className="inline-flex items-center gap-1" title={NOTE_CERTAINTY[n.certainty].note}>
                   <span aria-hidden style={{ color: CERTAINTY_STYLE[n.certainty] }}>●</span>{NOTE_CERTAINTY[n.certainty].label}
                 </span>
-                <span className="font-medium" style={{ color: n.author === "ai" ? "var(--accent)" : "var(--text-2)" }}>{n.author === "ai" ? "AIの観察" : "あなた"}</span>
+                <span className="font-medium" style={{ color: n.author === "ai" ? "var(--accent)" : "var(--text-2)" }}>{n.author === "ai" ? "AIの観察" : owner ? "あなた" : "運営者"}</span>
                 {n.is_public ? <span className="rounded bg-surface-2 px-1.5 py-0.5">公開ページに掲載</span> : null}
                 {n.project_id && <Link href={`/projects/${n.project_id}`} className="text-accent underline">#{n.project_id} {n.project_title}</Link>}
               </div>
               <h3 className="mt-1 font-bold">{n.title}</h3>
               {n.body && <p className="mt-1 whitespace-pre-wrap text-sm text-ink-2">{n.body}</p>}
-              <NoteActions
+              {owner && <NoteActions
                 draft={{ id: n.id, topic: n.topic, certainty: n.certainty, title: n.title, body: n.body, projectId: n.project_id, isPublic: !!n.is_public }}
                 topics={topics}
                 certainties={certainties}
                 projects={projects}
-              />
+              />}
             </li>
           ))}
         </ShowMore>

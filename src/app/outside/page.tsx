@@ -26,7 +26,7 @@ export default async function OutsidePage() {
   return (
     <div className="space-y-6">
       <PageIntro title="外の声">
-        AIどうしの採点や会議では分からない、実際の人の反応です。公開中のページ右下の「ひとこと聞かせてください」（匿名・1タップ）に届いた声と、あなたが知人やコミュニティで聞いた声、SNSのコメント、ページのどこで離れたかをまとめています。
+        AIどうしの採点や会議では分からない、実際の人の反応です。公開中のページ右下の「ひとこと聞かせてください」（匿名・1タップ）に届いた声と、{owner ? "あなた" : "運営者"}が知人やコミュニティで聞いた声、SNSのコメント、ページのどこで離れたかをまとめています。
         外の声は、朝会・撤退や継続の判断・定例会議・アイデア出しで、AIどうしの解釈より優先する材料として渡しています。朝会のAIが「分からないこと」を決めてWebで調べた結果（調べたこと）も、出典つきで一緒に渡します。AIがそれらを受けて判断を変えたら、「変わった判断」に残ります。
       </PageIntro>
 
@@ -106,12 +106,17 @@ export default async function OutsidePage() {
 
       <section className="space-y-3">
         <h2 className="font-bold">案件ごとの外の声</h2>
-        {sums.map((x) => {
-          const empty = !x.site.length && !x.voices.length && !x.comments.length && !x.funnel;
+        {/* 声（公開ページの質問・聞いた声・SNSのコメント）がある案件だけを並べる。ページの中での動きの数字は長いので、開いたときだけ出す。
+            声のない案件は、名前だけを畳んでおく（全案件を並べると、スマホで1万px を超えていた） */}
+        {(() => {
+          const voiced = sums.filter((x) => x.site.length || x.voices.length || x.comments.length);
+          const quiet = sums.filter((x) => !voiced.includes(x));
+          return (<>
+        {!voiced.length && <p className="card p-4 text-sm text-muted">まだ外の声のある案件はありません。</p>}
+        {voiced.map((x) => {
           return (
             <article key={x.project.id} className="card space-y-2 p-4">
               <h3 className="font-bold"><Link href={`/projects/${x.project.id}`} className="hover:underline">#{x.project.id} {x.project.title}</Link></h3>
-              {empty && <p className="text-sm text-muted">まだ外の声はありません。</p>}
               {x.site.length > 0 && (
                 <div className="flex flex-wrap gap-2 text-sm">
                   <span className="text-xs text-muted">公開ページの質問:</span>
@@ -130,10 +135,26 @@ export default async function OutsidePage() {
                 </ul>
               )}
               {x.comments.length > 0 && <p className="text-xs text-ink-2">SNSのコメント {x.comments.length}件（中身は「集客」で見られます）</p>}
-              {x.funnel && <p className="whitespace-pre-wrap text-xs text-ink-2">{x.funnel}</p>}
+              {x.funnel && (
+                <details className="text-xs text-ink-2">
+                  <summary className="cursor-pointer text-muted">ページの中での動き（どこで離れたか）</summary>
+                  <p className="mt-1 whitespace-pre-wrap">{x.funnel}</p>
+                </details>
+              )}
             </article>
           );
         })}
+        {quiet.length > 0 && (
+          <details className="card p-4 text-sm">
+            <summary className="cursor-pointer">まだ声のない案件（{quiet.length}件）</summary>
+            <p className="mt-1 text-xs text-muted">ページの中での動きは、それぞれの案件の画面で見られます。</p>
+            <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              {quiet.map((x) => <li key={x.project.id}><Link href={`/projects/${x.project.id}#funnel`} className="text-accent underline">#{x.project.id} {x.project.title}</Link></li>)}
+            </ul>
+          </details>
+        )}
+          </>);
+        })()}
       </section>
 
       {all.filter((v) => !v.project_id).length > 0 && (

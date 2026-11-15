@@ -241,24 +241,38 @@ export function AiPostsReview({ owner }: { owner: boolean }) {
   const rows = recentAiPosts(3);
   if (!rows.length) return <p className="text-sm text-ink-2">直近3日のAIの投稿はありません。</p>;
   const t = titles();
+  // まだ見ていない投稿だけを広げて出す。確認済みのものは畳む（同じ投稿が下の「投稿済み」にも並ぶため、全部広げると重なって長くなる）
+  const open = rows.filter((p) => !p.human_review);
+  const done = rows.filter((p) => p.human_review);
+  const item = (p: (typeof rows)[number]) => (
+    <li key={`${p.table}${p.id}`} className="space-y-1 rounded-lg border p-3 text-sm" style={{ borderColor: p.human_review === "bad" ? "var(--critical)" : "var(--line)" }}>
+      <div className="flex flex-wrap items-center gap-x-2 text-xs text-ink-2">
+        <span className="num">{jstDateTime(p.at)}</span>
+        <span>{AUTO_PLATFORMS[p.platform as AutoPlatform]?.label ?? p.platform}</span>
+        <span className="rounded bg-surface-2 px-1.5">{p.kind === "promo" ? "宣伝" : "普通の投稿"}</span>
+        {p.project_id && <span>{t.get(p.project_id)}</span>}
+        {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="underline">投稿を見る ↗</a>}
+        <span className="text-muted">{p.reactions_at ? `反応: いいね${p.likes ?? 0}・返信${p.replies ?? 0}・リポスト${p.reposts ?? 0}` : "反応は翌日に取り込みます"}</span>
+        {owner && <span className="ml-auto"><ReviewPost table={p.table} id={p.id} current={p.human_review} /></span>}
+      </div>
+      <div className="whitespace-pre-wrap">{p.text}</div>
+      {p.human_review === "bad" && p.human_note && <div className="text-xs" style={{ color: "var(--critical)" }}>{owner ? "あなた" : "運営者"}のひとこと: {p.human_note}</div>}
+    </li>
+  );
   return (
-    <ShowMore as="ul" initial={10} className="space-y-2">
-      {rows.map((p) => (
-        <li key={`${p.table}${p.id}`} className="space-y-1 rounded-lg border p-3 text-sm" style={{ borderColor: p.human_review === "bad" ? "var(--critical)" : "var(--line)" }}>
-          <div className="flex flex-wrap items-center gap-x-2 text-xs text-ink-2">
-            <span className="num">{jstDateTime(p.at)}</span>
-            <span>{AUTO_PLATFORMS[p.platform as AutoPlatform]?.label ?? p.platform}</span>
-            <span className="rounded bg-surface-2 px-1.5">{p.kind === "promo" ? "宣伝" : "普通の投稿"}</span>
-            {p.project_id && <span>{t.get(p.project_id)}</span>}
-            {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="underline">投稿を見る ↗</a>}
-            <span className="text-muted">{p.reactions_at ? `反応: いいね${p.likes ?? 0}・返信${p.replies ?? 0}・リポスト${p.reposts ?? 0}` : "反応は翌日に取り込みます"}</span>
-            {owner && <span className="ml-auto"><ReviewPost table={p.table} id={p.id} current={p.human_review} /></span>}
-          </div>
-          <div className="whitespace-pre-wrap">{p.text}</div>
-          {p.human_review === "bad" && p.human_note && <div className="text-xs" style={{ color: "var(--critical)" }}>あなたのひとこと: {p.human_note}</div>}
-        </li>
-      ))}
-    </ShowMore>
+    <div className="space-y-2">
+      {open.length ? (
+        <ShowMore as="ul" initial={10} className="space-y-2">{open.map(item)}</ShowMore>
+      ) : (
+        <p className="text-sm text-ink-2">まだ確認していない投稿はありません。</p>
+      )}
+      {done.length > 0 && (
+        <details className="text-sm">
+          <summary className="cursor-pointer text-ink-2">確認済み（{done.length}件）</summary>
+          <ul className="mt-2 space-y-2">{done.map(item)}</ul>
+        </details>
+      )}
+    </div>
   );
 }
 

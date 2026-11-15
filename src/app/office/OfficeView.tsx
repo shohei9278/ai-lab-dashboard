@@ -250,6 +250,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
   const happening = [...snap.happenings].reverse().find((h) => toMs(h.at) <= t && t - toMs(h.at) <= HAPPENING_SECONDS * 1000);
   const working = ORDER.filter((m) => state[m].room !== "lounge").length;
   const n = snap.numbers;
+  const waitNote = [n.approvals > 0 ? `うち判断待ち ${n.approvals}件` : "", n.stuck ? `止まっている ${n.stuck}件` : ""].filter(Boolean).join("・");
   const yen = (v: number) => `${v.toLocaleString("ja-JP")}円`;
 
   // 歩く: 部屋が変わったら、廊下の点を1つずつたどる
@@ -352,7 +353,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
         <Chip label="今日の登録・利用" value={`${n.convToday}人`} tone={n.convToday ? "good" : undefined} />
         <Chip label="今日のAIの費用" value={yen(n.costTodayJpy)} />
         <Chip label="今月の予算" value={`${Math.round((n.monthJpy / Math.max(1, n.budgetJpy)) * 100)}%`} tone={n.monthJpy > n.budgetJpy * 0.8 ? "warn" : undefined} />
-        <Chip label={n.stuck ? `確認待ち（止まっている ${n.stuck}）` : "確認待ち"} value={`${n.waiting}件`} tone={n.waiting ? "warn" : undefined} href="/#waiting" />
+        <Chip label={n.stuck ? `確認・対応（止まっている ${n.stuck}）` : "確認・対応"} value={`${n.waiting}件`} tone={n.waiting ? "warn" : undefined} href="/#waiting" />
       </div>
       <p className="-mt-1 text-[10px] text-muted">数字は、再生中もいまのものです（稼働・待機だけ、再生している時刻のもの）。公開中・集客中は{n.live}件。</p>
       </>)}
@@ -364,9 +365,10 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
           <p className="text-ink-2">{n.killSwitch ? "緊急停止中のため、AIは動きません" : n.dailyHour !== null ? `次の自動実行は毎日${n.dailyHour}時ごろ（朝の計画のあと、予定の時刻に投稿や判断をします）` : "毎日の自動実行はオフです"}</p>
           {(n.approvals > 0 || n.proposals > 0 || n.waiting > 0) && (
             <ul className="flex flex-wrap gap-x-3 gap-y-0.5">
-              {n.approvals > 0 && <li><a href="/approvals" className="text-accent underline">判断待ち {n.approvals}件</a>{owner ? "：確認してください" : "（運営者の確認待ち）"}</li>}
+              {/* 判断待ち（approvals）は、確認・対応（waiting）の一部。別々の数に見えないように「うち」で出す */}
+              {n.waiting > 0 && <li><Link href="/#waiting" className="text-accent underline">{owner ? "あなた" : "運営者"}の確認・対応 {n.waiting}件</Link>{waitNote ? `（${waitNote}）` : ""}</li>}
+              {n.waiting === 0 && n.approvals > 0 && <li><a href="/approvals" className="text-accent underline">判断待ち {n.approvals}件</a></li>}
               {n.proposals > 0 && <li><a href="/proposals" className="text-accent underline">提案箱の返事待ち {n.proposals}件</a>{owner ? "：提案があるので確認してください" : ""}</li>}
-              {n.waiting > 0 && <li><Link href="/#waiting" className="text-accent underline">{owner ? "あなた" : "運営者"}の確認・対応 {n.waiting}件</Link>{n.stuck ? `（止まっている ${n.stuck}件）` : ""}</li>}
             </ul>
           )}
           {times.length > 0 && (

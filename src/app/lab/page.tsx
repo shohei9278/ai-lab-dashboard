@@ -66,8 +66,11 @@ export default async function LabPage() {
                 <span className="text-muted">得意: </span>{x.strong.join("・") || "—"}
                 <span className="ml-3 text-muted">苦手: </span>{x.weak.join("・") || "—"}
               </div>
+              {/* 部門ごとの順位は、下の部門別ランキングと同じ中身なので、開いたときだけ出す（名簿が長くならないように） */}
               {x.ranks.length > 0 && (
-                <ul className="space-y-0.5 text-xs text-ink-2">
+                <details className="text-xs text-ink-2">
+                <summary className="cursor-pointer text-muted">部門ごとの順位（{x.ranks.length}部門）</summary>
+                <ul className="mt-1 space-y-0.5">
                   {x.ranks.map((r) => (
                     <li key={r.title} className="flex justify-between gap-2">
                       <span>{r.title}</span>
@@ -75,6 +78,7 @@ export default async function LabPage() {
                     </li>
                   ))}
                 </ul>
+                </details>
               )}
             </article>
           ))}

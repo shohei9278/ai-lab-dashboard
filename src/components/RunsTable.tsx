@@ -40,9 +40,9 @@ export function RunsTable({ runs, usdJpy }: { runs: RunRow[]; usdJpy: number }) 
                   {VARIANT_LABEL[r.variant as PromptVariant]}・{LANG_LABEL[r.lang as PromptLang]}・{r.reps}回
                 </td>
                 <td className="min-w-56 px-3 py-2 text-ink-2">{models.map((m) => modelInfo(m).label).join(", ")}</td>
-                <td className="px-3 py-2"><StatusBadge status={r.status} /></td>
+                <td className="px-3 py-2 whitespace-nowrap"><StatusBadge status={r.status} /></td>
                 <td className="num px-3 py-2 text-right">{r.done_calls}/{r.total_calls}</td>
-                <td className="num px-3 py-2 text-right">{r.mock ? "—" : yen(r.actual_usd, usdJpy)}</td>
+                <td className="num px-3 py-2 text-right whitespace-nowrap">{r.mock ? "—" : yen(r.actual_usd, usdJpy)}</td>
               </tr>
             );
           })}

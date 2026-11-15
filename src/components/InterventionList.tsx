@@ -19,9 +19,15 @@ export function InterventionCard({ v, children }: { v: InterventionRow; children
       </div>
       <h2 className="font-bold">{v.title}</h2>
       <Row label="問題">{v.happened}</Row>
-      <Row label="人の対応">{v.noticed}</Row>
-      <Row label="AIの対応">{v.decision}</Row>
-      {v.result && <Row label="結果">{v.result}</Row>}
+      {/* 人の対応・AIの対応・結果は長いことが多いので、開いたときだけ出す（全件を広げると、スマホで2万px を超えていた） */}
+      <details className="group space-y-2">
+        <summary className="cursor-pointer text-xs text-accent">人の対応・AIの対応・結果を読む</summary>
+        <div className="mt-2 space-y-2">
+          <Row label="人の対応">{v.noticed}</Row>
+          <Row label="AIの対応">{v.decision}</Row>
+          {v.result && <Row label="結果">{v.result}</Row>}
+        </div>
+      </details>
       {v.commit_sha && <a href={commitUrl(v.commit_sha)} target="_blank" rel="noreferrer" className="num inline-block text-xs text-accent underline">修正のコミット {v.commit_sha} ↗</a>}
     </article>
   );

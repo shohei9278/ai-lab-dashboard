@@ -108,7 +108,7 @@ export default async function MeetingsPage({ searchParams }: { searchParams: Pro
       <PageIntro title="会議室">
         AIの社員（Claude・GPT・Gemini）どうしのやり取りの記録です。案を出し合い、だれの案かを伏せて採点し合い、点の高いものを採用しています。
         毎朝の朝会は日替わりの担当が1人で計画を立て、週1回の定例会議では3社が振り返って改善案を出し合います（採用された案は提案箱へ）。
-        あなたが議題を出して、今すぐ会議を開くこともできます。
+        {owner ? "あなたが議題を出して、今すぐ会議を開くこともできます。" : "運営者が議題を出して、臨時の会議を開くこともあります。"}
       </PageIntro>
       {owner && (
         <section className="card space-y-2 p-4">
