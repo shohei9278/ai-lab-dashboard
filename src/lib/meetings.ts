@@ -13,7 +13,7 @@ import type { AdhocContent } from "./adhoc";
 
 export type MeetingKind = "adhoc" | "idea" | "copy" | "design" | "judge" | "plan" | "weekly";
 export const MEETING_LABEL: Record<MeetingKind, string> = {
-  adhoc: "臨時会議（あなたの議題）", idea: "アイデア会議", copy: "文章と構成の会議", design: "デザインの会議", judge: "判断の会議", plan: "朝会（今日の計画）", weekly: "週の定例会議",
+  adhoc: "臨時会議（運営者の議題）", idea: "アイデア会議", copy: "文章と構成の会議", design: "デザインの会議", judge: "判断の会議", plan: "朝会（今日の計画）", weekly: "週の定例会議",
 };
 
 export type MeetingItem = { who: string | null; title: string; text?: string; score?: number | null; won?: boolean; scores?: { who: string; score: number; reason?: string }[] };

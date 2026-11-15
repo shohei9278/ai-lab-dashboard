@@ -26,6 +26,11 @@ export function MockBadge({ mock }: { mock: boolean }) {
   );
 }
 
+// スマホで横に動かして読む表（m-scroll）の上に出す。右が切れていても続きがあると分かるように（PCでは出さない）
+export function ScrollHint() {
+  return <p className="text-[11px] text-muted sm:hidden" aria-hidden>表は横に動かすと続きが見られます →</p>;
+}
+
 export function Stat({ label, value, sub, children }: { label: string; value: React.ReactNode; sub?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="card p-4">

@@ -1,16 +1,18 @@
 import { pendingApprovals } from "@/lib/views";
 import { ApprovalCard } from "@/components/ApprovalCard";
 import { PageIntro } from "@/components/PageIntro";
+import { isOwner } from "@/lib/viewer";
 
 export const dynamic = "force-dynamic";
 
-export default function ApprovalsPage() {
+export default async function ApprovalsPage() {
+  const owner = await isOwner();
   const items = pendingApprovals();
   return (
     <div className="space-y-4">
       <PageIntro title="判断待ち">
         AIが「ここから先は人の判断が必要」と止まっているものです。全自動では、AIのチェックで問題が残ったもの・承認なしの公開が上限に達したもの・広告費の上限を超える判断などだけがここに来ます。
-        AIの提案と理由を読んで、承認・修正指示・却下を選んでください。
+        {owner ? "AIの提案と理由を読んで、承認・修正指示・却下を選んでください。" : "運営者がAIの提案と理由を読んで、承認・修正指示・却下を選びます。"}
       </PageIntro>
       {items.length ? (
         <div className="space-y-3">{items.map((a) => <ApprovalCard key={a.id} a={a} />)}</div>

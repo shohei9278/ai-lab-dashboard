@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Funnel } from "@/lib/funnel";
+import { ScrollHint } from "@/components/ui";
 import { channelSteps, type ChannelRow } from "@/lib/channels";
 
 const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
@@ -32,6 +33,7 @@ export function FunnelCard({ f, isTool, projectId, all, liveVersion, channels }:
             ))}
           </nav>
           {/* 版どうしを見比べる（訪問に対する割合） */}
+          <ScrollHint />
           <div className="overflow-x-auto">
             <table className="m-scroll w-full text-xs">
               <thead className="text-left text-muted">
@@ -120,6 +122,8 @@ function Channels({ rows, isTool }: { rows: ChannelRow[]; isTool: boolean }) {
       {!rows.length ? (
         <p className="text-sm text-ink-2">まだ記録がありません。5分ごとの取り込みで出ます。</p>
       ) : (
+        <>
+        <ScrollHint />
         <div className="overflow-x-auto">
           <table className="m-scroll w-full text-sm">
             <thead className="text-left text-xs text-muted">
@@ -143,6 +147,7 @@ function Channels({ rows, isTool }: { rows: ChannelRow[]; isTool: boolean }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

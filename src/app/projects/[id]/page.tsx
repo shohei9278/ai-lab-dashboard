@@ -14,7 +14,7 @@ import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
 import { jstDateTime, pct, yen } from "@/lib/format";
 import { ApprovalCard } from "@/components/ApprovalCard";
-import { Stat } from "@/components/ui";
+import { Stat, ScrollHint } from "@/components/ui";
 import { ProjectActions } from "./ProjectActions";
 import { HoldPanel } from "./HoldPanel";
 import { RevisionForm } from "./RevisionForm";
@@ -110,6 +110,11 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
 
       {approvals.map((a) => <ApprovalCard key={a.id} a={a} />)}
 
+      {/* AIだけで公開して、まだ確認していないものは、運営者がすることなので上に出す（確認したあとは、下の元の場所に結果を出す） */}
+      {!!p.auto_published && !p.human_review && (
+        <AutoReviewCard id={p.id} review={p.human_review} note={p.human_review_note} at={p.human_review_at} url={publicUrl(p.id)} />
+      )}
+
       <ProjectActions demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
 
       {owner && !p.demo && ["live", "hold"].includes(p.stage) && (
@@ -123,7 +128,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
       {t.rows.length > 0 && (
         <section className="space-y-2">
           <h2 className="font-bold">集客の結果{t.simulated && <span className="ml-2 text-xs font-normal text-muted">シミュレーションを含む</span>}</h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
             <Stat label="訪問" value={`${t.visits}人`} sub={`判断の目安 ${s.judgeMinVisits}人`} />
             <Stat label={isTool ? "使った人" : "事前登録"} value={`${t.signups}人`} sub={isTool ? `シェア ${shares}人` : undefined} />
             <Stat
@@ -143,6 +148,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
               );
             })()}
           </div>
+          <ScrollHint />
           <div className="card overflow-x-auto">
             <table className="m-scroll w-full text-sm">
               <thead className="text-left text-xs text-muted">
@@ -284,7 +290,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <p className="card p-3 text-sm text-ink-2">公開サイトの一覧から来た人: 訪問 <span className="num">{p.index_visits}</span>人・{conv.noun} <span className="num">{p.index_uses}</span>人（上の訪問の数に含まれています）</p>
       )}
 
-      {!!p.auto_published && (
+      {!!p.auto_published && !!p.human_review && (
         <AutoReviewCard id={p.id} review={p.human_review} note={p.human_review_note} at={p.human_review_at} url={publicUrl(p.id)} />
       )}
 

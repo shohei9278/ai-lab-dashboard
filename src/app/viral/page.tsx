@@ -89,13 +89,13 @@ export default async function ViralPage() {
             {rows.map((r) => (
               <li key={r.id} className="card space-y-2 p-4 text-sm">
                 <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs text-muted">
-                  <span>{r.author ?? "（読み込み中）"}・{r.source === "search" ? "自動検索" : "手動"}{r.posted_at ? `・${jstDateTime(r.posted_at)}` : ""}</span>
+                  <span>{owner ? (r.author ?? "（読み込み中）") : "（デモ表示）投稿者と本文は伏せています"}・{r.source === "search" ? "自動検索" : "手動"}{r.posted_at ? `・${jstDateTime(r.posted_at)}` : ""}</span>
                   <span className="flex gap-3">
                     {r.url && <a href={r.url} target="_blank" rel="noreferrer" className="text-accent underline">投稿を見る ↗</a>}
                     <DeleteViral id={r.id} />
                   </span>
                 </div>
-                {r.text && <p className="line-clamp-3 whitespace-pre-wrap">{r.text}</p>}
+                {owner && r.text && <p className="line-clamp-3 whitespace-pre-wrap">{r.text}</p>}
                 <div className="num flex flex-wrap gap-x-4 text-xs text-ink-2">
                   <span>いいね {num(r.likes)}</span>
                   <span>リポスト {num(r.reposts)}</span>

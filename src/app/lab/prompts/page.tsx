@@ -4,6 +4,7 @@ import { jstDateTime, yen } from "@/lib/format";
 import { modelInfo } from "@/lib/models";
 import { FACTORS, estimateJpy, factorSummary, listPromptTests, runningTest, testableProjects, type Factor, type PromptTest, type Side } from "@/lib/promptCompare";
 import { PageIntro } from "@/components/PageIntro";
+import { isGoogleFonts } from "@/lib/freePage";
 import { LabTabs } from "@/components/LabTabs";
 import { ShowMore } from "@/components/ShowMore";
 import { AutoRefresh } from "../../runs/[id]/AutoRefresh";
@@ -37,7 +38,15 @@ function SideView({ title, side, score, win }: { title: string; side: Side | nul
       ) : (
         <p className="text-xs text-muted">画面はありません</p>
       )}
-      {side && side.issues.length > 0 && <p className="text-xs" style={{ color: "var(--warning)" }}>決まりの指摘: {side.issues.join(" / ")}</p>}
+      {/* 11/13 より前の結果には、Google Fonts の読み込みを誤って違反とした指摘が残っている。今の確かめ方で違反でないものは出さずに、その旨を書く */}
+      {side && (() => {
+        const stale = side.issues.filter(isStaleFontIssue);
+        const issues = side.issues.filter((x) => !isStaleFontIssue(x));
+        return (<>
+          {issues.length > 0 && <p className="text-xs" style={{ color: "var(--warning)" }}>決まりの指摘: {issues.join(" / ")}</p>}
+          {stale.length > 0 && <p className="text-xs text-muted">当時は Google Fonts の読み込みを誤って違反と判定していました（11/13 に直しました。この指摘は出していません）</p>}
+        </>);
+      })()}
       {side && <p className="num text-xs text-muted">{(side.chars / 1000).toFixed(1)}千文字</p>}
     </div>
   );
@@ -148,4 +157,10 @@ export default async function PromptTestsPage() {
       </section>
     </div>
   );
+}
+
+const FONT_ISSUE = "Google Fonts 以外のファイルを読み込んでいる: ";
+// 今の確かめ方では違反にならない、Google Fonts の読み込みについての古い指摘か
+function isStaleFontIssue(x: string): boolean {
+  return x.startsWith(FONT_ISSUE) && isGoogleFonts(x.slice(FONT_ISSUE.length));
 }

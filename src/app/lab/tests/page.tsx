@@ -22,19 +22,16 @@ export default function TestsPage() {
 
   return (
     <div className="space-y-6">
-      <PageIntro
-        title="基礎テスト"
-        actions={
-          <>
-            <Link href="/datasets" className="rounded-lg border border-line px-3 py-2 text-sm">問題データ</Link>
-            <Link href="/runs/new" className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-ink">テストを実行</Link>
-          </>
-        }
-      >
+      <PageIntro title="基礎テスト">
         製品ループとは別に、答えが決まった問題（問い合わせ分類・請求書抽出）で、AIごとの基本的な正確さ・ブレ・費用を測ります。
-        結果は「結果とランキング」の「基礎テストの正答率」にも出ます。
+        結果は「AIの成績」の「基礎テストの正答率」にも出ます。
       </PageIntro>
       <LabTabs current="/lab/tests" />
+      {/* 操作のボタンは、ほかの成績のタブと同じく、タブの下に置く */}
+      <div className="flex flex-wrap gap-2">
+        <Link href="/runs/new" className="rounded-lg bg-accent px-3 py-2 text-sm font-medium text-accent-ink">テストを実行</Link>
+        <Link href="/datasets" className="rounded-lg border border-line px-3 py-2 text-sm">問題データ</Link>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Stat label="今月のテスト費用" value={yen(spend.eval, s.usdJpy)} sub="実APIの分のみ" />
