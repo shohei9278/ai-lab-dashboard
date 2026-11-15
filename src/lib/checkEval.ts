@@ -12,7 +12,7 @@ const PURPOSE = "チェックの評価";
 const PARALLEL = 3;
 const OUTPUT_TOKENS = 400; // 1件あたりの出力の見込み（費用の見積もり用）
 
-export type CheckEvalRow = { id: number; at: string; finished_at: string | null; model_id: string; prompt_hash: string; status: "running" | "done" | "error"; cost_usd: number | null; error: string | null };
+export type CheckEvalRow = { id: number; at: string; finished_at: string | null; model_id: string; prompt_hash: string; status: "running" | "done" | "error"; cost_usd: number | null; error: string | null; beat_at?: string | null };
 export type CheckEvalResultRow = { eval_id: number; case_id: string; expect: "ok" | "ng"; type: CheckEvalType | null; got_ok: number | null; issues: string | null; error: string | null };
 
 // 判定できるAI（上位のAIのうち、キーがあるもの。製品ループで使っているAIを先頭に）
@@ -37,14 +37,20 @@ export function estimateCheckEvalJpy(modelId: string): number {
   return Math.ceil(costUsd(m, inputTokens, OUTPUT_TOKENS * CHECK_EVAL_CASES.length) * getSettings().usdJpy);
 }
 
-// 40件は数分で終わる。始めてから長くたっても running のままなのは、サーバーの再起動などで処理が消えたもの。
-// 閉じておかないと、次の評価を始められなくなる
-const STALE_MINUTES = 30;
+// このサーバーの中で、いま実際に動いている評価。サーバーが再起動すると空になる
+const active = new Set<number>();
+// 動いている印（最後に例を1件終えた日時。まだなら始めた日時）がこれより古く、このサーバーの中でも動いていない評価は、
+// サーバーの再起動などで処理が消えたものとして閉じる。閉じておかないと、次の評価を始められなくなる。
+// このサーバーの中で動いている評価は、遅くても閉じない（閉じると、元の処理が続いたまま次の評価と並んで動いてしまう）
+const STALE_MINUTES = 10;
 
 export function runningCheckEval(): CheckEvalRow | undefined {
-  db().prepare(`UPDATE check_evals SET status = 'error', error = '途中で止まった（サーバーの再起動などで処理が消えた）', finished_at = datetime('now') WHERE status = 'running' AND at < datetime('now', '-${STALE_MINUTES} minutes')`).run();
+  const stale = db().prepare(`SELECT id FROM check_evals WHERE status = 'running' AND COALESCE(beat_at, at) < datetime('now', '-${STALE_MINUTES} minutes')`).all() as { id: number }[];
+  for (const { id } of stale) if (!active.has(id)) finish(id, "error", "途中で止まった（サーバーの再起動などで処理が消えた）");
   return db().prepare("SELECT * FROM check_evals WHERE status = 'running' ORDER BY id DESC LIMIT 1").get() as CheckEvalRow | undefined;
 }
+
+const isRunning = (id: number) => (db().prepare("SELECT status FROM check_evals WHERE id = ?").get(id) as { status: string } | undefined)?.status === "running";
 
 export function startCheckEval(modelId: unknown): number {
   const s = getSettings();
@@ -69,9 +75,13 @@ function spentOn(id: number): number {
 
 async function judgeOne(id: number, c: CheckEvalCase, modelId: string) {
   const { project, lp } = checkEvalInput(c);
-  const save = (gotOk: number | null, issues: string[] | null, error: string | null) =>
+  // 閉じたあとの評価には、結果を足さない
+  const save = (gotOk: number | null, issues: string[] | null, error: string | null) => {
+    if (!isRunning(id)) return;
     db().prepare("INSERT OR REPLACE INTO check_eval_results (eval_id, case_id, expect, type, got_ok, issues, error) VALUES (?, ?, ?, ?, ?, ?, ?)")
       .run(id, c.id, c.expect, c.type ?? null, gotOk, issues ? JSON.stringify(issues) : null, error);
+    db().prepare("UPDATE check_evals SET beat_at = datetime('now') WHERE id = ?").run(id);
+  };
   try {
     const out = await callJson<Review>({ purpose: PURPOSE, modelId, ...lpReviewPrompt(project, lp), validate: isReview });
     save(out.ok ? 1 : 0, out.issues, null);
@@ -91,8 +101,10 @@ function finish(id: number, status: "done" | "error", error: string | null = nul
 export async function runCheckEval(id: number, modelId: string) {
   const queue = [...CHECK_EVAL_CASES];
   let stop: Error | null = null;
+  active.add(id);
+  // 閉じられた評価（別のサーバーが止まったと見なした など）は、新しい例を取らずに終える
   const worker = async () => {
-    for (let c = queue.shift(); c && !stop; c = queue.shift()) {
+    for (let c = queue.shift(); c && !stop && isRunning(id); c = queue.shift()) {
       try {
         await judgeOne(id, c, modelId);
       } catch (e) {
@@ -100,7 +112,11 @@ export async function runCheckEval(id: number, modelId: string) {
       }
     }
   };
-  await Promise.allSettled(Array.from({ length: PARALLEL }, worker));
+  try {
+    await Promise.allSettled(Array.from({ length: PARALLEL }, worker));
+  } finally {
+    active.delete(id);
+  }
   if (stop) finish(id, "error", (stop as Error).message);
   else finish(id, "done");
 }

@@ -493,8 +493,14 @@ test("チェックの評価: 長く running のままの評価は閉じて次を
   db().prepare("DELETE FROM check_eval_results").run();
   db().prepare("DELETE FROM check_evals").run();
   const stale = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, at) VALUES ('claude-opus-5-5', 'x', datetime('now', '-2 hours'))").run().lastInsertRowid);
-  assert.equal(runningCheckEval(), undefined);
-  assert.equal((db().prepare("SELECT status FROM check_evals WHERE id = ?").get(stale) as { status: string }).status, "error");
+  db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd, at) VALUES ('チェックの評価', 'claude-opus-5-5', 1, 1, 0.25, datetime('now', '-90 minutes'))").run();
+  // 動いている印が新しい評価は、始めた日時が古くても閉じない
+  const beating = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, at, beat_at) VALUES ('gpt-5.6-sol', 'x', datetime('now', '-2 hours'), datetime('now'))").run().lastInsertRowid);
+  assert.equal(runningCheckEval()?.id, beating);
+  const closed = db().prepare("SELECT status, cost_usd FROM check_evals WHERE id = ?").get(stale) as { status: string; cost_usd: number };
+  assert.equal(closed.status, "error");
+  assert.equal(closed.cost_usd, 0.25); // 閉じた評価にも、それまでの費用を残す
+  db().prepare("UPDATE check_evals SET status = 'error' WHERE id = ?").run(beating);
 
   const id = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash) VALUES ('claude-opus-5-5', 'x')").run().lastInsertRowid);
   saveSettings({ killSwitch: true });
