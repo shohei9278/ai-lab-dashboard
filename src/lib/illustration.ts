@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import OpenAI from "openai";
-import { GoogleGenAI } from "@google/genai";
+import { gemini } from "./gemini";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
 import { GuardError } from "./ai";
 import { hasKey } from "./models";
@@ -44,7 +44,7 @@ async function draw(model: ImageModel, prompt: string): Promise<{ bytes: Buffer;
     if (!b64) throw new Error("画像が返ってきませんでした");
     return { bytes: Buffer.from(b64, "base64"), type: "image/jpeg" };
   }
-  const r = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }).models.generateContent({
+  const r = await gemini().models.generateContent({
     model,
     contents: prompt,
     config: { responseModalities: ["IMAGE"], imageConfig: { aspectRatio: "3:2" } },

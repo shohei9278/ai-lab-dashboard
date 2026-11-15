@@ -625,3 +625,13 @@ test("チェックの評価: 長く running のままの評価は閉じて次を
   assert.deepEqual(o.latest.map((x) => x.run.model_id).sort(), ["claude-opus-5-5", "gemini-3.1-pro-preview"]);
   assert.equal(o.history.length, 30);
 });
+
+test("Gemini は、src の中では gemini() からだけ作る（@google/genai 3 の既定の v1 には preview 版のモデルがないので、v1beta を明示した口を通す）", async () => {
+  const { readdirSync, readFileSync, statSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => { const p = join(dir, f); return statSync(p).isDirectory() ? files(p) : /\.(ts|tsx)$/.test(f) ? [p] : []; });
+  const direct = files(join(process.cwd(), "src")).filter((p) => !p.endsWith("gemini.ts") && readFileSync(p, "utf8").includes("new GoogleGenAI("));
+  assert.deepEqual(direct, []);
+  const { GEMINI_API_VERSION } = await import("../src/lib/gemini");
+  assert.equal(GEMINI_API_VERSION, "v1beta");
+});

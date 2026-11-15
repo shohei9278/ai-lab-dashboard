@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { GoogleGenAI } from "@google/genai";
+import { gemini } from "./gemini";
 import type { ModelDef } from "./models";
 import type { Dataset, Item } from "./tasks";
 
@@ -78,7 +78,7 @@ async function realCall(model: ModelDef, prompt: { system: string; user: string 
     };
   }
 
-  const client = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const client = gemini();
   const res = await client.models.generateContent({
     model: model.id,
     contents: prompt.user,

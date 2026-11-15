@@ -18,7 +18,7 @@ async function list(): Promise<Record<string, string[]>> {
     console.error("openai:", (e as Error).message);
   }
   try {
-    const pager = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }).models.list();
+    const pager = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, apiVersion: "v1beta" }).models.list();
     for await (const m of pager) if (m.name) out.google.push(m.name.replace(/^models\//, ""));
   } catch (e) {
     console.error("google:", (e as Error).message);

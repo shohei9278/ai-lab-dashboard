@@ -2,7 +2,7 @@ import { db, getSettings, monthSpendUsd } from "./db";
 import { costUsd, getModel, hasKey } from "./models";
 import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
-import { GoogleGenAI } from "@google/genai";
+import { gemini } from "./gemini";
 import { callModel } from "./providers";
 import { saveTrace } from "./traces";
 import { withExternalRule } from "./untrusted";
@@ -105,7 +105,7 @@ export async function callLong(opts: { modelId: string; purpose: string; project
   const trace = (output: string | null, error: string | null) => saveTrace({ purpose: opts.purpose, modelId: model.id, projectId: opts.projectId, system: opts.system, input: opts.user, output, error });
   if (model.provider === "google") {
     try {
-      const res = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: 15 * 60 * 1000 } }).models.generateContent({
+      const res = await gemini(15 * 60 * 1000).models.generateContent({
         model: model.id, contents: opts.user, config: { systemInstruction: withExternalRule(opts.system, opts.user), maxOutputTokens: opts.maxTokens },
       });
       const u = res.usageMetadata;
@@ -170,7 +170,7 @@ export async function callVision(opts: { modelId: string; purpose: string; proje
       if (error) throw new Error(error);
       return res.output_text;
     }
-    const res = await new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { timeout: 6 * 60 * 1000 } }).models.generateContent({
+    const res = await gemini(6 * 60 * 1000).models.generateContent({
       model: model.id,
       contents: [{ role: "user", parts: opts.content.map((c) => (c.type === "text" ? { text: c.text } : { inlineData: { mimeType: c.source.media_type, data: c.source.data } })) }],
       config: { systemInstruction: opts.system, maxOutputTokens: opts.maxTokens },
