@@ -409,7 +409,7 @@ ${p.kind === "tool"
 問題がなければ {"ok":true,"issues":[]}。
 形式: {"ok":true または false,"issues":["問題点"]}
 ${EXTRAS_RULE}`,
-    user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}${toolFacts ? `\n\nツールの中身（tool.html から取り出した、選択肢・入力欄の最初の値・画面に出る文言。ここにない選択肢や例文は、ツールでは作れない）:\n${toolFacts}` : ""}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(beforeForReview(before))}` : ""}`,
+    user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}${toolFacts ? `\n\nツールの中身（tool.html から取り出した、選択肢・入力欄の最初の値・画面に出る文言。${toolFacts.endsWith(TOOL_FACTS_CUT) ? "長いので途中までしか渡していない。ここにないからといって、ツールで作れないとは言い切らない" : "ここにない選択肢や例文は、ツールでは作れない"}）:\n${toolFacts}` : ""}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(beforeForReview(before))}` : ""}`,
   };
 }
 
@@ -427,11 +427,17 @@ async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp, toolHtml?: string): 
 // LPのチェックに渡す、ツールの中身の抜き出し。コード全体は長く費用がかかるので、ページの文言と照らすのに要るものだけにする:
 // 選択肢・入力欄の最初の値（開いた直後の状態）・ボタンや見出しの文言・スクリプトの中の日本語の文（テンプレートの例文など）
 // （材料がないと、チェックが「ツールで出るか確かめられない」として止めていた）
+export const TOOL_FACTS_CUT = "…（長いので途中まで）";
 export function toolFactsForReview(html: string, max = 3000): string {
   const clean = (x: string) => x.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
   const attr = (tag: string, name: string) => tag.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, "i"))?.[1];
   const lines: string[] = [];
-  const options = [...html.matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map((m) => `${clean(m[2])}${/\bselected\b/i.test(m[1]) ? "（最初に選ばれている）" : ""}`).filter(Boolean);
+  // 選択肢は組（select）ごとに見る。selected がなければ、先頭（disabled でないもの）が最初に選ばれる
+  const options = [...html.matchAll(/<select\b[^>]*>([\s\S]*?)<\/select>/gi)].flatMap((sel) => {
+    const opts = [...sel[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map((m) => ({ text: clean(m[2]), selected: /\bselected\b/i.test(m[1]), disabled: /\bdisabled\b/i.test(m[1]) }));
+    const first = opts.some((o) => o.selected) ? -1 : opts.findIndex((o) => !o.disabled);
+    return opts.map((o, i) => `${o.text}${o.selected || i === first ? "（最初に選ばれている）" : ""}`).filter(Boolean);
+  });
   if (options.length) lines.push(`選択肢: ${[...new Set(options)].join(" / ")}`);
   const inputs = [...html.matchAll(/<input\b[^>]*>/gi)].map((m) => {
     const t = m[0];
@@ -444,10 +450,31 @@ export function toolFactsForReview(html: string, max = 3000): string {
   const labels = [...html.matchAll(/<(button|label|h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => clean(m[2])).filter((x) => x && x.length <= 60);
   if (labels.length) lines.push(`ボタン・見出し: ${[...new Set(labels)].join(" / ")}`);
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join("\n");
-  const strings = [...scripts.matchAll(/(["'`])((?:(?!\1)[^\\\n]|\\.){2,200}?)\1/g)].map((m) => m[2].trim()).filter((x) => /[ぁ-んァ-ヶ一-龠]/.test(x));
+  const strings = scriptStrings(scripts).map((x) => x.replace(/\s+/g, " ").trim()).filter((x) => /[ぁ-んァ-ヶ一-龠]/.test(x));
   if (strings.length) lines.push(`スクリプトの中の文言: ${[...new Set(strings)].join(" / ")}`);
   const out = lines.join("\n");
-  return out.length > max ? `${out.slice(0, max)}…（長いので途中まで）` : out;
+  return out.length > max ? `${out.slice(0, max)}${TOOL_FACTS_CUT}` : out;
+}
+
+// スクリプトの中の文字列を、引用符の種類とエスケープを見ながら取り出す（コメントは飛ばす。バッククォートの中は改行も含める）
+function scriptStrings(js: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < js.length; i++) {
+    const c = js[i];
+    if (c === "/" && js[i + 1] === "/") { const n = js.indexOf("\n", i); i = n < 0 ? js.length : n; continue; }
+    if (c === "/" && js[i + 1] === "*") { const n = js.indexOf("*/", i + 2); i = n < 0 ? js.length : n + 1; continue; }
+    if (c !== '"' && c !== "'" && c !== "`") continue;
+    let j = i + 1;
+    let text = "";
+    for (; j < js.length && js[j] !== c; j++) {
+      if (js[j] === "\\") { text += js[j + 1] ?? ""; j++; continue; }
+      if (js[j] === "\n" && c !== "`") break; // 閉じていない（正規表現の中の引用符など）
+      text += js[j];
+    }
+    if (js[j] === c) out.push(text);
+    i = j;
+  }
+  return out;
 }
 
 // ---- 動くツールの本体 ----
@@ -1635,7 +1662,7 @@ async function announcePublish(projectId: number) {
       // フォロワーがほぼいない自動投稿だけでは、判断に必要な訪問が集まらないため
       if (!p.published_at && p.first_channel) {
         addProposal({
-          title: `「${p.title}」を、対象の人がいる場所に届ける`,
+          title: `「${p.title}」${FIRST_CHANNEL_TITLE}`,
           how: `${p.first_channel}\nページ: ${publicUrl(projectId) ?? slugOf(projectId)}`,
           why: "自動投稿だけでは届く人数に限りがあり、判断の基準の訪問まで集まらないため（企画のときにAIが決めた最初の届け方）",
           target: "human", source: "plan", scene: "公開", projectId,
@@ -1711,7 +1738,7 @@ export async function maybeAutoJudge(projectId: number) {
   const slow = !!since && daysSinceUtc(since) >= s.judgeAfterDays;
   // 日数で判断する2日前に、企画で決めた最初の届け方がまだなら、運営者に1回だけ知らせる
   // （やらないまま判断すると、届け方の問題を需要の問題と取り違えるため）
-  if (since && !slow && daysSinceUtc(since) >= s.judgeAfterDays - 2) remindFirstChannel(p);
+  if (since && !slow && !enoughVisits && !budgetHit && daysSinceUtc(since) >= s.judgeAfterDays - 2) remindFirstChannel(p);
   if (!enoughVisits && !budgetHit && !slow) return false;
   await judge(projectId, enoughVisits ? "visits" : budgetHit ? "budget" : "slow");
   return true;
@@ -1719,10 +1746,13 @@ export async function maybeAutoJudge(projectId: number) {
 
 // 企画で決めた最初の届け方（公開したときに、運営者がやることとして提案箱に入れたもの）を、やったかどうか
 // 提案箱の返事（やった・見送り）を、そのまま実施の記録として使う
+// 公開したときに入れる届け方のお願いの題の終わり（ほかの「公開」のお願いと見分けるのに使う）
+const FIRST_CHANNEL_TITLE = "を、対象の人がいる場所に届ける";
 export type FirstChannelState = { status: "open" | "done" | "declined"; note: string | null; at: string };
 export function firstChannelState(projectId: number): FirstChannelState | null {
-  const r = db().prepare("SELECT status, note, COALESCE(decided_at, created_at) AS at FROM plan_requests WHERE project_id = ? AND target = 'human' AND scene = '公開' ORDER BY id DESC LIMIT 1")
-    .get(projectId) as { status: string; note: string | null; at: string } | undefined;
+  const r = db().prepare(`SELECT status, note, COALESCE(decided_at, created_at) AS at FROM plan_requests
+     WHERE project_id = ? AND target = 'human' AND source = 'plan' AND scene = '公開' AND title LIKE ? ORDER BY id DESC LIMIT 1`)
+    .get(projectId, `%${FIRST_CHANNEL_TITLE}`) as { status: string; note: string | null; at: string } | undefined;
   if (!r) return null;
   return { status: r.status === "done" ? "done" : r.status === "declined" ? "declined" : "open", note: r.note, at: r.at };
 }
