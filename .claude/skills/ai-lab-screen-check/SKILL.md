@@ -33,8 +33,10 @@ AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx tsx <scratchpad>/seed.t
 ## 2. 手元で動かす
 `DASHBOARD_PASSWORD` を付けなければ、すべて運営者として開ける。来訪者の見え方を確かめたいときだけ、仮の値を付けてログインせずに開く。
 
+後ろに `&` を付けてバックグラウンドで起動し、PID をファイルに控える（コマンドを打つたびにシェルが変わるので、変数ではなくファイルに残す）。
+
 ```bash
-AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx next dev -p 3472   # バックグラウンドで
+AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx next dev -p 3472 > <scratchpad>/next.log 2>&1 & echo $! > <scratchpad>/next.pid
 ```
 起動を待つときは、`curl -s -o /dev/null -w "%{http_code}" localhost:3472/` が 200 になるまで数秒おきに見る。
 
@@ -47,10 +49,13 @@ AI_LAB_DB=<scratchpad>/check.db AI_LAB_SCHEDULER=off npx next dev -p 3472   # �
 - 撮った画像は Read で開いて、崩れ・はみ出し・文言を自分の目で見る
 
 ## 4. 片付け
+控えた PID のプロセスだけを止める（`pkill -f` で名前を当てると、ほかのプロセスや呼び出し元まで止めることがある）。`npx` の下で Next.js がさらにプロセスを起こすので、3472番を開いているプロセスも止める。
+
 ```bash
-pkill -f "next dev -p 3472"
-rm -f <scratchpad>/check.db <scratchpad>/check.db-wal <scratchpad>/check.db-shm <scratchpad>/seed.ts
+kill "$(cat <scratchpad>/next.pid)" 2>/dev/null; lsof -ti tcp:3472 -sTCP:LISTEN | xargs kill 2>/dev/null || true
+rm -f <scratchpad>/check.db <scratchpad>/check.db-wal <scratchpad>/check.db-shm <scratchpad>/seed.ts <scratchpad>/next.pid <scratchpad>/next.log
 ```
+止まったかは `curl -s -o /dev/null -w "%{http_code}" localhost:3472/` が 000 になることで確かめる。
 `.claude/launch.json` に一時の起動設定を足したなら、それも消す。
 
 ## 報告

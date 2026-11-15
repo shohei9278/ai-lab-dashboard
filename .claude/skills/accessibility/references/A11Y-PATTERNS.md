@@ -95,11 +95,6 @@ form.addEventListener('submit', (e) => {
   if (firstError) {
     e.preventDefault();
     firstError.focus();
-
-    const errorSummary = document.getElementById('error-summary');
-    errorSummary.textContent =
-      `${errors.length} errors found. Please fix them and try again.`;
-    errorSummary.focus();
   }
 });
 ```

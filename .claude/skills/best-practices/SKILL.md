@@ -419,14 +419,26 @@ findNearbyButton.addEventListener('click', async () => {
 
 ### Permissions policy
 
-```html
-<!-- Restrict powerful features -->
-<meta http-equiv="Permissions-Policy" 
-      content="geolocation=(), camera=(), microphone=()">
+Permissions Policy is set with the `Permissions-Policy` HTTP response header (or the `allow` attribute on an `<iframe>`). A `<meta http-equiv="Permissions-Policy">` tag is not applied by browsers.
 
-<!-- Or allow for specific origins -->
-<meta http-equiv="Permissions-Policy" 
-      content="geolocation=(self 'https://maps.example.com')">
+```http
+# Restrict powerful features
+Permissions-Policy: geolocation=(), camera=(), microphone=()
+
+# Or allow for specific origins
+Permissions-Policy: geolocation=(self "https://maps.example.com")
+```
+
+```javascript
+// next.config.js
+module.exports = {
+  async headers() {
+    return [{
+      source: '/(.*)',
+      headers: [{ key: 'Permissions-Policy', value: 'geolocation=(), camera=(), microphone=()' }],
+    }];
+  },
+};
 ```
 
 ---
