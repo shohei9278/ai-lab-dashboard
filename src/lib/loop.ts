@@ -90,7 +90,7 @@ const isLp = (v: unknown): v is Lp => isLpCore(v);
 const isDecision = (v: unknown): v is Decision =>
   isObj(v) && ["continue", "improve", "kill", "collect", "rethink"].includes(v.decision as string) && isStr(v.reason) && isStr(v.next_action);
 
-const isReview = (v: unknown): v is Review => isObj(v) && typeof v.ok === "boolean" && Array.isArray(v.issues) && v.issues.every(isStr);
+export const isReview = (v: unknown): v is Review => isObj(v) && typeof v.ok === "boolean" && Array.isArray(v.issues) && v.issues.every(isStr);
 
 // ---- 共通 ----
 
@@ -395,10 +395,9 @@ export const beforeForReview = (before: Lp): Lp => ({ ...before, tool: undefined
 // 本物のツールと食い違うと誤って指摘して公開が止まるので、チェックの前に外す
 export const toolPageForReview = (page: Lp): Lp => ({ ...page, preview: undefined });
 
-async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp): Promise<Review> {
-  const out = await callJson<Review>({
-    purpose: "LPチェック",
-    projectId: p.id,
+// 公開前チェックの指示文。本番のチェックと、チェックの評価（checkEval.ts）で同じものを使う
+export function lpReviewPrompt(p: Pick<ProjectRow, "kind" | "target" | "solution">, lp: Lp, before?: Lp): { system: string; user: string } {
+  return {
     system: `あなたはLPの公開前チェック担当です。次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
 - 架空の利用者数・実績・お客様の声・受賞歴・具体的な効果の数字を断言している
 - 「必ず」「誰でも」「100%」などの誇大表現がある${p.kind === "tool" ? "" : "\n- 「開発中」「先行利用」「近日公開」など、まだ作ると決まっていないのに、作ることや提供の時期が決まっているかのような書き方"}
@@ -411,6 +410,14 @@ ${p.kind === "tool"
 形式: {"ok":true または false,"issues":["問題点"]}
 ${EXTRAS_RULE}`,
     user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(beforeForReview(before))}` : ""}`,
+  };
+}
+
+async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp): Promise<Review> {
+  const out = await callJson<Review>({
+    purpose: "LPチェック",
+    projectId: p.id,
+    ...lpReviewPrompt(p, lp, before),
     validate: isReview,
   });
   takeExtras(out, { modelId: getSettings().loopModel, scene: "LPのチェック", projectId: p.id });
