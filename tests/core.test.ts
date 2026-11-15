@@ -487,3 +487,31 @@ test("チェックの評価: 本番と同じ指示を使い、見積もりは0�
     saveSettings({ killSwitch: false });
   }
 });
+
+test("チェックの評価: 長く running のままの評価は閉じて次を始められる。緊急停止で止まったら結果を足さずに閉じる。AIごとの最新は全期間から", async () => {
+  const { runningCheckEval, runCheckEval, checkEvalOverview } = await import("../src/lib/checkEval");
+  db().prepare("DELETE FROM check_eval_results").run();
+  db().prepare("DELETE FROM check_evals").run();
+  const stale = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, at) VALUES ('claude-opus-5-5', 'x', datetime('now', '-2 hours'))").run().lastInsertRowid);
+  assert.equal(runningCheckEval(), undefined);
+  assert.equal((db().prepare("SELECT status FROM check_evals WHERE id = ?").get(stale) as { status: string }).status, "error");
+
+  const id = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash) VALUES ('claude-opus-5-5', 'x')").run().lastInsertRowid);
+  saveSettings({ killSwitch: true });
+  try {
+    await runCheckEval(id, "claude-opus-5-5");
+  } finally {
+    saveSettings({ killSwitch: false });
+  }
+  const r = db().prepare("SELECT status, error FROM check_evals WHERE id = ?").get(id) as { status: string; error: string };
+  assert.equal(r.status, "error");
+  assert.match(r.error, /緊急停止/);
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM check_eval_results WHERE eval_id = ?").get(id) as { n: number }).n, 0);
+
+  // 古い評価しかないAIも、新しい評価がたくさんあるAIに押し出されずに出る
+  db().prepare("INSERT INTO check_evals (model_id, prompt_hash, status) VALUES ('gemini-3.1-pro-preview', 'x', 'done')").run();
+  for (let i = 0; i < 35; i++) db().prepare("INSERT INTO check_evals (model_id, prompt_hash, status) VALUES ('claude-opus-5-5', 'x', 'done')").run();
+  const o = checkEvalOverview();
+  assert.deepEqual(o.latest.map((x) => x.run.model_id).sort(), ["claude-opus-5-5", "gemini-3.1-pro-preview"]);
+  assert.equal(o.history.length, 30);
+});

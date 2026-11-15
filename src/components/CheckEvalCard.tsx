@@ -1,4 +1,4 @@
-import { checkEvalModels, checkEvalOverview, estimateCheckEvalJpy, type CheckEvalSummary } from "@/lib/checkEval";
+import { CHECK_EVAL_HISTORY, checkEvalModels, checkEvalOverview, estimateCheckEvalJpy, type CheckEvalSummary } from "@/lib/checkEval";
 import { getSettings } from "@/lib/db";
 import { getModel } from "@/lib/models";
 import { jstDateTime } from "@/lib/format";
@@ -89,7 +89,7 @@ export function CheckEvalCard({ owner }: { owner: boolean }) {
       )}
       {o.history.length > 1 && (
         <details className="text-sm">
-          <summary className="cursor-pointer text-xs text-accent">これまでの評価（{o.history.length}回）</summary>
+          <summary className="cursor-pointer text-xs text-accent">これまでの評価（直近{o.history.length}回{o.history.length >= CHECK_EVAL_HISTORY ? "まで" : ""}）</summary>
           <ShowMore initial={5} className="mt-2 space-y-1 text-xs">
             {o.history.map((h) => (
               <div key={h.run.id} className="flex flex-wrap gap-x-3 text-ink-2">

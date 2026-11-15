@@ -22,11 +22,12 @@ export function checkEvalModels(): string[] {
   return [...new Set([loop, ...ids])].filter((id) => hasKey(getModel(id).provider));
 }
 
-// チェックの指示の指紋。事前登録LPとツールの両方の指示から作る（指示を変えた前後の結果を見分けるため）
+// チェックの指示の指紋。事前登録LPとツールの代表の例を、渡す文の全体（system と user）にして作る
+// （指示や、LPの渡し方を変えた前後の結果を見分けるため）
 export function checkPromptHash(): string {
   const pick = (kind: "lp" | "tool") => CHECK_EVAL_CASES.find((c) => checkEvalInput(c).project.kind === kind)!;
-  const systems = (["lp", "tool"] as const).map((k) => { const { project, lp } = checkEvalInput(pick(k)); return lpReviewPrompt(project, lp).system; });
-  return createHash("sha256").update(systems.join("\n---\n")).digest("hex").slice(0, 8);
+  const texts = (["lp", "tool"] as const).map((k) => { const { project, lp } = checkEvalInput(pick(k)); const p = lpReviewPrompt(project, lp); return `${p.system}\n===\n${p.user}`; });
+  return createHash("sha256").update(texts.join("\n---\n")).digest("hex").slice(0, 8);
 }
 
 // 1周の費用の見込み（円）。日本語は1文字を約1トークンとして多めに見積もる
@@ -36,7 +37,12 @@ export function estimateCheckEvalJpy(modelId: string): number {
   return Math.ceil(costUsd(m, inputTokens, OUTPUT_TOKENS * CHECK_EVAL_CASES.length) * getSettings().usdJpy);
 }
 
+// 40件は数分で終わる。始めてから長くたっても running のままなのは、サーバーの再起動などで処理が消えたもの。
+// 閉じておかないと、次の評価を始められなくなる
+const STALE_MINUTES = 30;
+
 export function runningCheckEval(): CheckEvalRow | undefined {
+  db().prepare(`UPDATE check_evals SET status = 'error', error = '途中で止まった（サーバーの再起動などで処理が消えた）', finished_at = datetime('now') WHERE status = 'running' AND at < datetime('now', '-${STALE_MINUTES} minutes')`).run();
   return db().prepare("SELECT * FROM check_evals WHERE status = 'running' ORDER BY id DESC LIMIT 1").get() as CheckEvalRow | undefined;
 }
 
@@ -44,14 +50,14 @@ export function startCheckEval(modelId: unknown): number {
   const s = getSettings();
   if (typeof modelId !== "string" || !checkEvalModels().includes(modelId)) throw new Error("このAIでは評価できません（上位のAIで、APIキーがあるものだけ）");
   if (s.killSwitch) throw new Error("緊急停止中のため、評価できません");
-  if (runningCheckEval()) throw new Error("ほかの評価が動いています。終わってから実行してください");
   const cost = estimateCheckEvalJpy(modelId);
-  if (monthSpendUsd() * s.usdJpy + cost > s.monthlyBudgetJpy) throw new Error(`今月の予算の残りが、評価1回分（約${cost}円）に足りません`);
-  const id = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash) VALUES (?, ?)").run(modelId, checkPromptHash()).lastInsertRowid);
-  void runCheckEval(id, modelId).catch((e) => {
-    db().prepare("UPDATE check_evals SET status = 'error', error = ?, finished_at = datetime('now'), cost_usd = ? WHERE id = ? AND status = 'running'")
-      .run((e instanceof Error ? e.message : String(e)).slice(0, 300), spentOn(id), id);
-  });
+  // 動いている評価の確認・予算の確認・行の追加を1つのトランザクションにして、2つ同時に始まらないようにする
+  const id = db().transaction(() => {
+    if (runningCheckEval()) throw new Error("ほかの評価が動いています。終わってから実行してください");
+    if (monthSpendUsd() * s.usdJpy + cost > s.monthlyBudgetJpy) throw new Error(`今月の予算の残りが、評価1回分（約${cost}円）に足りません`);
+    return Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash) VALUES (?, ?)").run(modelId, checkPromptHash()).lastInsertRowid);
+  }).immediate();
+  void runCheckEval(id, modelId).catch((e) => finish(id, "error", e instanceof Error ? e.message : String(e)));
   return id;
 }
 
@@ -75,11 +81,28 @@ async function judgeOne(id: number, c: CheckEvalCase, modelId: string) {
   }
 }
 
+function finish(id: number, status: "done" | "error", error: string | null = null) {
+  db().prepare("UPDATE check_evals SET status = ?, error = ?, finished_at = datetime('now'), cost_usd = ? WHERE id = ? AND status = 'running'")
+    .run(status, error?.slice(0, 300) ?? null, spentOn(id), id);
+}
+
+// 緊急停止・予算切れ（GuardError）が出たら、ほかの並びは新しい例を取らずに止まり、呼び出し中のものが終わるのを待ってから閉じる
+// （閉じたあとに結果や費用が増えないように）
 export async function runCheckEval(id: number, modelId: string) {
   const queue = [...CHECK_EVAL_CASES];
-  const worker = async () => { for (let c = queue.shift(); c; c = queue.shift()) await judgeOne(id, c, modelId); };
-  await Promise.all(Array.from({ length: PARALLEL }, worker));
-  db().prepare("UPDATE check_evals SET status = 'done', finished_at = datetime('now'), cost_usd = ? WHERE id = ? AND status = 'running'").run(spentOn(id), id);
+  let stop: Error | null = null;
+  const worker = async () => {
+    for (let c = queue.shift(); c && !stop; c = queue.shift()) {
+      try {
+        await judgeOne(id, c, modelId);
+      } catch (e) {
+        stop = e instanceof Error ? e : new Error(String(e));
+      }
+    }
+  };
+  await Promise.allSettled(Array.from({ length: PARALLEL }, worker));
+  if (stop) finish(id, "error", (stop as Error).message);
+  else finish(id, "done");
 }
 
 export type CheckEvalSummary = {
@@ -112,18 +135,19 @@ export function summarizeCheckEval(run: CheckEvalRow, rows: CheckEvalResultRow[]
   };
 }
 
-// 画面用: AIごとの最新の結果と、これまでの評価の一覧
+export const CHECK_EVAL_HISTORY = 30;
+
+// 画面用: AIごとの最新の結果（全期間から）と、直近の評価の一覧
 export function checkEvalOverview() {
-  const runs = db().prepare("SELECT * FROM check_evals ORDER BY id DESC LIMIT 30").all() as CheckEvalRow[];
+  const running = runningCheckEval();
+  const runs = db().prepare("SELECT * FROM check_evals WHERE status != 'running' ORDER BY id DESC LIMIT ?").all(CHECK_EVAL_HISTORY) as CheckEvalRow[];
+  const latest = db().prepare("SELECT * FROM check_evals WHERE id IN (SELECT MAX(id) FROM check_evals WHERE status = 'done' GROUP BY model_id) ORDER BY id DESC").all() as CheckEvalRow[];
   const results = (id: number) => db().prepare("SELECT * FROM check_eval_results WHERE eval_id = ?").all(id) as CheckEvalResultRow[];
-  const latestByModel = new Map<string, CheckEvalRow>();
-  for (const r of runs) if (r.status === "done" && !latestByModel.has(r.model_id)) latestByModel.set(r.model_id, r);
-  const running = runs.find((r) => r.status === "running");
   return {
     cases: { total: CHECK_EVAL_CASES.length, ng: CHECK_EVAL_CASES.filter((c) => c.expect === "ng").length, ok: CHECK_EVAL_CASES.filter((c) => c.expect === "ok").length },
     promptHash: checkPromptHash(),
-    latest: [...latestByModel.values()].map((r) => summarizeCheckEval(r, results(r.id))),
-    history: runs.filter((r) => r.status !== "running").map((r) => summarizeCheckEval(r, results(r.id))),
+    latest: latest.map((r) => summarizeCheckEval(r, results(r.id))),
+    history: runs.map((r) => summarizeCheckEval(r, results(r.id))),
     running: running ? { run: running, done: (db().prepare("SELECT COUNT(*) AS n FROM check_eval_results WHERE eval_id = ?").get(running.id) as { n: number }).n } : null,
   };
 }
