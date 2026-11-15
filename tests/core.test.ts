@@ -672,6 +672,16 @@ test("LPのチェックに渡すツールの中身: 選択肢・最初の値・�
   const js = toolFactsForReview(`<script>// it's a comment\nconst out = \`\${n}等は\n\${yen}円です\`;\nconst l = "${long}";</script>`);
   assert.match(js, /\$\{n\}等は \$\{yen\}円です/);
   assert.ok(js.includes(long));
+  // textarea の最初の値と入力例、似た名前の属性（data-value・aria-checked）は取り違えない
+  const tf = toolFactsForReview(`<textarea name="names" placeholder="山田、佐藤">田中\n鈴木</textarea><input type="checkbox" name="x" aria-checked="false" data-value="9"><select><option aria-selected="true">A</option><option>B</option></select>`);
+  assert.match(tf, /names（textarea・最初の値 田中\n鈴木・入力例 山田、佐藤）/);
+  assert.match(tf, /x（checkbox）/);
+  assert.match(tf, /A（最初に選ばれている） \/ B$/m);
+  // 正規表現の中の引用符で、文の読み取りがずれない（割り算はそのまま）
+  assert.match(toolFactsForReview(`<script>const a = t.replace(/"/g, "日本語"); const r = 10 / 2; const b = '二つ目';</script>`), /日本語 \/ 二つ目/);
+  // 長いボタンも捨てず、切ったあとも max を超えない
+  assert.match(toolFactsForReview(`<button>${"とても長いボタンの文言".repeat(8)}</button>`), /とても長いボタンの文言とても/);
+  assert.ok(toolFactsForReview(html, 40).length <= 40);
   // 渡したときだけ user に入る（評価の例は渡さないので、評価の指示は変わらない）
   const lp = { headline: "h", subheadline: "s", cta: "c", pains: [], features: [], faq: [] } as never;
   assert.doesNotMatch(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp).user, /ツールの中身/);

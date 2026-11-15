@@ -430,49 +430,76 @@ async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp, toolHtml?: string): 
 export const TOOL_FACTS_CUT = "…（長いので途中まで）";
 export function toolFactsForReview(html: string, max = 3000): string {
   const clean = (x: string) => x.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-  const attr = (tag: string, name: string) => tag.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, "i"))?.[1];
   const lines: string[] = [];
   // 選択肢は組（select）ごとに見る。selected がなければ、先頭（disabled でないもの）が最初に選ばれる
   const options = [...html.matchAll(/<select\b[^>]*>([\s\S]*?)<\/select>/gi)].flatMap((sel) => {
-    const opts = [...sel[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map((m) => ({ text: clean(m[2]), selected: /\bselected\b/i.test(m[1]), disabled: /\bdisabled\b/i.test(m[1]) }));
+    const opts = [...sel[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map((m) => { const a = tagAttrs(m[1]); return { text: clean(m[2]), selected: a.has("selected"), disabled: a.has("disabled") }; });
     const first = opts.some((o) => o.selected) ? -1 : opts.findIndex((o) => !o.disabled);
     return opts.map((o, i) => `${o.text}${o.selected || i === first ? "（最初に選ばれている）" : ""}`).filter(Boolean);
   });
   if (options.length) lines.push(`選択肢: ${[...new Set(options)].join(" / ")}`);
-  const inputs = [...html.matchAll(/<input\b[^>]*>/gi)].map((m) => {
-    const t = m[0];
-    const type = attr(t, "type") ?? "text";
-    const name = attr(t, "aria-label") ?? attr(t, "name") ?? attr(t, "id") ?? "";
-    const parts = [attr(t, "value") !== undefined ? `最初の値 ${attr(t, "value")}` : "", attr(t, "min") ? `最小 ${attr(t, "min")}` : "", attr(t, "max") ? `最大 ${attr(t, "max")}` : "", attr(t, "placeholder") ? `入力例 ${attr(t, "placeholder")}` : "", /\bchecked\b/i.test(t) ? "最初から選ばれている" : ""].filter(Boolean);
+  const field = (a: Map<string, string>, type: string, value?: string) => {
+    const name = a.get("aria-label") || a.get("name") || a.get("id") || "";
+    const parts = [value !== undefined && value !== "" ? `最初の値 ${value}` : "", a.get("min") ? `最小 ${a.get("min")}` : "", a.get("max") ? `最大 ${a.get("max")}` : "", a.get("placeholder") ? `入力例 ${a.get("placeholder")}` : "", a.has("checked") ? "最初から選ばれている" : ""].filter(Boolean);
     return parts.length || type === "radio" || type === "checkbox" ? `${name || type}（${type}${parts.length ? `・${parts.join("・")}` : ""}）` : "";
-  }).filter(Boolean);
+  };
+  const inputs = [
+    ...[...html.matchAll(/<input\b([^>]*)>/gi)].map((m) => { const a = tagAttrs(m[1]); return field(a, a.get("type") || "text", a.get("value")); }),
+    ...[...html.matchAll(/<textarea\b([^>]*)>([\s\S]*?)<\/textarea>/gi)].map((m) => field(tagAttrs(m[1]), "textarea", m[2].trim())),
+  ].filter(Boolean);
   if (inputs.length) lines.push(`入力欄: ${inputs.join(" / ")}`);
-  const labels = [...html.matchAll(/<(button|label|h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => clean(m[2])).filter((x) => x && x.length <= 60);
+  const labels = [...html.matchAll(/<(button|label|h[1-6])\b[^>]*>([\s\S]*?)<\/\1>/gi)].map((m) => clean(m[2])).filter(Boolean);
   if (labels.length) lines.push(`ボタン・見出し: ${[...new Set(labels)].join(" / ")}`);
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join("\n");
   const strings = scriptStrings(scripts).map((x) => x.replace(/\s+/g, " ").trim()).filter((x) => /[ぁ-んァ-ヶ一-龠]/.test(x));
   if (strings.length) lines.push(`スクリプトの中の文言: ${[...new Set(strings)].join(" / ")}`);
   const out = lines.join("\n");
-  return out.length > max ? `${out.slice(0, max)}${TOOL_FACTS_CUT}` : out;
+  return out.length > max ? `${out.slice(0, Math.max(0, max - TOOL_FACTS_CUT.length))}${TOOL_FACTS_CUT}` : out;
 }
 
-// スクリプトの中の文字列を、引用符の種類とエスケープを見ながら取り出す（コメントは飛ばす。バッククォートの中は改行も含める）
+// タグの属性を、名前ごとに読む（data-value や aria-checked を、value や checked と取り違えないように、名前が完全に同じものだけ）
+function tagAttrs(src: string): Map<string, string> {
+  const m = new Map<string, string>();
+  for (const a of src.matchAll(/([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+)))?/g)) {
+    const name = a[1].toLowerCase();
+    if (!m.has(name)) m.set(name, a[2] ?? a[3] ?? a[4] ?? "");
+  }
+  return m;
+}
+
+// スクリプトの中の文字列を、引用符の種類とエスケープを見ながら取り出す
+// （コメントと正規表現リテラルは飛ばす。バッククォートの中は改行も含める）
 function scriptStrings(js: string): string[] {
   const out: string[] = [];
+  let prev = ""; // 直前の、空白でない文字（「/」が割り算か正規表現の始まりかを見分ける）
   for (let i = 0; i < js.length; i++) {
     const c = js[i];
     if (c === "/" && js[i + 1] === "/") { const n = js.indexOf("\n", i); i = n < 0 ? js.length : n; continue; }
     if (c === "/" && js[i + 1] === "*") { const n = js.indexOf("*/", i + 2); i = n < 0 ? js.length : n + 1; continue; }
-    if (c !== '"' && c !== "'" && c !== "`") continue;
+    if (c === "/" && (prev === "" || "(,=:[!&|?{};+-*%<>~^".includes(prev) || /\b(return|typeof|case|in|of)$/.test(js.slice(Math.max(0, i - 7), i).trimEnd()))) {
+      let j = i + 1;
+      let inClass = false;
+      for (; j < js.length && js[j] !== "\n"; j++) {
+        if (js[j] === "\\") { j++; continue; }
+        if (js[j] === "[") inClass = true;
+        else if (js[j] === "]") inClass = false;
+        else if (js[j] === "/" && !inClass) break;
+      }
+      i = j;
+      prev = "/";
+      continue;
+    }
+    if (c !== '"' && c !== "'" && c !== "`") { if (!/\s/.test(c)) prev = c; continue; }
     let j = i + 1;
     let text = "";
     for (; j < js.length && js[j] !== c; j++) {
       if (js[j] === "\\") { text += js[j + 1] ?? ""; j++; continue; }
-      if (js[j] === "\n" && c !== "`") break; // 閉じていない（正規表現の中の引用符など）
+      if (js[j] === "\n" && c !== "`") break; // 閉じていない
       text += js[j];
     }
     if (js[j] === c) out.push(text);
     i = j;
+    prev = c;
   }
   return out;
 }
