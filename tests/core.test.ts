@@ -707,3 +707,16 @@ test("最初の届け方の実施: 公開のときに提案箱へ入れたお願
   db().prepare("UPDATE plan_requests SET status = 'declined', note = NULL WHERE id = ?").run(pid);
   assert.equal(firstChannelLabel(firstChannelState(id)), "運営者が見送った");
 });
+
+test("概要ページの「分かったこと」: 公開した案件があるときだけ出し、数字はいまの記録から入れる", async () => {
+  const { showcaseLearnings } = await import("../src/lib/showcase");
+  db().prepare("UPDATE projects SET public_version = NULL").run();
+  db().prepare("DELETE FROM check_evals").run();
+  assert.deepEqual(await showcaseLearnings(), []);
+  const id = addProject();
+  db().prepare("UPDATE projects SET public_version = 1, auto_published = 1, human_review = 'ok' WHERE id = ?").run(id);
+  const l = await showcaseLearnings();
+  assert.equal(l.length, 2);
+  assert.match(l[0].body, /公開した1件のうち1件は、人の承認なしでAIが公開しました。人があとから見て「出すべきでなかった」としたのは、確認した1件のうち0件です。/);
+  assert.match(l[1].body, /判断の目安（\d+人）に届いた案件は0件/);
+});
