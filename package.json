@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.6.0",
-    "@google/genai": "^2.32.0",
+    "@google/genai": "^3.3.0",
     "@supabase/supabase-js": "^2.119.0",
     "better-sqlite3": "^13.0.3",
     "next": "16.4.6",
@@ -28,14 +28,14 @@
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@types/better-sqlite3": "^9.6.0",
-    "@types/node": "^20",
+    "@types/node": "^22.20.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^10",
     "eslint-config-next": "16.4.6",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "^6.0.3"
   },
   "engines": {
     "node": "22.x"
