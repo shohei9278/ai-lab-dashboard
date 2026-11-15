@@ -3,6 +3,9 @@
 Claude・GPT・Gemini を社員にした会社の実験のダッシュボード（Next.js と SQLite）。本番は Railway。
 `lp-site/` は、AIが作ったツールと事前登録のページを並べる公開サイト（Hitoride、Vercel）。
 
+Next.js の注意（`next dev` が自動で作り、消しても作り直す。Next.js のコードを書く前に読む）:
+@AGENTS.md
+
 ## 進め方
 - main に直接 push しない。ブランチで作業して PR を作る
 - コミット・push・PRの作成・マージは、運営者が言った範囲だけ行う。「確認して」はコミットの了承ではない
