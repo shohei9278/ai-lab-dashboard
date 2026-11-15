@@ -35,7 +35,7 @@ export type ApprovalView = {
 
 const KIND = {
   idea: { label: "アイデアの採用", approve: "このアイデアで進める", after: "承認すると、AIがLP（動くツールの場合はツール本体も）を作ります。", busy: "AIが作っています…" },
-  publish: { label: "公開", approve: "公開して集客を始める", after: "承認すると公開されて「集客中」になります（広告の出稿は手動）。", busy: "処理しています…" },
+  publish: { label: "公開", approve: "公開して集客を始める", after: "承認すると公開されて「公開中・集客中」になります（広告の出稿は手動）。", busy: "処理しています…" },
   decision: {
     label: "AIの判断",
     approve: "この判断に従う",

@@ -69,7 +69,7 @@ const pct = (r: Rect) => ({ left: `${r.l}%`, top: `${r.t}%`, width: `${r.r - r.l
 
 const COLOR: Record<Member, string> = { anthropic: "var(--series-anthropic)", openai: "var(--series-openai)", google: "var(--series-google)" };
 const SHOP_ICON: Record<OfficeShop["kind"], { icon: IconName; label: string }> = { lp: { icon: "page", label: "LP" }, tool: { icon: "tool", label: "ツール" } };
-const SHOP_STATUS: Record<OfficeShop["status"], { icon: IconName; label: string } | null> = { open: null, growing: { icon: "sprout", label: "育てる段階" }, hold: { icon: "pause", label: "保留" }, closed: { icon: "lock", label: "受付終了" } };
+const SHOP_STATUS: Record<OfficeShop["status"], { icon: IconName; label: string } | null> = { open: null, growing: { icon: "sprout", label: "育てる段階" }, hold: { icon: "pause", label: "公開中・集客お休み" }, closed: { icon: "lock", label: "受付終了" } };
 const HAPPENING_ICON: Record<OfficeHappening["kind"], IconName> = { publish: "party", close: "box", grow: "sprout" };
 const STEP_MS = 2500;
 const HOP_MS = 550; // 廊下の1区間を歩く時間
@@ -354,7 +354,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
         <Chip label="今月の予算" value={`${Math.round((n.monthJpy / Math.max(1, n.budgetJpy)) * 100)}%`} tone={n.monthJpy > n.budgetJpy * 0.8 ? "warn" : undefined} />
         <Chip label={n.stuck ? `確認待ち（止まっている ${n.stuck}）` : "確認待ち"} value={`${n.waiting}件`} tone={n.waiting ? "warn" : undefined} href="/#waiting" />
       </div>
-      <p className="-mt-1 text-[10px] text-muted">数字は、再生中もいまのものです（稼働・待機だけ、再生している時刻のもの）。公開・集客中は{n.live}件。</p>
+      <p className="-mt-1 text-[10px] text-muted">数字は、再生中もいまのものです（稼働・待機だけ、再生している時刻のもの）。公開中・集客中は{n.live}件。</p>
       </>)}
 
       {/* だれも動いていないとき: いまの状態・次の予定・確認が必要なもの。過去の動きはボタンで再生する（絵には重ねない） */}

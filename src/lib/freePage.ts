@@ -125,6 +125,17 @@ export async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: st
 }
 
 // コードを読めば分かる問題（通信・外部の読み込み・登録フォームの形）
+// Google Fonts の読み込み先か（https の fonts.googleapis.com と fonts.gstatic.com だけ）
+// 末尾の「/」のない形（<link rel="preconnect" href="https://fonts.googleapis.com">）もよく書かれるので、文字列の先頭ではなくホスト名で見る
+export function isGoogleFonts(href: string): boolean {
+  try {
+    const u = new URL(href);
+    return u.protocol === "https:" && (u.host === "fonts.googleapis.com" || u.host === "fonts.gstatic.com");
+  } catch {
+    return false;
+  }
+}
+
 export function staticPageIssues(html: string): string[] {
   const issues: string[] = [];
   if (html.length > PAGE_HTML_MAX) issues.push(`HTMLが長すぎる（${html.length}文字。上限${PAGE_HTML_MAX}文字）`);
@@ -137,7 +148,7 @@ export function staticPageIssues(html: string): string[] {
   ];
   for (const [re, msg] of bad) if (re.test(html)) issues.push(msg);
   for (const m of html.matchAll(/<link[^>]*href\s*=\s*["']([^"']+)["']/gi)) {
-    if (!m[1].startsWith("https://fonts.googleapis.com/") && !m[1].startsWith("https://fonts.gstatic.com")) issues.push(`Google Fonts 以外のファイルを読み込んでいる: ${m[1].slice(0, 80)}`);
+    if (!isGoogleFonts(m[1])) issues.push(`Google Fonts 以外のファイルを読み込んでいる: ${m[1].slice(0, 80)}`);
   }
   if (!/<form[^>]*id\s*=\s*["']signup["']/i.test(html)) issues.push('登録フォーム form id="signup" がない');
   if (!/<input[^>]*type\s*=\s*["']email["']/i.test(html)) issues.push("メールアドレスの入力欄がない");

@@ -24,7 +24,8 @@ export function IdeaForm({ authors }: { authors: string[] }) {
           onChange={(e) => setTheme(e.target.value)}
           maxLength={200}
           placeholder="例: 小さな飲食店の業務効率化"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm"
+          // 最低限の幅を持たせる（ホームのライブの欄のように狭い所では、潰れずに件数とボタンが次の行に回る）
+          className="min-w-[12rem] flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm"
         />
         <select
           value={count}

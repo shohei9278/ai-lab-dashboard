@@ -482,6 +482,27 @@ CREATE TABLE IF NOT EXISTS notes (
   body TEXT NOT NULL DEFAULT '',
   project_id INTEGER REFERENCES projects(id)
 );
+-- 公開前チェックの評価（AIの成績）: 正解の決まった例（checkEvalCases.ts）を、本番と同じチェックの指示で判定させ、見逃しと止めすぎを数える
+CREATE TABLE IF NOT EXISTS check_evals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  finished_at TEXT,
+  model_id TEXT NOT NULL,
+  prompt_hash TEXT NOT NULL, -- チェックの指示の指紋（指示を変えたら変わる）
+  status TEXT NOT NULL DEFAULT 'running', -- running / done / error
+  cost_usd REAL,
+  error TEXT
+);
+CREATE TABLE IF NOT EXISTS check_eval_results (
+  eval_id INTEGER NOT NULL REFERENCES check_evals(id),
+  case_id TEXT NOT NULL,
+  expect TEXT NOT NULL, -- ok / ng
+  type TEXT, -- 問題ありの例の種類
+  got_ok INTEGER, -- チェックの答え（1 = 問題なし、0 = 問題あり、NULL = 答えが取れなかった）
+  issues TEXT, -- JSON（チェックが挙げた問題点）
+  error TEXT,
+  PRIMARY KEY (eval_id, case_id)
+);
 -- プロンプトの比較（AIの成績）: 同じ案件・同じAIで、指示の渡し方だけを変えたLPを2つ作り、3社が作り方を伏せて画面で採点する
 -- 作ったLPは案件には使わない。a は今の渡し方、b は変えた渡し方
 CREATE TABLE IF NOT EXISTS prompt_tests (
@@ -628,6 +649,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "index_uses", "INTEGER NOT NULL DEFAULT 0"], // そのうち登録・利用した人の数
   ["projects", "hold_reason", "TEXT"], // 保留にした理由（人が書く）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
+  ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
   ["projects", "rethink_count", "INTEGER NOT NULL DEFAULT 0"], // 集客の見直しをした回数
   ["projects", "growth_focus", "TEXT"], // いまの集客の切り口・場所・対象（見直しで変わる）

@@ -11,6 +11,8 @@ import { IdeaAuthors } from "@/components/IdeaAuthors";
 import { DesignAuthors } from "@/components/DesignAuthors";
 import { CostEfficiency } from "@/components/CostEfficiency";
 import { staffList } from "@/lib/staff";
+import { isOwner } from "@/lib/viewer";
+import { CheckEvalCard } from "@/components/CheckEvalCard";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +20,8 @@ const MEDAL = ["1位", "2位", "3位"];
 const jpy = (x: number) => `${Math.round(x).toLocaleString("ja-JP")}円`;
 
 // AIの成績: 社員（AI）ごとの担当と順位、AIそのものの実験結果（プロダクトの管理ではなく、「AIに任せるとどうなるか」）
-export default function LabPage() {
+export default async function LabPage() {
+  const owner = await isOwner();
   const s = getSettings();
   const h = headline();
   const list = rankings();
@@ -162,6 +165,9 @@ export default function LabPage() {
           </div>
         )}
       </section>
+
+      {/* 公開前チェックのテスト（AIだけで公開するときの最後の関門を、正解の決まった例で確かめる） */}
+      <CheckEvalCard owner={owner} />
 
       {/* LPのデザインのAI */}
       <section className="card space-y-2 p-4">

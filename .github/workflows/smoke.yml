@@ -23,11 +23,20 @@ jobs:
     steps:
       - name: 主要ページが開く
         run: |
-          for p in / /projects /plan /diary /lab /growth /live /interventions /showcase; do
+          for p in / /projects /plan /diary /lab /growth /interventions /showcase /api/live /api/office; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --retry 3 --retry-all-errors --max-time 40 "$DASHBOARD$p")
             echo "$p $code"
             [ "$code" = "200" ] || exit 1
           done
+      # ライブは、ホームのオフィスの横の欄にまとめた。前のURL（/live）は、そこへ移すだけ
+      - name: 前のライブのURLは、ホームのライブの欄に移る
+        run: |
+          out=$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' --retry 3 --retry-all-errors --max-time 40 "$DASHBOARD/live")
+          code=${out%% *}
+          to=${out#* }
+          echo "/live $code -> $to"
+          [ "$code" = "307" ] || [ "$code" = "308" ] || exit 1
+          [ "$to" = "$DASHBOARD/#live" ] || exit 1
       - name: ゲストは操作できない
         run: |
           for u in /api/loop /api/videos /api/interventions; do
