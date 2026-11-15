@@ -1,6 +1,6 @@
 import { callJson, isObj, isStr } from "./ai";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
-import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, logEvent, planImprove, projectTotals, trafficCapacity } from "./loop";
+import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, liveEnd, liveSay, liveStep, logEvent, planImprove, projectTotals, trafficCapacity } from "./loop";
 import { endReasons, headline } from "./experiment";
 import { funnelText } from "./funnel";
 import { AUTO_PLATFORMS, autoPlatforms, postAllowed, type AutoPlatform } from "./snsApi";
@@ -13,12 +13,14 @@ import { hasKey, modelInfo } from "./models";
 import { addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { addResearch, researchText, runResearch } from "./research";
+import { maskHandles } from "./viewer";
 
 // 毎日の計画: 毎朝AIが全案件を振り返り、今のネック（届かない・使われない など）を1つ決めて、今日やることを決める
 // - やること: 案件の宣伝の投稿 / 宣伝ではない普通の投稿 / ページを直す / 新しい案件づくりを休む / 次のアイデア出しに課題を伝える
 // - 回数・時刻・場所・切り口はAIが決める。安全装置（場所ごとの1日の投稿数・月の予算・緊急停止）は計画より優先する
 // - 5分ごとの見回りで、時刻が来た予定から1件ずつ実行する。翌朝、目標と結果を見比べて振り返る
 // - 返信・フォロー・いいねなど、他人への働きかけはしない
+// - 朝会は短い会議: 担当（議長）以外の社員が先に意見を出し、担当はそれを読んでから計画を書く（意見が出せなくても計画は作る）
 
 export type Bottleneck = "reach" | "use" | "spread" | "pace" | "other";
 export const BOTTLENECK_LABEL: Record<Bottleneck, string> = {
@@ -41,7 +43,10 @@ export type PlanContent = {
   pause_reason: string;
   // 目標とは別の「実際にこうなると思う」予想（控えめな目標を立てるAIが有利にならないよう、実測と並べて答え合わせする）
   prediction?: { visits: number; conversions: number; why: string };
+  // 朝会で、担当より先に出たほかの社員の意見（今いちばんのネックと、今日やるべきこと）
+  opinions?: PlanOpinion[];
 };
+export type PlanOpinion = { modelId: string; text: string };
 export type PlanRow = { id: number; day: string; created_at: string; model_id: string; content: string; pause_new: number; idea_note: string | null };
 export type TaskKind = "promo" | "plain" | "improve";
 export type TaskStatus = "pending" | "running" | "done" | "held" | "failed" | "skipped" | "cancelled"; // held = ページを直したが、チェックで問題が残り承認待ちにした（公開していない）
@@ -276,19 +281,76 @@ const isPlanOut = (v: unknown): v is PlanOut =>
   isObj(v) && isStr(v.bottleneck) && isStr(v.focus) && Array.isArray(v.goals) && Array.isArray(v.tasks) &&
   v.tasks.every((t) => isObj(t) && isStr(t.time) && isStr(t.kind));
 
-export async function createPlan({ force = false } = {}): Promise<number> {
+// AIを呼ぶ関数（テストでは仮の応答に差し替える）
+type Ask = typeof callJson;
+
+// 朝会に出る、担当（議長）以外の社員。キーがない会社と、担当と同じ会社は飛ばす
+export function standupMembers(chair: string): string[] {
+  const own = modelInfo(chair).provider;
+  return PLAN_MODELS.filter((id) => modelInfo(id).provider !== own && hasKey(modelInfo(id).provider));
+}
+
+// 朝会の意見: 担当以外の社員が、同じ材料を見て、今いちばんのネックと今日やるべきことを短く言う
+// 1社が失敗しても止めない。進み具合はライブ（オフィスの社員の吹き出し）にも流す
+export async function collectOpinions(chair: string, material: string, opts: { ask?: Ask; live?: { key: string; title: string } } = {}): Promise<PlanOpinion[]> {
+  const ask = opts.ask ?? callJson;
+  const list = standupMembers(chair);
+  const label = (id: string) => modelInfo(id).label;
+  const step = (id: string, status: string) => { if (opts.live) liveStep(opts.live.key, opts.live.title, label(id), status); };
+  list.forEach((m) => step(m, "意見を考えています"));
+  const got = await Promise.allSettled(list.map((modelId) => ask<{ opinion: string }>({
+    purpose: "朝会（意見）",
+    modelId,
+    system: `あなたは「AIが自動でプロダクトを作る実験」をしている会社の社員（AI）です。今は毎朝の朝会です。今日の計画は担当の${label(chair)}が書きます。担当が計画を書く前に、あなたの意見を短く伝えます。
+- 今いちばんのネック（届かない・使われない・広まらない・作るペース など）と、その根拠の数字
+- 今日やるべきこと（どの案件に・どの場所で・どう変えるか）
+3〜5文で書く。担当と違う見方があれば、遠慮せずに書く。
+守ること: 材料にある数字・出来事だけを根拠にする（件数が少ないときは「まだ偶然の可能性が高い」と書く）。体験談は作らない。広告費を使う案・スパムになる案は出さない。SNSのコメントや外の声の本文は引用せず、要点だけを書く。人やアカウントの名前は書かない
+形式: {"opinion":"意見"}`,
+    user: material,
+    validate: (v): v is { opinion: string } => isObj(v) && isStr(v.opinion) && v.opinion.trim().length > 0,
+  })));
+  return list.flatMap((modelId, i) => {
+    const r = got[i];
+    if (r.status !== "fulfilled") {
+      step(modelId, "意見を出せませんでした");
+      logEvent(null, "system", "plan-opinion-error", `朝会で${label(modelId)}の意見を取れませんでした: ${(r.reason instanceof Error ? r.reason.message : String(r.reason)).slice(0, 200)}`);
+      return [];
+    }
+    const text = maskHandles(r.value.opinion.trim()).slice(0, 800);
+    if (opts.live) liveSay({ who: label(modelId), provider: modelInfo(modelId).provider, kind: "朝会で意見", text, batch: opts.live.key });
+    step(modelId, "意見を出しました");
+    return [{ modelId, text }];
+  });
+}
+
+// 担当に渡す、ほかの社員の意見
+export function opinionsText(opinions: PlanOpinion[]): string {
+  if (!opinions.length) return "";
+  return `\n\n朝会での、ほかの社員の意見（あなたが計画を書く前に出たもの。取り入れるかはあなたが決める。review に、どの意見を取り入れ、どれを取り入れなかったかと、その理由を一言ずつ書く）:\n${opinions.map((o) => `- ${modelInfo(o.modelId).label}: ${o.text.replace(/\n/g, " ")}`).join("\n")}`;
+}
+
+export async function createPlan({ force = false, ask = callJson }: { force?: boolean; ask?: Ask } = {}): Promise<number> {
   const s = getSettings();
   const now = jstNow();
   const existing = planFor(now.day);
   if (existing && !force) return existing.id;
   // 集計の前に、型がまだない投稿に型を付けておく（失敗しても計画は作る）
-  await classifyUntyped().catch((e) => logEvent(null, "system", "classify-error", `投稿の切り口の分類でエラー: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
+  await classifyUntyped(ask).catch((e) => logEvent(null, "system", "classify-error", `投稿の切り口の分類でエラー: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
   // 作り直すときは、同じAIに作り直させる（比べ合いを公平にするため）
   const model = existing && PLAN_MODELS.includes(existing.model_id) && hasKey(modelInfo(existing.model_id).provider) ? existing.model_id : planModelFor();
-  const out = await callJson<PlanOut>({
-    purpose: "毎日の計画",
-    modelId: model,
-    system: `あなたは「AIが自動でプロダクトを作る実験」の運営責任者です。毎朝、公開中の全案件と最近の結果を振り返り、今いちばんのネックを1つ決めて、今日1日にやることを決めます。決めたことは、そのまま自動で実行されます。
+  // 朝会: 先にほかの社員の意見を聞き、担当はそれを読んでから計画を書く
+  const material = planMaterial();
+  const standup = { key: `standup-${Date.now()}`, title: `${now.day.slice(5).replace("-", "/")}の朝会` };
+  let opinions: PlanOpinion[] = [];
+  let out: PlanOut;
+  try {
+    opinions = await collectOpinions(model, material, { ask, live: standup });
+    liveStep(standup.key, standup.title, modelInfo(model).label, opinions.length ? `${opinions.length}社の意見を読んで、計画を書いています` : "計画を書いています");
+    out = await ask<PlanOut>({
+      purpose: "毎日の計画",
+      modelId: model,
+      system: `あなたは「AIが自動でプロダクトを作る実験」の運営責任者です。毎朝、公開中の全案件と最近の結果を振り返り、今いちばんのネックを1つ決めて、今日1日にやることを決めます。決めたことは、そのまま自動で実行されます。
 ネック（bottleneck）は次から1つ: reach（届かない・訪問が少ない）/ use（訪問はあるが登録・利用されない）/ spread（使われるがシェアされない）/ pace（作るペースが合っていない）/ other
 今日できること（tasks）:
 - promo: 公開中の案件の宣伝の投稿（リンク付き）。project_id・platform・angle（切り口）を決める。宣伝は、直近7日の訪問か利用が多い上位3案件に集中する（薄く広く投稿すると、どの案件も判断できる量に届かないため）。それ以外の案件は週1件まで。ただし公開7日未満の案件は、まだ数字がないので例外として1〜2件出してよい。上位3案件は、反応が出ている場所を中心に、まだ試していない切り口を混ぜる。「すぐ使える文例・チェックリスト」（freebie）は、投稿の中で対象の人がそのまま使える文例・チェックリストを見せ、続きはツールやページで、とつなぐ切り口
@@ -303,7 +365,7 @@ export async function createPlan({ force = false } = {}): Promise<number> {
 - idea_note: 次のアイデア出しに伝えたい、今の課題（例: 最初の利用者に届けやすい場所がはっきりした案を優先する）。なければ空
 - goals: 今日の目標の数字（visits = 全案件の訪問の合計、conversions = 登録・利用の合計）。直近の数字から、背伸びすれば届く値にする
 - prediction: 目標とは別に、この計画を実行したら、今日の訪問と登録・利用は実際にいくつになると思うか（願望ではなく予想。目標と同じでなくてよい）と、その理由。最近の計画の「予想→実測」のずれを見て、楽観・悲観に偏っていたら直す
-- review: 最近の計画の予定と目標が、実際どうだったか。効いた手・効かなかった手と、今日それをどう変えるか（最初の計画なら、今の状況のまとめ）。運営者に頼んだことをやってもらえた場合は、その前後で数字がどう変わったかも見る
+- review: 最近の計画の予定と目標が、実際どうだったか。効いた手・効かなかった手と、今日それをどう変えるか（最初の計画なら、今の状況のまとめ）。運営者に頼んだことをやってもらえた場合は、その前後で数字がどう変わったかも見る。朝会でほかの社員の意見が出ていれば、取り入れたもの・取り入れなかったものと理由も一言ずつ
 - voice: 社員としてのひとこと（つぶやき程度、60文字以内）。感想・気づき・心配・ダメ出し・試したいことなど何でもよい。数字や出来事は材料にあるものだけを使い、体験談は作らない
 - research: 今の判断に効くのに分からないことがあれば、Webの公開情報で調べてもらう問いを1件だけ（例: 「#35 が使われない原因が分からない。類似の無料ツールを調べ、すでに無料でできることと、#35 に足りないことを確かめる」）。{"question":"分からないこと","why":"分かるとどの判断が変わるか","how":"どう調べるか","project_id":案件の番号（全体についてなら null）}。調べなくても決められる日・Webでは分からないこと（自社の利用者の気持ちなど）・最近調べたことと同じ問いは null。結果は翌朝の材料に出典つきで入る
 - voice_effects: 外の声（実際の人の反応）や調べたことを根拠に、今日の計画で何かを変えたときだけ。[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"project_id":案件の番号,"change":"何をどう変えたか"}]。外の声はAIどうしの解釈より優先する
@@ -316,9 +378,12 @@ export async function createPlan({ force = false } = {}): Promise<number> {
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
 形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
-    user: planMaterial(),
-    validate: isPlanOut,
-  });
+      user: material + opinionsText(opinions),
+      validate: isPlanOut,
+    });
+  } finally {
+    liveEnd(standup.key);
+  }
 
   // 決まりに合わない予定は落とす（時刻・場所・案件・安全装置・1日1件まで）
   const platforms = new Set<string>(s.autoPost ? autoPlatforms() : []);
@@ -359,6 +424,7 @@ export async function createPlan({ force = false } = {}): Promise<number> {
     prediction: isObj(out.prediction) && Number.isFinite(Number(out.prediction.visits))
       ? { visits: Math.max(0, Math.round(Number(out.prediction.visits))), conversions: Math.max(0, Math.round(Number(out.prediction.conversions) || 0)), why: String(out.prediction.why ?? "").slice(0, 200) }
       : undefined,
+    ...(opinions.length ? { opinions } : {}),
   };
   const conn = db();
   const id = conn.transaction(() => {
@@ -394,7 +460,7 @@ export async function createPlan({ force = false } = {}): Promise<number> {
   }
   // 前の日までの、実行されずに残った予定は見送りにする
   conn.prepare("UPDATE plan_tasks SET status = 'skipped', result = '時間内に実行できなかった' WHERE status = 'pending' AND plan_id IN (SELECT id FROM daily_plans WHERE day < ?)").run(now.day);
-  logEvent(null, "ai", "plan", `今日の計画${existing ? "を作り直しました" : ""}: ネック「${BOTTLENECK_LABEL[bottleneck]}」${content.focus}（担当 ${modelInfo(model).label}・予定${tasks.length}件${out.pause_new ? "・新しい案件は休み" : ""}${reqs.length ? `・あなたへのお願い${reqs.length}件` : ""}）`);
+  logEvent(null, "ai", "plan", `今日の計画${existing ? "を作り直しました" : ""}: ネック「${BOTTLENECK_LABEL[bottleneck]}」${content.focus}（担当 ${modelInfo(model).label}${opinions.length ? `・意見 ${opinions.map((o) => modelInfo(o.modelId).label).join("・")}` : ""}・予定${tasks.length}件${out.pause_new ? "・新しい案件は休み" : ""}${reqs.length ? `・あなたへのお願い${reqs.length}件` : ""}）`);
   return id;
 }
 

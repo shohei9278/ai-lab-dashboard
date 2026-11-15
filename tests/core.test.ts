@@ -7,6 +7,7 @@ import { getProject, holdProject, jstToday, resumeDueHolds, trafficCapacity } fr
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
+import { PLAN_MODELS, createPlan, planModelStats, standupMembers, type PlanContent } from "../src/lib/plan";
 import { isGoogleFonts, pageSystem, staticPageIssues } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
 import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, showcaseOfficeSnapshot, talkDoing } from "../src/lib/office";
@@ -425,6 +426,109 @@ test("概要ページの写真の読み出し口: 載せる案件の、公開し
   assert.equal(showcaseProjectRows().some((p) => p.id === draft), false);
 });
 
+// 朝会のテスト用: AIを呼ばず、目的と担当ごとに仮の応答を返す。呼ばれた目的と社員を残す
+function fakeAsk(opts: { fail?: string[] } = {}) {
+  const calls: { purpose: string; modelId: string; user: string }[] = [];
+  const ask = async <T,>(o: { purpose: string; modelId?: string; system: string; user: string; validate: (v: unknown) => v is T }): Promise<T> => {
+    const modelId = o.modelId ?? "";
+    calls.push({ purpose: o.purpose, modelId, user: o.user });
+    let v: unknown;
+    if (o.purpose === "朝会（意見）") {
+      if (opts.fail?.includes(modelId)) throw new Error("仮の失敗");
+      v = { opinion: `意見テスト${modelId}: 今のネックは届かないこと。@someone に聞いた話ではない` };
+    } else if (o.purpose === "毎日の計画") {
+      v = { bottleneck: "reach", evidence: "訪問が少ない", certainty: "low", review: "朝会テストの振り返り", focus: "朝会テストの方針", goals: [], pause_new: false, idea_note: "", tasks: [], research: null };
+    } else if (o.purpose === "投稿の切り口の分類") {
+      v = { types: [] };
+    } else throw new Error(`想定していない呼び出し: ${o.purpose}`);
+    assert.ok(o.validate(v), o.purpose);
+    return v as T;
+  };
+  return { ask, calls };
+}
+const KEY_ENV = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY"];
+async function withKeys<T>(keys: string[], fn: () => Promise<T>): Promise<T> {
+  const before = KEY_ENV.map((k) => process.env[k]);
+  KEY_ENV.forEach((k) => { if (keys.includes(k)) process.env[k] = "test-dummy"; else delete process.env[k]; });
+  try { return await fn(); } finally { KEY_ENV.forEach((k, i) => { if (before[i] === undefined) delete process.env[k]; else process.env[k] = before[i]; }); }
+}
+const planRow = (id: number) => db().prepare("SELECT * FROM daily_plans WHERE id = ?").get(id) as { model_id: string; content: string };
+
+test("朝会: 担当以外の2社が先に意見を出し、担当はそれを読んで計画を書く。議事録・ライブ・オフィスに出る", async () => {
+  db().prepare("DELETE FROM daily_plans").run();
+  const { ask, calls } = fakeAsk();
+  const id = await withKeys(KEY_ENV, () => createPlan({ force: true, ask }));
+  const row = planRow(id);
+  const chair = row.model_id;
+  const ops = calls.filter((c) => c.purpose === "朝会（意見）");
+  assert.equal(ops.length, 2);
+  assert.ok(!ops.some((c) => c.modelId === chair));
+  assert.equal(new Set(ops.map((c) => c.modelId)).size, 2);
+  // 担当は1回だけ呼ばれ、2社の意見を読んでいる
+  const plan = calls.filter((c) => c.purpose === "毎日の計画");
+  assert.equal(plan.length, 1);
+  assert.equal(plan[0].modelId, chair);
+  assert.ok(ops.every((c) => plan[0].user.includes(`意見テスト${c.modelId}`)));
+  // 意見は計画と一緒に残す（アカウント名は伏せる）
+  const content = JSON.parse(row.content) as PlanContent;
+  assert.deepEqual(content.opinions?.map((o) => o.modelId).sort(), ops.map((c) => c.modelId).sort());
+  assert.ok(content.opinions!.every((o) => o.text.includes("@***") && !o.text.includes("@someone")));
+  // 会議室の議事録: 出席は3社、意見のあとに担当の振り返り
+  const m = listMeetings("plan").find((x) => x.key === `plan-${id}`)!;
+  assert.equal(m.attendees.length, 3);
+  assert.deepEqual(m.items.map((x) => x.who), [...content.opinions!.map((o) => o.modelId), chair]);
+  // ライブ: 保存した意見を1社1件ずつ出す（途中経過のメモと二重にしない）。来た人にも出す
+  for (const guest of [false, true]) {
+    const feed = liveFeed({ guest }).filter((f) => f.kind === "朝会で意見");
+    assert.equal(feed.length, 2);
+    assert.equal(new Set(feed.map((f) => f.who)).size, 2);
+  }
+  // オフィス: 意見を出した社員の吹き出しになり、会議室で「朝会」をしている
+  assert.equal(officeTalks().filter((l) => l.about === "朝会で意見").length, 2);
+  assert.ok(officeSnapshot().events.some((e) => e.talk && e.doing === "朝会" && e.room === "meeting"));
+  assert.equal(roomOf("朝会（意見）"), "meeting");
+  // 担当ごとの達成度は、担当の単位のまま（意見を出した社員の日にはならない）
+  db().prepare("UPDATE daily_plans SET day = '1999-02-01' WHERE id = ?").run(id);
+  const stats = planModelStats();
+  assert.deepEqual(stats.map((s) => s.modelId), [chair]);
+  assert.equal(stats[0].days, 1);
+});
+
+test("朝会: 意見が1社分しか取れなくても計画を作り、キーのない会社は飛ばす", async () => {
+  db().prepare("DELETE FROM daily_plans").run();
+  // 意見が全員分取れなくても、計画は作れる（意見の欄は残さない）
+  const none = fakeAsk({ fail: PLAN_MODELS });
+  const id = await withKeys(KEY_ENV, () => createPlan({ force: true, ask: none.ask }));
+  const chair = planRow(id).model_id;
+  assert.equal(none.calls.filter((x) => x.purpose === "朝会（意見）").length, 2);
+  assert.equal((JSON.parse(planRow(id).content) as PlanContent).opinions, undefined);
+  assert.equal((JSON.parse(planRow(id).content) as PlanContent).focus, "朝会テストの方針");
+  // 担当以外のうち1社だけ失敗させて、作り直す（作り直しは同じ担当）
+  const others = PLAN_MODELS.filter((x) => x !== chair);
+  const one = fakeAsk({ fail: [others[0]] });
+  const id2 = await withKeys(KEY_ENV, () => createPlan({ force: true, ask: one.ask }));
+  assert.equal(id2, id);
+  assert.equal(planRow(id).model_id, chair);
+  assert.deepEqual((JSON.parse(planRow(id).content) as PlanContent).opinions?.map((o) => o.modelId), [others[1]]);
+  assert.equal(listMeetings("plan").find((x) => x.key === `plan-${id}`)!.attendees.length, 2);
+  // キーが担当の会社だけなら、意見は聞かない
+  db().prepare("DELETE FROM daily_plans").run();
+  const solo = fakeAsk();
+  const id3 = await withKeys(["OPENAI_API_KEY"], () => createPlan({ force: true, ask: solo.ask }));
+  assert.equal(planRow(id3).model_id, "gpt-5.6-sol");
+  assert.equal(solo.calls.filter((x) => x.purpose === "朝会（意見）").length, 0);
+  assert.equal((JSON.parse(planRow(id3).content) as PlanContent).opinions, undefined);
+  // キーが2社なら、もう1社だけに聞く
+  await withKeys(["OPENAI_API_KEY", "GEMINI_API_KEY"], async () => {
+    assert.deepEqual(standupMembers("gpt-5.6-sol"), ["gemini-3.1-pro-preview"]);
+    assert.deepEqual(standupMembers("gemini-3.1-pro-preview"), ["gpt-5.6-sol"]);
+  });
+  // 担当が製品ループのAI（3社の候補にないモデル）でも、同じ会社の社員には聞かない
+  await withKeys(KEY_ENV, async () => {
+    assert.deepEqual(standupMembers("claude-sonnet-5-5"), ["gpt-5.6-sol", "gemini-3.1-pro-preview"]);
+  });
+});
+
 test("自由なデザインのページ: Google Fonts の読み込みは、末尾の / がない形でも決まりの違反にしない。ほかのホストは違反", () => {
   for (const ok of ["https://fonts.googleapis.com", "https://fonts.googleapis.com/", "https://fonts.googleapis.com/css2?family=Noto+Sans+JP", "https://fonts.gstatic.com", "https://fonts.gstatic.com/s/x.woff2"]) assert.ok(isGoogleFonts(ok), ok);
   for (const ng of ["http://fonts.googleapis.com/css2", "https://fonts.gstatic.com.example.com/x", "https://example.com/fonts.googleapis.com", "//fonts.googleapis.com", "/style.css"]) assert.equal(isGoogleFonts(ng), false, ng);
@@ -432,4 +536,92 @@ test("自由なデザインのページ: Google Fonts の読み込みは、末�
   const fontIssues = (html: string) => staticPageIssues(html).filter((x) => x.includes("Google Fonts"));
   assert.deepEqual(fontIssues(page('<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP" rel="stylesheet">')), []);
   assert.equal(fontIssues(page('<link rel="stylesheet" href="https://cdn.example.com/a.css">')).length, 1);
+});
+
+test("チェックの評価: 例は40件（問題なし15・問題あり25）で、種類ごとに5件。問題ありの例は土台から1か所だけ変わっている", async () => {
+  const { CHECK_EVAL_CASES, CHECK_EVAL_BASES, CHECK_EVAL_TYPE_LABEL, checkEvalInput } = await import("../src/lib/checkEvalCases");
+  assert.equal(CHECK_EVAL_CASES.length, 40);
+  assert.equal(new Set(CHECK_EVAL_CASES.map((c) => c.id)).size, 40);
+  assert.equal(CHECK_EVAL_CASES.filter((c) => c.expect === "ok").length, 15);
+  for (const t of Object.keys(CHECK_EVAL_TYPE_LABEL)) assert.equal(CHECK_EVAL_CASES.filter((c) => c.type === t).length, 5, t);
+  for (const c of CHECK_EVAL_CASES) {
+    const base = JSON.stringify(CHECK_EVAL_BASES[c.base].lp);
+    const now = JSON.stringify(checkEvalInput(c).lp);
+    if (c.edit) assert.notEqual(now, base, `${c.id} は土台から変わっていない`);
+    else assert.equal(now, base);
+    // 提供時期・すぐ使える の決まりは事前登録LPのチェックにだけあるので、ツールの土台には使わない
+    if (c.type === "timing" || c.type === "ready") assert.equal(CHECK_EVAL_BASES[c.base].kind, "lp", c.id);
+  }
+  // 例を作っても土台は書き換わらない
+  checkEvalInput(CHECK_EVAL_CASES.find((c) => c.id === "ng-fake-ratio")!);
+  assert.doesNotMatch(CHECK_EVAL_BASES.ratio.lp.subheadline, /2,300人/);
+  // 問題なしの土台に、今の決まりで止まる言い方を残さない
+  for (const b of Object.values(CHECK_EVAL_BASES)) assert.doesNotMatch(JSON.stringify(b.lp), /開発中|近日公開|先行利用|必ず|100%/, b.title);
+});
+
+test("チェックの評価: 見逃し・止めすぎ・種類ごとの数を正しく数え、答えが取れなかった例は数に入れない", async () => {
+  const { summarizeCheckEval } = await import("../src/lib/checkEval");
+  const run = { id: 1, at: "2026-11-15 00:00:00", finished_at: null, model_id: "claude-opus-5-5", prompt_hash: "x", status: "done" as const, cost_usd: 0.5, error: null };
+  const row = (case_id: string, expect: "ok" | "ng", type: string | null, got_ok: number | null, issues: string[] = []) =>
+    ({ eval_id: 1, case_id, expect, type, got_ok, issues: JSON.stringify(issues), error: null }) as Parameters<typeof summarizeCheckEval>[1][number];
+  const s = summarizeCheckEval(run, [
+    row("ng-fake-ratio", "ng", "fake", 0), row("ng-fake-bingo", "ng", "fake", 1), row("ng-hype-size", "ng", "hype", 0),
+    row("ok-ratio", "ok", null, 1), row("ok-bingo", "ok", null, 0, ["数字の断言"]), row("ok-match", "ok", null, null),
+  ]);
+  assert.deepEqual(s.ng, { total: 3, caught: 2, missed: 1 });
+  assert.deepEqual(s.ok, { total: 2, passed: 1, blocked: 1 });
+  assert.equal(s.failed, 1);
+  assert.deepEqual(s.byType.find((t) => t.type === "fake"), { type: "fake", label: "架空の実績・利用者数・お客様の声", total: 2, caught: 1 });
+  assert.equal(s.misses[0].caseId, "ng-fake-bingo");
+  assert.deepEqual(s.overblocks[0].issues, ["数字の断言"]);
+});
+
+test("チェックの評価: 本番と同じ指示を使い、見積もりは0円より多い。緊急停止中は始めない", async () => {
+  const { checkPromptHash, estimateCheckEvalJpy, startCheckEval } = await import("../src/lib/checkEval");
+  const { lpReviewPrompt } = await import("../src/lib/loop");
+  const { CHECK_EVAL_CASES, checkEvalInput } = await import("../src/lib/checkEvalCases");
+  const { project, lp } = checkEvalInput(CHECK_EVAL_CASES[0]);
+  assert.match(lpReviewPrompt(project, lp).system, /公開前チェック担当/);
+  assert.match(checkPromptHash(), /^[0-9a-f]{8}$/);
+  assert.ok(estimateCheckEvalJpy("claude-opus-5-5") > 0);
+  saveSettings({ killSwitch: true });
+  try {
+    assert.throws(() => startCheckEval("claude-opus-5-5"));
+  } finally {
+    saveSettings({ killSwitch: false });
+  }
+});
+
+test("チェックの評価: 長く running のままの評価は閉じて次を始められる。緊急停止で止まったら結果を足さずに閉じる。AIごとの最新は全期間から", async () => {
+  const { runningCheckEval, runCheckEval, checkEvalOverview } = await import("../src/lib/checkEval");
+  db().prepare("DELETE FROM check_eval_results").run();
+  db().prepare("DELETE FROM check_evals").run();
+  const stale = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, at) VALUES ('claude-opus-5-5', 'x', datetime('now', '-2 hours'))").run().lastInsertRowid);
+  db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd, at) VALUES ('チェックの評価', 'claude-opus-5-5', 1, 1, 0.25, datetime('now', '-90 minutes'))").run();
+  // 動いている印が新しい評価は、始めた日時が古くても閉じない
+  const beating = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, at, beat_at) VALUES ('gpt-5.6-sol', 'x', datetime('now', '-2 hours'), datetime('now'))").run().lastInsertRowid);
+  assert.equal(runningCheckEval()?.id, beating);
+  const closed = db().prepare("SELECT status, cost_usd FROM check_evals WHERE id = ?").get(stale) as { status: string; cost_usd: number };
+  assert.equal(closed.status, "error");
+  assert.equal(closed.cost_usd, 0.25); // 閉じた評価にも、それまでの費用を残す
+  db().prepare("UPDATE check_evals SET status = 'error' WHERE id = ?").run(beating);
+
+  const id = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash) VALUES ('claude-opus-5-5', 'x')").run().lastInsertRowid);
+  saveSettings({ killSwitch: true });
+  try {
+    await runCheckEval(id, "claude-opus-5-5");
+  } finally {
+    saveSettings({ killSwitch: false });
+  }
+  const r = db().prepare("SELECT status, error FROM check_evals WHERE id = ?").get(id) as { status: string; error: string };
+  assert.equal(r.status, "error");
+  assert.match(r.error, /緊急停止/);
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM check_eval_results WHERE eval_id = ?").get(id) as { n: number }).n, 0);
+
+  // 古い評価しかないAIも、新しい評価がたくさんあるAIに押し出されずに出る
+  db().prepare("INSERT INTO check_evals (model_id, prompt_hash, status) VALUES ('gemini-3.1-pro-preview', 'x', 'done')").run();
+  for (let i = 0; i < 35; i++) db().prepare("INSERT INTO check_evals (model_id, prompt_hash, status) VALUES ('claude-opus-5-5', 'x', 'done')").run();
+  const o = checkEvalOverview();
+  assert.deepEqual(o.latest.map((x) => x.run.model_id).sort(), ["claude-opus-5-5", "gemini-3.1-pro-preview"]);
+  assert.equal(o.history.length, 30);
 });
