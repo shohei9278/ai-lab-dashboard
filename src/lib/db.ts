@@ -488,7 +488,7 @@ CREATE TABLE IF NOT EXISTS check_evals (
   at TEXT NOT NULL DEFAULT (datetime('now')),
   finished_at TEXT,
   model_id TEXT NOT NULL,
-  prompt_hash TEXT NOT NULL, -- チェックの指示の指紋（指示を変えたら変わる）
+  prompt_hash TEXT NOT NULL, -- チェックの指示と例の指紋（指示・例のどれかを変えたら変わる）
   status TEXT NOT NULL DEFAULT 'running', -- running / done / error
   cost_usd REAL,
   error TEXT

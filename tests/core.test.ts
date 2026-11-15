@@ -574,6 +574,24 @@ test("チェックの評価: 見逃し・止めすぎ・種類ごとの数を正
   assert.deepEqual(s.byType.find((t) => t.type === "fake"), { type: "fake", label: "架空の実績・利用者数・お客様の声", total: 2, caught: 1 });
   assert.equal(s.misses[0].caseId, "ng-fake-bingo");
   assert.deepEqual(s.overblocks[0].issues, ["数字の断言"]);
+  assert.deepEqual(s.failures, [{ caseId: "ok-match", note: "直した土台そのまま", error: "理由は残っていません" }]);
+  const withReason = summarizeCheckEval(run, [{ ...row("ok-match", "ok", null, null), error: "JSONが読めませんでした" }]);
+  assert.equal(withReason.failures[0].error, "JSONが読めませんでした");
+});
+
+test("チェックの評価: 指紋は、指示だけでなく例のどれか（中身や正解）を変えても変わる", async () => {
+  const { checkPromptHash } = await import("../src/lib/checkEval");
+  const { CHECK_EVAL_CASES } = await import("../src/lib/checkEvalCases");
+  const before = checkPromptHash();
+  const last = CHECK_EVAL_CASES[CHECK_EVAL_CASES.length - 1];
+  const saved = last.expect;
+  last.expect = saved === "ok" ? "ng" : "ok";
+  try {
+    assert.notEqual(checkPromptHash(), before);
+  } finally {
+    last.expect = saved;
+  }
+  assert.equal(checkPromptHash(), before);
 });
 
 test("チェックの評価: 本番と同じ指示を使い、見積もりは0円より多い。緊急停止中は始めない", async () => {
