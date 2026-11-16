@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings } from "../src/lib/db";
 import { addIntervention, hideIntervention, listInterventions } from "../src/lib/interventions";
-import { getProject, holdProject, jstToday, resumeDueHolds, trafficCapacity } from "../src/lib/loop";
+import { getProject, holdProject, jstToday, newProjectBlock, resumeDueHolds, trafficCapacity } from "../src/lib/loop";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
@@ -726,4 +726,14 @@ test("概要ページの「分かったこと」: 公開した案件があると
   db().prepare("INSERT INTO check_eval_results (eval_id, case_id, expect, type, got_ok) VALUES (?, 'b', 'ng', 'fake', 0)").run(e1);
   const l2 = await showcaseLearnings();
   assert.match(l2[2].body, /計2件[\s\S]*1\/1件を止め[\s\S]*ほかに1件は、答えが取れず判定できませんでした/);
+});
+
+test("集客中の案件が上限に達すると、新しい案件を作らない理由を返す（手動のアイデア会議も案件にしない）", () => {
+  const live = () => (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0 AND growth_phase = 0").get() as { n: number }).n;
+  addProject("live");
+  saveSettings({ maxLive: live() + 1 });
+  assert.ok(!newProjectBlock()?.includes("集客中"));
+  addProject("live");
+  assert.match(newProjectBlock() ?? "", new RegExp(`集客中の案件が${live()}件で、上限（${live()}件）`));
+  saveSettings({ maxLive: 2 });
 });

@@ -8,6 +8,7 @@ import { dataDir } from "./db";
 // - 開いたとき・操作したときにエラーが出ないか
 // - ボタンなどを押すと画面が変わるか（結果が出るか）
 // - スマホ幅で横にはみ出していないか
+// - 操作したときに「使った」の知らせ（公開サイトの計測のもと）が出るか。出ないと、公開しても利用が0人と数えられる
 // ブラウザが無い環境（サーバーなど）では、テストを飛ばして理由を返す
 
 export type ToolTest = {
@@ -17,6 +18,7 @@ export type ToolTest = {
   clicked: number;
   changed: boolean;
   overflow: boolean;
+  used?: boolean; // 「使った」の知らせが出たか（この確かめを足す前のテストの結果には無い）
   screenshot?: string; // dataDir("screenshots") の中のファイル名
   at: string;
 };
@@ -48,6 +50,11 @@ export async function testTool(html: string, name: string): Promise<ToolTest> {
     await page.setContent(wrapToolHtml(html), { waitUntil: "load", timeout: 10_000 });
     await page.waitForTimeout(500);
     const before = await page.evaluate(() => document.body.innerText);
+    // 枠の中のスクリプトは、親の画面に「使った」を知らせる。テストでは枠に入れないので、自分あての知らせを受け取って数える
+    // （setContent では addInitScript が効かないため、開いたあとに受け取り口を付ける。操作はこのあとに行う）
+    await page.evaluate(() => {
+      addEventListener("message", (e) => { if ((e.data as { __lab?: string } | null)?.__lab === "use") (window as unknown as { __labUsed?: boolean }).__labUsed = true; });
+    });
 
     // 空の入力欄に、それらしい値を入れる
     await page.evaluate(() => {
@@ -77,12 +84,13 @@ export async function testTool(html: string, name: string): Promise<ToolTest> {
     const after = await page.evaluate(() => document.body.innerText);
     // スマホの表示では画面の幅が中身に合わせて広がることがあるので、決まった幅（375px）と比べる
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > 377);
+    const used = await page.evaluate(() => !!(window as unknown as { __labUsed?: boolean }).__labUsed);
 
     const file = `${name.replace(/[^a-z0-9-]/gi, "_")}.png`;
     await page.screenshot({ path: path.join(dataDir("screenshots"), file), fullPage: true, timeout: 10_000 });
     const uniq = [...new Set(errors)].slice(0, 6).map((e) => e.slice(0, 300));
     const changed = before !== after;
-    return { ok: uniq.length === 0 && changed && !overflow, errors: uniq, clicked, changed, overflow, screenshot: file, at };
+    return { ok: uniq.length === 0 && changed && !overflow && used, errors: uniq, clicked, changed, overflow, used, screenshot: file, at };
   } catch (e) {
     return { ok: false, errors: [`テストの途中で失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`], clicked: 0, changed: false, overflow: false, at };
   } finally {
@@ -98,6 +106,7 @@ export function testIssues(t: ToolTest): string[] {
     ...(t.clicked > 0 && !t.changed ? ["ボタンなどを押しても画面が何も変わらない（結果が表示されない）"] : []),
     ...(t.clicked === 0 ? ["押せるボタンや入力欄が見つからない"] : []),
     ...(t.overflow ? ["スマホ幅（375px）で、横にはみ出している"] : []),
+    ...(t.clicked > 0 && t.used === false ? ["操作しても「使った」と数えられない（画面全体のクリック・入力の知らせを止めない（stopPropagation などを window や document に付けない）。押す所は button 要素にする）"] : []),
   ];
 }
 

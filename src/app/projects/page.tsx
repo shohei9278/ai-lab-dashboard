@@ -3,7 +3,7 @@ import { PageIntro } from "@/components/PageIntro";
 import { ShowMore } from "@/components/ShowMore";
 import { db, getSettings, type ProjectRow, type Stage } from "@/lib/db";
 import { pct } from "@/lib/format";
-import { CONV, MODE_LABEL, STAGE_LABEL, ideaAuthors, projectTotals, targetRate } from "@/lib/loop";
+import { CONV, MODE_LABEL, STAGE_LABEL, ideaAuthors, newProjectBlock, projectTotals, targetRate } from "@/lib/loop";
 import { getModel } from "@/lib/models";
 import { IdeaForm } from "@/components/IdeaForm";
 import { DailyCard } from "@/components/DailyCard";
@@ -89,7 +89,7 @@ export default async function ProjectsPage() {
             keep={s.dailyKeep}
             modeLabel={modeSetting}
           />
-          <IdeaForm authors={ideaAuthors().map((id) => getModel(id).label)} />
+          <IdeaForm authors={ideaAuthors().map((id) => getModel(id).label)} blocked={newProjectBlock()} />
         </div>
       </section>
     </div>
