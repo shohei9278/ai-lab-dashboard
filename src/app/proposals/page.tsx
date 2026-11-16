@@ -4,17 +4,10 @@ import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
 import { jstDateTime } from "@/lib/format";
 import { modelInfo } from "@/lib/models";
-import { openRequests, recentRequests, type RequestRow } from "@/lib/plan";
+import { openRequests, recentRequests, sourceLabel, type RequestRow } from "@/lib/plan";
 import { AddProposal, AnswerRequest, ReviveIdea } from "../plan/PlanActions";
 
 export const dynamic = "force-dynamic";
-
-const SOURCE: Record<string, string> = {
-  plan: "朝会", meeting: "週の定例会議", scene: "作業の途中で", error: "エラーの見張り", revival: "敗者復活", human: "あなた", voice: "社員の声から",
-};
-
-// 臨時会議の提案も source は meeting なので、場面の名前で見分ける
-const sourceLabel = (r: RequestRow) => (r.source === "meeting" && r.scene?.startsWith("臨時会議") ? r.scene : SOURCE[r.source] ?? r.source);
 
 function Item({ r, owner }: { r: RequestRow; owner: boolean }) {
   const m = r.proposer ? modelInfo(r.proposer) : null;

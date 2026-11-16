@@ -7,8 +7,8 @@ const Row = ({ label, children }: { label: string; children: React.ReactNode }) 
   </div>
 );
 
-// 人の手が入った記録の1件ずつ（公開ページとダッシュボードで共通）
-export function InterventionCard({ v, children }: { v: InterventionRow; children?: React.ReactNode }) {
+// 人が見つけた・決めた記録の1件ずつ（公開ページとダッシュボードで共通）。footer には運営者だけの「直す」を入れる
+export function InterventionCard({ v, children, footer }: { v: InterventionRow; children?: React.ReactNode; footer?: React.ReactNode }) {
   return (
     <article className="card space-y-2 p-4">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -29,6 +29,7 @@ export function InterventionCard({ v, children }: { v: InterventionRow; children
         </div>
       </details>
       {v.commit_sha && <a href={commitUrl(v.commit_sha)} target="_blank" rel="noreferrer" className="num inline-block text-xs text-accent underline">修正のコミット {v.commit_sha} ↗</a>}
+      {footer}
     </article>
   );
 }

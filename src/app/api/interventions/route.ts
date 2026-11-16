@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
-import { addIntervention, hideIntervention } from "@/lib/interventions";
+import { addIntervention, editIntervention, hideIntervention } from "@/lib/interventions";
 
-// 人の手が入った記録を足す・消す（ゲストは proxy が POST を止める）
+// 人が見つけた・決めた記録を足す・直す・消す（ゲストは proxy が POST を止める）
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as Record<string, unknown>;
     if (body.action === "hide") {
       hideIntervention(Number(body.id));
+      return NextResponse.json({ ok: true });
+    }
+    if (body.action === "edit") {
+      editIntervention(Number(body.id), body);
       return NextResponse.json({ ok: true });
     }
     return NextResponse.json({ id: addIntervention(body) });

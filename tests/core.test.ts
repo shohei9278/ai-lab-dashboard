@@ -2,12 +2,12 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings } from "../src/lib/db";
-import { addIntervention, hideIntervention, listInterventions } from "../src/lib/interventions";
+import { addIntervention, aiImprovements, editIntervention, hideIntervention, listInterventions, monthlyImprovements } from "../src/lib/interventions";
 import { getProject, holdProject, jstToday, newProjectBlock, resumeDueHolds, trafficCapacity } from "../src/lib/loop";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
-import { PLAN_MODELS, createPlan, planModelStats, standupMembers, type PlanContent } from "../src/lib/plan";
+import { PLAN_MODELS, answerRequest, editAnswer, createPlan, planModelStats, standupMembers, type PlanContent } from "../src/lib/plan";
 import { isGoogleFonts, pageSystem, staticPageIssues } from "../src/lib/freePage";
 import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/promptCompare";
 import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, showcaseOfficeSnapshot, talkDoing } from "../src/lib/office";
@@ -84,6 +84,34 @@ test("人の手の記録: 最初の事例は入れ直しても増えず、消し
   assert.equal(row.found_by, "gpt,test");
   assert.equal(row.result, "r");
   assert.throws(() => addIntervention({ title: "x", happened: "a", noticed: "b", decision: "c", commit: "zzz" }), /コミット/);
+});
+
+test("改善の記録: 画面で直した事例は入れ直しても戻らず、AIの提案は答えたものだけ並ぶ", () => {
+  const seeded = listInterventions().find((v) => v.title.startsWith("提案箱の仕組みの改善から"))!;
+  editIntervention(seeded.id, { ...seeded, commit: "", title: "画面で直した題", day: "2026-10-01" });
+  (globalThis as unknown as { __aiLabInterventionsSeeded?: boolean }).__aiLabInterventionsSeeded = false;
+  const after = listInterventions();
+  assert.equal(after.filter((v) => v.id === seeded.id)[0].title, "画面で直した題");
+  assert.equal(after.length, new Set(after.map((v) => v.id)).size);
+  assert.ok(!after.some((v) => v.id !== seeded.id && v.title === seeded.title));
+  assert.throws(() => editIntervention(seeded.id, { title: "x" }), /すべて書いて/);
+  assert.throws(() => editIntervention(seeded.id, { ...seeded, day: "10/1" }), /日付/);
+
+  const add = db().prepare("INSERT INTO plan_requests (title, target, source, proposer) VALUES (?, ?, ?, 'claude-opus-5-5')");
+  const done = Number(add.run("AIの改善テスト", "system", "meeting").lastInsertRowid);
+  const open = Number(add.run("まだ答えていない改善", "system", "meeting").lastInsertRowid);
+  const mine = Number(add.run("あなたの改善テスト", "system", "human").lastInsertRowid);
+  answerRequest(done, "done", "PR #1");
+  answerRequest(mine, "done", "");
+  const rows = aiImprovements();
+  assert.ok(rows.some((r) => r.id === done && r.status === "done" && r.note === "PR #1"));
+  assert.ok(!rows.some((r) => r.id === open || r.id === mine));
+  editAnswer(done, "declined", "やっぱり見送り");
+  assert.equal(aiImprovements().find((r) => r.id === done)!.status, "declined");
+  assert.throws(() => editAnswer(open, "done", ""), /答えたお願いだけ/);
+  const oct = monthlyImprovements().find((m) => m.month === "2026-10");
+  assert.ok(oct && oct.human >= 1);
+  assert.ok(monthlyImprovements().some((m) => m.aiDeclined >= 1));
 });
 
 test("AIの入出力: 件数と日数を超えた分は消し、長い本文は前後を残す", () => {

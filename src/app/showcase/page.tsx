@@ -144,7 +144,7 @@ export default async function Showcase() {
               <li>コードは主に Claude Code で書き、人は問題の発見・方針の決定・動作の確認を受け持つ</li>
               <li>変更はすべてPRで、型チェック・lint・テストのCIと、別のAI（GPT）のレビューを通してから本番に出す</li>
               <li>本番に出たあとは、主要ページと閲覧専用の守りを30分ごとに自動で確かめる</li>
-              <li>人が手を入れたところは「人の手が入った記録」に残している</li>
+              <li>人が手を入れたところは「改善の記録」に残している</li>
             </ul>
             <a href={REPO} target="_blank" rel="noreferrer" className="inline-block text-accent underline">ソースコード（GitHub）↗</a>
           </article>
@@ -228,7 +228,7 @@ export default async function Showcase() {
       )}
 
       <section className="space-y-3">
-        <SectionHead title="人の手が入った記録" href="/interventions" more={`すべて見る（${interventions.length}件）`} note="コード生成には主に Claude Code を活用しています。人間は問題の発見、方針決定、動作確認を担当し、原因調査や修正にもAIを活用しています。" />
+        <SectionHead title="改善の記録（人が見つけた・決めた）" href="/interventions" more={`すべて見る（${interventions.length}件）`} note="コード生成には主に Claude Code を活用しています。人間は問題の発見、方針決定、動作確認を担当し、原因調査や修正にもAIを活用しています。" />
         <ul className="card divide-y divide-line text-sm">
           {interventions.slice(0, 3).map((v) => (
             <li key={v.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 p-3">
