@@ -264,7 +264,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 - 医療・法律・金融など、規制が強い領域や専門資格が必要な領域は避ける（tool でも、診断の形で助言をしない）
 - 誇大な約束はしない
 - 実在の人物・団体のデータを使う tool は、正確なデータをコードに書けるものだけにする
-- 季節もの（seasonal）を出すときは、話題が集まる日（例: 今年の漢字の発表日・年賀状を書き始める時期）を書き、そこから逆算した公開日と投稿の日程を channel に、その日程での検証を first_test に書く（空欄にしない）
+- 季節もの（seasonal）を出すときは、話題が集まる日（例: 今年の漢字の発表日・年賀状を書き始める時期）を書き、そこから逆算した公開日と投稿の日程を channel に書く。first_test には、その日程で測る数値と判定の基準だけを書く（どちらも空欄にしない）
 - 代わりになる既存の無料サービス（大手サイトの機能・汎用のAIチャットを含む）を名前で挙げ、それとの違いを alternative に書く。違いが言えない案は出さない
 - 同じ「欲しい」の声（want_id）から複数の案を出すときは、形（lp と tool）か、対象者か、困りごとの切り口のどれかを必ず変える。同じ形・同じ切り口の言い換えを並べない
 - 季節や世の中の話題に頼りすぎない。件数のうち半分以上（1件だけなら、その1件）は、季節や話題が過ぎても1年中ある困りごと（evergreen）にする。季節もの（seasonal）を出すなら、その季節が終わっても使われる理由があるものを選ぶ
@@ -326,9 +326,11 @@ export async function generateIdeas(theme: string, count = 3): Promise<{ ids: nu
   const blocked = newProjectBlock();
   const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), blocked ? 0 : count, false, { title, theme, noRevival: !!blocked }));
   if (!candidates.length) throw new Error("どのAIからもアイデアを得られませんでした");
-  if (blocked) {
-    logEvent(null, "ai", "idea-skipped", `アイデア会議の${candidates.length}件は、案件にしませんでした（${blocked}）`);
-    return { ids: [], blocked };
+  // 会議の間（1〜2分）に、ほかの処理で上限に達することもあるので、案件を作る直前にもう一度確かめる
+  const blockedNow = blocked ?? newProjectBlock();
+  if (blockedNow) {
+    logEvent(null, "ai", "idea-skipped", `アイデア会議の${candidates.length}件は、案件にしませんでした（${blockedNow}）`);
+    return { ids: [], blocked: blockedNow };
   }
   const ids: number[] = [];
   for (const c of kept) {
