@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings } from "../src/lib/db";
-import { addIntervention, aiImprovements, editIntervention, hideIntervention, listInterventions, monthlyImprovements } from "../src/lib/interventions";
+import { addIntervention, aiImprovements, editIntervention, hideIntervention, isRealDay, listInterventions, monthlyImprovements } from "../src/lib/interventions";
 import { getProject, holdProject, jstToday, newProjectBlock, resumeDueHolds, trafficCapacity } from "../src/lib/loop";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
@@ -96,6 +96,13 @@ test("改善の記録: 画面で直した事例は入れ直しても戻らず、
   assert.ok(!after.some((v) => v.id !== seeded.id && v.title === seeded.title));
   assert.throws(() => editIntervention(seeded.id, { title: "x" }), /すべて書いて/);
   assert.throws(() => editIntervention(seeded.id, { ...seeded, day: "10/1" }), /日付/);
+  assert.throws(() => editIntervention(seeded.id, { ...seeded, day: "2026-02-31" }), /日付/);
+  assert.throws(() => editIntervention(seeded.id, { ...seeded, day: "2026-13-01" }), /日付/);
+  assert.ok(isRealDay("2028-02-29") && !isRealDay("2027-02-29"));
+  const ins = db().prepare("INSERT INTO interventions (day, kind, title, happened, noticed, decision) VALUES ('2026-01-01', 'bug', ?, 'a', 'b', 'c')");
+  for (let i = 0; i < 210; i++) ins.run(`多い記録 ${i}`);
+  assert.equal(listInterventions().length, (db().prepare("SELECT COUNT(*) AS n FROM interventions WHERE hidden = 0").get() as { n: number }).n);
+  assert.ok(listInterventions().length > 200);
 
   const add = db().prepare("INSERT INTO plan_requests (title, target, source, proposer) VALUES (?, ?, ?, 'claude-opus-5-5')");
   const done = Number(add.run("AIの改善テスト", "system", "meeting").lastInsertRowid);

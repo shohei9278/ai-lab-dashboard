@@ -58,7 +58,7 @@ export function InterventionForm({ edit }: { edit?: InterventionRow }) {
           <select value={v.kind} onChange={set("kind")} className={field}><option value="bug">不具合</option><option value="design">仕組みの変更</option><option value="direction">方針の判断</option></select>
         </label>
         <label className="text-xs text-ink-2">修正のコミット（任意）<input value={v.commit} onChange={set("commit")} maxLength={40} className={field} /></label>
-        <label className="text-xs text-ink-2">{edit ? "日付" : "日付（空なら今日）"}<input value={v.day} onChange={set("day")} placeholder="2026-11-16" maxLength={10} className={field} /></label>
+        <label className="text-xs text-ink-2">{edit ? "日付" : "日付（空なら今日）"}<input type="date" value={v.day} onChange={set("day")} className={field} /></label>
       </div>
       <button type="button" disabled={busy} onClick={save} className="mt-3 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink disabled:opacity-50">{busy ? "保存しています…" : edit ? "直す" : "記録する"}</button>
       {error && <p className="mt-2 text-xs" style={{ color: "var(--critical)" }}>{error}</p>}
