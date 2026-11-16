@@ -85,10 +85,17 @@ function seedOnce() {
   g.__aiLabInterventionsSeeded = true;
 }
 
-export function listInterventions(limit = 200): InterventionRow[] {
+// 全件を返す（見出しの件数をここから数えるため。長い一覧は画面の「もっと見る」で畳む）。limit は先頭の数件だけ欲しいとき
+export function listInterventions(limit = -1): InterventionRow[] {
   seedOnce();
   return db().prepare("SELECT * FROM interventions WHERE hidden = 0 ORDER BY day DESC, id DESC LIMIT ?").all(limit) as InterventionRow[];
 }
+
+// 2026-02-31 のような、形は合っていても実在しない日を通さない
+export const isRealDay = (day: string) => {
+  const d = new Date(`${day}T00:00:00Z`);
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) && !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === day;
+};
 
 // 画面から入った記録を確かめて、保存する形にそろえる（足すときと直すときで同じ）
 function parseIntervention(v: Record<string, unknown>) {
@@ -98,7 +105,7 @@ function parseIntervention(v: Record<string, unknown>) {
   const found = [...new Set((Array.isArray(v.found_by) ? v.found_by : []).filter(isFoundBy))];
   if (!title || !happened || !noticed || !decision) throw new Error("題・問題・人の対応・AIの対応は、すべて書いてください");
   if (sha && !/^[0-9a-f]{7,40}$/.test(sha)) throw new Error("コミットは英数字のIDで入れてください");
-  if (day && !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("日付は 2026-11-16 の形で入れてください");
+  if (day && !isRealDay(day)) throw new Error("日付は 2026-11-16 の形で、実在する日を入れてください");
   return { day: day || null, kind, title, happened, noticed, decision, result: result || null, found_by: found.join(",") || null, commit_sha: sha || null };
 }
 
@@ -143,7 +150,7 @@ export function operationCounts(): { label: string; n: number }[] {
 
 export type AiImprovement = { id: number; day: string; title: string; proposer: string | null; source: string; scene: string | null; status: "done" | "declined"; note: string | null; score: number | null };
 
-export function aiImprovements(limit = 200): AiImprovement[] {
+export function aiImprovements(limit = -1): AiImprovement[] {
   return db().prepare(`SELECT id, date(COALESCE(decided_at, created_at), '+9 hours') AS day, title, proposer, source, scene, status, note, score FROM plan_requests
     WHERE target = 'system' AND source != 'human' AND status IN ('done', 'declined') ORDER BY day DESC, id DESC LIMIT ?`).all(limit) as AiImprovement[];
 }
