@@ -328,6 +328,7 @@ CREATE TABLE IF NOT EXISTS interventions (
   found_by TEXT,
   commit_sha TEXT,
   seed_key TEXT,
+  edited INTEGER NOT NULL DEFAULT 0,
   hidden INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -645,6 +646,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["interventions", "result", "TEXT"], // 修正後の結果
   ["interventions", "found_by", "TEXT"], // 問題を見つけたのは誰か（カンマ区切り）
   ["interventions", "seed_key", "TEXT"], // 最初に入れた事例の目印（コードの内容で更新するため）
+  ["interventions", "edited", "INTEGER NOT NULL DEFAULT 0"], // 画面で直した記録（コードの事例で上書きしない）
   ["projects", "index_visits", "INTEGER NOT NULL DEFAULT 0"], // 公開サイトの一覧から来た訪問者の数
   ["projects", "index_uses", "INTEGER NOT NULL DEFAULT 0"], // そのうち登録・利用した人の数
   ["projects", "hold_reason", "TEXT"], // 保留にした理由（人が書く）

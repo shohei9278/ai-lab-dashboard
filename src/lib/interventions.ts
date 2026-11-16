@@ -1,8 +1,9 @@
 import { db } from "./db";
 import { jstDay } from "./sns";
 
-// 人の手の記録: AIに任せきりではなく、人がどこで問題を見つけ、何を決めたのかを、AIがやったことと分けて公開する
-// - 開発・保守への介入: このページの事例（手で書く）
+// 改善の記録: AIに任せきりではなく、どこを誰が見つけて直し、何を決めたのかを公開する
+// - 人が見つけた・決めた: 開発・保守の事例（手で書く。画面から足す・直すこともできる）
+// - AIが提案した: 提案箱の「仕組みの改善」に人が答えたもの（aiImprovements）
 // - AIの事業運営への介入: 処理の記録から自動で数える（operationCounts）
 
 export type InterventionKind = "bug" | "design" | "direction";
@@ -21,6 +22,7 @@ export const foundByLabels = (v: string | null) => (v ?? "").split(",").filter(i
 
 // これまでの実際の事例。key ごとにコードの内容で更新するので、文面やコミットを直せば次の起動で反映される（消した記録は消したまま）
 const FIRST: (Omit<InterventionRow, "id"> & { key: string })[] = [
+  { key: "improvement-log", day: "2026-11-16", kind: "direction", title: "「人の手の記録」を「改善の記録」にして、AIが提案した改善も並べ、あとから直せるようにした", happened: "記録は人が見つけた・決めたことだけで、AIの社員が運営の中で提案箱に出し、実際に入った改善は載っていなかった。手で書いた事例は起動のたびにコードの内容で上書きされるので、画面で直せなかった。", noticed: "運営者が、名前を「修正の記録」に変えるか尋ねたあと、プロダクトを回す中でAIが見つけた修正（提案箱）も記録したほうがおもしろいと言い、Claude Codeが示した形（ページを1つにして出どころを分ける・見送った提案も出す・人とAIの件数を比べる）でよいと決めた。あわせて、あとから編集できるようにしたいと言った。", decision: "Claude Codeが、ページ名を「改善の記録」にし、提案箱の「仕組みの改善」に人が答えたもの（題・だれの提案か・結果・人のひとこと）と、月ごとの件数の表を足した。運営者は、人の記録を画面で直せ（直した記録はコードの内容で上書きしない）、AIの提案への答えもあとから直せる。URL（/interventions）は変えていない。", result: null, found_by: null, commit_sha: null },
   { key: "proposals-limit-tracking", day: "2026-11-16", kind: "direction", title: "提案箱の仕組みの改善から、上限中の案件づくり・計測の確かめ・入力の上限・アイデアの書式の4つを入れた", happened: "提案箱の仕組みの改善に、集客中の案件が上限を超えている間も手動のアイデア会議からは案件が作られること、公開前のテストが「使った」の計測が動くかを見ていないこと、ツールの入力欄の上限（600）とエラー文（300cm以下）の食い違い、アイデアに既存の無料サービスとの比較がないこと・直接の接点が検証の欄に書かれていることが出ていた。", noticed: "運営者が提案箱の確認を求め、Claude Codeが残っている提案を優先度で分けて、4つを勧めた。運営者が4つを直すと決め、1つ目については、アイデアの質が上がっているか・変わってきているかを確かめるためにアイデア会議をたまに回しているので悩む、と伝えた。", decision: "Claude Codeが、上限を超えている間（集客中が上限以上、または今月の予算で新しい案件を休む段階）の手動のアイデア会議を、止めずに会議と採点だけ行い、案件にも敗者復活の提案にもしない形にした。会議の記録には残るので、アイデアの質の確かめには使える。公開前のブラウザのテストで、操作したときに「使った」の知らせが出るかを確かめ、出なければ問題として直させる。ツールを書く指示とツールのチェックに、入力欄の min・max と文の中の数字をそろえる決まりを足した。アイデアの書式に、代わりになる既存の無料サービスとの違いの欄を足し、直接の接点は届け方の欄に書かせ、検証の欄は数値と判定の基準だけにした。", result: "上限の判定はテストで、「使った」の確かめは、ボタンのツールでは数えられ、クリックの知らせを止めるツールでは問題になることを手元で確かめた。#57 のツールそのものは直していない（直すにはAIでの作り直しが要る）。LPの文を書く時点ではツールはまだないため、入力の上限はLPを書く材料には渡しておらず、LPのチェックに渡しているツールの中身（入力欄の最小・最大を含む）で見ている。", found_by: null, commit_sha: null },
   { key: "showcase-portfolio", day: "2026-11-16", kind: "direction", title: "採用担当の人に向けて、概要ページとREADMEに「分かったこと」と仕組み・技術を足した", happened: "概要ページ（/showcase）には、オフィス・数字・社員・公開した案件・日報・人の手の記録はあったが、誰がどう作ったか・技術・仕組みの全体像・ソースコードへのリンクがなかった。訪問174人・成果3件という数字だけが目立ち、実験として何が分かったかが読み取れなかった。公開前チェックの評価は、AIの成績の画面の奥にしかなかった。READMEは、人がすべて承認していた初期の流れのままだった。", noticed: "運営者が、ポートフォリオとして足りない点を尋ねた。Claude Codeが4つ（作った人と技術の説明・古いREADME・分かったことのまとめ・評価の結果）を挙げ、運営者が、見せる相手は採用担当の人で英語は要らないとして、4つとも直すと決めた。", decision: "Claude Codeが、概要ページの数字のすぐ下に「分かったこと」（AIだけで公開まで回ること・ネックは届けること・チェックを正解の決まった例で確かめていること）を、文は決めておき数字はいまの記録から入れる形で足した。続けて「仕組みと技術」（AIが回している流れ・安全装置・技術・作り方とGitHubへのリンク）と「公開前チェックの評価」（AIごとの最新の結果）を足し、「今週のまとめ」を「週のまとめ」にした。READMEは、今の全自動の流れ・安全装置・技術・開発のしかた・主なファイル・動かし方に書き直した。作った人の名前は載せていない。", result: "テストで、公開した案件がないときは出さないことと、数字がいまの記録から入ることを確かめた。手元で試しのデータを入れて、概要ページをPCとスマホの幅で撮って確かめた。", found_by: null, commit_sha: null },
   { key: "proposals-check-channel", day: "2026-11-15", kind: "direction", title: "提案箱の仕組みの改善から、チェックの材料・検討中の言い方・届け方の実施の3つを入れた", happened: "提案箱に返事待ちが24件たまっていた。仕組みの改善には、LPのチェックがツールの中身を受け取っておらず「ツールで出るか確かめられない」と止めていたこと、料金と登録の有無がサービスの説明にないと「無料・登録不要」が根拠のない断言になること、企画で決めた届け方を運営者がやったかどうかが判断に渡っておらず、届け方の問題と需要の問題を取り違えるおそれがあることが、それぞれ何度も出ていた。", noticed: "運営者が提案箱の確認を求め、Claude Codeが24件を重なりと優先度で分けて、すぐ直す価値が高い3つを勧めた。運営者がその3つを直すと決めた。", decision: "Claude Codeが、ツールのLPのチェックに、tool.html から取り出した選択肢・入力欄の最初の値・ボタンや見出し・スクリプトの中の日本語の文を渡すようにした（コード全体は渡さず、3000文字まで）。アイデアのサービスの説明に、無料か有料か・登録の要不要を必ず書かせる。LPを作る指示の「検討中の言い方」はすでにあったので、見出し・手順・前後の比較・よくある質問のどこでも、できることを言い切らない決まりと言い換えの例を足した。届け方は新しい記録を作らず、公開したときに提案箱へ入る「対象の人がいる場所に届ける」への返事を実施の記録として判断に渡し、まだのときは日数で判断する2日前に運営者へ1回知らせる。", result: "取り出しと、届け方の返事の読み方をテストで確かめた。チェックの評価の例にはツールの中身を渡さないので、評価の指示は変わらない。本番のチェックや判断で実際に効くかは、まだ確かめていない。", found_by: null, commit_sha: null },
@@ -69,12 +71,15 @@ const g = globalThis as unknown as { __aiLabInterventionsSeeded?: boolean };
 
 function seedOnce() {
   if (g.__aiLabInterventionsSeeded) return;
-  const update = db().prepare("UPDATE interventions SET day = ?, kind = ?, title = ?, happened = ?, noticed = ?, decision = ?, result = ?, found_by = ?, commit_sha = ? WHERE seed_key = ?");
+  // 画面で直した記録（edited = 1）は、画面の内容を残す（コードの内容で上書きしない）
+  const exists = db().prepare("SELECT 1 FROM interventions WHERE seed_key = ?");
+  const update = db().prepare("UPDATE interventions SET day = ?, kind = ?, title = ?, happened = ?, noticed = ?, decision = ?, result = ?, found_by = ?, commit_sha = ? WHERE seed_key = ? AND edited = 0");
   const insert = db().prepare("INSERT INTO interventions (day, kind, title, happened, noticed, decision, result, found_by, commit_sha, seed_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   db().transaction(() => {
     for (const x of [...FIRST].reverse()) {
       const v = [x.day, x.kind, x.title, x.happened, x.noticed, x.decision, x.result, x.found_by, x.commit_sha, x.key];
-      if (!update.run(...v).changes) insert.run(...v);
+      if (exists.get(x.key)) update.run(...v);
+      else insert.run(...v);
     }
   })();
   g.__aiLabInterventionsSeeded = true;
@@ -85,16 +90,32 @@ export function listInterventions(limit = 200): InterventionRow[] {
   return db().prepare("SELECT * FROM interventions WHERE hidden = 0 ORDER BY day DESC, id DESC LIMIT ?").all(limit) as InterventionRow[];
 }
 
-export function addIntervention(v: Record<string, unknown>): number {
+// 画面から入った記録を確かめて、保存する形にそろえる（足すときと直すときで同じ）
+function parseIntervention(v: Record<string, unknown>) {
   const text = (k: string, max: number) => String(v[k] ?? "").trim().slice(0, max);
-  const title = text("title", 80), happened = text("happened", 400), noticed = text("noticed", 300), decision = text("decision", 400), result = text("result", 300), sha = text("commit", 40);
+  const title = text("title", 80), happened = text("happened", 400), noticed = text("noticed", 300), decision = text("decision", 400), result = text("result", 300), sha = text("commit", 40), day = text("day", 10);
   const kind = (["bug", "design", "direction"].includes(String(v.kind)) ? v.kind : "bug") as InterventionKind;
   const found = [...new Set((Array.isArray(v.found_by) ? v.found_by : []).filter(isFoundBy))];
   if (!title || !happened || !noticed || !decision) throw new Error("題・問題・人の対応・AIの対応は、すべて書いてください");
   if (sha && !/^[0-9a-f]{7,40}$/.test(sha)) throw new Error("コミットは英数字のIDで入れてください");
+  if (day && !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new Error("日付は 2026-11-16 の形で入れてください");
+  return { day: day || null, kind, title, happened, noticed, decision, result: result || null, found_by: found.join(",") || null, commit_sha: sha || null };
+}
+
+export function addIntervention(v: Record<string, unknown>): number {
+  const x = parseIntervention(v);
   seedOnce();
   return Number(db().prepare("INSERT INTO interventions (day, kind, title, happened, noticed, decision, result, found_by, commit_sha) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(jstDay(), kind, title, happened, noticed, decision, result || null, found.join(",") || null, sha || null).lastInsertRowid);
+    .run(x.day ?? jstDay(), x.kind, x.title, x.happened, x.noticed, x.decision, x.result, x.found_by, x.commit_sha).lastInsertRowid);
+}
+
+// あとから直す。コードに書いた事例も、直したあとは画面の内容を残す
+export function editIntervention(id: number, v: Record<string, unknown>) {
+  const x = parseIntervention(v);
+  seedOnce();
+  const r = db().prepare("UPDATE interventions SET day = COALESCE(?, day), kind = ?, title = ?, happened = ?, noticed = ?, decision = ?, result = ?, found_by = ?, commit_sha = ?, edited = 1 WHERE id = ? AND hidden = 0")
+    .run(x.day, x.kind, x.title, x.happened, x.noticed, x.decision, x.result, x.found_by, x.commit_sha, id);
+  if (!r.changes) throw new Error("直す記録が見つかりません");
 }
 
 export function hideIntervention(id: number) {
@@ -115,4 +136,27 @@ export function operationCounts(): { label: string; n: number }[] {
   const rows = db().prepare("SELECT e.kind, COUNT(*) AS n FROM events e JOIN projects p ON p.id = e.project_id WHERE e.actor = 'human' AND p.demo = 0 GROUP BY e.kind").all() as { kind: string; n: number }[];
   const count = new Map(rows.map((r) => [r.kind, r.n]));
   return OPERATION_KINDS.map((g) => ({ label: g.label, n: g.kinds.reduce((s, k) => s + (count.get(k) ?? 0), 0) }));
+}
+
+// ---- AIが提案した改善（提案箱の「仕組みの改善」に、人が「やった」「見送り」と答えたもの） ----
+// 提案の中身（how・why）はAIの出力そのものなので、ここでは題・だれの提案か・結果・人のひとことだけを扱う
+
+export type AiImprovement = { id: number; day: string; title: string; proposer: string | null; source: string; scene: string | null; status: "done" | "declined"; note: string | null; score: number | null };
+
+export function aiImprovements(limit = 200): AiImprovement[] {
+  return db().prepare(`SELECT id, date(COALESCE(decided_at, created_at), '+9 hours') AS day, title, proposer, source, scene, status, note, score FROM plan_requests
+    WHERE target = 'system' AND source != 'human' AND status IN ('done', 'declined') ORDER BY day DESC, id DESC LIMIT ?`).all(limit) as AiImprovement[];
+}
+
+// 月ごとの件数（人が見つけた・決めた / AIの提案で入った / AIの提案を人が見送った）。新しい月から
+export function monthlyImprovements(months = 6): { month: string; human: number; aiDone: number; aiDeclined: number }[] {
+  seedOnce();
+  const human = db().prepare("SELECT substr(day, 1, 7) AS m, COUNT(*) AS n FROM interventions WHERE hidden = 0 GROUP BY m").all() as { m: string; n: number }[];
+  const ai = db().prepare(`SELECT substr(date(COALESCE(decided_at, created_at), '+9 hours'), 1, 7) AS m, status, COUNT(*) AS n FROM plan_requests
+    WHERE target = 'system' AND source != 'human' AND status IN ('done', 'declined') GROUP BY m, status`).all() as { m: string; status: string; n: number }[];
+  const by = new Map<string, { month: string; human: number; aiDone: number; aiDeclined: number }>();
+  const at = (m: string) => by.get(m) ?? by.set(m, { month: m, human: 0, aiDone: 0, aiDeclined: 0 }).get(m)!;
+  for (const r of human) at(r.m).human += r.n;
+  for (const r of ai) at(r.m)[r.status === "done" ? "aiDone" : "aiDeclined"] += r.n;
+  return [...by.values()].sort((a, b) => b.month.localeCompare(a.month)).slice(0, months);
 }

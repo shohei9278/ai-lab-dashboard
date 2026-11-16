@@ -109,6 +109,12 @@ export type RequestRow = {
   scene: string | null; project_id: number | null; ref_id: number | null; ai_reply: string | null;
 };
 
+const REQUEST_SOURCE: Record<string, string> = {
+  plan: "朝会", meeting: "週の定例会議", scene: "作業の途中で", error: "エラーの見張り", revival: "敗者復活", human: "あなた", voice: "社員の声から",
+};
+// どこで出た提案か。臨時会議の提案も source は meeting なので、場面の名前で見分ける
+export const sourceLabel = (r: { source: string; scene: string | null }) => (r.source === "meeting" && r.scene?.startsWith("臨時会議") ? r.scene : REQUEST_SOURCE[r.source] ?? r.source);
+
 export function openRequests(target?: RequestRow["target"]): RequestRow[] {
   return db().prepare(`SELECT * FROM plan_requests WHERE status = 'open' ${target ? "AND target = ?" : ""} ORDER BY id DESC`).all(...(target ? [target] : [])) as RequestRow[];
 }
@@ -120,6 +126,12 @@ export function answerRequest(id: number, status: "done" | "declined", note: str
   if (!r || r.status !== "open") throw new Error("まだ答えていないお願いだけ答えられます");
   db().prepare("UPDATE plan_requests SET status = ?, note = ?, decided_at = datetime('now') WHERE id = ?").run(status, note.trim().slice(0, 300) || null, id);
   logEvent(null, "human", "plan-request", `提案箱の「${r.title}」: ${status === "done" ? "やった" : "やらない"}${note.trim() ? `（${note.trim().slice(0, 80)}）` : ""}`);
+}
+// 答えたあとで、やった・見送りとひとことを直す（答えた日時はそのまま）
+export function editAnswer(id: number, status: "done" | "declined", note: string) {
+  const r = db().prepare("SELECT * FROM plan_requests WHERE id = ?").get(id) as RequestRow | undefined;
+  if (!r || r.status === "open") throw new Error("答えたお願いだけ直せます");
+  db().prepare("UPDATE plan_requests SET status = ?, note = ? WHERE id = ?").run(status, note.trim().slice(0, 300) || null, id);
 }
 
 const POST_START = 8; // 投稿してよい時間（日本時間）
