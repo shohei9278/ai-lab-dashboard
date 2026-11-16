@@ -97,3 +97,41 @@ export function memberProfiles(): MemberProfile[] {
     };
   });
 }
+
+// ---- 分かったこと: 採用担当の人などが最初に読む、実験の要点。文は決めておき、数字はいまの記録から入れる ----
+// 数字がまだないもの（評価をまだ流していない など）は出さない
+export type Learning = { title: string; body: string };
+
+export async function showcaseLearnings(): Promise<Learning[]> {
+  const { autoPublishStats } = await import("./loop");
+  const { recentPlans, planProgress } = await import("./plan");
+  const { checkEvalOverview } = await import("./checkEval");
+  const s = getSettings();
+  const out: Learning[] = [];
+  const projects = showcaseProjectRows().filter((p) => p.public_version !== null);
+  const auto = autoPublishStats();
+  if (projects.length) {
+    out.push({
+      title: "「作って公開する」までは、AIだけで回る",
+      body: `公開した${projects.length}件のうち${auto.published}件は、人の承認なしでAIが公開しました。人があとから見て「出すべきでなかった」としたのは、確認した${auto.reviewed}件のうち${auto.bad}件です。`,
+    });
+  }
+  const visits = projects.map((p) => projectTotals(p.id).visits);
+  const total = visits.reduce((a, b) => a + b, 0);
+  const plans = recentPlans(14).map((p) => planProgress(p).content.bottleneck);
+  if (projects.length) {
+    out.push({
+      title: "ネックは、作ることより届けること",
+      body: `訪問は累計${total}人で、判断の目安（${s.judgeMinVisits}人）に届いた案件は${visits.filter((v) => v >= s.judgeMinVisits).length}件です。${plans.length ? `直近${plans.length}日の朝の計画で、AIがネックに挙げたのは${plans.filter((b) => b === "reach").length}日が「届かない」でした。` : ""}SNSの自動投稿だけでは足りず、人の手で対象の人がいる場所に届ける段取りを入れています。`,
+    });
+  }
+  // 1件も判定できなかった評価（APIのエラーなど）は、結果として出さない
+  const ev = checkEvalOverview().latest.find((e) => e.ng.total + e.ok.total > 0);
+  if (ev) {
+    out.push({
+      title: "AIのチェックは、正解の決まった例で確かめる",
+      body: `人を通らずに公開するときの最後の砦は、AIの公開前チェックです。問題を1つだけ入れたページと問題のないページ（計${ev.ng.total + ev.ok.total + ev.failed}件）で確かめ、${modelInfo(ev.run.model_id).label}は問題のあるページ${ev.ng.caught}/${ev.ng.total}件を止め、問題のないページ${ev.ok.passed}/${ev.ok.total}件を通しました。${ev.failed ? `ほかに${ev.failed}件は、答えが取れず判定できませんでした。` : ""}`,
+    });
+  }
+  return out;
+}
