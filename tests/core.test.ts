@@ -719,4 +719,11 @@ test("概要ページの「分かったこと」: 公開した案件があると
   assert.equal(l.length, 2);
   assert.match(l[0].body, /公開した1件のうち1件は、人の承認なしでAIが公開しました。人があとから見て「出すべきでなかった」としたのは、確認した1件のうち0件です。/);
   assert.match(l[1].body, /判断の目安（\d+人）に届いた案件は0件/);
+  // 1件も判定できなかった評価は出さず、取れなかった例があれば数を出す
+  const e1 = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, status) VALUES ('claude-opus-5-5', 'x', 'done')").run().lastInsertRowid);
+  db().prepare("INSERT INTO check_eval_results (eval_id, case_id, expect, got_ok, error) VALUES (?, 'a', 'ng', NULL, 'err')").run(e1);
+  assert.equal((await showcaseLearnings()).length, 2);
+  db().prepare("INSERT INTO check_eval_results (eval_id, case_id, expect, type, got_ok) VALUES (?, 'b', 'ng', 'fake', 0)").run(e1);
+  const l2 = await showcaseLearnings();
+  assert.match(l2[2].body, /計2件[\s\S]*1\/1件を止め[\s\S]*ほかに1件は、答えが取れず判定できませんでした/);
 });

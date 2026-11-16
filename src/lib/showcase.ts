@@ -125,11 +125,12 @@ export async function showcaseLearnings(): Promise<Learning[]> {
       body: `訪問は累計${total}人で、判断の目安（${s.judgeMinVisits}人）に届いた案件は${visits.filter((v) => v >= s.judgeMinVisits).length}件です。${plans.length ? `直近${plans.length}日の朝の計画で、AIがネックに挙げたのは${plans.filter((b) => b === "reach").length}日が「届かない」でした。` : ""}SNSの自動投稿だけでは足りず、人の手で対象の人がいる場所に届ける段取りを入れています。`,
     });
   }
-  const ev = checkEvalOverview().latest[0];
+  // 1件も判定できなかった評価（APIのエラーなど）は、結果として出さない
+  const ev = checkEvalOverview().latest.find((e) => e.ng.total + e.ok.total > 0);
   if (ev) {
     out.push({
       title: "AIのチェックは、正解の決まった例で確かめる",
-      body: `人を通らずに公開するときの最後の砦は、AIの公開前チェックです。問題を1つだけ入れたページと問題のないページ（計${ev.ng.total + ev.ok.total + ev.failed}件）で確かめ、${modelInfo(ev.run.model_id).label}は問題のあるページ${ev.ng.caught}/${ev.ng.total}件を止め、問題のないページ${ev.ok.passed}/${ev.ok.total}件を通しました。`,
+      body: `人を通らずに公開するときの最後の砦は、AIの公開前チェックです。問題を1つだけ入れたページと問題のないページ（計${ev.ng.total + ev.ok.total + ev.failed}件）で確かめ、${modelInfo(ev.run.model_id).label}は問題のあるページ${ev.ng.caught}/${ev.ng.total}件を止め、問題のないページ${ev.ok.passed}/${ev.ok.total}件を通しました。${ev.failed ? `ほかに${ev.failed}件は、答えが取れず判定できませんでした。` : ""}`,
     });
   }
   return out;

@@ -152,11 +152,12 @@ export default async function Showcase() {
       </section>
 
       {/* 公開前チェックの評価: AIを安全に使う工夫の、数字の裏付け */}
-      {evals.latest.length > 0 && (
+      {/* 1件も判定できなかった評価は出さない。答えが取れなかった例があれば、その数も出して合計が合うようにする */}
+      {evals.latest.some((e) => e.ng.total + e.ok.total > 0) && (
         <section className="space-y-3">
           <SectionHead title="公開前チェックの評価" href="/lab" more="AIの成績で見る" note={`問題を1つだけ入れたページ${evals.cases.ng}件と、問題のないページ${evals.cases.ok}件を、本番と同じ指示でチェックさせた結果です（AIごとの最新）。`} />
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {evals.latest.map((e) => (
+            {evals.latest.filter((e) => e.ng.total + e.ok.total > 0).map((e) => (
               <article key={e.run.id} className="card space-y-2 p-4 text-sm">
                 <div className="flex items-baseline justify-between gap-2">
                   <h3 className="font-bold">{modelInfo(e.run.model_id).label}</h3>
@@ -166,6 +167,7 @@ export default async function Showcase() {
                   <div className="rounded-md bg-surface-2 p-2"><dt className="text-xs text-muted">問題のあるページを止めた</dt><dd className="text-lg font-bold">{e.ng.caught}/{e.ng.total}</dd></div>
                   <div className="rounded-md bg-surface-2 p-2"><dt className="text-xs text-muted">問題のないページを通した</dt><dd className="text-lg font-bold">{e.ok.passed}/{e.ok.total}</dd></div>
                 </dl>
+                {e.failed > 0 && <p className="text-xs text-ink-2">ほかに{e.failed}件は、答えが取れず判定できませんでした</p>}
                 {e.run.prompt_hash !== evals.promptHash && <p className="text-xs text-muted">このあと、チェックの指示か例を直しています</p>}
               </article>
             ))}
