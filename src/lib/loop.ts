@@ -35,6 +35,7 @@ export type Idea = {
   kind?: ProductKind; // 出し方（AIが選ぶ。無ければ事前登録LP）
   channel?: string; // 最初の利用者がいる場所（どこで、どう届けるか）
   first_test?: string; // 最初の1週間で、何人に届けて何を確かめるか
+  alternative?: string; // 代わりになる既存の無料サービス（名前）と、それとの違い
   season?: "seasonal" | "evergreen"; // 季節もの（その時期だけ）か、1年中ある困りごとか
   want_id?: number; // 元にした「欲しい」の声（user_wants）の番号
 };
@@ -264,13 +265,14 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 - 誇大な約束はしない
 - 実在の人物・団体のデータを使う tool は、正確なデータをコードに書けるものだけにする
 - 季節もの（seasonal）を出すときは、話題が集まる日（例: 今年の漢字の発表日・年賀状を書き始める時期）を書き、そこから逆算した公開日と投稿の日程を channel に、その日程での検証を first_test に書く（空欄にしない）
+- 代わりになる既存の無料サービス（大手サイトの機能・汎用のAIチャットを含む）を名前で挙げ、それとの違いを alternative に書く。違いが言えない案は出さない
 - 同じ「欲しい」の声（want_id）から複数の案を出すときは、形（lp と tool）か、対象者か、困りごとの切り口のどれかを必ず変える。同じ形・同じ切り口の言い換えを並べない
 - 季節や世の中の話題に頼りすぎない。件数のうち半分以上（1件だけなら、その1件）は、季節や話題が過ぎても1年中ある困りごと（evergreen）にする。季節もの（seasonal）を出すなら、その季節が終わっても使われる理由があるものを選ぶ
 - 時期のネタや世の中の話題は、使ってもよいヒントにすぎない（必ず使う材料ではない）。事件・事故・災害・訃報・個人の不祥事など、人の不幸や特定の個人に乗った企画はしない
 - 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案や、知らない人へのDM・個別の勧誘は出さない（スパム扱いされやすいため）
-- 自分の投稿だけ（フォロワーほぼ0では、ほとんど表示されない）にせず、運営者が手でできる直接の接点を最低1つ、数つきで入れる。例: 対象の人が集まるコミュニティ・グループの管理者に、紹介してよいか相談する（2か所）/ 対象に当てはまる知人に使ってもらい、感想を聞く（3人）/ ルールで紹介が認められている場（自己紹介・成果物の共有の場など）に1回だけ載せる
+- 自分の投稿だけ（フォロワーほぼ0では、ほとんど表示されない）にせず、運営者が手でできる直接の接点を最低1つ、数つきで channel に入れる（first_test には書かない）。例: 対象の人が集まるコミュニティ・グループの管理者に、紹介してよいか相談する（2か所）/ 対象に当てはまる知人に使ってもらい、感想を聞く（3人）/ ルールで紹介が認められている場（自己紹介・成果物の共有の場など）に1回だけ載せる
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
-形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方","first_test":"公開から最初の1週間で、何人に届けて、何が起きれば手応えありとするか","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
+形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
     user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
@@ -307,11 +309,27 @@ async function startProject(id: number) {
   await prepareLp(id, undefined, { auto: true });
 }
 
+// 新しい案件を作れない理由（集客中の案件が上限以上・今月の予算で新しい案件を休む段階）。作れるなら null
+export function newProjectBlock(): string | null {
+  const s = getSettings();
+  const live = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0 AND growth_phase = 0").get() as { n: number }).n;
+  if (live >= s.maxLive) return `集客中の案件が${live}件で、上限（${s.maxLive}件）に達しています`;
+  const b = budgetState();
+  if (!b.creativeOk) return `今月の予算の${Math.round((b.creativeCap / b.budget) * 100)}%を使い、新しい案件は休む段階です`;
+  return null;
+}
+
 // 手動でアイデアを依頼したとき: 毎日の分と同じく、3社が案を出し、作者を伏せて採点し、上位の件数だけ案件にする
-export async function generateIdeas(theme: string, count = 3): Promise<number[]> {
+// 新しい案件を作れない間は、会議と採点だけ行い（会議の記録に残る。アイデアの質の確かめに使える）、案件にも敗者復活にもしない
+export async function generateIdeas(theme: string, count = 3): Promise<{ ids: number[]; blocked: string | null }> {
   const title = theme ? `アイデア出し（テーマ: ${theme.slice(0, 30)}）` : "アイデア出し（おまかせ）";
-  const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), count, false, { title, theme }));
+  const blocked = newProjectBlock();
+  const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), blocked ? 0 : count, false, { title, theme, noRevival: !!blocked }));
   if (!candidates.length) throw new Error("どのAIからもアイデアを得られませんでした");
+  if (blocked) {
+    logEvent(null, "ai", "idea-skipped", `アイデア会議の${candidates.length}件は、案件にしませんでした（${blocked}）`);
+    return { ids: [], blocked };
+  }
   const ids: number[] = [];
   for (const c of kept) {
     const conf = c.peerAvg !== null ? { value: c.peerAvg / 10, source: "他社のAIによる採点の平均" } : selfConfidence(c.idea);
@@ -329,7 +347,7 @@ export async function generateIdeas(theme: string, count = 3): Promise<number[]>
       await startProject(id).catch((e) => logEvent(id, "system", "lp-error", `作成に失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
     }
   })();
-  return ids;
+  return { ids, blocked: null };
 }
 
 // ---- 2. LP作成とAIチェック ----
@@ -536,6 +554,7 @@ export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtm
 - 結果は、シェアしたくなる見せ方を工夫する。結果が出るたびに、その結果を伝える短い一文（60文字くらい。個人を特定できる内容は入れない）を作り、window.labShare && window.labShare("その一文") を呼ぶ（ページのシェアのボタンの文に使われる）
 - 架空の統計を事実のように書かない。診断・占いのような遊びのツールは、そうと分かる一言を入れる。医療・法律・お金の助言はしない
 - 実在の人物・団体のデータは、正確だと確信できるものだけを使う。不確かなら使わない
+- 入力欄の上限・下限（min・max）と、エラー文・注意書き・説明の中の数字（「300cm以下」など）を同じ値にする。上限を変えるときは、その数字を書いた所もすべて直す
 - 全体で40,000文字以内。データの一覧は代表的なものに絞り、何百件も書き連ねない。読みやすく、動作の確かなコードにする
 - 「何ができるツールか」や修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）は、初期値・プリセット・選択肢・入力例・便利な機能の形でも書かない（例外にしない）
 - canvas で角丸の四角形・幅に収める文字・折り返しを描くときは、自分で書かずに次の確かめ済みの関数をそのまま貼って使う（中身は変えない）:
@@ -584,6 +603,7 @@ async function reviewTool(p: ProjectRow, html: string, instruction?: string): Pr
 - 「${p.solution}」というツールの目的からずれている
 - ツールの目的や今回の修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）を、初期値・プリセット・選択肢・入力例・便利な機能などの形でコードに書いている
 - canvas などで画像を作るとき、入力できる最大の文字数でも、本文とロゴ・ハッシュタグなどが重ならない作りになっていない（本文を描く範囲の下端が決まっていない）
+- 入力欄の上限・下限（min・max）と、エラー文・注意書き・説明の中の数字が食い違っている（max が 600 なのにエラー文が「300cm以下」など）
 - 「最小です」「ゼロにできます」のように理論上のことを言い切る表示が、小さな条件（人数が少ない・値が0や1など）で実際に手計算すると成り立たない
 - 使う前と後・改善前と後などの比較を出すとき、利用者が条件を変えても、比較の基準（前の値）が同じ条件で計算されていない（条件によって改善率がマイナスになる・表示が崩れる など）
 問題がなければ {"ok":true,"issues":[]}。
@@ -1972,7 +1992,7 @@ export function ideaAuthors(): string[] {
   return MODELS.filter((m) => m.tier === "top" && hasKey(m.provider)).map((m) => m.id);
 }
 
-async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
+async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string; noRevival?: boolean } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
   const authors = ideaAuthors();
   const batchId = `${Date.now()}`;
   const act = `ideas-${batchId}`;
@@ -2010,7 +2030,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
 
   // 3. 各社が、作者を伏せた全候補に点を付ける
   const sheet = candidates
-    .map((c) => `【${c.label}】${c.idea.title}（形: ${c.idea.kind === "tool" ? "tool" : "lp"}）\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}\n需要の時期: ${c.idea.season === "seasonal" ? "季節もの" : c.idea.season === "evergreen" ? "1年中" : "（書かれていない）"}\n最初の届け方: ${c.idea.channel ?? "（書かれていない）"}\n最初の1週間の検証: ${c.idea.first_test ?? "（書かれていない）"}${wantLine(c.idea.want_id)}`)
+    .map((c) => `【${c.label}】${c.idea.title}（形: ${c.idea.kind === "tool" ? "tool" : "lp"}）\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}\n需要の時期: ${c.idea.season === "seasonal" ? "季節もの" : c.idea.season === "evergreen" ? "1年中" : "（書かれていない）"}\n最初の届け方: ${c.idea.channel ?? "（書かれていない）"}\n最初の1週間の検証: ${c.idea.first_test ?? "（書かれていない）"}\n代わりになる既存の無料サービスとの違い: ${c.idea.alternative ?? "（書かれていない）"}${wantLine(c.idea.want_id)}`)
     .join("\n\n");
   const scoreRow = db().prepare("INSERT INTO idea_scores (candidate_id, scorer_model, score, reason) VALUES (?, ?, ?, ?)");
   authors.forEach((a) => setStep(act, title, modelLabel(a), `作者を伏せた${candidates.length}件を採点しています`));
@@ -2026,7 +2046,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
 - 困りごと・欲しい気持ちが強く、事前登録したくなるか（形が tool なら、使ってシェアしたくなるか）
 - 選んだ形（lp=事前登録LP / tool=1ページで完結する動くツール）が、そのアイデアに合っているか。tool なら外部の通信なしで本当に作れるか
 - プロダクトの種類（Webサービス・スマホアプリ・拡張機能・ボット・デジタル商品など）では差をつけない。lp は作る前に需要を確かめるものなので、作るのが大変なことでは減点しない
-- 既存の無料サービスとの違いがはっきりしているか
+- 既存の無料サービスとの違いがはっきりしているか（「代わりになる既存の無料サービスとの違い」が書かれていない・名前がない・違いが弱いものは減点する）
 - 季節が過ぎても需要が残るか。季節もの（その時期だけ使われるもの）は、時期が過ぎたあとも使われる理由がなければ減点する（公開から判断まで1〜3週間かかり、育てる時間もいるため）
 点数は甘くしないこと（平凡なものは5点前後）。
 形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]}${practice ? "" : `\n${EXTRAS_RULE}`}`,
@@ -2064,9 +2084,9 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
     kept.push(pick);
     rest.splice(rest.indexOf(pick), 1);
   }
-  if (!practice) proposeRevival(candidates.filter((c) => !kept.includes(c)));
+  if (!practice && !opts.noRevival) proposeRevival(candidates.filter((c) => !kept.includes(c)));
   const best = [...candidates].sort((a, b) => b.avg - a.avg)[0];
-  if (best) liveNote({ who: "システム", provider: null, kind: "採点の結果", text: `1位は「${best.idea.title}」（${modelLabel(best.author)}の案・平均${best.avg.toFixed(1)}点）${practice ? "。見るだけなので、案件にはしません" : kept.length ? `。上位${kept.length}件を案件にします` : ""}`, batch: batchId });
+  if (best) liveNote({ who: "システム", provider: null, kind: "採点の結果", text: `1位は「${best.idea.title}」（${modelLabel(best.author)}の案・平均${best.avg.toFixed(1)}点）${practice ? "。見るだけなので、案件にはしません" : kept.length ? `。上位${kept.length}件を案件にします` : opts.noRevival ? "。新しい案件を休んでいるため、案件にはしません" : ""}`, batch: batchId });
   return { candidates, kept };
   } finally {
     activities.delete(act);
