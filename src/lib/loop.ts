@@ -837,7 +837,11 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
           logEvent(p.id, "system", "tool-polish", `磨く前の版の直しに失敗しました: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
           return null;
         });
-        const r3 = fixed ? await check(fixed) : null;
+        // 直した版のチェック自体が失敗したとき（AIの呼び出しの失敗など）も、止めずに下の「直せなかったとき」に回す
+        const r3 = fixed ? await check(fixed).catch((e) => {
+          logEvent(p.id, "system", "tool-polish", `直した版のチェックに失敗しました: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+          return null;
+        }) : null;
         if (fixed && r3?.review.ok) {
           html = fixed;
           r = r3;
