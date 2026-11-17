@@ -20,7 +20,8 @@ export function shareImageText(lp: Lp, title: string, siteName: string) {
   return { title, headline: lp.headline, badge: lp.design?.badge ?? "", label, siteName };
 }
 
-export function ShareImage({ lp, title, siteName }: { lp: Lp; title: string; siteName: string }) {
+// result: 結果つきでシェアされたときの結果の名前。あれば見出しの代わりに大きく出す
+export function ShareImage({ lp, title, siteName, result }: { lp: Lp; title: string; siteName: string; result?: string }) {
   const theme = THEMES[lp.design?.theme ?? "trust"];
   const accent = theme.accent[0];
   const soft = theme.soft[0];
@@ -37,7 +38,14 @@ export function ShareImage({ lp, title, siteName }: { lp: Lp; title: string; sit
         ) : null}
       </div>
       <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 40 }}>
-        <div style={{ display: "flex", flex: 1, fontSize: size, fontWeight: 700, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{t.headline}</div>
+        {result ? (
+          <div style={{ display: "flex", flex: 1, flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", fontSize: 34, fontWeight: 700, color: "#444444" }}>結果は</div>
+            <div style={{ display: "flex", fontSize: result.length > 16 ? 56 : result.length > 10 ? 68 : 84, fontWeight: 700, lineHeight: 1.2, color: accent }}>「{result}」</div>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flex: 1, fontSize: size, fontWeight: 700, lineHeight: 1.3, letterSpacing: "-0.01em" }}>{t.headline}</div>
+        )}
         {ill ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={ill.url} alt="" width={450} height={300} style={{ borderRadius: 24, objectFit: "cover" }} />

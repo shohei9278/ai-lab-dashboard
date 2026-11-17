@@ -15,6 +15,12 @@ test("じっくり案件の枠: データは window.labData に置き、閉じ�
   assert.ok(html.includes("window.labData="));
   assert.ok(!html.includes("</script><script>alert(1)"));
   assert.ok(html.includes("https://fonts.googleapis.com") && html.includes("https://fonts.gstatic.com"));
+  // 紹介イラストは、その場所の画像だけを読めるようにし、window.labAssets で渡す。https でない URL は使わない
+  const withIll = wrapToolHtml("<p>x</p>", { illustration: "https://abc.supabase.co/storage/v1/object/public/ill/p40.png" });
+  assert.ok(withIll.includes("img-src data: blob: https://abc.supabase.co;"));
+  assert.ok(withIll.includes('window.labAssets={"illustration":"https://abc.supabase.co/storage/v1/object/public/ill/p40.png"}'));
+  const bad = wrapToolHtml("<p>x</p>", { illustration: "javascript:alert(1)" });
+  assert.ok(bad.includes("img-src data: blob:;") && bad.includes("window.labAssets={}"));
   const plain = wrapToolHtml("<p>x</p>");
   assert.ok(!plain.includes("labData") && !plain.includes("fonts.googleapis.com"));
   // 親のページが遅れて受け取れるようになっても、聞き直せば高さを知らせ直す
@@ -36,7 +42,8 @@ test("じっくり案件の中身: 上限を超えるデータは公開する中
 
 test("じっくり案件のコードの決まり: Google Fonts の読み込みだけを許し、ほかの外部ファイルや通信は止める", () => {
   const font = '<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic&display=swap" rel="stylesheet"><script>1</script>';
-  assert.ok(staticToolIssues(font, false).some((x) => x.includes("外部のファイル")));
+  // Google Fonts は、じっくり案件でなくても使ってよい
+  assert.deepEqual(staticToolIssues(font, false), []);
   assert.deepEqual(staticToolIssues(font, true), []);
   assert.ok(staticToolIssues('<link href="https://example.com/a.css" rel="stylesheet"><script>1</script>', true).some((x) => x.includes("外部のファイル")));
   assert.ok(staticToolIssues('<script>fetch("https://fonts.googleapis.com/x")</script>', true).some((x) => x.includes("通信")));

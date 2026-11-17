@@ -26,7 +26,7 @@ export function ApiWishes() {
             <tbody className="divide-y divide-line align-top">
               {list.map((w) => (
                 <tr key={w.name}>
-                  <td className="min-w-[7rem] py-1.5 pr-3 font-medium" title={w.titles.join(" / ")}>{w.name}</td>
+                  <td className="min-w-[7rem] py-1.5 pr-3 font-medium">{w.name}</td>
                   <td className="num py-1.5 pr-3 text-right">{w.count}</td>
                   <td className="py-1.5 pr-3 text-xs text-ink-2">{w.purposes.join(" / ")}</td>
                   <td className="whitespace-nowrap py-1.5 pr-3 text-xs">{w.key ? "要る" : "不要"}</td>

@@ -17,16 +17,17 @@ function record(slug: string, version: number, kind: "use" | "share") {
 }
 
 // ツール本体。最初に操作されたときに「使った」と記録する
-export function ToolSection({ slug, version, html, title, data, fonts }: { slug: string; version: number; html: string; title: string; data?: unknown[]; fonts?: boolean }) {
+export function ToolSection({ slug, version, html, title, data, fonts, illustration }: { slug: string; version: number; html: string; title: string; data?: unknown[]; fonts?: boolean; illustration?: string }) {
   const onUse = useCallback(() => {
     record(slug, version, "use");
     gaEvent("tool_use", { lp_slug: slug, lp_version: version });
   }, [slug, version]);
-  return <ToolFrame html={html} title={title} onUse={onUse} data={data} fonts={fonts} />;
+  return <ToolFrame html={html} title={title} onUse={onUse} data={data} fonts={fonts} illustration={illustration} />;
 }
 
 // シェアのボタン（X とリンクのコピー）
-export function ShareButtons({ slug, version, text }: { slug: string; version: number; text: string }) {
+// results: 結果の種類が決まっているツールの結果の名前。ツールが結果の番号を知らせたら、シェアのリンクに ?r=番号 を付ける（その結果のシェア画像になる）
+export function ShareButtons({ slug, version, text, results }: { slug: string; version: number; text: string; results?: string[] }) {
   const [copied, setCopied] = useState(false);
   const shared = (method: string) => {
     record(slug, version, "share");
@@ -40,13 +41,24 @@ export function ShareButtons({ slug, version, text }: { slug: string; version: n
     window.addEventListener("lab-share-text", on);
     return () => window.removeEventListener("lab-share-text", on);
   }, []);
+  const [resultNo, setResultNo] = useState<number | null>(null);
+  useEffect(() => {
+    const on = (e: Event) => {
+      const i = Number((e as CustomEvent).detail);
+      setResultNo(Number.isInteger(i) && i >= 0 && i < (results?.length ?? 0) ? i : null);
+    };
+    window.addEventListener("lab-share-result", on);
+    return () => window.removeEventListener("lab-share-result", on);
+  }, [results]);
   const shareText = result ? `${result}\n${text}` : text;
   // シェアするリンクには、どこから来たかの目印（?s=…）を引き継がない
   useEffect(() => setUrl(window.location.origin + window.location.pathname), []);
+  // 結果の番号が分かっていれば、その結果のシェア画像が出るリンクにする
+  const shareUrl = url && resultNo !== null ? `${url}?r=${resultNo}` : url;
   return (
     <div className="flex flex-wrap justify-center gap-3">
       <a
-        href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(url)}`}
+        href={`https://x.com/intent/post?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`}
         target="_blank"
         rel="noreferrer"
         onClick={() => shared("x")}
@@ -59,7 +71,7 @@ export function ShareButtons({ slug, version, text }: { slug: string; version: n
         type="button"
         onClick={async () => {
           try {
-            await navigator.clipboard.writeText(url);
+            await navigator.clipboard.writeText(shareUrl);
             setCopied(true);
             shared("copy");
           } catch {}

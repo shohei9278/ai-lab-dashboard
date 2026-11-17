@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { viralHints } from "./viralPosts";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
-import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
+import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, toolResultsOf, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
 import { MODELS, hasKey, modelInfo } from "./models";
 import { screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
@@ -485,7 +485,8 @@ ${(Object.keys(DESIGN_OPTIONS) as (keyof typeof DESIGN_OPTIONS)[]).map((k) => `-
 - illustrationPrompt: 見出しの横に置くイラストを描くAIへの指示（英語で2〜3文）。サービスを使っている場面や、困りごとが解決した場面を、人物の顔をはっきり描かない形で。文字・ロゴ・実在の人物や商品は描かせない
 - preview: 完成したら使う画面のイメージ。kind は ${PREVIEW_KINDS.join(" / ")} のどれか。rows は1行あたり最大4つの短い文字列で3〜5行（list は [項目, 状態]、table は columns と各行、chat は [話し手, 発言]、form は [項目名, 入力例]）。人名は「山田さん」程度の仮名にし、実在の会社名や効果の数字は入れない
 - features[].icon: ${ICONS.join(" / ")} から内容に合うもの
-- steps: 使い方を3ステップ（任意）
+- steps: 使い方を2〜4ステップ（任意）
+- pains・features・faq・steps の数は中身に合わせて決める（pains 2〜4、features 2〜5、faq 0〜4、steps 2〜4）。いつも同じ数にそろえない。形式の例の数は、例にすぎない
 - beforeAfter: 使う前の状態と、使ったあとに目指す状態を各2〜3個（任意。効果を断言しない）${isTool ? "\n- shareText: X でシェアするときの文（60文字以内。ハッシュタグは1つまで。誇張しない）" : ""}
 形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明","icon":"clock"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2],"design":{"theme":"trust","layout":"split","font":"gothic","pattern":"none","corners":"round","painStyle":"cards","featureStyle":"cards","order":["pains","features","steps","faq"],"badge":"ラベル"},"illustrationPrompt":"A calm scene of ...","preview":{"title":"画面の名前","kind":"list","columns":[],"rows":[["項目","状態"]]},"steps":[{"title":"手順","body":"説明"}×3],"beforeAfter":{"before":["今の状態"],"after":["目指す状態"]}${isTool ? ',"shareText":"シェアの文"' : ""}}`,
     user: `サービス名: ${p.title}\n対象: ${p.target}\n課題: ${p.problem}\n解決策: ${p.solution}\n仮説: ${p.hypothesis}${prev}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`,
@@ -620,9 +621,10 @@ function scriptStrings(js: string): string[] {
 // ---- 動くツールの本体 ----
 
 // 隔離された枠の中では使えないもの・外部への通信など、コードを読めば分かる問題を先に見つける
-// deep: じっくり案件のとき（Google Fonts の読み込みだけは外部のファイルとして数えない。コードの上限は TOOL_DEEP_CODE_MAX）
+// Google Fonts の読み込みだけは、どのツールでも外部のファイルとして数えない
+// deep: じっくり案件のとき（コードの上限は TOOL_DEEP_CODE_MAX）
 export function staticToolIssues(html: string, deep = false): string[] {
-  const src = deep ? html.replace(/<link[^>]*\bhref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"']*["'][^>]*>/gi, "").replace(/@import\s+url\(\s*["']?https:\/\/fonts\.googleapis\.com\/[^)]*\)\s*;?/gi, "") : html;
+  const src = html.replace(/<link[^>]*\bhref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"']*["'][^>]*>/gi, "").replace(/@import\s+url\(\s*["']?https:\/\/fonts\.googleapis\.com\/[^)]*\)\s*;?/gi, "");
   const rules: [RegExp, string][] = [
     [/\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|navigator\.sendBeacon/, "外部と通信している（通信は遮断されるので動かない）"],
     [/<script[^>]*\bsrc\s*=|<link[^>]*\bhref\s*=|@import|url\(\s*['"]?https?:/i, "外部のファイルを読み込んでいる"],
@@ -635,13 +637,19 @@ export function staticToolIssues(html: string, deep = false): string[] {
   const max = deep ? TOOL_DEEP_CODE_MAX : TOOL_HTML_MAX;
   if (html.length > max) issues.push(`長すぎる（${html.length}文字。${max}文字以内${deep ? "。データは window.labData のまま使い、コードに書き写さない" : ""}）`);
   if (!/<script[\s>]/i.test(html)) issues.push("スクリプトがなく、ツールとして動かない");
+  if (/id\s*=\s*["']lab-results["']/i.test(html) && !toolResultsOf(html)) issues.push(`結果の一覧（lab-results）が決まりに合わない（結果の名前の配列（JSON）で、1〜${TOOL_RESULTS_MAX}個・どれも空でなく${TOOL_RESULT_LEN}文字以内にする。labResult の番号はこの並び順で数える）`);
   return issues;
 }
 
 // じっくり案件のツールで、ふつうのツールと違うところ（データは先に置かれている・Google Fonts を使える・見た目に手をかける）
 // data: 人が確かめたデータ（大きなデータが要るじっくり案件だけ）
+// 外への通信の決まり。フォントだけは、どのツールでも Google Fonts を使ってよい（CSP もその2か所だけ開ける）
+const FONT_RULE = `- 外部のファイル・画像・API・CDN は使わない（通信は遮断される）。フォントだけは、Google Fonts を <link href="https://fonts.googleapis.com/css2?family=…&display=swap" rel="stylesheet"> で読み込んでよい（日本語が出るものを1〜2種類まで。ツールの雰囲気に合う書体を選び、読み込めなくても読める指定にする）`;
+// このツールの紹介イラストは、ツールの中でも飾りに使ってよい（あとから描くので、ないときも崩れない作りにする）
+const ASSET_RULE = `- window.labAssets.illustration に、このツールの紹介イラスト（横長の画像の URL）が入っていることがある。あれば <img> で見出しや結果の画面の飾りに使ってよい。ないとき・読み込めないときも崩れないようにする。canvas には描かない（結果の画像を保存できなくなる）`;
+
 function deepToolNote(data: DeepData | null): string {
-  return `- 外部のファイル・画像・API・CDN は使わない（通信は遮断される）。フォントだけは、Google Fonts を <link href="https://fonts.googleapis.com/css2?family=…&display=swap" rel="stylesheet"> で読み込んでよい（日本語が出るものを1〜2種類まで。読み込めなくても読める指定にする）
+  return `${FONT_RULE}
 ${data ? `- データは、人が確かめた一覧が window.labData（配列。${data.rows.length}件）として先に置かれている。コードに書き写さず、window.labData を読んで使う。項目: ${data.spec.fields.map((f) => `${f.key}（${f.label}・${f.kind === "fact" ? "事実" : "遊びのための見立て"}）`).join(" / ")}
 - 見立ての項目は、事実のように見せない（結果の画面に「遊びの見立てです」と分かる一言を入れる）
 ` : ""}- 見た目に手をかける: 色・余白・文字の大きさ・動き（CSS のアニメーション）を工夫し、結果の画面を、人に見せたくなる・記憶に残るものにする。効果音を使うなら Web Audio API で作り（ファイルは使えない）、最初は鳴らさず、押したときだけ鳴らす
@@ -654,7 +662,8 @@ type DeepData = { spec: DeepSpec; rows: DeepRow[] };
 function toolRules(deep: { data: DeepData | null } | null): string {
   return `守ること:
 - 1つのHTMLの断片だけを書く（<style> と <script> を含めてよい。<html><head><body> は書かない）
-${deep ? deepToolNote(deep.data) : "- 外部のファイル・フォント・画像・API・CDN は一切使わない（通信はすべて遮断される）。必要なデータはコードの中に書く"}
+${deep ? deepToolNote(deep.data) : `${FONT_RULE}。必要なデータはコードの中に書く`}
+${ASSET_RULE}
 - localStorage・sessionStorage・Cookie・IndexedDB・alert・confirm・prompt・window.open は使えない（エラーになる）。別のページを開くリンクも動かない
 - 結果を画像としてダウンロードさせることと、文をクリップボードにコピーすることはできる
 - フォームは送信しない（ボタンは type="button"）。入力は端末の中だけで処理する
@@ -662,10 +671,11 @@ ${deep ? deepToolNote(deep.data) : "- 外部のファイル・フォント・画
 - スマホ幅（360px）でも崩れない。prefers-color-scheme でライト・ダークの両方で読めるようにする
 - 日本語。開いた瞬間に使い方が分かるようにする。入力欄は空にし、入力例は placeholder で見せる（入力例の値で、結果を最初から出しておかない。結果は利用者が入力・選択・ボタンを押したときにすぐ表示する）。すぐ試したい人のために「例で試す」ボタンを置いてもよい
 - 結果は、シェアしたくなる見せ方を工夫する。結果が出るたびに、その結果を伝える短い一文（60文字くらい。個人を特定できる内容は入れない）を作り、window.labShare && window.labShare("その一文") を呼ぶ（ページのシェアのボタンの文に使われる）
+- 結果の種類が決まっているツール（診断・タイプ分け・くじなど）は、<script type="application/json" id="lab-results">["結果の名前", …]</script> に結果の名前をすべて書き（${TOOL_RESULTS_MAX}個まで・1つ${TOOL_RESULT_LEN}文字まで・短く印象に残る名前）、結果を出すたびに window.labResult && window.labResult(その結果の番号。0から) を呼ぶ（シェアされたリンクに、その結果の名前を大きく出した画像が付く）。数の計算など、結果が決まった種類でないツールは書かない
 - 架空の統計を事実のように書かない。診断・占いのような遊びのツールは、そうと分かる一言を入れる。医療・法律・お金の助言はしない
 - 実在の人物・団体のデータは、正確だと確信できるものだけを使う。不確かなら使わない
 - 入力欄の上限・下限（min・max）と、エラー文・注意書き・説明の中の数字（「300cm以下」など）を同じ値にする。上限を変えるときは、その数字を書いた所もすべて直す${deep ? "" : "\n- 全体で40,000文字以内。データの一覧は代表的なものに絞り、何百件も書き連ねない。読みやすく、動作の確かなコードにする"}
-- 「何ができるツールか」や修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）は、初期値・プリセット・選択肢・入力例・便利な機能の形でも書かない（例外にしない）
+- 「何ができるツールか」や修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）は、初期値・プリセット・選択肢・入力例・便利な機能の形でも書かない。ただし「例で試す」のボタンで、例だと分かるように示した値（例: 「東京の緯度 35.7」）をまとめて入れ、すぐ結果を見せるのはよい。料金・手数料率など、使う人ごとに違い、間違えると損をする値は、例のボタンでも入れない
 - canvas で角丸の四角形・幅に収める文字・折り返しを描くときは、自分で書かずに次の確かめ済みの関数をそのまま貼って使う（中身は変えない）:
 \`\`\`js
 ${CANVAS_HELPERS_JS}
@@ -727,12 +737,12 @@ async function reviewTool(p: ProjectRow, html: string, instruction?: string): Pr
     projectId: p.id,
     system: `あなたはWebツールの公開前チェック担当です。コードを読んで、次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
 - 文法の誤りや、ボタンを押しても何も起きない・結果が出ないなど、動かない箇所がある
-- 外部への通信、外部ファイルの読み込み、保存領域・Cookie・alert・window.open を使っている${p.deep ? `（このツールはじっくり案件。Google Fonts の読み込みは問題にしない${p.deep_need ? "。先に置かれた window.labData を読むことも問題にしない。window.labData の中身をコードに書き写していたら問題にする）\n- 遊びのための見立てのデータを、事実のように見せている" : "）"}` : ""}
+- 外部への通信、外部ファイルの読み込み、保存領域・Cookie・alert・window.open を使っている（Google Fonts の読み込みと、window.labAssets のイラストを <img> で出すことは問題にしない）${p.deep ? `（このツールはじっくり案件${p.deep_need ? "。先に置かれた window.labData を読むことも問題にしない。window.labData の中身をコードに書き写していたら問題にする）\n- 遊びのための見立てのデータを、事実のように見せている" : "）"}` : ""}
 - 個人を特定できる情報を入力させている
 - 架空の統計を事実のように書いている、医療・法律・お金の助言をしている、誰かを傷つける・差別的な内容がある
 - 実在の人物・団体について、不正確そうなデータを使っている
 - 「${p.solution}」というツールの目的からずれている
-- ツールの目的や今回の修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）を、初期値・プリセット・選択肢・入力例・便利な機能などの形でコードに書いている
+- ツールの目的や今回の修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）を、初期値・プリセット・選択肢・入力例・便利な機能などの形でコードに書いている（「例で試す」のボタンで、例だと分かるように示した値をまとめて入れるのは問題にしない。ただし料金・手数料率など、使う人ごとに違い、間違えると損をする値を例のボタンで入れていたら問題にする）
 - canvas などで画像を作るとき、入力できる最大の文字数でも、本文とロゴ・ハッシュタグなどが重ならない作りになっていない（本文を描く範囲の下端が決まっていない）
 - 入力欄の上限・下限（min・max）と、エラー文・注意書き・説明の中の数字が食い違っている（max が 600 なのにエラー文が「300cm以下」など）
 - 「最小です」「ゼロにできます」のように理論上のことを言い切る表示が、小さな条件（人数が少ない・値が0や1など）で実際に手計算すると成り立たない
@@ -790,7 +800,7 @@ ${toolRules(deep)}
 async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review; test: ToolTest; model: string; rewrites: number; deep: { data?: DeepRow[]; fonts: true } | null }> {
   let model = toolModelFor(p);
   const deep = deepContext(p);
-  const frame = deep ? { data: deep.data?.rows, fonts: true as const } : {};
+  const frame = deep ? { data: deep.data?.rows, fonts: true as const } : { fonts: true as const };
   // 長すぎて最後まで書けなかったら、別の会社のAIに規模を絞って書き直してもらう（同じAIで繰り返すと、同じ所で切れやすい）
   const write = async (note?: string, base?: string): Promise<string> => {
     try {
@@ -1137,7 +1147,7 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html);
   const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined, tool.html);
   const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
-  let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline, ...(tool.deep ?? {}) } });
+  let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline, fonts: true, results: toolResultsOf(tool.html), ...(tool.deep ?? {}) } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
   if (tool.deep?.data && !lp.tool.data) throw new Error("じっくり案件のデータが大きすぎるため保存できませんでした");
   if (lp.design) lp.design.illustration = before?.design?.illustration;
