@@ -1391,8 +1391,9 @@ export async function judge(projectId: number, trigger: JudgeTrigger = "visits")
   takeExtras(d, { modelId: getSettings().loopModel, scene: "撤退・継続の判断", projectId });
   recordVoiceEffects((d as { voice_effects?: unknown }).voice_effects, { scene: "撤退・継続の判断", modelId: getSettings().loopModel, projectId });
   logEvent(projectId, "ai", "judge", `判断を提案: ${DECISION_LABEL[d.decision]}`);
-  // 同じ数字で何度も判断し直さないよう、判断した時点の訪問数と広告費を覚えておく
+  // 同じ数字で何度も判断し直さないよう、判断した時点の訪問数と広告費を覚えておく（「広がる」は、遊んだ人とシェアの累計も。次の判定はこのあとの分だけで見る）
   db().prepare("UPDATE projects SET judged_visits = ?, judged_ad_jpy = ?, judged_at = datetime('now') WHERE id = ?").run(prompt.all.visits, prompt.all.adSpendJpy, projectId);
+  markSpreadBase(projectId);
 
   const approvalId = await applyDecision(p, d, prompt.all.adSpendJpy);
   // 実際の流れを待たせないよう、裏比較は後ろで走らせる
@@ -2015,7 +2016,8 @@ async function announcePublish(projectId: number) {
       db().prepare("UPDATE projects SET published_at = COALESCE(published_at, datetime('now')) WHERE id = ?").run(projectId);
       // 初めて公開したときは、企画で決めた最初の届け方を、運営者がやること（提案箱）に入れる
       // フォロワーがほぼいない自動投稿だけでは、判断に必要な訪問が集まらないため
-      if (!p.published_at && p.first_channel) {
+      // ねらいが「広がる」の案件は、1日1本出すので運営者の手作業は頼まない（自分の投稿で広がるかを見る）
+      if (!p.published_at && asksFirstChannel(p)) {
         addProposal({
           title: `「${p.title}」${FIRST_CHANNEL_TITLE}`,
           how: `${p.first_channel}\nページ: ${publicUrl(projectId) ?? slugOf(projectId)}`,
@@ -2112,6 +2114,9 @@ export async function maybeAutoJudge(projectId: number) {
   return true;
 }
 
+// 初めて公開したときに、企画で決めた最初の届け方を運営者に頼むか（「広がる」は頼まない。1日1本出すので、毎日の手作業になるため）
+export const asksFirstChannel = (p: Pick<ProjectRow, "first_channel" | "aim">) => !!p.first_channel && p.aim !== "spread";
+
 // 企画で決めた最初の届け方（公開したときに、運営者がやることとして提案箱に入れたもの）を、やったかどうか
 // 提案箱の返事（やった・見送り）を、そのまま実施の記録として使う
 // 公開したときに入れる届け方のお願いの題の終わり（ほかの「公開」のお願いと見分けるのに使う）
@@ -2165,12 +2170,22 @@ export function holdProject(projectId: number, reason: string, until: string, se
   logEvent(projectId, "human", "hold", `${extending ? "集客のお休みの期間を変更しました" : "集客をお休みにしました"}（公開は続けます。${until}に集客へ戻します。それまで宣伝・判断・改善を止めます）`);
 }
 
-// 「広がる」の案件の、遊んだ人の数・シェアの数と、当たりの基準を超えたか（どちらかが基準以上なら当たり）
-export function spreadResult(p: Pick<ProjectRow, "id">): { plays: number; shares: number; hit: boolean } {
+// 遊んだ人（利用）とシェアの、今の累計
+function spreadTotals(projectId: number): { plays: number; shares: number } {
+  const all = projectTotals(projectId);
+  return { plays: all.signups, shares: all.rows.reduce((n, r) => n + (r.shares ?? 0), 0) };
+}
+// 「広がる」の判定の起点を、今の累計にする（判断したとき・集客に戻したとき）
+export function markSpreadBase(projectId: number) {
+  const t = spreadTotals(projectId);
+  db().prepare("UPDATE projects SET spread_base_plays = ?, spread_base_shares = ? WHERE id = ?").run(t.plays, t.shares, projectId);
+}
+// 「広がる」の案件の、判定の起点（公開・前回の判断・再開）からの遊んだ人の数・シェアの数と、当たりの基準を超えたか（どちらかが基準以上なら当たり）
+export function spreadResult(p: Pick<ProjectRow, "id" | "spread_base_plays" | "spread_base_shares">): { plays: number; shares: number; hit: boolean } {
   const s = getSettings();
-  const all = projectTotals(p.id);
-  const plays = all.signups;
-  const shares = all.rows.reduce((n, r) => n + (r.shares ?? 0), 0);
+  const t = spreadTotals(p.id);
+  const plays = Math.max(0, t.plays - (p.spread_base_plays ?? 0));
+  const shares = Math.max(0, t.shares - (p.spread_base_shares ?? 0));
   return { plays, shares, hit: plays >= s.spreadHitPlays || shares >= s.spreadHitShares };
 }
 
@@ -2186,6 +2201,8 @@ export function resumeProject(projectId: number, by: "human" | "system" = "human
   if (p?.stage !== "hold") throw new Error("集客をお休みしている案件ではありません");
   db().prepare("UPDATE projects SET stage = 'live', hold_reason = NULL, hold_until = NULL, resumed_at = datetime('now'), judged_visits = ?, updated_at = datetime('now') WHERE id = ?")
     .run(projectTotals(projectId).visits, projectId);
+  // 「広がる」は、戻したあとの遊んだ人とシェアだけで次の判定をする
+  markSpreadBase(projectId);
   logEvent(projectId, by, "resume", by === "human" ? "集客のお休みをやめて、集客に戻しました" : "再開日になったので、集客のお休みから集客に戻しました");
 }
 
@@ -2461,20 +2478,19 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   }
   let spreadLeft = practice ? Infinity : opts.spreadRoom ?? Infinity;
   const kept = pickByAims(candidates.map((c) => ({ c, aim: aimOfIdea(c.idea), avg: c.avg, author: c.author })), keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, ({ c, aim }) => {
-    // 「広がる」は、今回案件にしてよい件数まで（同時に集客中の上限・1日の上限）
-    if (aim === "spread") {
-      if (spreadLeft <= 0) {
-        logEvent(null, "system", "spread-skipped", `アイデア「${c.idea.title}」は「広がる」ですが、今回作ってよい件数を超えるため、案件にしません`);
-        return false;
-      }
-      spreadLeft--;
+    // 「広がる」は今回案件にしてよい件数まで（同時に集客中の上限・1日の上限）、じっくり案件は直近7日の上限まで
+    // どちらの条件も通ってから枠を減らす（片方で外れた案が、もう片方の枠を使わないように）
+    const deep = isDeepIdea(c.idea);
+    if (aim === "spread" && spreadLeft <= 0) {
+      logEvent(null, "system", "spread-skipped", `アイデア「${c.idea.title}」は「広がる」ですが、今回作ってよい件数を超えるため、案件にしません`);
+      return false;
     }
-    if (!isDeepIdea(c.idea)) return true;
-    if (deepLeft <= 0) {
+    if (deep && deepLeft <= 0) {
       logEvent(null, "system", "deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、直近7日の上限に達しているため、今回は案件にしません`);
       return false;
     }
-    deepLeft--;
+    if (aim === "spread") spreadLeft--;
+    if (deep) deepLeft--;
     return true;
   }).map((x) => x.c);
   if (!practice && !opts.noRevival) proposeRevival(candidates.filter((c) => !kept.includes(c)));

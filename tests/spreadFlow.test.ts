@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
-import { aimBlocks, getProject, liveCounts, maybeAutoJudge, newProjectBlock, spreadMadeToday, spreadResult, spreadRoom } from "../src/lib/loop";
+import { aimBlocks, asksFirstChannel, getProject, liveCounts, maybeAutoJudge, newProjectBlock, resumeProject, spreadMadeToday, spreadResult, spreadRoom } from "../src/lib/loop";
 
 const add = (opts: { stage?: string; aim?: string | null; publishedDaysAgo?: number; createdDaysAgo?: number } = {}) =>
   Number(db().prepare(`INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, published_at, created_at)
@@ -59,7 +59,7 @@ test("広がる: 3日たつまでは判定しない。当たらなければ、�
 
   const miss = add({ publishedDaysAgo: 4 });
   metrics(miss, 80, 19, 2);
-  assert.deepEqual(spreadResult({ id: miss }), { plays: 19, shares: 2, hit: false });
+  assert.deepEqual(spreadResult(getProject(miss)!), { plays: 19, shares: 2, hit: false });
   assert.equal(await maybeAutoJudge(miss), true);
   const p = getProject(miss)!;
   assert.equal(p.stage, "hold");
@@ -72,8 +72,30 @@ test("広がる: 3日たつまでは判定しない。当たらなければ、�
 test("広がる: 遊んだ人かシェアのどちらかが基準以上なら当たり", () => {
   const a = add();
   metrics(a, 30, 20, 0);
-  assert.equal(spreadResult({ id: a }).hit, true);
+  assert.equal(spreadResult(getProject(a)!).hit, true);
   const b = add();
   metrics(b, 10, 2, 3);
-  assert.equal(spreadResult({ id: b }).hit, true);
+  assert.equal(spreadResult(getProject(b)!).hit, true);
+});
+
+test("広がる（PR #85 の ai-review の指摘）: 集客に戻したら、戻したあとの遊んだ人とシェアだけで次の判定をする", async () => {
+  const id = add({ publishedDaysAgo: 4 });
+  metrics(id, 80, 19, 2);
+  assert.equal(await maybeAutoJudge(id), true);
+  assert.equal(getProject(id)!.stage, "hold");
+  // 戻したあとに1人だけ遊んでも、累計（20人）では当たりにしない
+  resumeProject(id);
+  metrics(id, 5, 1, 0);
+  assert.deepEqual(spreadResult(getProject(id)!), { plays: 1, shares: 0, hit: false });
+  // 戻したあと3日たったら、その分だけで判定して、またお休みにする
+  db().prepare("UPDATE projects SET resumed_at = datetime('now', '-4 days') WHERE id = ?").run(id);
+  assert.equal(await maybeAutoJudge(id), true);
+  assert.match(getProject(id)!.hold_reason ?? "", /遊んだ人1人・シェア0件/);
+});
+
+test("広がる: 初めて公開したときに、最初の届け方を運営者に頼まない（ほかのねらいは今までどおり頼む）", () => {
+  assert.equal(asksFirstChannel({ first_channel: "コミュニティに紹介（2か所）", aim: "spread" }), false);
+  assert.equal(asksFirstChannel({ first_channel: "コミュニティに紹介（2か所）", aim: "useful" }), true);
+  assert.equal(asksFirstChannel({ first_channel: "コミュニティに紹介（2か所）", aim: null }), true);
+  assert.equal(asksFirstChannel({ first_channel: null, aim: "useful" }), false);
 });

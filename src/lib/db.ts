@@ -665,6 +665,9 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "deep_plan", "TEXT"], // じっくり案件で何を作り込むか（アイデアに書かれたもの）
   ["projects", "aim", "TEXT"], // ねらい（spread 広がる / useful 役に立つ / return また来てもらう / demand 需要を確かめる。aims.ts）。前からある案件は空
   ["projects", "genre", "TEXT"], // ジャンル（自由な短い言葉。例: ガチャ・診断）
+  // 「広がる」の判定の起点の、遊んだ人（利用）とシェアの累計（判断・再開のたびに今の累計にする。判定はこの差だけで見る）
+  ["projects", "spread_base_plays", "INTEGER NOT NULL DEFAULT 0"],
+  ["projects", "spread_base_shares", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
   ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
@@ -962,6 +965,8 @@ export type ProjectRow = {
   growth_focus: string | null;
   growth_focus_at: string | null;
   growth_phase: number;
+  spread_base_plays: number; // 「広がる」の判定の起点の累計（遊んだ人・シェア）
+  spread_base_shares: number;
   growth_count: number;
   human_review: "ok" | "bad" | null;
   human_review_note: string | null;
