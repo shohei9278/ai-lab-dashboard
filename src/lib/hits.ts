@@ -25,15 +25,16 @@ export async function maybeRecordFollowers(): Promise<number | null> {
 }
 
 export type FollowerRow = { day: string; followers: number };
+const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+// 直近 days 日（日本時間の今日を含む）のフォロワー数の記録（記録のない日は入らない）
 export const followerHistory = (days = 30): FollowerRow[] =>
-  (db().prepare("SELECT day, followers FROM account_stats WHERE platform = 'x' ORDER BY day DESC LIMIT ?").all(days) as FollowerRow[]).reverse();
+  db().prepare("SELECT day, followers FROM account_stats WHERE platform = 'x' AND day >= ? ORDER BY day").all(addDays(jstToday(), -(days - 1))) as FollowerRow[];
 
-// その日（日本時間）か、それより前でいちばん近い日のフォロワー数（記録がなければ null）
+// その日（日本時間）ちょうどのフォロワー数（記録がなければ null。読めなかった日を、ほかの日の数で埋めない）
 function followersOn(day: string): number | null {
-  const r = db().prepare("SELECT followers FROM account_stats WHERE platform = 'x' AND day <= ? ORDER BY day DESC LIMIT 1").get(day) as { followers: number } | undefined;
+  const r = db().prepare("SELECT followers FROM account_stats WHERE platform = 'x' AND day = ?").get(day) as { followers: number } | undefined;
   return r?.followers ?? null;
 }
-const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 // UTC の日時（"YYYY-MM-DD HH:MM:SS"）を、日本時間の日付にする
 const jstDayOf = (utc: string) => new Date(Date.parse(utc.replace(" ", "T") + "Z") + 9 * 3_600_000).toISOString().slice(0, 10);
 
@@ -57,7 +58,7 @@ export function hitRows(days = 90): HitRow[] {
     const t = projectTotals(r.id);
     const day = jstDayOf(r.published_at);
     const later = addDays(day, 3);
-    // 公開の前の日の数と、3日後の数（3日たっていなければ、まだ測れない）
+    // 公開の前の日の数と、3日後の数（3日たっていなければ、まだ測れない。どちらかの日の記録がなければ、測れなかったとする）
     const before = followersOn(addDays(day, -1));
     const after = later <= today ? followersOn(later) : null;
     const hit = r.aim === "spread"

@@ -43,6 +43,8 @@ test("フォロワー数: 1日1回だけ X から読んで記録する（キー�
 
 test("当たりの記録: ねらい・ジャンルごとに、遊んだ人・シェア・当たり・公開から3日のフォロワーの増えをまとめる", () => {
   db().prepare("DELETE FROM account_stats").run();
+  // 公開の日は、日本時間の日付で決める（published_at は UTC の datetime('now', '-N days')）
+  const jstDay = (n: number) => new Date(Date.now() - n * 86_400_000 + 9 * 3_600_000).toISOString().slice(0, 10);
   const add = (aim: string, genre: string | null, publishedDaysAgo: number, extra: { spread_hit?: number | null; stage?: string; growth_phase?: number } = {}) =>
     Number(db().prepare(`INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, genre, published_at, spread_hit, growth_phase)
       VALUES (?, 't', 'p', 's', 'h', 'r', ?, 'claude', 'tool', ?, ?, datetime('now', ?), ?, ?)`)
@@ -57,14 +59,16 @@ test("当たりの記録: ねらい・ジャンルごとに、遊んだ人・シ
   metrics(c, 30, 1);
   add("spread", "手ざわり", 1); // まだ判定していない
   add("useful", null, 200); // 90日より前は数えない
-  // フォロワー: a の公開の前の日に100、3日後に130
-  const pub = (n: number) => dayAgo(n);
-  db().prepare("INSERT INTO account_stats (day, platform, followers) VALUES (?, 'x', 100), (?, 'x', 130)").run(pub(11), pub(7));
+  // フォロワー: a の公開の前の日に100、3日後に130（この日は b の公開の前の日でもある）。b は3日後の記録がない（読めなかった日）
+  const shift = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+  db().prepare("INSERT INTO account_stats (day, platform, followers) VALUES (?, 'x', 100), (?, 'x', 130)").run(shift(jstDay(10), -1), shift(jstDay(10), 3));
 
   const rows = hitRows();
   assert.equal(rows.length, 4);
   const ra = rows.find((r) => r.id === a)!;
   assert.deepEqual([ra.plays, ra.shares, ra.hit, ra.followersGain], [40, 5, true, 30]);
+  // その日ちょうどの記録がなければ、ほかの日の数で埋めずに「測れなかった」（PR #88 の ai-review の指摘）
+  assert.equal(rows.find((r) => r.id === b)!.followersGain, null);
   // 3日たっていない案件は、フォロワーの増えをまだ測らない
   assert.equal(rows.find((r) => r.genre === "手ざわり")!.followersGain, null);
   assert.equal(rows.find((r) => r.id === c)!.hit, true);
@@ -78,4 +82,10 @@ test("当たりの記録: ねらい・ジャンルごとに、遊んだ人・シ
   const text = hitsText();
   assert.match(text, /広がる・ガチャ・診断: 2件（判定済み2件のうち当たり1件）/);
   assert.match(text, /3割以上は、まだ試していないジャンル/);
+});
+
+test("フォロワー数の記録: 直近14日は、記録の件数ではなく日付で絞る（PR #88 の ai-review の指摘）", () => {
+  db().prepare("DELETE FROM account_stats").run();
+  db().prepare("INSERT INTO account_stats (day, platform, followers) VALUES (?, 'x', 1), (?, 'x', 2), (?, 'x', 3)").run(dayAgo(40), dayAgo(13), dayAgo(0));
+  assert.deepEqual(followerHistory(14).map((f) => f.followers), [2, 3]);
 });
