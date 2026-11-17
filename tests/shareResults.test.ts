@@ -29,6 +29,14 @@ test("結果ごとのシェア: ツールに書かれた結果の一覧を取り
   assert.ok(staticToolIssues(tag(["A", "", "B"])).some((x) => x.includes("lab-results")));
   assert.equal(toolResultsOf("<script>1</script>"), undefined);
   assert.equal(toolResultsOf('<script id="lab-results">{x</script>'), undefined);
+  // ai-review の指摘: 引用符なしの属性も読み、id・type が2回書かれたものは読まない
+  assert.deepEqual(toolResultsOf('<script type=application/json id=lab-results>["A"]</script>'), ["A"]);
+  assert.equal(toolResultsOf('<script type=text/javascript id=lab-results>["A"]</script>'), undefined);
+  assert.ok(staticToolIssues('<script type=text/javascript id=lab-results>["A"]</script><script>1</script>').some((x) => x.includes("lab-results")));
+  assert.equal(toolResultsOf('<script type="text/javascript" type="application/json" id="lab-results">["A"]</script>'), undefined);
+  assert.equal(toolResultsOf('<script type="application/json" id="lab-results" id="x">["A"]</script>'), undefined);
+  // コメントの中に書かれたものは数えない
+  assert.deepEqual(toolResultsOf('<!-- <script id="lab-results"></script> --><script type="application/json" id="lab-results">["A"]</script>'), ["A"]);
   assert.equal(normalizeLp({ ...base, tool: { html: "<script></script>", shareText: "x", results: ["A", 3, "B"] } }).tool?.results, undefined);
   assert.deepEqual(normalizeLp({ ...base, tool: { html: "<script></script>", shareText: "x", results: ["A", "B"] } }).tool?.results, ["A", "B"]);
   assert.equal(normalizeLp({ ...base, tool: { html: "<script></script>", shareText: "x", results: [] } }).tool?.results, undefined);

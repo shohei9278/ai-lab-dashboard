@@ -21,6 +21,20 @@ test("ツールのページ: ツールを入れる場所の前後で、同じ he
   assert.equal(splitToolPage(page(`<section><h1>名前</h1>${TOOL_SLOT}</section><p>説明</p>`)), null);
   // body の直下なら、前に閉じたタグ・中身のない要素・コメント・script があっても分ける
   assert.ok(splitToolPage(page(`<header><h1>名前</h1><img src="x"><br/></header><!-- <div> --><script>if (a<b) {}</script>${TOOL_SLOT}<p>説明</p>`)));
+  // ai-review の指摘: 閉じタグの名前が食い違うと、ブラウザは置き場所を section の中に入れるので分けない
+  assert.equal(splitToolPage(page(`<section></div>${TOOL_SLOT}</section>`)), null);
+  assert.equal(splitToolPage(page(`<div><span></div></span>${TOOL_SLOT}<p>説明</p>`)), null);
+  // ai-review の指摘: 属性の付いたもの・div 以外・引用符なしでも、id が lab-tool の要素が2つ以上なら分けない
+  assert.equal(splitToolPage(page(`${TOOL_SLOT}<span id="lab-tool"></span>`)), null);
+  assert.equal(splitToolPage(page(`<section id=lab-tool></section>${TOOL_SLOT}`)), null);
+  assert.equal(splitToolPage(page(`<div class="x" id="lab-tool"></div>${TOOL_SLOT}`)), null);
+  // 形が違う置き場所（ほかの属性・中身あり・div 以外）だけのときも分けない
+  assert.equal(splitToolPage(page(`<div id="lab-tool" class="x"></div>`)), null);
+  assert.equal(splitToolPage(page(`<div id="lab-tool">x</div>`)), null);
+  assert.equal(splitToolPage(page(`<span id="lab-tool"></span>`)), null);
+  // script の文字列やコメントに書かれた id は要素ではないので数えない。引用符なし・空白入りの書き方の置き場所は分ける
+  assert.ok(splitToolPage(page(`<script>document.getElementById("lab-tool");var s='<div id="lab-tool"></div>'</script><!-- <div id="lab-tool"></div> -->${TOOL_SLOT}<p>説明</p>`)));
+  assert.ok(splitToolPage(page(`<h1>名前</h1><div id=lab-tool >\n</div><p>説明</p>`)));
 });
 
 test("ツールのページの決まり: 場所が1つ・画面の高さの単位と固定を使わない・登録フォームを置かない。LPの決まりは今のまま", () => {
