@@ -62,13 +62,13 @@ export default async function ProjectsPage() {
         {projects.some((p) => p.stage === "hold") && (
           <div className="mt-3 rounded-xl bg-surface-2 p-2">
             <div className="px-1 text-sm font-bold">公開中・集客お休み <span className="num font-normal text-muted">{projects.filter((p) => p.stage === "hold").length}</span></div>
-            <div className="px-1 text-xs text-muted">公開と記録は続けたまま、宣伝・判断・改善を止めている案件。再開日に自動で集客へ戻る</div>
+            <div className="px-1 text-xs text-muted">公開と記録は続けたまま、宣伝・判断・改善を止めている案件。再開日に自動で集客へ戻る（「広がる」で当たらなかった案件は再開日なし）</div>
             <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {projects.filter((p) => p.stage === "hold").sort((a, b) => (a.hold_until ?? "").localeCompare(b.hold_until ?? "")).map((p) => (
                 <li key={p.id}>
                   <Link href={`/projects/${p.id}`} className="card block p-3 hover:border-accent">
                     <div className="line-clamp-2 text-sm font-medium">{p.title}</div>
-                    <div className="num mt-1 text-xs text-ink-2">{p.hold_until} に再開</div>
+                    <div className="num mt-1 text-xs text-ink-2">{p.hold_until ? `${p.hold_until} に再開` : "再開日なし（手で戻す）"}</div>
                   </Link>
                 </li>
               ))}

@@ -349,14 +349,50 @@ async function startProject(id: number) {
   await prepareLp(id, undefined, { auto: true });
 }
 
-// 新しい案件を作れない理由（集客中の案件が上限以上・今月の予算で新しい案件を休む段階）。作れるなら null
-export function newProjectBlock(): string | null {
+// 集客中の案件の数。ねらいが「広がる」の案件は、ほかと別に数える（1日1本出して早めに判定するので、ほかの案件の枠を取り合わない）
+// 育てる段階に入った案件は数えない（うまくいった案件があっても、新しいアイデアは止めない）
+export function liveCounts(): { normal: number; spread: number } {
+  const out = { normal: 0, spread: 0 };
+  for (const r of db().prepare("SELECT CASE WHEN aim = 'spread' THEN 'spread' ELSE 'normal' END AS k, COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0 AND growth_phase = 0 GROUP BY k").all() as { k: "normal" | "spread"; n: number }[]) out[r.k] = r.n;
+  return out;
+}
+
+// 今日（日本時間）作った「広がる」の案件の数（見送り・撤退したものも数える）
+export function spreadMadeToday(): number {
+  return (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE demo = 0 AND aim = 'spread' AND date(created_at, '+9 hours') = ?").get(jstToday()) as { n: number }).n;
+}
+
+// ねらいごとの、新しい案件を作れない理由（作れるねらいは入らない）
+// 「広がる」は、同時に集客中の上限と、毎日の自動アイデア出しのときだけ1日の上限を見る（人が頼んだときは1日の上限で止めない）。ほかのねらいは、集客中の上限
+export function aimBlocks({ daily = false } = {}): Partial<Record<Aim, string>> {
   const s = getSettings();
-  const live = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0 AND growth_phase = 0").get() as { n: number }).n;
-  if (live >= s.maxLive) return `集客中の案件が${live}件で、上限（${s.maxLive}件）に達しています`;
+  const c = liveCounts();
+  const out: Partial<Record<Aim, string>> = {};
+  if (c.normal >= s.maxLive) for (const a of AIM_KEYS) if (a !== "spread") out[a] = `集客中の案件（「広がる」以外）が${c.normal}件で、上限（${s.maxLive}件）に達しています`;
+  if (c.spread >= s.spreadMaxLive) out.spread = `集客中の「広がる」の案件が${c.spread}件で、上限（${s.spreadMaxLive}件）に達しています`;
+  else if (daily && spreadMadeToday() >= s.spreadPerDay) out.spread = s.spreadPerDay ? `今日の「広がる」の案件は、もう${s.spreadPerDay}件作りました` : "「広がる」の案件は、毎日の自動では作らない設定です";
+  return out;
+}
+
+// 今回案件にしてよい「広がる」の件数（同時の上限まで。毎日の自動のときは、1日の上限まで）
+export function spreadRoom({ daily = false } = {}): number {
+  const s = getSettings();
+  const byLive = Math.max(0, s.spreadMaxLive - liveCounts().spread);
+  return daily ? Math.min(byLive, Math.max(0, s.spreadPerDay - spreadMadeToday())) : byLive;
+}
+
+// 新しい案件を作れない理由（今月の予算で新しい案件を休む段階・集客中の上限）。作れるなら null
+// aim を指定したらそのねらいだけを見る。指定しなければ、配分で出すねらい（重みのあるもの）がどれも作れないときだけ止める
+export function newProjectBlock(aim?: Aim, opts: { daily?: boolean } = {}): string | null {
+  const s = getSettings();
   const b = budgetState();
   if (!b.creativeOk) return `今月の予算の${Math.round((b.creativeCap / b.budget) * 100)}%を使い、新しい案件は休む段階です`;
-  return null;
+  const blocks = aimBlocks(opts);
+  if (aim) return blocks[aim] ?? null;
+  const weights = aimWeightsOf(s);
+  const used = AIM_KEYS.filter((a) => weights[a] > 0);
+  const open = (used.length ? used : AIM_KEYS).filter((a) => !blocks[a]);
+  return open.length ? null : [...new Set(Object.values(blocks))].join("。");
 }
 
 // 手動でアイデアを依頼したとき: 毎日の分と同じく、3社が案を出し、作者を伏せて採点し、上位の件数だけ案件にする
@@ -366,17 +402,25 @@ export async function generateIdeas(theme: string, count = 3, deep = false, aim?
   // じっくり案件はツールだけなので、需要を確かめる（事前登録LP）は選べない
   if (deep && aim && AIMS[aim].kind !== "tool") throw new Error("じっくり案件では、需要を確かめる（事前登録LP）は選べません");
   const title = `アイデア出し（${deep ? "じっくり案件・" : ""}${aim ? `${AIMS[aim].label}・` : ""}${theme ? `テーマ: ${theme.slice(0, 30)}` : "おまかせ"}）`;
-  const blocked = newProjectBlock();
-  const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), blocked ? 0 : count, false, { title, theme, noRevival: !!blocked, deepOnly: deep, aim }));
+  const blocked = newProjectBlock(aim);
+  // ねらいを選ばなかったときは、いま作れないねらい（集客中の上限など）は出させない
+  const exclude = aim ? [] : (Object.keys(aimBlocks()) as Aim[]);
+  const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), blocked ? 0 : count, false, { title, theme, noRevival: !!blocked, deepOnly: deep, aim, exclude, spreadRoom: spreadRoom() }));
   if (!candidates.length) throw new Error("どのAIからもアイデアを得られませんでした");
   // 会議の間（1〜2分）に、ほかの処理で上限に達することもあるので、案件を作る直前にもう一度確かめる
-  const blockedNow = blocked ?? newProjectBlock();
+  const blockedNow = blocked ?? newProjectBlock(aim);
   if (blockedNow) {
     logEvent(null, "ai", "idea-skipped", `アイデア会議の${candidates.length}件は、案件にしませんでした（${blockedNow}）`);
     return { ids: [], blocked: blockedNow };
   }
   const ids: number[] = [];
   for (const c of kept) {
+    // 会議の間に、そのねらいの上限に達していたら作らない
+    const late = aimBlocks()[aimOfIdea(c.idea)];
+    if (late) {
+      logEvent(null, "ai", "idea-skipped", `アイデア「${c.idea.title}」は、案件にしませんでした（${late}）`);
+      continue;
+    }
     const conf = c.peerAvg !== null ? { value: c.peerAvg / 10, source: "他社のAIによる採点の平均" } : selfConfidence(c.idea);
     const id = insertProject(c.idea, theme, { ...nextMode(conf), confidence: conf.value }, "manual", c.author);
     db().prepare("UPDATE idea_candidates SET selected = 1, project_id = ? WHERE id = ?").run(id, c.id);
@@ -1260,7 +1304,8 @@ function budgetRule(s: ReturnType<typeof getSettings>): string {
 }
 
 // 判断のきっかけ: visits = 訪問が十分たまった / budget = 広告費の線を越えた / slow = 日数がたったのに訪問が少ない
-export type JudgeTrigger = "visits" | "budget" | "slow";
+// spread = ねらいが「広がる」の案件が、決めた日数で当たりの基準を超えた（当たらなかった案件は判断せずに集客をお休みにする）
+export type JudgeTrigger = "visits" | "budget" | "slow" | "spread";
 
 const daysSinceUtc = (utc: string | null) => (utc ? (Date.now() - Date.parse(utc.replace(" ", "T") + "Z")) / 86_400_000 : 0);
 
@@ -1305,9 +1350,12 @@ export function judgePrompt(p: ProjectRow, trigger: JudgeTrigger = "visits") {
   const slowNote = trigger === "slow"
     ? `\n今回は、公開（または前回の判断）から${s.judgeAfterDays}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。訪問が判断の基準（${s.judgeMinVisits}人）に届いていない間の kill は、自動では実行されず人の判断に回る。最初の届け方をまだやっていない（または見送った）なら、需要の問題ではなく届け方の問題として扱い、それを理由に書くこと。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
     : "";
+  const spreadNote = trigger === "spread"
+    ? `\n今回は、ねらいが「広がる」（遊び・ネタで、見た人が触ってシェアし、フォロワーが増える）の案件が、公開（または前回の判断）から${s.spreadJudgeDays}日で、当たりの基準（遊んだ人${s.spreadHitPlays}人以上か、シェア${s.spreadHitShares}件以上）を超えたので判断する。広がっているので kill は選ばない。役に立つかではなく、もっと遊ばれ・シェアされるか（結果を見せたくなる工夫・次も遊びたくなる工夫）で考える。`
+    : "";
   return {
     all,
-    system: `あなたは事業の撤退判断を担当するアナリストです。${isTool ? "対象は、紹介ページの中ですぐ使える「動くツール」です。" : ""}集客の数字を見て、判断します。
+    system: `あなたは事業の撤退判断を担当するアナリストです。${isTool ? "対象は、紹介ページの中ですぐ使える「動くツール」です。" : ""}集客の数字を見て、判断します。${spreadNote}
 ${options}
 ${budgetRule(s)}
 数字が少なすぎて判断できない場合も、その旨を理由に書いたうえで最も妥当なものを選ぶこと。
@@ -2032,6 +2080,19 @@ export async function maybeAutoJudge(projectId: number) {
   const pending = db().prepare("SELECT COUNT(*) AS n FROM approvals WHERE project_id = ? AND status = 'pending'").get(projectId) as { n: number };
   if (p.stage !== "live" || pending.n > 0) return false;
   const s = getSettings();
+  // ねらいが「広がる」の案件（育てる段階に入る前）は、決めた日数たったら、遊んだ人とシェアの数だけで見る
+  // 当たりなら今の判断の流れ（続ける・育てる）へ。当たらなければ判断せず、承認なしで集客をお休みにする（ページは公開したまま遊べる）
+  if (p.aim === "spread" && !p.growth_phase) {
+    const since = [p.judged_at ?? p.published_at ?? backfillPublishedAt(p), p.resumed_at].filter((x): x is string => !!x).sort().at(-1);
+    if (!since || daysSinceUtc(since) < s.spreadJudgeDays) return false;
+    const r = spreadResult(p);
+    if (r.hit) {
+      await judge(projectId, "spread");
+      return true;
+    }
+    restSpread(projectId, `「広がる」の判定: ${s.spreadJudgeDays}日で遊んだ人${r.plays}人・シェア${r.shares}件で、当たりの基準（遊んだ人${s.spreadHitPlays}人以上か、シェア${s.spreadHitShares}件以上）に届かなかった`);
+    return true;
+  }
   const all = projectTotals(projectId);
   const enoughVisits =
     projectTotals(projectId, p.lp_version).visits >= s.judgeMinVisits && all.visits - p.judged_visits >= s.judgeMinVisits / 2;
@@ -2102,6 +2163,21 @@ export function holdProject(projectId: number, reason: string, until: string, se
   const extending = p.stage === "hold";
   db().prepare("UPDATE projects SET stage = 'hold', hold_reason = ?, hold_until = ?, updated_at = datetime('now') WHERE id = ?").run(why, until, projectId);
   logEvent(projectId, "human", "hold", `${extending ? "集客のお休みの期間を変更しました" : "集客をお休みにしました"}（公開は続けます。${until}に集客へ戻します。それまで宣伝・判断・改善を止めます）`);
+}
+
+// 「広がる」の案件の、遊んだ人の数・シェアの数と、当たりの基準を超えたか（どちらかが基準以上なら当たり）
+export function spreadResult(p: Pick<ProjectRow, "id">): { plays: number; shares: number; hit: boolean } {
+  const s = getSettings();
+  const all = projectTotals(p.id);
+  const plays = all.signups;
+  const shares = all.rows.reduce((n, r) => n + (r.shares ?? 0), 0);
+  return { plays, shares, hit: plays >= s.spreadHitPlays || shares >= s.spreadHitShares };
+}
+
+// 「広がる」で当たらなかった案件を、承認なしで集客お休みにする（ページは公開したまま遊べる。宣伝・判断・改善を止める。再開日は決めない）
+export function restSpread(projectId: number, why: string) {
+  db().prepare("UPDATE projects SET stage = 'hold', hold_reason = ?, hold_until = NULL, updated_at = datetime('now') WHERE id = ?").run(why.slice(0, 200), projectId);
+  logEvent(projectId, "system", "hold", `${why}ため、集客をお休みにしました（ページは公開したまま遊べます。宣伝・判断・改善を止めます。再開日は決めていないので、集客に戻すときは手で戻してください）`);
 }
 
 // 集客に戻す。保留中に増えた訪問では、戻った瞬間に判断しない
@@ -2181,11 +2257,19 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
       .prepare("SELECT COUNT(*) AS n FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.status = 'pending' AND p.demo = 0")
       .get() as { n: number }).n;
     // 育てる段階に入った案件は数えない（うまくいった案件があっても、新しいアイデアは止めない）
-    const live = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0 AND growth_phase = 0").get() as { n: number }).n;
+    // 「広がる」の案件は別に数え、上限に達したねらいだけを出さない（全部のねらいが作れないときだけ休む）
     if (pending >= s.maxPending) return skip(`承認待ちが${pending}件たまっているため、アイデア出しを休みました（上限${s.maxPending}件）`);
-    if (live >= s.maxLive) return skip(`集客中の案件が${live}件あるため、アイデア出しを休みました（上限${s.maxLive}件）`);
+    const live = liveCounts().normal;
+    const blocks = aimBlocks({ daily: true });
+    // 今の流入で、判断の基準まで届けられる件数（「広がる」は自分の投稿で広がるかを見るので、ここでは数えない）
     const cap = trafficCapacity();
-    if (live >= cap.projects) return skip(`直近7日の訪問は1日あたり約${cap.perDay}人で、集客中の${live}件を${s.judgeAfterDays * 2}日のうちに判断の基準（${s.judgeMinVisits}人）まで届けられる見込みがないため、アイデア出しを休みました（今の流入で育てられるのは${cap.projects}件まで）`);
+    if (live < s.maxLive && live >= cap.projects) {
+      const why = `直近7日の訪問は1日あたり約${cap.perDay}人で、集客中の${live}件を${s.judgeAfterDays * 2}日のうちに判断の基準（${s.judgeMinVisits}人）まで届けられる見込みがない（今の流入で育てられるのは${cap.projects}件まで）`;
+      for (const a of AIM_KEYS) if (a !== "spread") blocks[a] = why;
+    }
+    const weights = aimWeightsOf(s);
+    const used = AIM_KEYS.filter((a) => weights[a] > 0);
+    if ((used.length ? used : AIM_KEYS).every((a) => blocks[a])) return skip(`${[...new Set(Object.values(blocks))].join("。")}ため、アイデア出しを休みました`);
     const paused = planPausesNew();
     if (paused) return skip(`今日の計画で、新しい案件づくりを休むと決めたため休みました（${paused}）`);
 
@@ -2196,7 +2280,9 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     // ほかのアイデア出しが動いていたら、今回は見送って次の確認（5分後）に回す（実行済みの印は付けない）
     const busy = ideaRunning();
     if (busy) return { ran: false, message: `いま「${busy}」が動いているため、終わってから実行します`, projectIds: [] };
-    const { candidates, kept } = await withIdeaLock("毎日のアイデア出し", () => gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday));
+    const exclude = Object.keys(blocks) as Aim[];
+    if (exclude.length) logEvent(null, "system", "daily", `毎日の自動実行: 今日は ${exclude.map((a) => AIMS[a].label).join("・")} を出しません（${[...new Set(Object.values(blocks))].join("。")}）`);
+    const { candidates, kept } = await withIdeaLock("毎日のアイデア出し", () => gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday, false, { exclude, spreadRoom: spreadRoom({ daily: true }) }));
     if (!candidates.length) return skip("どのAIからもアイデアを得られなかったため休みました");
     const ids: number[] = [];
     for (const c of kept) {
@@ -2256,11 +2342,14 @@ export function ideaAuthors(): string[] {
   return MODELS.filter((m) => m.tier === "top" && hasKey(m.provider)).map((m) => m.id);
 }
 
-async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string; noRevival?: boolean; deepOnly?: boolean; aim?: Aim } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
+// exclude: いま作れないねらい（集客中の上限など）。spreadRoom: 今回案件にしてよい「広がる」の件数
+async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string; noRevival?: boolean; deepOnly?: boolean; aim?: Aim; exclude?: Aim[]; spreadRoom?: number } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
   const authors = ideaAuthors();
-  // ねらいの配分: 運営者がねらいを選んだらそれだけ、じっくり案件だけならツールのねらいだけ。各社に交互に配る
+  // ねらいの配分: 運営者がねらいを選んだらそれだけ、じっくり案件だけならツールのねらいだけ。いま作れないねらいは出させない。各社に交互に配る
   const weights = aimWeightsOf(getSettings());
-  const allowed: Aim[] = opts.aim ? [opts.aim] : opts.deepOnly ? AIM_KEYS_TOOL : [...AIM_KEYS_ALL];
+  const base: Aim[] = opts.aim ? [opts.aim] : opts.deepOnly ? AIM_KEYS_TOOL : [...AIM_KEYS_ALL];
+  const narrowed = base.filter((a) => !opts.exclude?.includes(a));
+  const allowed: Aim[] = narrowed.length ? narrowed : base;
   const dealt = dealAims(allocateAims(perModel * authors.length, weights, allowed), authors.length);
   const batchId = `${Date.now()}`;
   const act = `ideas-${batchId}`;
@@ -2370,7 +2459,16 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   for (const r of db().prepare("SELECT aim, COUNT(*) AS n FROM projects WHERE demo = 0 AND aim IS NOT NULL AND created_at >= datetime('now', '-30 days') GROUP BY aim").all() as { aim: string; n: number }[]) {
     if (isAim(r.aim)) aimCounts[r.aim] = r.n;
   }
-  const kept = pickByAims(candidates.map((c) => ({ c, aim: aimOfIdea(c.idea), avg: c.avg, author: c.author })), keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, ({ c }) => {
+  let spreadLeft = practice ? Infinity : opts.spreadRoom ?? Infinity;
+  const kept = pickByAims(candidates.map((c) => ({ c, aim: aimOfIdea(c.idea), avg: c.avg, author: c.author })), keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, ({ c, aim }) => {
+    // 「広がる」は、今回案件にしてよい件数まで（同時に集客中の上限・1日の上限）
+    if (aim === "spread") {
+      if (spreadLeft <= 0) {
+        logEvent(null, "system", "spread-skipped", `アイデア「${c.idea.title}」は「広がる」ですが、今回作ってよい件数を超えるため、案件にしません`);
+        return false;
+      }
+      spreadLeft--;
+    }
     if (!isDeepIdea(c.idea)) return true;
     if (deepLeft <= 0) {
       logEvent(null, "system", "deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、直近7日の上限に達しているため、今回は案件にしません`);

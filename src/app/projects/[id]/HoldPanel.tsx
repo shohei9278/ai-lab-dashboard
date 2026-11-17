@@ -51,8 +51,8 @@ export function HoldPanel({ id, held, reason, until, today, blocked }: {
     return (
       <div className="card space-y-3 p-4">
         <div>
-          <h2 className="font-bold">公開中・集客お休み（{until}まで）</h2>
-          <p className="mt-1 text-sm text-ink-2">この日に自動で集客へ戻します。理由: {reason}</p>
+          <h2 className="font-bold">公開中・集客お休み（{until ? `${until}まで` : "再開日なし"}）</h2>
+          <p className="mt-1 text-sm text-ink-2">{until ? "この日に自動で集客へ戻します。" : "再開日は決めていません（集客に戻すまで、お休みのままです。下で再開日を決めることもできます）。"}理由: {reason}</p>
           <p className="mt-1 text-xs text-muted">公開と、訪問・利用・外の声の記録は続けています。宣伝の投稿、撤退や継続の判断、ページの改善は止めています。</p>
         </div>
         <ActionButton variant="primary" disabled={!!busy} onClick={() => run("集客に戻しています…", { action: "resume", projectId: id })}>

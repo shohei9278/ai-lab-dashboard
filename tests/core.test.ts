@@ -769,6 +769,14 @@ test("集客中の案件が上限に達すると、新しい案件を作らな�
   saveSettings({ maxLive: live() + 1 });
   assert.ok(!newProjectBlock()?.includes("集客中"));
   addProject("live");
-  assert.match(newProjectBlock() ?? "", new RegExp(`集客中の案件が${live()}件で、上限（${live()}件）`));
-  saveSettings({ maxLive: 2 });
+  // 「広がる」以外の上限に達したら、そのねらいは作らない（「広がる」は別に数えるので、全体では止めない）
+  assert.match(newProjectBlock("useful") ?? "", new RegExp(`集客中の案件（「広がる」以外）が${live()}件で、上限（${live()}件）`));
+  assert.equal(newProjectBlock("spread"), null);
+  assert.equal(newProjectBlock(), null);
+  // 「広がる」も上限なら、全体で止める
+  saveSettings({ spreadMaxLive: 1 });
+  db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim) VALUES ('遊び', 't', 'p', 's', 'h', 'r', 'live', 'claude', 'tool', 'spread')").run();
+  assert.match(newProjectBlock() ?? "", /集客中の「広がる」の案件が1件で、上限（1件）/);
+  db().prepare("DELETE FROM projects WHERE title = '遊び'").run();
+  saveSettings({ maxLive: 2, spreadMaxLive: 7 });
 });

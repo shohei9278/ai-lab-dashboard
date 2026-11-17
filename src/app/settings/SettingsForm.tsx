@@ -141,7 +141,12 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <Field label="1社あたりのアイデア数"><input type="number" min={1} max={5} {...num("dailyIdeaCount")} className={input} /></Field>
           <Field label="そのうち進める数（3社の合計から）"><input type="number" min={1} max={5} {...num("dailyKeep")} className={input} /></Field>
           <Field label="承認待ちの上限" note="これ以上たまっていたら、その日は休みます。"><input type="number" min={1} {...num("maxPending")} className={input} /></Field>
-          <Field label="集客中の上限" note="これ以上あれば、その日は休みます。"><input type="number" min={1} {...num("maxLive")} className={input} /></Field>
+          <Field label="集客中の上限（「広がる」以外）" note="これ以上あれば、その日は「広がる」以外のねらいを出しません。"><input type="number" min={1} {...num("maxLive")} className={input} /></Field>
+          <Field label="「広がる」を同時に集客中にできる数" note="遊び・ネタの案件は、ほかと別に数えます。これ以上あれば「広がる」を出しません。"><input type="number" min={1} max={30} {...num("spreadMaxLive")} className={input} /></Field>
+          <Field label="「広がる」を1日に作る数" note="毎日の自動アイデア出しで作る上限です（手で頼んだ分は数えますが、止めません）。0 で自動では作りません。"><input type="number" min={0} max={5} {...num("spreadPerDay")} className={input} /></Field>
+          <Field label="「広がる」を判定するまでの日数" note="公開（または前回の判断・再開）からこの日数で、遊んだ人とシェアの数を見ます。"><input type="number" min={1} max={14} {...num("spreadJudgeDays")} className={input} /></Field>
+          <Field label="「広がる」の当たり: 遊んだ人" note="これ以上か、シェアが下の数以上なら当たり（今の判断の流れで、続ける・育てるかを決めます）。どちらも届かなければ、承認なしで集客をお休みにします（ページは公開したまま遊べます）。"><input type="number" min={1} {...num("spreadHitPlays")} className={input} /></Field>
+          <Field label="「広がる」の当たり: シェア"><input type="number" min={1} {...num("spreadHitShares")} className={input} /></Field>
           <Field label="承認待ちの期限（日）" note="過ぎたら自動で見送りにします。"><input type="number" min={1} {...num("staleDays")} className={input} /></Field>
           <Field label="じっくり案件（直近7日）" note="ふつうのツールの制限を外して作り込む案件（大きなデータが要るときは、人がデータを確かめてから作る）を、7日で何件まで作るか。0 で止めます。"><input type="number" min={0} max={7} {...num("deepPerWeek")} className={input} /></Field>
         </div>

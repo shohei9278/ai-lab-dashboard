@@ -745,7 +745,12 @@ export type Settings = {
   dailyIdeaCount: number; // 1社あたりに出させるアイデア数（3社で出す）
   dailyKeep: number; // そのうち残す数
   maxPending: number; // 承認待ちがこの件数以上なら、自動アイデア出しを休む
-  maxLive: number; // 集客中がこの件数以上なら、自動アイデア出しを休む
+  maxLive: number; // 集客中がこの件数以上なら、自動アイデア出しを休む（ねらいが「広がる」の案件は別に数える）
+  spreadMaxLive: number; // ねらいが「広がる」の案件を、同時に集客中にしておける数
+  spreadPerDay: number; // ねらいが「広がる」の案件を、毎日の自動アイデア出しで1日に作る数の上限（0 なら作らない）
+  spreadJudgeDays: number; // 「広がる」の案件を、公開（または前回の判断・再開）から何日で判定するか
+  spreadHitPlays: number; // 「広がる」の当たりの基準: 遊んだ人の数（これ以上か、シェアが基準以上なら当たり）
+  spreadHitShares: number; // 「広がる」の当たりの基準: シェアの数
   maxAutoImprove: number; // 自動モードで、人の承認なしにLPを改善してよい回数
   staleDays: number; // この日数放置された承認待ちは見送りにする
   deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）
@@ -839,6 +844,11 @@ const DEFAULTS: Settings = {
   dailyKeep: 2,
   maxPending: 3,
   maxLive: 2,
+  spreadMaxLive: 7,
+  spreadPerDay: 1,
+  spreadJudgeDays: 3,
+  spreadHitPlays: 20,
+  spreadHitShares: 3,
   maxAutoImprove: 2,
   staleDays: 7,
   deepPerWeek: 1,
