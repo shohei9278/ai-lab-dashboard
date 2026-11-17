@@ -44,11 +44,22 @@ export function parsePlayScript(v: unknown): PlayScript | null {
     steps.push(step);
   }
   if (!steps.some((s) => s.do === "click")) return null;
-  return {
-    hook: isStr(v.hook) ? v.hook.trim().slice(0, 24) : "",
-    steps,
-    caption: isStr(v.caption) ? v.caption.trim().slice(0, 200) : "",
-  };
+  // 動画の上の一言と投稿文の案は必ず要る（欠けた台本は使わず、AIに書き直させる）
+  if (!isStr(v.hook) || !v.hook.trim() || !isStr(v.caption) || !v.caption.trim()) return null;
+  return { hook: v.hook.trim().slice(0, 24), steps, caption: v.caption.trim().slice(0, 200) };
+}
+
+// コマの確かめの答えを読む。読めない・形が違う答えは「確かめられなかった」として問題に残す（問題なしにはしない）
+export function parsePlayCheck(text: string): PlayCheck {
+  const t = text.replace(/```(?:json)?/g, "");
+  try {
+    const v = JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)) as unknown;
+    if (isObj(v) && Array.isArray(v.issues)) {
+      const issues = v.issues.filter(isStr).slice(0, 5).map((x) => x.slice(0, 200));
+      return { ok: issues.length === 0, issues };
+    }
+  } catch {}
+  return { ok: false, issues: ["コマの確かめの答えを読めなかった（伝わるかを確かめられていない）"] };
 }
 
 export const playVideoPath = (file: string): string | null => (/^play-\d+-\d+\.mp4$/.test(file) ? path.join(dataDir("videos"), file) : null);
@@ -84,10 +95,15 @@ async function find(frame: Frame, step: PlayStep) {
   const tries = step.do === "fill"
     ? [() => frame.getByLabel(t, { exact: false }), () => frame.getByPlaceholder(t, { exact: false }), () => frame.locator(t)]
     : [() => frame.getByRole("button", { name: t, exact: false }), () => frame.getByText(t, { exact: false }), () => frame.locator(t)];
+  // 同じ文字の候補が複数あるとき（PC用とスマホ用など）は、見えている最初のものを使う
   for (const make of tries) {
     try {
-      const l = make().first();
-      if ((await l.count()) && (await l.isVisible())) return l;
+      const all = make();
+      const n = Math.min(await all.count(), 10);
+      for (let i = 0; i < n; i++) {
+        const l = all.nth(i);
+        if (await l.isVisible()) return l;
+      }
     } catch {}
   }
   return null;
@@ -188,14 +204,7 @@ async function checkPlay(p: ProjectRow, script: PlayScript, shots: Buffer[]): Pr
     ],
     maxTokens: 2000,
   });
-  const t = out.replace(/```(?:json)?/g, "");
-  try {
-    const v = JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)) as unknown;
-    const issues = isObj(v) && Array.isArray(v.issues) ? v.issues.filter(isStr).slice(0, 5).map((x) => x.slice(0, 200)) : [];
-    return { ok: issues.length === 0, issues };
-  } catch {
-    return { ok: true, issues: [], skipped: "確かめの答えを読めませんでした" };
-  }
+  return parsePlayCheck(out);
 }
 
 const g = globalThis as unknown as { __aiLabPlayQueue?: Promise<unknown> };

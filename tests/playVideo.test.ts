@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { launch } from "../src/lib/freePage";
-import { PLAY_SECONDS_MAX, PLAY_STEPS_MAX, makePlayVideo, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
+import { PLAY_SECONDS_MAX, PLAY_STEPS_MAX, makePlayVideo, parsePlayCheck, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
 
 test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がない台本は使わない", () => {
   const s = parsePlayScript({
@@ -28,13 +28,19 @@ test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がな
   assert.equal(parsePlayScript({ steps: [{ do: "wait", ms: 500 }] }), null);
   assert.equal(parsePlayScript({ hook: "x" }), null);
   // 手順は決めた数まで
-  assert.equal(parsePlayScript({ steps: Array.from({ length: 20 }, () => ({ do: "click", target: "回す" })) })!.steps.length, Math.min(PLAY_STEPS_MAX, 7)); // 押す手順は1つ約1.6秒なので、15秒に入るのは7つまで
+  assert.equal(parsePlayScript({ hook: "h", caption: "c", steps: Array.from({ length: 20 }, () => ({ do: "click", target: "回す" })) })!.steps.length, Math.min(PLAY_STEPS_MAX, 7)); // 押す手順は1つ約1.6秒なので、15秒に入るのは7つまで
   // 動画の長さは上限（15秒）まで。超える分の手順は切る（PR #86 の ai-review の指摘）
-  const long = parsePlayScript({ steps: [{ do: "click", target: "回す" }, ...Array.from({ length: 9 }, () => ({ do: "wait", ms: 3000 }))] })!;
+  const long = parsePlayScript({ hook: "h", caption: "c", steps: [{ do: "click", target: "回す" }, ...Array.from({ length: 9 }, () => ({ do: "wait", ms: 3000 }))] })!;
   assert.deepEqual(long.steps.map((x) => x.do), ["click", "wait", "wait", "wait"]);
   assert.ok(playSeconds(long.steps) <= PLAY_SECONDS_MAX);
   // 待つだけで上限に達し、押す所まで届かない台本は使わない
-  assert.equal(parsePlayScript({ steps: [...Array.from({ length: 5 }, () => ({ do: "wait", ms: 3000 })), { do: "click", target: "回す" }] }), null);
+  assert.equal(parsePlayScript({ hook: "h", caption: "c", steps: [...Array.from({ length: 5 }, () => ({ do: "wait", ms: 3000 })), { do: "click", target: "回す" }] }), null);
+  // 一言と投稿文の案が欠けた台本は使わない（PR #86 の3回目の ai-review の指摘）
+  const steps = [{ do: "click", target: "回す" }];
+  assert.equal(parsePlayScript({ caption: "c", steps }), null);
+  assert.equal(parsePlayScript({ hook: " ", caption: "c", steps }), null);
+  assert.equal(parsePlayScript({ hook: "h", caption: 3, steps }), null);
+  assert.ok(parsePlayScript({ hook: "h", caption: "c", steps }));
   // 動画のファイル名は決めた形だけ（ほかの場所のファイルを返さない）
   assert.ok(playVideoPath("play-12-1763380000000.mp4"));
   assert.ok(playVideoPath("play-12-1763380000000123456.mp4"));
@@ -58,6 +64,11 @@ test("遊ぶ様子の動画: 台本どおりに入れて押し、縦長の動画
   // 真ん中の手順が見つからなくても、途中のコマは撮り、コマは最初・途中・最後の3枚にそろう（PR #86 の ai-review の指摘）
   const r2 = await renderPlay({ hook: "x", caption: "", steps: [{ do: "click", target: "回す" }, { do: "click", target: "ないボタン" }, { do: "wait", ms: 300 }] }, html, {}, "改名スロット", out.replace("v.mp4", "v2.mp4"));
   assert.equal(r2.shots.length, 3);
+  // 同じ文字のボタンが2つあり、先頭が隠れていても、見えている方を押す（PR #86 の3回目の ai-review の指摘）
+  const twin = `<button style="display:none">回す</button><button id="v">回す</button><div id="o"></div><script>document.getElementById("v").onclick=()=>{document.getElementById("o").textContent="押せた";};</script>`;
+  const r4 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "回す" }] }, twin, {}, "二つ", out.replace("v.mp4", "v4.mp4"));
+  assert.equal(r4.done, 1);
+  assert.deepEqual(r4.failed, []);
   // 幅で並びを変えるツールも、スマホの並び（360px 幅）で動かす（PR #86 の2回目の ai-review の指摘）
   const responsive = `<style>.narrow{display:none}@media (max-width:500px){.wide{display:none}.narrow{display:block}}</style>
 <div class="wide"><button>PCで回す</button></div><div class="narrow"><button id="sp">スマホで回す</button></div><div id="w"></div>
@@ -78,4 +89,14 @@ test("遊ぶ様子の動画（PR #86 の ai-review の指摘）: 作っている
   }
   // 前のものが失敗しても、次は動く
   await assert.rejects(makePlayVideo(999_003), /動くツールの案件だけ/);
+});
+
+test("コマの確かめの答え（PR #86 の3回目の ai-review の指摘）: 読めない答えは問題なしにせず、確かめられなかったとして残す", () => {
+  assert.deepEqual(parsePlayCheck('```json\n{"issues":[]}\n```'), { ok: true, issues: [] });
+  assert.deepEqual(parsePlayCheck('{"issues":["結果が見えない"]}'), { ok: false, issues: ["結果が見えない"] });
+  for (const bad of ["", "問題ありません", '{"issues":', '{"result":"ok"}']) {
+    const c = parsePlayCheck(bad);
+    assert.equal(c.ok, false, bad);
+    assert.match(c.issues[0], /確かめの答えを読めなかった/);
+  }
 });
