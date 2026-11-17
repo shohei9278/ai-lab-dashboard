@@ -6,6 +6,7 @@ import { pct } from "@/lib/format";
 import { CONV, MODE_LABEL, STAGE_LABEL, ideaAuthors, newProjectBlock, projectTotals, targetRate } from "@/lib/loop";
 import { getModel } from "@/lib/models";
 import { IdeaForm } from "@/components/IdeaForm";
+import { ApiWishes } from "@/components/ApiWishes";
 import { DailyCard } from "@/components/DailyCard";
 import { isOwner } from "@/lib/viewer";
 
@@ -91,6 +92,7 @@ export default async function ProjectsPage() {
           />
           <IdeaForm authors={ideaAuthors().map((id) => getModel(id).label)} blocked={newProjectBlock()} />
         </div>
+        <ApiWishes />
       </section>
     </div>
   );
