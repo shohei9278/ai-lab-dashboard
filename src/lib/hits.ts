@@ -63,6 +63,7 @@ export function hitRows(days = 90): HitRow[] {
     const after = later <= today ? followersOn(later) : null;
     const hit = r.aim === "spread"
       ? r.spread_hit === null ? null : r.spread_hit === 1
+      // 育てる段階に入ったら、そのあと撤退しても当たり（一度は当たった題材・切り口として次に活かす。運営者の判断）
       : r.growth_phase || r.stage === "continued" ? true : r.stage === "killed" ? false : null;
     return {
       id: r.id, title: r.title, aim: r.aim as Aim, genre: r.genre, publishedDay: day,
@@ -99,7 +100,8 @@ export function hitGroups(rows: HitRow[] = hitRows()): HitGroup[] {
 export function hitsText(): string {
   const groups = hitGroups();
   if (!groups.length) return "";
-  const lines = groups.slice(0, 20).map((g) =>
+  // すべての組を渡す（抜けると、試して当たらなかったジャンルを「まだ試していない」と取り違えるため）
+  const lines = groups.map((g) =>
     `- ${AIMS[g.aim].label}・${g.genre}: ${g.count}件（判定済み${g.judged}件のうち当たり${g.hits}件）/ 遊んだ・使った人 計${g.plays}人 / シェア 計${g.shares}件${g.gainCount ? ` / 公開から3日のフォロワーの増え 計${g.gain}人（${g.gainCount}件分。ほかの公開と重なるので、だいたい）` : ""}`);
   return `\n\n最近の成績（ねらい・ジャンルごと。公開から90日。件数が少ないうちは偶然の差が大きいので、言い切らない）:\n${lines.join("\n")}\n使い方: 当たったジャンル・切り口は少し多めに出してよいが、広がる・また来てもらう の案のうち3割以上は、まだ試していないジャンルにする（当たりの型に寄りすぎると飽きられ、新しい当たりも見つからない）。当たらなかったジャンルは、切り口を変えるか、別のジャンルにする`;
 }

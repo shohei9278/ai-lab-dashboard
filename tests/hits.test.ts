@@ -89,3 +89,16 @@ test("フォロワー数の記録: 直近14日は、記録の件数ではなく�
   db().prepare("INSERT INTO account_stats (day, platform, followers) VALUES (?, 'x', 1), (?, 'x', 2), (?, 'x', 3)").run(dayAgo(40), dayAgo(13), dayAgo(0));
   assert.deepEqual(followerHistory(14).map((f) => f.followers), [2, 3]);
 });
+
+test("当たりの記録（PR #88 の2回目の ai-review の指摘）: アイデア出しには、すべてのねらい・ジャンルの組を渡す。育てる段階に入ったら、そのあと撤退しても当たり", () => {
+  for (let i = 0; i < 25; i++) {
+    db().prepare(`INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, genre, published_at, spread_hit)
+      VALUES (?, 't', 'p', 's', 'h', 'r', 'hold', 'claude', 'tool', 'spread', ?, datetime('now', '-5 days'), 0)`).run(`外れ${i}`, `外れジャンル${i}`);
+  }
+  const text = hitsText();
+  assert.match(text, /外れジャンル0:/);
+  assert.match(text, /外れジャンル24:/);
+  const id = Number(db().prepare(`INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, genre, published_at, growth_phase)
+    VALUES ('育ってから撤退', 't', 'p', 's', 'h', 'r', 'killed', 'claude', 'tool', 'useful', '計算', datetime('now', '-20 days'), 1)`).run().lastInsertRowid);
+  assert.equal(hitRows().find((r) => r.id === id)!.hit, true);
+});
