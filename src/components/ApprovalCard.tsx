@@ -10,11 +10,13 @@ import { hasUnpublishedVersion, versionLabel } from "@/lib/versionLabel";
 
 export type ApprovalView = {
   id: number;
-  kind: "idea" | "publish" | "decision";
+  kind: "idea" | "publish" | "decision" | "data";
   proposal: string;
   reason: string;
   createdAt: string;
-  project: { id: number; title: string; target: string; problem: string; solution: string; hypothesis: string; confidence: number | null; demo: boolean; kind: "lp" | "tool"; lpVersion: number; publicVersion: number | null };
+  project: { id: number; title: string; target: string; problem: string; solution: string; hypothesis: string; confidence: number | null; demo: boolean; kind: "lp" | "tool"; lpVersion: number; publicVersion: number | null; deep: boolean };
+  // じっくり案件のデータの確認。sample（中身の例）は運営者にだけ入る
+  data?: { id: number; count: number; groups: number; note: string; fields: { key: string; label: string; kind: "fact" | "view" }[]; sample?: Record<string, unknown>[] };
   conv: { noun: string; rate: string }; // 成果の呼び方（事前登録LPは登録、動くツールは利用）
   decision?: { confidence: number; nextAction: string };
   review?: { ok: boolean; issues: string[] };
@@ -35,6 +37,7 @@ export type ApprovalView = {
 
 const KIND = {
   idea: { label: "アイデアの採用", approve: "このアイデアで進める", after: "承認すると、AIがLP（動くツールの場合はツール本体も）を作ります。", busy: "AIが作っています…" },
+  data: { label: "データの確認", approve: "このデータで作る", after: "承認すると、AIがこのデータを使ってツールを作ります（そのあと、公開の承認があります）。修正を指示すると、データを作り直します。", busy: "AIがツールを作っています…" },
   publish: { label: "公開", approve: "公開して集客を始める", after: "承認すると公開されて「公開中・集客中」になります（広告の出稿は手動）。", busy: "処理しています…" },
   decision: {
     label: "AIの判断",
@@ -65,6 +68,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
         <span className="rounded border border-line px-1.5 py-0.5 text-ink-2">{k.label}</span>
         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-ink-2">{a.project.kind === "tool" ? "動くツール" : "事前登録LP"}</span>
+        {a.project.deep && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-ink-2">じっくり案件</span>}
         <Link href={`/projects/${a.project.id}`} className="text-accent underline">{a.project.title}</Link>
         {a.project.demo && <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5">デモ</span>}
         <span className="num">{jstDateTime(a.createdAt)}</span>
@@ -85,6 +89,8 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
           {a.project.confidence !== null && <Item label="AIの自信度">{Math.round(a.project.confidence * 100)}%</Item>}
         </dl>
       )}
+
+      {a.kind === "data" && a.data && <DataCheck d={a.data} />}
 
       {a.kind === "publish" && (
         <div className="space-y-2">
@@ -158,6 +164,44 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
       </div>
       <BusyNote busy={busy} error={error} />
     </article>
+  );
+}
+
+// じっくり案件のデータ: 項目（事実か見立てか）と、全体から等間隔に取った例。全部は JSON で保存して確かめられる
+function DataCheck({ d }: { d: NonNullable<ApprovalView["data"]> }) {
+  return (
+    <div className="space-y-2 text-sm">
+      <p className="text-ink-2">{d.count.toLocaleString("ja-JP")}件（{d.groups}グループに分けて作成）</p>
+      <ul className="flex flex-wrap gap-1.5 text-xs">
+        {d.fields.map((f) => (
+          <li key={f.key} className="rounded border border-line px-1.5 py-0.5">
+            {f.label}<span className="ml-1 text-muted">{f.kind === "fact" ? "事実" : "見立て"}</span>
+          </li>
+        ))}
+      </ul>
+      {d.sample ? (
+        <>
+          <div className="max-h-72 overflow-auto rounded-lg border border-line">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-surface-2 text-left text-muted">
+                <tr>{d.fields.map((f) => <th key={f.key} className="whitespace-nowrap px-2 py-1 font-normal">{f.label}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {d.sample.map((r, i) => (
+                  <tr key={i}>{d.fields.map((f) => <td key={f.key} className="px-2 py-1 align-top">{String(r[f.key] ?? "")}</td>)}</tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted">
+            全体から等間隔に{d.sample.length}件を出しています。
+            <a href={`/api/deep-data/${d.id}`} className="ml-1 text-accent underline">全部を JSON で保存して確かめる</a>
+          </p>
+        </>
+      ) : (
+        <p className="text-xs text-muted">データの中身は、運営者だけが見られます。</p>
+      )}
+    </div>
   );
 }
 

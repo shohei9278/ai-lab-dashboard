@@ -84,6 +84,7 @@ export async function POST(req: Request) {
     ["wantsSearchCount", 0, 1000],
     ["judgeAfterDays", 1, 60],
     ["staleDays", 1, 90],
+    ["deepPerWeek", 0, 7],
     ["autoConfidence", 0, 1],
     ["targetUseRate", 0.001, 1],
   ];

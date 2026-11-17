@@ -73,7 +73,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
             ? <ShareButtons slug={lp.slug} version={lp.version} text={lp.content.tool.shareText} />
             : <SignupForm slug={lp.slug} version={lp.version} cta={lp.content.cta} />
         }
-        tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} /> : undefined}
+        tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} data={lp.content.tool.data} fonts={lp.content.tool.fonts} /> : undefined}
       />
       <RelatedPages slug={lp.slug} />
       <FeedbackWidget slug={lp.slug} version={lp.version} kind={lp.content.tool ? "tool" : "lp"} />

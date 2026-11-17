@@ -1,9 +1,10 @@
+import fs from "node:fs";
 import { viralHints } from "./viralPosts";
 import { getWant, wantsText } from "./userWants";
-import { callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
-import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
+import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
+import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
 import { MODELS, hasKey, modelInfo } from "./models";
-import { testIssues, testTool, type ToolTest } from "./toolTest";
+import { screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
 import { trendsText } from "./trends";
 import { withIllustration } from "./illustration";
@@ -16,6 +17,7 @@ import { outsideText, recordVoiceEffects } from "./outside";
 import { notifyEvent, notifyHuman } from "./liveNotify";
 import { researchText } from "./research";
 import { budgetState } from "./budget";
+import { deepAllowance, draftDeepData, sampleRows, type DeepRow, type DeepSpec } from "./deep";
 import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
   db, getSettings, saveSettings,
@@ -38,6 +40,7 @@ export type Idea = {
   alternative?: string; // 代わりになる既存の無料サービス（名前）と、それとの違い
   season?: "seasonal" | "evergreen"; // 季節もの（その時期だけ）か、1年中ある困りごとか
   want_id?: number; // 元にした「欲しい」の声（user_wants）の番号
+  deep?: string; // じっくり案件にするとき: 要るデータ（何の一覧で、1件ごとに何を持ち、何件くらいか）
 };
 
 // 出し方ごとの呼び方と、成果の数え方
@@ -82,6 +85,9 @@ export const DECISION_LABEL: Record<Decision["decision"], string> = {
   collect: "今のまま集客を続ける",
   rethink: "集客を見直す（ページは変えない）",
 };
+
+// じっくり案件として作る案か（tool で、要るデータが書かれているもの）
+export const isDeepIdea = (idea: Idea): boolean => idea.kind === "tool" && typeof idea.deep === "string" && idea.deep.trim().length > 0;
 
 const isIdea = (v: unknown): v is Idea =>
   isObj(v) && ["title", "target", "problem", "solution", "hypothesis", "reason"].every((k) => isStr(v[k]));
@@ -258,6 +264,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 アイデアごとに、世に出す形（kind）も選びます。形は1つにとらわれず、アイデアに合うものを選ぶこと。
 - lp: 事前登録LP。まだ作らずに、紹介ページのメール事前登録で需要を確かめる。プロダクトの種類も、作る大変さも問わない（需要が確かめられてから作る）。継続して使うもの・作るのに時間がかかるもの向け
 - tool: 動くツール。診断・シミュレーター・計算機・ジェネレーターなど、1つのWebページの中だけで完結して今すぐ使えるもの。外部のAPIやサーバー、ログイン、ブラウザの保存領域（localStorage など）は使えない。記録や保存が欲しい案は、solution に「画面を閉じると消える一時的な保持」と明記する。何度も使いたくなるもの・結果を人に見せたくなるものが向く
+- じっくり案件（tool のみ）: 大きなデータ（数百〜${TOOL_DATA_ROWS_MAX}件ほどの一覧。例: 全国の市町村ごとの特徴・数百の職業の特徴）がないと面白さが出ない tool は、deep に要るデータ（何の一覧で、1件ごとに何を持ち、何件くらいか）を書けば作れる。AIがデータを下書きし、人が確かめてから作る（直近7日で${s.deepPerWeek}件まで）。データを小さく縮めた案にせず、そのままの大きさで出してよい。deep は、本当に大きなデータが要る案だけに書く
 考える順番: まず「誰の、どんな困りごとか」を決め、次に「その人に最初にどう届けるか」を決め、形（kind）は最後に選ぶ。形から発想しない。
 条件:
 - 既にある案件が特定の時期や行事に偏っているときは、件数のうち1件以上はそれとは別の題材にする
@@ -272,7 +279,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 - 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案や、知らない人へのDM・個別の勧誘は出さない（スパム扱いされやすいため）
 - 自分の投稿だけ（フォロワーほぼ0では、ほとんど表示されない）にせず、運営者が手でできる直接の接点を最低1つ、数つきで channel に入れる（first_test には書かない）。例: 対象の人が集まるコミュニティ・グループの管理者に、紹介してよいか相談する（2か所）/ 対象に当てはまる知人に使ってもらい、感想を聞く（3人）/ ルールで紹介が認められている場（自己紹介・成果物の共有の場など）に1回だけ載せる
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
-形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）}]}`,
+形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 要るデータ"}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
     user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
@@ -286,21 +293,24 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
   const id = Number(
     db()
       .prepare(
-        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind, first_channel, first_test, want_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind, first_channel, first_test, want_id, deep, deep_need)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(idea.title, idea.target, idea.problem, idea.solution, idea.hypothesis, idea.reason, conf, getSettings().loopModel, theme || null, mode, origin, ideaModel, choice.confidence, idea.kind === "tool" ? "tool" : "lp",
         isStr(idea.channel) ? idea.channel.slice(0, 500) : null, isStr(idea.first_test) ? idea.first_test.slice(0, 500) : null,
-        typeof idea.want_id === "number" && getWant(idea.want_id)?.status === "ok" ? idea.want_id : null)
+        typeof idea.want_id === "number" && getWant(idea.want_id)?.status === "ok" ? idea.want_id : null,
+        isDeepIdea(idea) ? 1 : 0, isDeepIdea(idea) ? idea.deep!.slice(0, 500) : null)
       .lastInsertRowid,
   );
-  logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
+  logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}${isDeepIdea(idea) ? "・じっくり案件" : ""}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
   return id;
 }
 
 // 毎回承認ならアイデアの承認待ちへ、自動ならLPまで作って公開の承認待ちへ
+// じっくり案件は、どちらのモードでも、まずデータの下書きを作って人の確認に回す
 async function startProject(id: number) {
   const p = getProject(id)!;
+  if (p.deep) return prepareDeepData(id);
   if (p.mode === "manual") {
     addApproval(id, "idea", `「${p.title}」で進める`, p.ai_reason);
     return;
@@ -350,6 +360,26 @@ export async function generateIdeas(theme: string, count = 3): Promise<{ ids: nu
     }
   })();
   return { ids, blocked: null };
+}
+
+// ---- じっくり案件のデータ ----
+
+// データの下書きを作り、人の確認（判断待ち）に回す。comment: 人の修正指示（作り直すとき）
+async function prepareDeepData(projectId: number, comment?: string) {
+  const p = getProject(projectId)!;
+  const prev = db().prepare("SELECT spec FROM deep_data WHERE project_id = ? ORDER BY id DESC LIMIT 1").get(projectId) as { spec: string } | undefined;
+  const { spec, rows } = await whileBuilding(projectId, "データを下書きしています", () => draftDeepData(p, comment, prev ? (JSON.parse(prev.spec) as DeepSpec) : undefined));
+  const dataId = Number(db().prepare("INSERT INTO deep_data (project_id, spec, rows) VALUES (?, ?, ?)").run(projectId, JSON.stringify(spec), JSON.stringify(rows)).lastInsertRowid);
+  logEvent(projectId, "ai", "deep-data", `じっくり案件のデータを下書きしました（${rows.length}件・項目${spec.fields.length}個${comment ? "・指示を反映" : ""}）`);
+  addApproval(projectId, "data", `「${p.title}」のデータ（${rows.length}件）を確かめる`,
+    `${spec.note}。事実の項目（${spec.fields.filter((f) => f.kind === "fact").map((f) => f.label).join("・") || "なし"}）に誤りがないか、見立ての項目（${spec.fields.filter((f) => f.kind === "view").map((f) => f.label).join("・") || "なし"}）が誰かをおとしめていないかを見てください。承認すると、このデータでツールを作ります。`,
+    { dataId });
+}
+
+// 人が承認した、いちばん新しいデータ（じっくり案件のツールに渡す）
+export function approvedDeepData(projectId: number): { spec: DeepSpec; rows: DeepRow[] } | null {
+  const r = db().prepare("SELECT spec, rows FROM deep_data WHERE project_id = ? AND status = 'approved' ORDER BY id DESC LIMIT 1").get(projectId) as { spec: string; rows: string } | undefined;
+  return r ? { spec: JSON.parse(r.spec) as DeepSpec, rows: JSON.parse(r.rows) as DeepRow[] } : null;
 }
 
 // ---- 2. LP作成とAIチェック ----
@@ -527,7 +557,9 @@ function scriptStrings(js: string): string[] {
 // ---- 動くツールの本体 ----
 
 // 隔離された枠の中では使えないもの・外部への通信など、コードを読めば分かる問題を先に見つける
-function staticToolIssues(html: string): string[] {
+// deep: じっくり案件のとき（Google Fonts の読み込みだけは外部のファイルとして数えない。コードの上限は TOOL_DEEP_CODE_MAX）
+export function staticToolIssues(html: string, deep = false): string[] {
+  const src = deep ? html.replace(/<link[^>]*\bhref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"']*["'][^>]*>/gi, "").replace(/@import\s+url\(\s*["']?https:\/\/fonts\.googleapis\.com\/[^)]*\)\s*;?/gi, "") : html;
   const rules: [RegExp, string][] = [
     [/\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|navigator\.sendBeacon/, "外部と通信している（通信は遮断されるので動かない）"],
     [/<script[^>]*\bsrc\s*=|<link[^>]*\bhref\s*=|@import|url\(\s*['"]?https?:/i, "外部のファイルを読み込んでいる"],
@@ -536,17 +568,27 @@ function staticToolIssues(html: string): string[] {
     [/<form[^>]*\baction\s*=/i, "フォームをどこかに送信しようとしている"],
     [/<(html|head|body)[\s>]/i, "<html><head><body> を書いている（中身だけにする）"],
   ];
-  const issues = rules.filter(([re]) => re.test(html)).map(([, msg]) => msg);
-  if (html.length > TOOL_HTML_MAX) issues.push(`長すぎる（${html.length}文字。${TOOL_HTML_MAX}文字以内）`);
+  const issues = rules.filter(([re]) => re.test(src)).map(([, msg]) => msg);
+  const max = deep ? TOOL_DEEP_CODE_MAX : TOOL_HTML_MAX;
+  if (html.length > max) issues.push(`長すぎる（${html.length}文字。${max}文字以内${deep ? "。データは window.labData のまま使い、コードに書き写さない" : ""}）`);
   if (!/<script[\s>]/i.test(html)) issues.push("スクリプトがなく、ツールとして動かない");
   return issues;
 }
 
-export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string, modelId?: string, effort?: "medium"): Promise<string> {
-  const system = `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
-守ること:
+// じっくり案件のツールで、ふつうのツールと違うところ（データは先に置かれている・Google Fonts を使える・見た目に手をかける）
+function deepToolNote(deep: { spec: DeepSpec; rows: DeepRow[] }): string {
+  return `- 外部のファイル・画像・API・CDN は使わない（通信は遮断される）。フォントだけは、Google Fonts を <link href="https://fonts.googleapis.com/css2?family=…&display=swap" rel="stylesheet"> で読み込んでよい（日本語が出るものを1〜2種類まで。読み込めなくても読める指定にする）
+- データは、人が確かめた一覧が window.labData（配列。${deep.rows.length}件）として先に置かれている。コードに書き写さず、window.labData を読んで使う。項目: ${deep.spec.fields.map((f) => `${f.key}（${f.label}・${f.kind === "fact" ? "事実" : "遊びのための見立て"}）`).join(" / ")}
+- 見立ての項目は、事実のように見せない（結果の画面に「遊びの見立てです」と分かる一言を入れる）
+- 見た目に手をかける: 色・余白・文字の大きさ・動き（CSS のアニメーション）を工夫し、結果の画面を、人に見せたくなる・記憶に残るものにする。効果音を使うなら Web Audio API で作り（ファイルは使えない）、最初は鳴らさず、押したときだけ鳴らす
+- コードは全体で${TOOL_DEEP_CODE_MAX.toLocaleString("en-US")}文字以内（データは含めない）。読みやすく、動作の確かなコードにする`;
+}
+
+// ツールを書くときの決まり（作るときと、じっくり案件の見た目を磨くときで共通）
+function toolRules(deep: { spec: DeepSpec; rows: DeepRow[] } | null): string {
+  return `守ること:
 - 1つのHTMLの断片だけを書く（<style> と <script> を含めてよい。<html><head><body> は書かない）
-- 外部のファイル・フォント・画像・API・CDN は一切使わない（通信はすべて遮断される）。必要なデータはコードの中に書く
+${deep ? deepToolNote(deep) : "- 外部のファイル・フォント・画像・API・CDN は一切使わない（通信はすべて遮断される）。必要なデータはコードの中に書く"}
 - localStorage・sessionStorage・Cookie・IndexedDB・alert・confirm・prompt・window.open は使えない（エラーになる）。別のページを開くリンクも動かない
 - 結果を画像としてダウンロードさせることと、文をクリップボードにコピーすることはできる
 - フォームは送信しない（ボタンは type="button"）。入力は端末の中だけで処理する
@@ -556,15 +598,25 @@ export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtm
 - 結果は、シェアしたくなる見せ方を工夫する。結果が出るたびに、その結果を伝える短い一文（60文字くらい。個人を特定できる内容は入れない）を作り、window.labShare && window.labShare("その一文") を呼ぶ（ページのシェアのボタンの文に使われる）
 - 架空の統計を事実のように書かない。診断・占いのような遊びのツールは、そうと分かる一言を入れる。医療・法律・お金の助言はしない
 - 実在の人物・団体のデータは、正確だと確信できるものだけを使う。不確かなら使わない
-- 入力欄の上限・下限（min・max）と、エラー文・注意書き・説明の中の数字（「300cm以下」など）を同じ値にする。上限を変えるときは、その数字を書いた所もすべて直す
-- 全体で40,000文字以内。データの一覧は代表的なものに絞り、何百件も書き連ねない。読みやすく、動作の確かなコードにする
+- 入力欄の上限・下限（min・max）と、エラー文・注意書き・説明の中の数字（「300cm以下」など）を同じ値にする。上限を変えるときは、その数字を書いた所もすべて直す${deep ? "" : "\n- 全体で40,000文字以内。データの一覧は代表的なものに絞り、何百件も書き連ねない。読みやすく、動作の確かなコードにする"}
 - 「何ができるツールか」や修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）は、初期値・プリセット・選択肢・入力例・便利な機能の形でも書かない（例外にしない）
 - canvas で角丸の四角形・幅に収める文字・折り返しを描くときは、自分で書かずに次の確かめ済みの関数をそのまま貼って使う（中身は変えない）:
 \`\`\`js
 ${CANVAS_HELPERS_JS}
 \`\`\`
 `;
-  const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : viralHints("tool")}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`;
+}
+
+// 人が確かめたデータの例（じっくり案件のツールを書く・磨くAIに、データの形を見せる）
+const deepDataText = (deep: { spec: DeepSpec; rows: DeepRow[] }) =>
+  `\n\nwindow.labData の説明: ${deep.spec.note}\nwindow.labData の例（全${deep.rows.length}件のうち、等間隔に15件）:\n${JSON.stringify(sampleRows(deep.rows, 15))}`;
+
+export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string, modelId?: string, effort?: "medium"): Promise<string> {
+  const deep = p.deep ? approvedDeepData(p.id) : null;
+  if (p.deep && !deep) throw new Error("じっくり案件ですが、人が承認したデータがありません");
+  const system = `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
+${toolRules(deep)}`;
+  const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${deep ? deepDataText(deep) : ""}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : viralHints("tool")}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`;
   // ツールのHTMLは長く、JSONに包むと出力の上限で途中で切れやすい。HTMLをそのまま最後まで受け取る
   const author = modelId ?? claudeModelId();
   if (author) {
@@ -598,7 +650,7 @@ async function reviewTool(p: ProjectRow, html: string, instruction?: string): Pr
     projectId: p.id,
     system: `あなたはWebツールの公開前チェック担当です。コードを読んで、次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
 - 文法の誤りや、ボタンを押しても何も起きない・結果が出ないなど、動かない箇所がある
-- 外部への通信、外部ファイルの読み込み、保存領域・Cookie・alert・window.open を使っている
+- 外部への通信、外部ファイルの読み込み、保存領域・Cookie・alert・window.open を使っている${p.deep ? "（このツールはじっくり案件。Google Fonts の読み込みと、先に置かれた window.labData を読むことは問題にしない。window.labData の中身をコードに書き写していたら問題にする）\n- 遊びのための見立てのデータを、事実のように見せている" : ""}
 - 個人を特定できる情報を入力させている
 - 架空の統計を事実のように書いている、医療・法律・お金の助言をしている、誰かを傷つける・差別的な内容がある
 - 実在の人物・団体について、不正確そうなデータを使っている
@@ -633,8 +685,35 @@ function toolModelFor(p: ProjectRow): string {
   return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
 }
 
-async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review; test: ToolTest; model: string; rewrites: number }> {
+// じっくり案件の、できたツールの見た目を磨く（機能・データの読み方は変えない）。スマホ幅で撮った画面を見せて、Claude が直す
+// 磨いた版がチェックを通らなければ、磨く前の版を使う（呼び出し側で確かめる）
+async function polishTool(p: ProjectRow, html: string, deep: { spec: DeepSpec; rows: DeepRow[] }, shot: string | undefined): Promise<string | null> {
+  const model = claudeModelId();
+  const file = shot ? screenshotPath(shot) : null;
+  if (!model || !file) return null;
+  const text = await callClaude({
+    purpose: "ツールの見た目を磨く",
+    projectId: p.id,
+    modelId: model,
+    maxTokens: 48000,
+    system: `あなたはWebツールの見た目を仕上げるデザインエンジニアです。動いているツールのコードと、スマホ幅（375px）で操作したあとの画面を見て、見た目だけを磨きます。
+- 機能・計算・window.labData の読み方・ボタンの動き・window.labShare の呼び出しは変えない
+- 色・余白・文字の大きさと太さ・並び・結果の画面の見せ方・動き（CSS のアニメーション）を整え、結果を人に見せたくなる仕上がりにする
+- 画面で読みにくい所・詰まって見える所・はみ出しそうな所を直す
+${toolRules(deep)}
+出力は、磨いたあとのHTMLの断片だけ。説明やコードブロックは付けない。`,
+    content: [
+      { type: "image", source: { type: "base64", media_type: "image/png", data: fs.readFileSync(file).toString("base64") } },
+      { type: "text", text: `ツール名: ${p.title}\n対象: ${p.target}${deepDataText(deep)}\n\n今のツールのコード:\n${html}` },
+    ],
+  });
+  return text.replace(/^\s*```(?:html)?\s*/i, "").replace(/```\s*$/, "").trim();
+}
+
+async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review; test: ToolTest; model: string; rewrites: number; deep: { data: DeepRow[]; fonts: true } | null }> {
   let model = toolModelFor(p);
+  const deep = p.deep ? approvedDeepData(p.id) : null;
+  const frame = deep ? { data: deep.rows, fonts: true as const } : {};
   // 長すぎて最後まで書けなかったら、別の会社のAIに規模を絞って書き直してもらう（同じAIで繰り返すと、同じ所で切れやすい）
   const write = async (note?: string, base?: string): Promise<string> => {
     try {
@@ -644,24 +723,44 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
       if (!next || !(e instanceof Error) || !e.message.includes("途中で切れました")) throw e;
       logEvent(p.id, "system", "tool-retry", `${modelLabel(model)}のツール作成が長くなりすぎて途中で切れたため、${modelLabel(next)}に規模を絞って書き直してもらいます`);
       model = next;
-      const shrink = "前回は長くなりすぎて最後まで書けなかった。機能は中心の1つに絞り、データは代表的なものだけにして、全体を25,000文字以内で最後まで書き切ること";
+      const shrink = deep
+        ? "前回は長くなりすぎて最後まで書けなかった。データは window.labData のまま使い、機能は中心の1つに絞って、コードを40,000文字以内で最後まで書き切ること"
+        : "前回は長くなりすぎて最後まで書けなかった。機能は中心の1つに絞り、データは代表的なものだけにして、全体を25,000文字以内で最後まで書き切ること";
       return writeToolHtml(p, note ? `${note} / ${shrink}` : shrink, base, model, "medium");
     }
   };
   let html = await write(instruction, prevHtml);
   const check = async (h: string): Promise<{ review: Review; test: ToolTest }> => {
-    const [ai, test] = await Promise.all([reviewTool(p, h, instruction), testTool(h, shotName)]);
-    const issues = [...staticToolIssues(h), ...ai.issues, ...testIssues(test)];
+    const [ai, test] = await Promise.all([reviewTool(p, h, instruction), testTool(h, shotName, frame)]);
+    const issues = [...staticToolIssues(h, !!deep), ...ai.issues, ...testIssues(test)];
     return { review: { ok: issues.length === 0 && ai.ok, issues }, test };
   };
   let r = await check(html);
+  let rewrites = 0;
   if (!r.review.ok) {
     logEvent(p.id, "ai", "review", `ツールのチェックで問題が見つかったため書き直し: ${r.review.issues.join(" / ")}`);
     html = await write(`次の問題を直すこと: ${r.review.issues.join(" / ")}`, html);
     r = await check(html);
-    return { html, ...r, model, rewrites: 1 };
+    rewrites = 1;
   }
-  return { html, ...r, model, rewrites: 0 };
+  // じっくり案件の新しいツールは、チェックを通ったら見た目を磨く段を1回通す（直しの指示で作り直すときは、指示以外を変えないので通さない）
+  if (deep && !prevHtml && r.review.ok) {
+    const polished = await polishTool(p, html, deep, r.test.screenshot).catch((e) => {
+      logEvent(p.id, "system", "tool-polish", `見た目を磨く段に失敗したため、磨く前の版を使います: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+      return null;
+    });
+    if (polished) {
+      const r2 = await check(polished);
+      if (r2.review.ok) {
+        html = polished;
+        r = r2;
+        logEvent(p.id, "ai", "tool-polish", "見た目を磨きました（チェックも通過）");
+      } else {
+        logEvent(p.id, "system", "tool-polish", `磨いた版がチェックを通らなかったため、磨く前の版を使います: ${r2.review.issues.join(" / ").slice(0, 300)}`);
+      }
+    }
+  }
+  return { html, ...r, model, rewrites, deep: deep ? { data: deep.rows, fonts: true } : null };
 }
 
 // 今の版のツールを、もう一度ブラウザで自動テストする（案件の画面のボタンから）
@@ -669,7 +768,7 @@ export async function retestTool(projectId: number): Promise<ToolTest> {
   const p = getProject(projectId);
   const tool = p?.lp ? (JSON.parse(p.lp) as Lp).tool : undefined;
   if (!p || !tool) throw new Error("動くツールの案件ではありません");
-  const test = await testTool(tool.html, `p${p.id}-v${p.lp_version}`);
+  const test = await testTool(tool.html, `p${p.id}-v${p.lp_version}`, { data: tool.data, fonts: tool.fonts });
   db().prepare("UPDATE lp_versions SET test = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(test), p.id, p.lp_version);
   const issues = testIssues(test);
   logEvent(p.id, "system", "tool-test", test.skipped ? test.skipped : issues.length ? `自動テストで問題: ${issues.join(" / ")}` : `自動テストで問題なし（${test.clicked}か所を操作）`);
@@ -940,8 +1039,9 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html);
   const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined, tool.html);
   const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
-  let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline } });
+  let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline, ...(tool.deep ?? {}) } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
+  if (tool.deep && !lp.tool.data) throw new Error("じっくり案件のデータが大きすぎるため保存できませんでした");
   if (lp.design) lp.design.illustration = before?.design?.illustration;
   const drawn = await withIllustration(p, lp, version);
   lp = drawn.lp;
@@ -1572,6 +1672,13 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
   logEvent(a.project_id, "human", "approval", `${verb}: ${a.proposal}${comment ? `（${comment}）` : ""}`);
 
   const pid = a.project_id;
+  if (a.kind === "data") {
+    const dataId = (JSON.parse(a.payload ?? "{}") as { dataId?: number }).dataId;
+    db().prepare("UPDATE deep_data SET status = ?, comment = ? WHERE id = ?").run(status, comment ?? null, dataId ?? 0);
+    if (action === "reject") return setStage(pid, "rejected");
+    if (action === "revise") return prepareDeepData(pid, comment);
+    return prepareLp(pid);
+  }
   if (a.kind === "idea") {
     if (action === "reject") return setStage(pid, "rejected");
     return prepareLp(pid, action === "revise" ? comment : undefined);
@@ -2032,7 +2139,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
 
   // 3. 各社が、作者を伏せた全候補に点を付ける
   const sheet = candidates
-    .map((c) => `【${c.label}】${c.idea.title}（形: ${c.idea.kind === "tool" ? "tool" : "lp"}）\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}\n需要の時期: ${c.idea.season === "seasonal" ? "季節もの" : c.idea.season === "evergreen" ? "1年中" : "（書かれていない）"}\n最初の届け方: ${c.idea.channel ?? "（書かれていない）"}\n最初の1週間の検証: ${c.idea.first_test ?? "（書かれていない）"}\n代わりになる既存の無料サービスとの違い: ${c.idea.alternative ?? "（書かれていない）"}${wantLine(c.idea.want_id)}`)
+    .map((c) => `【${c.label}】${c.idea.title}（形: ${c.idea.kind === "tool" ? "tool" : "lp"}）\n対象: ${c.idea.target}\n課題: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}\n需要の時期: ${c.idea.season === "seasonal" ? "季節もの" : c.idea.season === "evergreen" ? "1年中" : "（書かれていない）"}\n最初の届け方: ${c.idea.channel ?? "（書かれていない）"}\n最初の1週間の検証: ${c.idea.first_test ?? "（書かれていない）"}\n代わりになる既存の無料サービスとの違い: ${c.idea.alternative ?? "（書かれていない）"}${isDeepIdea(c.idea) ? `\nじっくり案件（要るデータ。AIが下書きし、人が確かめてから作る）: ${c.idea.deep}` : ""}${wantLine(c.idea.want_id)}`)
     .join("\n\n");
   const scoreRow = db().prepare("INSERT INTO idea_scores (candidate_id, scorer_model, score, reason) VALUES (?, ?, ?, ?)");
   authors.forEach((a) => setStep(act, title, modelLabel(a), `作者を伏せた${candidates.length}件を採点しています`));
@@ -2046,7 +2153,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
 - 対象者が具体的で、その人に安く届けられるか
 - 「最初の届け方」が具体的で現実的か（広告なし・フォロワーほぼ0のアカウントと手作業で、本当に最初の利用者に会えるか）。曖昧なもの・書かれていないものは大きく減点する。自分の投稿（タグ付け）だけで、運営者が手でできる直接の接点（コミュニティの管理者への相談・知人に使ってもらう など）が入っていないものも減点する。他人の投稿への宣伝の返信・知らない人へのDMを使う案は大きく減点する
 - 困りごと・欲しい気持ちが強く、事前登録したくなるか（形が tool なら、使ってシェアしたくなるか）
-- 選んだ形（lp=事前登録LP / tool=1ページで完結する動くツール）が、そのアイデアに合っているか。tool なら外部の通信なしで本当に作れるか
+- 選んだ形（lp=事前登録LP / tool=1ページで完結する動くツール）が、そのアイデアに合っているか。tool なら外部の通信なしで本当に作れるか（じっくり案件は、書かれたデータを先に用意すれば作れるかで見る。データが大きいことでは減点しない）
 - プロダクトの種類（Webサービス・スマホアプリ・拡張機能・ボット・デジタル商品など）では差をつけない。lp は作る前に需要を確かめるものなので、作るのが大変なことでは減点しない
 - 既存の無料サービスとの違いがはっきりしているか（「代わりになる既存の無料サービスとの違い」が書かれていない・名前がない・違いが弱いものは減点する）
 - 季節が過ぎても需要が残るか。季節もの（その時期だけ使われるもの）は、時期が過ぎたあとも使われる理由がなければ減点する（公開から判断まで1〜3週間かかり、育てる時間もいるため）
@@ -2077,14 +2184,23 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
     c.peerAvg = peer.a;
     db().prepare("UPDATE idea_candidates SET avg_score = ? WHERE id = ?").run(c.avg, c.id);
   }
+  // じっくり案件は直近7日の上限まで。上限を超えた案は、縮めて作らず、次の案に回す
+  let deepLeft = practice ? Infinity : deepAllowance();
   const kept: Candidate[] = [];
   const rest = [...candidates].sort((a, b) => b.avg - a.avg);
   while (kept.length < keep && rest.length) {
     const top = rest[0].avg;
     const tied = rest.filter((c) => Math.abs(c.avg - top) < 1e-9);
     const pick = tied.find((c) => !kept.some((k) => k.author === c.author)) ?? tied[0];
-    kept.push(pick);
     rest.splice(rest.indexOf(pick), 1);
+    if (isDeepIdea(pick.idea)) {
+      if (deepLeft <= 0) {
+        logEvent(null, "system", "deep-skipped", `アイデア「${pick.idea.title}」はじっくり案件ですが、直近7日の上限に達しているため、今回は案件にしません`);
+        continue;
+      }
+      deepLeft--;
+    }
+    kept.push(pick);
   }
   if (!practice && !opts.noRevival) proposeRevival(candidates.filter((c) => !kept.includes(c)));
   const best = [...candidates].sort((a, b) => b.avg - a.avg)[0];

@@ -139,6 +139,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <Field label="承認待ちの上限" note="これ以上たまっていたら、その日は休みます。"><input type="number" min={1} {...num("maxPending")} className={input} /></Field>
           <Field label="集客中の上限" note="これ以上あれば、その日は休みます。"><input type="number" min={1} {...num("maxLive")} className={input} /></Field>
           <Field label="承認待ちの期限（日）" note="過ぎたら自動で見送りにします。"><input type="number" min={1} {...num("staleDays")} className={input} /></Field>
+          <Field label="じっくり案件（直近7日）" note="大きなデータを使い、人がデータを確かめてから作る案件を、7日で何件まで作るか。0 で止めます。"><input type="number" min={0} max={7} {...num("deepPerWeek")} className={input} /></Field>
         </div>
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={v.weeklyReport} onChange={(e) => set("weeklyReport", e.target.checked)} />

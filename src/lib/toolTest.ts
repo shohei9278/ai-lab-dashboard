@@ -37,7 +37,8 @@ async function launch(): Promise<Browser | string> {
   return "テスト用のブラウザ（Chrome）が見つからないため、自動テストを飛ばしました";
 }
 
-export async function testTool(html: string, name: string): Promise<ToolTest> {
+// opts: じっくり案件のデータと、Google Fonts を使ってよいか（公開サイトの枠と同じ形で入れて動かす）
+export async function testTool(html: string, name: string, opts: { data?: unknown[]; fonts?: boolean } = {}): Promise<ToolTest> {
   const at = new Date().toISOString();
   const browser = await launch();
   if (typeof browser === "string") return { ok: true, skipped: browser, errors: [], clicked: 0, changed: false, overflow: false, at };
@@ -47,7 +48,7 @@ export async function testTool(html: string, name: string): Promise<ToolTest> {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(`エラー: ${e.message}`));
     page.on("console", (m) => { if (m.type() === "error") errors.push(`コンソール: ${m.text()}`); });
-    await page.setContent(wrapToolHtml(html), { waitUntil: "load", timeout: 10_000 });
+    await page.setContent(wrapToolHtml(html, opts), { waitUntil: "load", timeout: 10_000 });
     await page.waitForTimeout(500);
     const before = await page.evaluate(() => document.body.innerText);
     // 枠の中のスクリプトは、親の画面に「使った」を知らせる。テストでは枠に入れないので、自分あての知らせを受け取って数える
