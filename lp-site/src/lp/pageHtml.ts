@@ -55,10 +55,18 @@ addEventListener("message",function(e){
   }
 });
 // 高さを知らせる（ツールのページを上下2つの枠に分けて出すとき、枠の高さを中身に合わせるため。聞き直し {__lab:"ping"} にも答える）
-var lastH=-1;function h(){lastH=Math.ceil(document.documentElement.scrollHeight);post({__lab:"height",h:lastH})}
+// ページ全体の高さ（scrollHeight）は枠の高さより小さくならず、伸びた枠が縮まないので、中身の下端から計算する
+// = body の中身（文字も含む）と body の直下の要素の下端のうち一番下 ＋ その要素の下の余白 ＋ body の下の余白・枠線
+function ch(){var b=document.body,y=window.scrollY,px=function(v){return parseFloat(v)||0},bs=getComputedStyle(b),bot=0,mb=0;
+var rg=document.createRange();rg.selectNodeContents(b);var rr=rg.getBoundingClientRect();if(rr.height)bot=rr.bottom+y;
+for(var i=0;i<b.children.length;i++){var c=b.children[i],cs=getComputedStyle(c);if(cs.display==="none"||cs.position==="fixed")continue;var r=c.getBoundingClientRect();if(!r.height&&!r.width)continue;if(r.bottom+y>=bot){bot=r.bottom+y;mb=px(cs.marginBottom)}}
+var pb=px(bs.paddingBottom)+px(bs.borderBottomWidth),bm=px(bs.marginBottom);
+// body に下の余白・枠線がなければ、最後の要素の下の余白と body の下の余白は重なる（大きい方だけ）
+return Math.ceil(bot+(pb?mb+pb+bm:Math.max(mb,bm))+px(getComputedStyle(document.documentElement).paddingBottom))}
+var lastH=-1;function h(){lastH=ch();post({__lab:"height",h:lastH})}
 // 中身が伸び縮みしたら知らせ直す（変わったときだけ。1コマに1回まで）
 // html・body に height:100% があると、ページ全体の大きさは変わらないので、body の直下の要素の大きさ・要素の出し入れ・details の開け閉め・書体の読み込みも見る
-var hq=0;function hs(){if(hq)return;hq=1;requestAnimationFrame(function(){hq=0;if(Math.ceil(document.documentElement.scrollHeight)!==lastH)h()})}
+var hq=0;function hs(){if(hq)return;hq=1;requestAnimationFrame(function(){hq=0;if(ch()!==lastH)h()})}
 var ro=window.ResizeObserver?new ResizeObserver(hs):null;
 function watch(){if(ro){ro.observe(document.documentElement);ro.observe(document.body);for(var i=0;i<document.body.children.length;i++)ro.observe(document.body.children[i])}}
 watch();

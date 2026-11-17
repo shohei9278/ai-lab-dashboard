@@ -85,12 +85,12 @@ test("ツールのページの枠: html・body が height:100% でも、中身�
   if (typeof browser === "string") return t.skip(browser);
   try {
     const page2 = await browser.newPage({ viewport: { width: 375, height: 812 } });
-    const body = `<details><summary id="q">よくある質問</summary><div style="height:2000px">答え</div></details><p id="more"></p>`;
+    const body = `<details><summary id="q">よくある質問</summary><div style="height:2000px">答え</div></details><div id="more"></div>`;
     await page2.setContent(wrapPageHtml(page(body, `<style>html,body{height:100%;margin:0}</style><script>window.heights=[];addEventListener("message",function(e){if(e.data&&e.data.__lab==="height")window.heights.push(e.data.h)})</script>`)), { waitUntil: "load" });
     await page2.waitForTimeout(400);
     const last = () => page2.evaluate(() => { const hs = (window as unknown as { heights: number[] }).heights; return hs[hs.length - 1]; });
     const before = await last();
-    assert.ok(before > 0 && before < 1000);
+    assert.ok(before > 0 && before < 200, `最初の高さ ${before}`);
     // details を開く
     await page2.click("#q");
     await page2.waitForTimeout(300);
@@ -99,7 +99,15 @@ test("ツールのページの枠: html・body が height:100% でも、中身�
     // スクリプトで中身を足す
     await page2.evaluate(() => { document.getElementById("more")!.style.height = "3000px"; });
     await page2.waitForTimeout(300);
-    assert.ok((await last()) > opened + 2500);
+    const grown = await last();
+    assert.ok(grown > opened + 2500);
+    // 6回目の ai-review の指摘: 縮んだら、高さも戻す（ページ全体の高さは画面の高さより小さくならないので、中身の下端から測る）
+    await page2.evaluate(() => { document.getElementById("more")!.remove(); });
+    await page2.waitForTimeout(300);
+    assert.equal(await last(), opened);
+    await page2.click("#q");
+    await page2.waitForTimeout(300);
+    assert.equal(await last(), before);
   } finally {
     await browser.close();
   }
