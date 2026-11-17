@@ -72,7 +72,7 @@ function Detail({ projectId, d }: { projectId: number; d: EventDetail }) {
               <span className="num text-sm font-bold">{pt(c.avg)}</span>
             </div>
             <div className="text-xs text-ink-2">
-              {c.kind ? KIND_LABEL[c.kind === "tool" ? "tool" : "lp"] : ""}{c.author ? `・${c.author}の案` : "・作者は最初の承認まで伏せています"}
+              {c.aim ? `${c.aim}・` : ""}{c.kind ? KIND_LABEL[c.kind === "tool" ? "tool" : "lp"] : ""}{c.genre ? `・${c.genre}` : ""}{c.author ? `・${c.author}の案` : "・作者は最初の承認まで伏せています"}
             </div>
             {c.target && <p className="mt-1 text-xs"><span className="text-muted">対象:</span> {c.target}</p>}
             {c.solution && <p className="text-xs"><span className="text-muted">中身:</span> {c.solution}</p>}

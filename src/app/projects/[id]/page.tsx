@@ -36,6 +36,7 @@ import { publicUrl } from "@/lib/publish";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
 import { plainIssue } from "@/lib/issueText";
 import { hasUnpublishedVersion, versionLabel } from "@/lib/versions";
+import { AIMS, isAim } from "@/lib/aims";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           <span className="rounded border border-line px-1.5 py-0.5 text-xs">{STAGE_LABEL[p.stage]}</span>
           {p.stage === "killed" && p.end_reason && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">撤退の理由: {END_REASON_LABEL[p.end_reason] ?? p.end_reason}</span>}
           {!!p.growth_phase && <span className="rounded px-1.5 py-0.5 text-xs font-medium" style={{ background: "var(--surface-2)", color: "var(--good)" }}>育てる段階（実験 {p.growth_count}回）</span>}
+          {isAim(p.aim) && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2" title={AIMS[p.aim].short}>ねらい: {AIMS[p.aim].label}{p.genre ? `・${p.genre}` : ""}</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{KIND_LABEL[p.kind]}</span>
           {!!p.deep && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2" title={[p.deep_plan, p.deep_need && `要るデータ: ${p.deep_need}`].filter(Boolean).join(" / ") || undefined}>じっくり案件</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{MODE_LABEL[p.mode]}モード</span>

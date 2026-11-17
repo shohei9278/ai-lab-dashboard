@@ -1,6 +1,7 @@
 import { db, type EventRow } from "./db";
 import { debateFor, type DebateResult, type Decision, type ShadowRow } from "./loop";
 import { modelInfo } from "./models";
+import { AIMS, isAim } from "./aims";
 
 // 案件の画面の「経過」で、行を押すと開く中身（どんな候補があったか・各AIの点と理由・判断と議論）
 
@@ -10,7 +11,7 @@ export type EventDetail =
       type: "ideas";
       candidates: {
         label: string; title: string; author: string | null; avg: number | null; selected: boolean; isThis: boolean;
-        kind: string | null; target: string | null; problem: string | null; solution: string | null; reason: string | null; channel: string | null; scores: Score[];
+        kind: string | null; aim: string | null; genre: string | null; target: string | null; problem: string | null; solution: string | null; reason: string | null; channel: string | null; scores: Score[];
       }[];
     }
   | { type: "lp"; candidates: { id: number; label: string; author: string; avg: number | null; selected: boolean; humanSelected: boolean; headline: string; scores: Score[] }[] }
@@ -43,7 +44,7 @@ export function eventDetails(projectId: number, events: EventRow[], hideAuthors:
           return {
             label: r.label, title: r.title, author: hideAuthors ? null : modelInfo(r.author_model).label, avg: r.avg_score,
             selected: !!r.selected, isThis: r.project_id === projectId,
-            kind: idea.kind ?? null, target: idea.target ?? null, problem: idea.problem ?? null, solution: idea.solution ?? null, reason: idea.reason ?? null, channel: idea.channel ?? null,
+            kind: idea.kind ?? null, aim: isAim(idea.aim) ? AIMS[idea.aim].label : null, genre: typeof idea.genre === "string" ? idea.genre.slice(0, 30) : null, target: idea.target ?? null, problem: idea.problem ?? null, solution: idea.solution ?? null, reason: idea.reason ?? null, channel: idea.channel ?? null,
             scores: scoresOf("idea_scores", r.id).map((s) => (hideAuthors ? { ...s, scorer: "AI" } : s)),
           };
         }),

@@ -4,6 +4,10 @@ import { NOTIFY_KINDS } from "@/lib/notifyKinds";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ApprovalMode, Settings } from "@/lib/db";
+import { AIMS, AIM_KEYS, GENRES, genresOf, type Aim } from "@/lib/aims";
+
+// ねらいと、設定の項目の名前
+const AIM_SETTING = { spread: "aimSpread", useful: "aimUseful", return: "aimReturn", demand: "aimDemand" } as const satisfies Record<Aim, string>;
 
 const MODES: { id: ApprovalMode; label: string; body: string }[] = [
   { id: "manual", label: "毎回承認", body: "アイデアの採用・LPの公開・改善・撤退のすべてで、あなたの承認を待ちます。" },
@@ -140,6 +144,36 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <Field label="集客中の上限" note="これ以上あれば、その日は休みます。"><input type="number" min={1} {...num("maxLive")} className={input} /></Field>
           <Field label="承認待ちの期限（日）" note="過ぎたら自動で見送りにします。"><input type="number" min={1} {...num("staleDays")} className={input} /></Field>
           <Field label="じっくり案件（直近7日）" note="ふつうのツールの制限を外して作り込む案件（大きなデータが要るときは、人がデータを確かめてから作る）を、7日で何件まで作るか。0 で止めます。"><input type="number" min={0} max={7} {...num("deepPerWeek")} className={input} /></Field>
+        </div>
+        <div className="space-y-2 border-t border-line pt-3">
+          <h3 className="text-sm font-bold">ねらいの配分</h3>
+          <p className="text-xs text-muted">
+            アイデアを出すときと、案件にする案を選ぶときの配分です（数の比。0 にしたねらいは出しません）。ねらいごとに、考える順番と採点の観点が変わります。手でアイデアを出すときは、ねらいを1つに絞ることもできます。
+          </p>
+          <div className="grid gap-4 sm:grid-cols-4">
+            {AIM_KEYS.map((a) => (
+              <Field key={a} label={AIMS[a].label} note={AIMS[a].short}><input type="number" min={0} max={10} {...num(AIM_SETTING[a])} className={input} /></Field>
+            ))}
+          </div>
+          <h3 className="pt-1 text-sm font-bold">ジャンル</h3>
+          <p className="text-xs text-muted">選ばなければおまかせです（最近の案件と同じジャンルが続かないように、AIが選びます）。選んでも、合うものがなければAIは一覧にないジャンルを使えます。</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[...new Set([...GENRES, ...genresOf(v.ideaGenres)])].map((g) => {
+              const on = genresOf(v.ideaGenres).includes(g);
+              return (
+                <button
+                  key={g}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => set("ideaGenres", (on ? genresOf(v.ideaGenres).filter((x) => x !== g) : [...genresOf(v.ideaGenres), g]).join(","))}
+                  className={`rounded-full border px-2.5 py-1 text-xs ${on ? "border-accent bg-accent text-accent-ink" : "border-line text-ink-2"}`}
+                >
+                  {g}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-ink-2">{genresOf(v.ideaGenres).length ? `選んでいるジャンル: ${genresOf(v.ideaGenres).join("・")}` : "いまは、おまかせです。"}</p>
         </div>
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={v.weeklyReport} onChange={(e) => set("weeklyReport", e.target.checked)} />
