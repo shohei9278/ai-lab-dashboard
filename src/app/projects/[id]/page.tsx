@@ -48,7 +48,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const s = getSettings();
   const want = p.want_id ? getWant(p.want_id) : undefined;
   const t = projectTotals(p.id);
-  const approvals = pendingApprovals(p.id);
+  const approvals = pendingApprovals(p.id, await isOwner());
   const fv = Number((await searchParams).fv);
   const owner = await isOwner();
   const events = maskEventsForGuest(maskEvents(db().prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id DESC").all(p.id) as EventRow[]), owner);
@@ -94,6 +94,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           {p.stage === "killed" && p.end_reason && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">撤退の理由: {END_REASON_LABEL[p.end_reason] ?? p.end_reason}</span>}
           {!!p.growth_phase && <span className="rounded px-1.5 py-0.5 text-xs font-medium" style={{ background: "var(--surface-2)", color: "var(--good)" }}>育てる段階（実験 {p.growth_count}回）</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{KIND_LABEL[p.kind]}</span>
+          {!!p.deep && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2" title={p.deep_need ?? undefined}>じっくり案件</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{MODE_LABEL[p.mode]}モード</span>
           {p.origin === "daily" && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">毎日の自動実行で作成</span>}
           {p.demo ? <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">デモ</span> : null}

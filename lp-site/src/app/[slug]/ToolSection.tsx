@@ -17,12 +17,12 @@ function record(slug: string, version: number, kind: "use" | "share") {
 }
 
 // ツール本体。最初に操作されたときに「使った」と記録する
-export function ToolSection({ slug, version, html, title }: { slug: string; version: number; html: string; title: string }) {
+export function ToolSection({ slug, version, html, title, data, fonts }: { slug: string; version: number; html: string; title: string; data?: unknown[]; fonts?: boolean }) {
   const onUse = useCallback(() => {
     record(slug, version, "use");
     gaEvent("tool_use", { lp_slug: slug, lp_version: version });
   }, [slug, version]);
-  return <ToolFrame html={html} title={title} onUse={onUse} />;
+  return <ToolFrame html={html} title={title} onUse={onUse} data={data} fonts={fonts} />;
 }
 
 // シェアのボタン（X とリンクのコピー）

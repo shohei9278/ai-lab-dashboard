@@ -2,17 +2,29 @@ import type { ApprovalView } from "@/components/ApprovalCard";
 import { db, getSettings, type ApprovalRow, type ProjectRow } from "./db";
 import { CONV, debateFor, projectTotals, shadowModels, targetRate, type Decision, type Review, type ShadowRow } from "./loop";
 import { modelInfo } from "./models";
+import { sampleRows, type DeepSpec } from "./deep";
+
+// じっくり案件のデータの確認に出すもの。下書きはAIの出力なので、中身の例は運営者にだけ渡す
+function dataView(payload: string | null, owner: boolean): ApprovalView["data"] {
+  const dataId = payload ? (JSON.parse(payload) as { dataId?: number }).dataId : undefined;
+  const row = dataId ? (db().prepare("SELECT id, spec, rows FROM deep_data WHERE id = ?").get(dataId) as { id: number; spec: string; rows: string } | undefined) : undefined;
+  if (!row) return undefined;
+  const spec = JSON.parse(row.spec) as DeepSpec;
+  const rows = JSON.parse(row.rows) as Record<string, unknown>[];
+  return { id: row.id, count: rows.length, fields: spec.fields, groups: spec.groups.length, note: spec.note, sample: owner ? sampleRows(rows, 30) : undefined };
+}
 
 // 承認待ちを、カードに表示できる形にまとめる
-export function pendingApprovals(projectId?: number): ApprovalView[] {
+// owner: 運営者が見ているか（じっくり案件のデータの中身の例は、運営者にだけ出す）
+export function pendingApprovals(projectId?: number, owner = false): ApprovalView[] {
   const rows = db()
     .prepare(
-      `SELECT a.*, p.title, p.target, p.problem, p.solution, p.hypothesis, p.ai_confidence, p.demo, p.kind AS product_kind, p.lp_version, p.public_version
+      `SELECT a.*, p.title, p.target, p.problem, p.solution, p.hypothesis, p.ai_confidence, p.demo, p.kind AS product_kind, p.lp_version, p.public_version, p.deep
        FROM approvals a JOIN projects p ON p.id = a.project_id
        WHERE a.status = 'pending' ${projectId ? "AND a.project_id = ?" : ""}
        ORDER BY a.id`,
     )
-    .all(...(projectId ? [projectId] : [])) as (ApprovalRow & Pick<ProjectRow, "title" | "target" | "problem" | "solution" | "hypothesis" | "ai_confidence" | "demo" | "lp_version" | "public_version"> & { product_kind: ProjectRow["kind"] })[];
+    .all(...(projectId ? [projectId] : [])) as (ApprovalRow & Pick<ProjectRow, "title" | "target" | "problem" | "solution" | "hypothesis" | "ai_confidence" | "demo" | "lp_version" | "public_version" | "deep"> & { product_kind: ProjectRow["kind"] })[];
   const s = getSettings();
   return rows.map((r) => {
     const d = r.kind === "decision" && r.payload ? (JSON.parse(r.payload) as Decision) : null;
@@ -26,8 +38,9 @@ export function pendingApprovals(projectId?: number): ApprovalView[] {
       createdAt: r.created_at,
       project: {
         id: r.project_id, title: r.title, target: r.target, problem: r.problem, solution: r.solution,
-        hypothesis: r.hypothesis, confidence: r.ai_confidence, demo: !!r.demo, kind: r.product_kind, lpVersion: r.lp_version, publicVersion: r.public_version,
+        hypothesis: r.hypothesis, confidence: r.ai_confidence, demo: !!r.demo, kind: r.product_kind, lpVersion: r.lp_version, publicVersion: r.public_version, deep: !!r.deep,
       },
+      data: r.kind === "data" ? dataView(r.payload, owner) : undefined,
       decision: d ? { confidence: d.confidence, nextAction: d.next_action } : undefined,
       review,
       totals: t ? { visits: t.visits, signups: t.signups, rate: t.rate, adSpendJpy: t.adSpendJpy, simulated: t.simulated } : undefined,

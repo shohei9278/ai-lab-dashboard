@@ -56,13 +56,17 @@ export type Lp = {
   steps?: { title: string; body: string }[];
   beforeAfter?: { before: string[]; after: string[] };
   // 動くツールの案件だけ: ツール本体（1つのHTML）と、シェアするときの文
-  tool?: { html: string; shareText: string };
+  // じっくり案件のツールは、人が確かめたデータ（data。枠の中で window.labData として読める）と、Google Fonts を使ってよい印（fonts）を持つ
+  tool?: { html: string; shareText: string; data?: unknown[]; fonts?: boolean };
   // AIが丸ごと自由に書いたページ（1つのHTML）。あれば部品の表示の代わりにこれを出す。上の文言はシェア画像・検索結果・予備に使う
   page?: { html: string };
 };
 
 // ツール本体の大きさの上限（文字数）
 export const TOOL_HTML_MAX = 80_000;
+// じっくり案件のデータの上限（JSON にしたときの文字数）と件数
+export const TOOL_DATA_MAX = 600_000;
+export const TOOL_DATA_ROWS_MAX = 2_500;
 // 自由に書いたページの大きさの上限（文字数）
 export const PAGE_HTML_MAX = 150_000;
 
@@ -136,6 +140,9 @@ export function normalizeLp(raw: unknown): Lp {
   }
   if (isObj(v.tool) && isStr(v.tool.html) && v.tool.html.length <= TOOL_HTML_MAX) {
     lp.tool = { html: v.tool.html, shareText: isStr(v.tool.shareText) ? cut(v.tool.shareText, 100) : lp.headline };
+    const data = v.tool.data;
+    if (Array.isArray(data) && data.length > 0 && data.length <= TOOL_DATA_ROWS_MAX && JSON.stringify(data).length <= TOOL_DATA_MAX) lp.tool.data = data;
+    if (v.tool.fonts === true) lp.tool.fonts = true;
   }
   if (isObj(v.page) && isStr(v.page.html) && v.page.html.length <= PAGE_HTML_MAX) lp.page = { html: v.page.html };
   return lp;

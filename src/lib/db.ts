@@ -168,6 +168,16 @@ CREATE TABLE IF NOT EXISTS idea_scores (
   score REAL NOT NULL,
   reason TEXT
 );
+-- じっくり案件のデータの下書き（AIが作り、人が確かめる）。承認されたものだけをツールに渡す
+CREATE TABLE IF NOT EXISTS deep_data (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  spec TEXT NOT NULL, -- JSON: { fields, groups, note }
+  rows TEXT NOT NULL, -- JSON: 1件ずつの配列
+  status TEXT NOT NULL DEFAULT 'draft', -- draft / approved / rejected / revised
+  comment TEXT -- 人の修正指示
+);
 -- LPのデザイン候補（最初の版だけ、3社に1案ずつ作らせて、作者を伏せて採点する）
 CREATE TABLE IF NOT EXISTS lp_candidates (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -650,6 +660,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "index_visits", "INTEGER NOT NULL DEFAULT 0"], // 公開サイトの一覧から来た訪問者の数
   ["projects", "index_uses", "INTEGER NOT NULL DEFAULT 0"], // そのうち登録・利用した人の数
   ["projects", "hold_reason", "TEXT"], // 保留にした理由（人が書く）
+  ["projects", "deep", "INTEGER NOT NULL DEFAULT 0"], // じっくり案件（大きなデータ・素材・磨く段を使い、人が要所で確かめる）
+  ["projects", "deep_need", "TEXT"], // じっくり案件で要るデータ（アイデアに書かれたもの）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
   ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
@@ -733,6 +745,7 @@ export type Settings = {
   maxLive: number; // 集客中がこの件数以上なら、自動アイデア出しを休む
   maxAutoImprove: number; // 自動モードで、人の承認なしにLPを改善してよい回数
   staleDays: number; // この日数放置された承認待ちは見送りにする
+  deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）
   lastDailyRun: string; // 最後に毎日の実行をした日（YYYY-MM-DD）
   shadowJudge: boolean; // 判断のたびに他社の上位AIにも同じ判断をさせて記録する
   debateEnabled: boolean; // AIの判断が割れたら、AI同士に1回反論させて要約する
@@ -819,6 +832,7 @@ const DEFAULTS: Settings = {
   maxLive: 2,
   maxAutoImprove: 2,
   staleDays: 7,
+  deepPerWeek: 1,
   lastDailyRun: "",
   shadowJudge: true,
   debateEnabled: true,
@@ -913,6 +927,8 @@ export type ProjectRow = {
   index_visits: number;
   index_uses: number;
   hold_reason: string | null;
+  deep: number; // 1 = じっくり案件
+  deep_need: string | null;
   hold_until: string | null;
   resumed_at: string | null;
   rethink_count: number;
@@ -957,4 +973,4 @@ export type LessonRow = { id: number; at: string; project_id: number | null; tex
 
 // 案件の段階: アイデア → LP作成 → 集客中 → 判断待ち → 継続 / 撤退（却下はアイデア段階で止めたもの）
 export type Stage = "idea" | "lp" | "live" | "hold" | "deciding" | "continued" | "killed" | "rejected"; // hold = 公開は続けるが、宣伝・判断・改善を止めている
-export type ApprovalKind = "idea" | "publish" | "decision";
+export type ApprovalKind = "idea" | "publish" | "decision" | "data"; // data = じっくり案件のデータの確認

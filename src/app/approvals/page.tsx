@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function ApprovalsPage() {
   const owner = await isOwner();
-  const items = pendingApprovals();
+  const items = pendingApprovals(undefined, owner);
   return (
     <div className="space-y-4">
       <PageIntro title="判断待ち">

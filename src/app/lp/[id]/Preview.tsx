@@ -21,7 +21,7 @@ export function PreviewBody({ lp, title, pc = false, freePage = true }: { lp: Lp
         title={title}
         topCta={lp.tool ? <a href="#tool" className={lpButtonClass} style={lpButtonStyle}>{lp.cta}</a> : button}
         signup={<div className="text-center">{button}</div>}
-        tool={lp.tool ? <ToolFrame html={lp.tool.html} title={title} /> : undefined}
+        tool={lp.tool ? <ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} /> : undefined}
       />
     </article>
   );
