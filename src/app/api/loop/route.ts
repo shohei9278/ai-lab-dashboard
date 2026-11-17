@@ -20,7 +20,8 @@ export async function POST(req: Request) {
       case "ideas": {
         const theme = typeof body.theme === "string" ? body.theme.slice(0, 200) : "";
         const count = Math.min(5, Math.max(1, Number(body.count) || 3));
-        return NextResponse.json(await generateIdeas(theme, count));
+        const deep = body.deep === true;
+        return NextResponse.json(await generateIdeas(theme, deep ? Math.min(count, 2) : count, deep));
       }
       case "decide": {
         const action = body.decision as ApprovalAction;

@@ -248,7 +248,8 @@ const selfConfidence = (idea: Idea) => ({
 
 // modelId を指定すると、そのAIにアイデアを出させる（指定しなければ設定のAI）
 // alsoExisting: 既にある案件として扱う題名（仮テストで、前の日に選ばれたもの）
-export async function askIdeas(theme: string, count: number, modelId?: string, alsoExisting: string[] = []): Promise<Idea[]> {
+// deepOnly: 運営者が「じっくり案件だけ」を頼んだとき。全件を tool のじっくり案件で出させ、そうでない案は捨てる
+export async function askIdeas(theme: string, count: number, modelId?: string, alsoExisting: string[] = [], deepOnly = false): Promise<Idea[]> {
   const s = getSettings();
   const lessons = activeLessons().map(lessonLine).join("\n") || "（まだなし）";
   const existing = [...alsoExisting, ...(db().prepare("SELECT title FROM projects WHERE demo = 0 ORDER BY id DESC LIMIT 30").all() as { title: string }[]).map((p) => p.title)]
@@ -281,10 +282,10 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
 形式: {"ideas":[{"kind":"lp または tool","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 要るデータ"}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
-    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`,
+    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}${deepOnly ? "\n今回は運営者の依頼で、すべてをじっくり案件（kind は tool、deep に要るデータを書く）で出すこと。大きなデータがあってこそ面白くなる題材を選ぶ" : ""}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
-  return out.ideas.slice(0, count);
+  return (deepOnly ? out.ideas.filter(isDeepIdea) : out.ideas).slice(0, count);
 }
 
 function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confidence: number | null }, origin: ProjectRow["origin"], ideaModel: string): number {
@@ -331,10 +332,11 @@ export function newProjectBlock(): string | null {
 
 // 手動でアイデアを依頼したとき: 毎日の分と同じく、3社が案を出し、作者を伏せて採点し、上位の件数だけ案件にする
 // 新しい案件を作れない間は、会議と採点だけ行い（会議の記録に残る。アイデアの質の確かめに使える）、案件にも敗者復活にもしない
-export async function generateIdeas(theme: string, count = 3): Promise<{ ids: number[]; blocked: string | null }> {
-  const title = theme ? `アイデア出し（テーマ: ${theme.slice(0, 30)}）` : "アイデア出し（おまかせ）";
+// deep: 運営者が「じっくり案件だけ」を選んだとき。人が頼んだので、直近7日の上限が埋まっていても作る（作った分は上限に数える）
+export async function generateIdeas(theme: string, count = 3, deep = false): Promise<{ ids: number[]; blocked: string | null }> {
+  const title = `アイデア出し（${deep ? "じっくり案件・" : ""}${theme ? `テーマ: ${theme.slice(0, 30)}` : "おまかせ"}）`;
   const blocked = newProjectBlock();
-  const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), blocked ? 0 : count, false, { title, theme, noRevival: !!blocked }));
+  const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), blocked ? 0 : count, false, { title, theme, noRevival: !!blocked, deepOnly: deep }));
   if (!candidates.length) throw new Error("どのAIからもアイデアを得られませんでした");
   // 会議の間（1〜2分）に、ほかの処理で上限に達することもあるので、案件を作る直前にもう一度確かめる
   const blockedNow = blocked ?? newProjectBlock();
@@ -2101,7 +2103,7 @@ export function ideaAuthors(): string[] {
   return MODELS.filter((m) => m.tier === "top" && hasKey(m.provider)).map((m) => m.id);
 }
 
-async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string; noRevival?: boolean } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
+async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string; noRevival?: boolean; deepOnly?: boolean } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
   const authors = ideaAuthors();
   const batchId = `${Date.now()}`;
   const act = `ideas-${batchId}`;
@@ -2114,7 +2116,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   const results = await Promise.all(
     authors.map(async (author) => {
       try {
-        const ideas = await askIdeas(opts.theme ?? "", perModel, author, opts.alsoExisting);
+        const ideas = await askIdeas(opts.theme ?? "", perModel, author, opts.alsoExisting, opts.deepOnly);
         setStep(act, title, modelLabel(author), `アイデア${ideas.length}件を出しました。ほかの社を待っています`);
         for (const idea of ideas) {
           liveNote({ who: modelLabel(author), provider: prov(author), kind: `アイデアを提案（${idea.kind === "tool" ? "動くツール" : "事前登録LP"}・${idea.season === "seasonal" ? "季節もの" : "1年中"}）`, text: `「${idea.title}」— ${idea.solution}${idea.channel ? `\n届け方: ${idea.channel}` : ""}`, batch: batchId });
@@ -2185,7 +2187,8 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
     db().prepare("UPDATE idea_candidates SET avg_score = ? WHERE id = ?").run(c.avg, c.id);
   }
   // じっくり案件は直近7日の上限まで。上限を超えた案は、縮めて作らず、次の案に回す
-  let deepLeft = practice ? Infinity : deepAllowance();
+  // 運営者が「じっくり案件だけ」を頼んだときも、人が選んだので上限で止めない
+  let deepLeft = practice || opts.deepOnly ? Infinity : deepAllowance();
   const kept: Candidate[] = [];
   const rest = [...candidates].sort((a, b) => b.avg - a.avg);
   while (kept.length < keep && rest.length) {
