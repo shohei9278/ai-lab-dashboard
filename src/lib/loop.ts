@@ -260,8 +260,8 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
   const s = getSettings();
   if (aims.length) count = aims.length;
   const genres = genresOf(s.ideaGenres);
-  // 最近14日の案件のジャンル（重なりを除き、新しい順。件数が多くても全部のジャンルが入るよう、ジャンルごとに数える）
-  const recentGenres = (db().prepare("SELECT genre, MAX(id) AS last FROM projects WHERE demo = 0 AND genre IS NOT NULL AND created_at >= datetime('now', '-14 days') GROUP BY genre ORDER BY last DESC LIMIT 30").all() as { genre: string }[]).map((r) => r.genre);
+  // 最近14日の案件のジャンル（重なりを除いて全部、新しい順）
+  const recentGenres = (db().prepare("SELECT genre, MAX(id) AS last FROM projects WHERE demo = 0 AND genre IS NOT NULL AND created_at >= datetime('now', '-14 days') GROUP BY genre ORDER BY last DESC").all() as { genre: string }[]).map((r) => r.genre);
   const lessons = activeLessons().map(lessonLine).join("\n") || "（まだなし）";
   const existing = [...alsoExisting, ...(db().prepare("SELECT title FROM projects WHERE demo = 0 ORDER BY id DESC LIMIT 30").all() as { title: string }[]).map((p) => p.title)]
     .map((t) => `- ${t}`).join("\n") || "（まだなし）";
@@ -311,7 +311,7 @@ genre には、アイデアのジャンルを短い言葉で書く（例: ${GENR
   // ねらいと形をそろえる。頼んだねらいにない案は候補にしない（運営者が絞ったねらい・配分を0にしたねらいの案件ができないように）
   const { ideas, dropped } = alignIdeaAims(out.ideas, aims);
   for (const d of dropped) {
-    logEvent(null, "system", "idea-aim-skip", `${modelId ? modelInfo(modelId).label : "AI"}の案「${String(d.idea.title).slice(0, 60)}」は、頼んだねらい（${[...new Set(aims)].map((a) => AIMS[a].label).join("・")}）と違う「${AIMS[d.aim].label}」だったため、候補にしませんでした`);
+    logEvent(null, "system", "idea-aim-skip", `${modelId ? modelInfo(modelId).label : "AI"}の案「${String(d.idea.title).slice(0, 60)}」は、頼んだねらい（${aims.map((a) => AIMS[a].label).join("・")}）にない、または件数を超えた「${AIMS[d.aim].label}」だったため、候補にしませんでした`);
   }
   return (deepOnly ? ideas.filter((x) => isDeepIdea(x) && x.kind === "tool") : ideas).slice(0, count);
 }

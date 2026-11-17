@@ -100,6 +100,12 @@ test("AIの答えのねらい（PR #84 の ai-review の指摘）: 頼んだね�
   // a は頼んだねらい（形はツールに直す）、b は頼んでいない需要を確かめる → 外す、c は書かれていないので頼んだ順（3件目 = 役に立つ）
   assert.deepEqual(r.ideas.map((x) => [x.title, x.aim, x.kind, x.genre]), [["a", "spread", "tool", "クイズ"], ["c", "useful", "tool", undefined], ["d", "useful", "tool", "あ".repeat(30)]]);
   assert.deepEqual(r.dropped.map((x) => [x.idea.title, x.aim]), [["b", "demand"]]);
+  // ねらいごとに頼んだ件数まで（順番の入れ替えはよい）。広がる1・役に立つ1 で 広がる2 が返ったら、2件目は外す（PR #84 の2回目の ai-review の指摘）
+  const twice = alignIdeaAims([{ title: "x", aim: "spread", kind: "tool" }, { title: "y", aim: "spread", kind: "tool" }], ["spread", "useful"]);
+  assert.deepEqual(twice.ideas.map((x) => x.title), ["x"]);
+  assert.deepEqual(twice.dropped.map((x) => [x.idea.title, x.aim]), [["y", "spread"]]);
+  const swapped = alignIdeaAims([{ title: "u", aim: "useful", kind: "tool" }, { title: "s", aim: "spread", kind: "tool" }], ["spread", "useful"]);
+  assert.deepEqual(swapped.ideas.map((x) => [x.title, x.aim]), [["u", "useful"], ["s", "spread"]]);
   // 頼んでいないときは、書かれたねらい（なければ形から）
   assert.deepEqual(alignIdeaAims([{ aim: "return", kind: "lp" }, { kind: "lp" }]).ideas.map((x) => [x.aim, x.kind]), [["return", "tool"], ["demand", "lp"]]);
 });

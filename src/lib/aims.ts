@@ -102,19 +102,25 @@ export function pickByAims<T extends { aim: Aim; avg: number; author: string }>(
 }
 
 // AIの答えのねらいを、頼んだねらいとそろえる
-// 頼んだねらい（aims）があるときは、その中にあるねらいの案だけを残す（名前だけ書き換えると中身とねらいが食い違うので、外す）。書かれていなければ頼んだ順のねらい
+// 頼んだねらい（aims）があるときは、ねらいごとに頼んだ件数までの案だけを残す（順番の入れ替えはよい。頼んでいないねらいや、件数を超えた分は外す。
+// 名前だけ書き換えると中身とねらいが食い違うので、外す）。書かれていなければ頼んだ順のねらい
 // 頼んでいないときは、書かれたねらい（なければ形から）。どちらも、形（kind）はねらいに合わせ、ジャンルは30文字まで
 export function alignIdeaAims<T extends { aim?: unknown; kind?: unknown; genre?: unknown }>(ideas: T[], aims: readonly Aim[] = []): {
   ideas: (T & { aim: Aim; kind: "lp" | "tool"; genre: string | undefined })[]; dropped: { idea: T; aim: Aim }[];
 } {
-  const asked = new Set(aims);
+  // ねらいごとの、まだ受け付けられる件数
+  const left = new Map<Aim, number>();
+  for (const a of aims) left.set(a, (left.get(a) ?? 0) + 1);
   const out: (T & { aim: Aim; kind: "lp" | "tool"; genre: string | undefined })[] = [];
   const dropped: { idea: T; aim: Aim }[] = [];
   ideas.forEach((idea, i) => {
     const aim: Aim = isAim(idea.aim) ? idea.aim : aims[i] ?? aimOfIdea(idea);
-    if (aims.length && !asked.has(aim)) {
-      dropped.push({ idea, aim });
-      return;
+    if (aims.length) {
+      if (!left.get(aim)) {
+        dropped.push({ idea, aim });
+        return;
+      }
+      left.set(aim, left.get(aim)! - 1);
     }
     out.push({ ...idea, aim, kind: AIMS[aim].kind, genre: typeof idea.genre === "string" && idea.genre.trim() ? idea.genre.trim().slice(0, 30) : undefined });
   });
