@@ -146,9 +146,23 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
     shots.push(await page.screenshot({ type: "jpeg", quality: 70 }));
     // 途中のコマは、真ん中の手順のあとに、うまくいったかにかかわらず必ず撮る（コマは最初・途中・最後の3枚にそろえる）
     const mid = Math.floor((script.steps.length - 1) / 2);
-    await recordToMp4(page, async (hold) => {
+    const midShot = async (hold: (fn: () => Promise<void>) => Promise<void>) => hold(async () => { shots.push(await page.screenshot({ type: "jpeg", quality: 70 })); });
+    await recordToMp4(page, async (rawHold) => {
+      // 録画に入った時間（撮らない間は除く）。15秒に収まらない手順は、やる前に打ち切る（台本の見積もりより操作が遅れても、上限を守る）
+      const start = Date.now();
+      let held = 0;
+      const hold = async (fn: () => Promise<void>) => {
+        const t = Date.now();
+        await rawHold(fn);
+        held += Date.now() - t;
+      };
+      const recorded = () => (Date.now() - start - held) / 1000;
       await page.waitForTimeout(700);
       for (const [i, step] of script.steps.entries()) {
+        if (recorded() + stepSeconds(step) + 2.2 > PLAY_SECONDS_MAX) {
+          failed.push(`${PLAY_SECONDS_MAX}秒に収めるため、${i + 1}番目から先の手順を切った`);
+          break;
+        }
         try {
           if (step.do === "wait") {
             await page.waitForTimeout(step.ms ?? 800);
@@ -163,9 +177,10 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
             await l.scrollIntoViewIfNeeded({ timeout: 1500 });
             const box = await l.boundingBox();
             if (box) await tap(box);
+            // 入れられない・押せない所（止められている・ほかの要素に覆われているなど）は、短い時間で諦めて次へ進む
             if (step.do === "fill") {
-              await l.fill("");
-              await l.pressSequentially(step.value ?? "", { delay: 70 });
+              await l.fill("", { timeout: 1500 });
+              await l.pressSequentially(step.value ?? "", { delay: 70, timeout: 1500 + 100 * (step.value ?? "").length });
             } else await l.click({ timeout: 1500 });
             done++;
             await page.waitForTimeout(700);
@@ -173,9 +188,11 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
             failed.push(`${i + 1}番目の「${step.target}」を操作できなかった（${(e instanceof Error ? e.message : String(e)).split("\n")[0].slice(0, 80)}）`);
           }
         } finally {
-          if (i === mid) await hold(async () => { shots.push(await page.screenshot({ type: "jpeg", quality: 70 })); });
+          if (i === mid) await midShot(hold);
         }
       }
+      // 途中で打ち切って真ん中まで届かなかったときも、途中のコマを撮る（コマは最初・途中・最後の3枚にそろえる）
+      if (shots.length < 2) await midShot(hold);
       await page.evaluate(() => { document.getElementById("finger")!.style.opacity = "0"; });
       // 結果を読めるよう、最後に止める
       await page.waitForTimeout(2200);
