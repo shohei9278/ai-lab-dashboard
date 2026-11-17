@@ -54,7 +54,8 @@ export function parsePlayCheck(text: string): PlayCheck {
   const t = text.replace(/```(?:json)?/g, "");
   try {
     const v = JSON.parse(t.slice(t.indexOf("{"), t.lastIndexOf("}") + 1)) as unknown;
-    if (isObj(v) && Array.isArray(v.issues)) {
+    // 一覧の中身がすべて文字のときだけ読む（null や数が混ざったら、形が違う答えとして扱う）
+    if (isObj(v) && Array.isArray(v.issues) && v.issues.every((x) => typeof x === "string")) {
       const issues = v.issues.filter(isStr).slice(0, 5).map((x) => x.slice(0, 200));
       return { ok: issues.length === 0, issues };
     }

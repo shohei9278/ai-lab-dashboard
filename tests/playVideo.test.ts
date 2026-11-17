@@ -94,7 +94,7 @@ test("遊ぶ様子の動画（PR #86 の ai-review の指摘）: 作っている
 test("コマの確かめの答え（PR #86 の3回目の ai-review の指摘）: 読めない答えは問題なしにせず、確かめられなかったとして残す", () => {
   assert.deepEqual(parsePlayCheck('```json\n{"issues":[]}\n```'), { ok: true, issues: [] });
   assert.deepEqual(parsePlayCheck('{"issues":["結果が見えない"]}'), { ok: false, issues: ["結果が見えない"] });
-  for (const bad of ["", "問題ありません", '{"issues":', '{"result":"ok"}']) {
+  for (const bad of ["", "問題ありません", '{"issues":', '{"result":"ok"}', '{"issues":[null]}', '{"issues":[1]}', '{"issues":["x", 2]}']) {
     const c = parsePlayCheck(bad);
     assert.equal(c.ok, false, bad);
     assert.match(c.issues[0], /確かめの答えを読めなかった/);
