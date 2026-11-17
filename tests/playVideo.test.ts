@@ -37,6 +37,7 @@ test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がな
   assert.equal(parsePlayScript({ steps: [...Array.from({ length: 5 }, () => ({ do: "wait", ms: 3000 })), { do: "click", target: "回す" }] }), null);
   // 動画のファイル名は決めた形だけ（ほかの場所のファイルを返さない）
   assert.ok(playVideoPath("play-12-1763380000000.mp4"));
+  assert.ok(playVideoPath("play-12-1763380000000123456.mp4"));
   assert.equal(playVideoPath("../play-1-2.mp4"), null);
   assert.equal(playVideoPath("record-1.mp4"), null);
 });
@@ -57,6 +58,13 @@ test("遊ぶ様子の動画: 台本どおりに入れて押し、縦長の動画
   // 真ん中の手順が見つからなくても、途中のコマは撮り、コマは最初・途中・最後の3枚にそろう（PR #86 の ai-review の指摘）
   const r2 = await renderPlay({ hook: "x", caption: "", steps: [{ do: "click", target: "回す" }, { do: "click", target: "ないボタン" }, { do: "wait", ms: 300 }] }, html, {}, "改名スロット", out.replace("v.mp4", "v2.mp4"));
   assert.equal(r2.shots.length, 3);
+  // 幅で並びを変えるツールも、スマホの並び（360px 幅）で動かす（PR #86 の2回目の ai-review の指摘）
+  const responsive = `<style>.narrow{display:none}@media (max-width:500px){.wide{display:none}.narrow{display:block}}</style>
+<div class="wide"><button>PCで回す</button></div><div class="narrow"><button id="sp">スマホで回す</button></div><div id="w"></div>
+<script>document.getElementById("sp").onclick=()=>{document.getElementById("w").textContent="幅 "+innerWidth;};</script>`;
+  const r3 = await renderPlay({ hook: "x", caption: "", steps: [{ do: "click", target: "スマホで回す" }] }, responsive, {}, "幅", out.replace("v.mp4", "v3.mp4"));
+  assert.equal(r3.done, 1);
+  assert.deepEqual(r3.failed, []);
   const probe = spawnSync("ffprobe", ["-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", out], { encoding: "utf8" });
   if (probe.status === 0) assert.equal(probe.stdout.trim(), "1080,1920");
 });

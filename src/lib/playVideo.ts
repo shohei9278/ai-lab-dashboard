@@ -74,7 +74,9 @@ async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [
 
 const TOP = 300;
 const BOTTOM = 120;
-const ZOOM = 3; // ツールは 360px 幅で動かし、3倍にして映す（スマホで見たときと同じ並び）
+// ツールの枠を 360px 幅で開き（ツールから見た画面の幅もスマホと同じ。幅で並びを変えるツールもスマホの並びになる）、枠ごと3倍にして映す
+const SCALE = 3;
+const PHONE_W = 1080 / SCALE;
 
 // 見えている文字・セレクタから、押す所・入れる所を探す
 async function find(frame: Frame, step: PlayStep) {
@@ -104,7 +106,7 @@ export async function renderPlay(script: PlayScript, toolHtml: string, opts: { d
 *{margin:0;box-sizing:border-box}html,body{width:1080px;height:1920px;overflow:hidden;background:#fff;font-family:"Hiragino Sans","Noto Sans CJK JP",sans-serif}
 #top{position:absolute;top:0;left:0;width:1080px;height:${TOP}px;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 56px;background:#111;color:#fff;font-size:76px;font-weight:800;line-height:1.3}
 #bottom{position:absolute;bottom:0;left:0;width:1080px;height:${BOTTOM}px;display:flex;align-items:center;justify-content:center;background:#111;color:#bbb;font-size:40px;font-weight:700}
-iframe{position:absolute;top:${TOP}px;left:0;width:1080px;height:${1920 - TOP - BOTTOM}px;border:0;background:#fff}
+iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 - TOP - BOTTOM) / SCALE}px;border:0;background:#fff;transform:scale(${SCALE});transform-origin:0 0}
 #finger{position:absolute;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;background:rgba(255,80,80,.45);border:6px solid rgba(255,255,255,.9);box-shadow:0 4px 18px rgba(0,0,0,.35);opacity:0;transition:left .45s ease,top .45s ease,opacity .2s,transform .12s;z-index:5;pointer-events:none}
 </style><div id="top">${esc(script.hook || title)}</div><iframe id="f"></iframe><div id="bottom">${esc(title)}｜登録なしで遊べる</div><div id="finger"></div>`);
     const frameEl = page.locator("#f");
@@ -113,8 +115,6 @@ iframe{position:absolute;top:${TOP}px;left:0;width:1080px;height:${1920 - TOP - 
     const frame = page.frames().find((f) => f.parentFrame());
     if (!frame) throw new Error("ツールの枠を開けませんでした");
     await frame.waitForLoadState("load").catch(() => undefined);
-    // 360px 幅のスマホの並びで動かし、3倍にして映す
-    await frame.evaluate((z) => { document.documentElement.style.zoom = String(z); }, ZOOM);
     await page.waitForTimeout(500);
     const shots: Buffer[] = [];
     const failed: string[] = [];
@@ -223,7 +223,8 @@ async function makeOnce(projectId: number): Promise<number> {
     let file = "";
     let check: PlayCheck = { ok: false, issues: [] };
     for (let round = 0; round < 2; round++) {
-      file = `play-${p.id}-${Date.now()}.mp4`;
+      // 同じ案件・同じ時刻でも重ならないよう、時刻のうしろに乱数を足す
+      file = `play-${p.id}-${Date.now()}${String(Math.floor(Math.random() * 1e6)).padStart(6, "0")}.mp4`;
       made.push(file);
       const r = await renderPlay(script, tool.html, opts, p.title, playVideoPath(file)!);
       const notes = [...r.failed, ...(r.done === 0 ? ["台本の操作が1つもできなかった（押す所の文字やセレクタが、HTMLと合っていない）"] : [])];
