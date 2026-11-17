@@ -85,7 +85,8 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
   if (tool && lp.content.page && parts) {
     return (
       <main>
-        <Tracker slug={lp.slug} version={lp.version} scroll={false} />
+        {/* 上下の枠は高さを中身に合わせるので、親のページ全体がスクロールする（部品の表示と同じく、スクロールの深さを計る） */}
+        <Tracker slug={lp.slug} version={lp.version} />
         <ToolPageView
           parts={parts}
           title={lp.title}

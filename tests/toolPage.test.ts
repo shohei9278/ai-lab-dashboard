@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { TOOL_SLOT, wrapPageHtml } from "../lp-site/src/lp/pageHtml";
 import { fillToolSlot, splitToolPage } from "../lp-site/src/lp/htmlDom";
-import { staticPageIssues } from "../src/lib/freePage";
+import { launch, staticPageIssues } from "../src/lib/freePage";
 
 const page = (body: string, head = '<style>body{color:red}</style>') => `<!doctype html><html lang="ja"><head><title>t</title>${head}</head><body class="x">${body}</body></html>`;
 
@@ -78,4 +78,29 @@ test("ツールのページの枠: 高さと背景色を親に知らせ、聞き
   const w = wrapPageHtml(page("<h1>x</h1>"));
   assert.ok(w.includes('__lab:"height"') && w.includes('__lab:"bg"'));
   assert.ok(w.includes('__lab==="ping"){h();bg()}'));
+});
+
+test("ツールのページの枠: html・body が height:100% でも、中身が伸びたら高さを知らせ直す（ブラウザで確かめる）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  try {
+    const page2 = await browser.newPage({ viewport: { width: 375, height: 812 } });
+    const body = `<details><summary id="q">よくある質問</summary><div style="height:2000px">答え</div></details><p id="more"></p>`;
+    await page2.setContent(wrapPageHtml(page(body, `<style>html,body{height:100%;margin:0}</style><script>window.heights=[];addEventListener("message",function(e){if(e.data&&e.data.__lab==="height")window.heights.push(e.data.h)})</script>`)), { waitUntil: "load" });
+    await page2.waitForTimeout(400);
+    const last = () => page2.evaluate(() => { const hs = (window as unknown as { heights: number[] }).heights; return hs[hs.length - 1]; });
+    const before = await last();
+    assert.ok(before > 0 && before < 1000);
+    // details を開く
+    await page2.click("#q");
+    await page2.waitForTimeout(300);
+    const opened = await last();
+    assert.ok(opened > 2000, `開いたあとの高さ ${opened}`);
+    // スクリプトで中身を足す
+    await page2.evaluate(() => { document.getElementById("more")!.style.height = "3000px"; });
+    await page2.waitForTimeout(300);
+    assert.ok((await last()) > opened + 2500);
+  } finally {
+    await browser.close();
+  }
 });

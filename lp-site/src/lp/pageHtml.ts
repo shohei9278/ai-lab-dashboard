@@ -53,11 +53,20 @@ addEventListener("message",function(e){
   }
 });
 // 高さを知らせる（ツールのページを上下2つの枠に分けて出すとき、枠の高さを中身に合わせるため。聞き直し {__lab:"ping"} にも答える）
-function h(){post({__lab:"height",h:Math.ceil(document.documentElement.scrollHeight)})}
+var lastH=-1;function h(){lastH=Math.ceil(document.documentElement.scrollHeight);post({__lab:"height",h:lastH})}
+// 中身が伸び縮みしたら知らせ直す（変わったときだけ。1コマに1回まで）
+// html・body に height:100% があると、ページ全体の大きさは変わらないので、body の直下の要素の大きさ・要素の出し入れ・details の開け閉め・書体の読み込みも見る
+var hq=0;function hs(){if(hq)return;hq=1;requestAnimationFrame(function(){hq=0;if(Math.ceil(document.documentElement.scrollHeight)!==lastH)h()})}
+var ro=window.ResizeObserver?new ResizeObserver(hs):null;
+function watch(){if(ro){ro.observe(document.documentElement);ro.observe(document.body);for(var i=0;i<document.body.children.length;i++)ro.observe(document.body.children[i])}}
+watch();
+if(window.MutationObserver)new MutationObserver(function(){hs();watch()}).observe(document.body,{childList:true,subtree:true,attributes:true,characterData:true});
+document.addEventListener("toggle",hs,true);document.addEventListener("transitionend",hs,true);
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(hs);
 // ページの背景色も知らせる（ツールのまわりを、ページと同じ色にするため）
 function bg(){var c=getComputedStyle(document.body).backgroundColor;if(!c||c==="rgba(0, 0, 0, 0)")c=getComputedStyle(document.documentElement).backgroundColor;post({__lab:"bg",color:c})}
 addEventListener("load",bg);
-addEventListener("load",h);if(window.ResizeObserver){new ResizeObserver(h).observe(document.documentElement)}setTimeout(h,300);
+addEventListener("load",h);setTimeout(h,300);
 addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.__lab==="ping"){h();bg()}});
 post({__lab:"ready"});
 })();</script>`;
