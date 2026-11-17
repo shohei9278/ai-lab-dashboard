@@ -103,7 +103,7 @@ export function pickByAims<T extends { aim: Aim; avg: number; author: string }>(
 
 // AIの答えのねらいを、頼んだねらいとそろえる
 // 頼んだねらい（aims）があるときは、ねらいごとに頼んだ件数までの案だけを残す（順番の入れ替えはよい。頼んでいないねらいや、件数を超えた分は外す。
-// 名前だけ書き換えると中身とねらいが食い違うので、外す）。書かれていなければ頼んだ順のねらい
+// 名前だけ書き換えると中身とねらいが食い違うので、外す）。書かれていなければ、書かれた案が使った分を除いて、残っているねらいを頼んだ順に当てる
 // 頼んでいないときは、書かれたねらい（なければ形から）。どちらも、形（kind）はねらいに合わせ、ジャンルは30文字まで
 export function alignIdeaAims<T extends { aim?: unknown; kind?: unknown; genre?: unknown }>(ideas: T[], aims: readonly Aim[] = []): {
   ideas: (T & { aim: Aim; kind: "lp" | "tool"; genre: string | undefined })[]; dropped: { idea: T; aim: Aim }[];
@@ -111,18 +111,29 @@ export function alignIdeaAims<T extends { aim?: unknown; kind?: unknown; genre?:
   // ねらいごとの、まだ受け付けられる件数
   const left = new Map<Aim, number>();
   for (const a of aims) left.set(a, (left.get(a) ?? 0) + 1);
+  const take = (a: Aim) => {
+    if (!left.get(a)) return false;
+    left.set(a, left.get(a)! - 1);
+    return true;
+  };
+  // 1回目: ねらいが書かれた案で件数を使う。2回目: 書かれていない案に、残っているねらいを頼んだ順に当てる（順番が入れ替わっていても、書かれた案の分を先に引く）
+  const decided = new Map<number, { aim: Aim; ok: boolean }>();
+  ideas.forEach((idea, i) => {
+    if (!isAim(idea.aim)) return;
+    decided.set(i, { aim: idea.aim, ok: !aims.length || take(idea.aim) });
+  });
+  ideas.forEach((idea, i) => {
+    if (decided.has(i)) return;
+    if (!aims.length) return decided.set(i, { aim: aimOfIdea(idea), ok: true });
+    const next = aims.find((a) => (left.get(a) ?? 0) > 0);
+    decided.set(i, next ? { aim: next, ok: take(next) } : { aim: aimOfIdea(idea), ok: false });
+  });
   const out: (T & { aim: Aim; kind: "lp" | "tool"; genre: string | undefined })[] = [];
   const dropped: { idea: T; aim: Aim }[] = [];
   ideas.forEach((idea, i) => {
-    const aim: Aim = isAim(idea.aim) ? idea.aim : aims[i] ?? aimOfIdea(idea);
-    if (aims.length) {
-      if (!left.get(aim)) {
-        dropped.push({ idea, aim });
-        return;
-      }
-      left.set(aim, left.get(aim)! - 1);
-    }
-    out.push({ ...idea, aim, kind: AIMS[aim].kind, genre: typeof idea.genre === "string" && idea.genre.trim() ? idea.genre.trim().slice(0, 30) : undefined });
+    const { aim, ok } = decided.get(i)!;
+    if (!ok) dropped.push({ idea, aim });
+    else out.push({ ...idea, aim, kind: AIMS[aim].kind, genre: typeof idea.genre === "string" && idea.genre.trim() ? idea.genre.trim().slice(0, 30) : undefined });
   });
   return { ideas: out, dropped };
 }

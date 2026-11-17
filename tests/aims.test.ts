@@ -106,6 +106,13 @@ test("AIの答えのねらい（PR #84 の ai-review の指摘）: 頼んだね�
   assert.deepEqual(twice.dropped.map((x) => [x.idea.title, x.aim]), [["y", "spread"]]);
   const swapped = alignIdeaAims([{ title: "u", aim: "useful", kind: "tool" }, { title: "s", aim: "spread", kind: "tool" }], ["spread", "useful"]);
   assert.deepEqual(swapped.ideas.map((x) => [x.title, x.aim]), [["u", "useful"], ["s", "spread"]]);
+  // 書かれた案と書かれていない案が混ざるとき: 書かれた案の分を先に引き、残りを頼んだ順に当てる（PR #84 の3回目の ai-review の指摘）
+  const mixed = alignIdeaAims([{ title: "m1", aim: "useful", kind: "tool" }, { title: "m2", kind: "tool" }], ["spread", "useful"]);
+  assert.deepEqual(mixed.ideas.map((x) => [x.title, x.aim]), [["m1", "useful"], ["m2", "spread"]]);
+  assert.equal(mixed.dropped.length, 0);
+  // 残りがなければ、書かれていない案も外す
+  const over = alignIdeaAims([{ title: "o1", aim: "spread", kind: "tool" }, { title: "o2", kind: "tool" }], ["spread"]);
+  assert.deepEqual([over.ideas.map((x) => x.title), over.dropped.map((x) => x.idea.title)], [["o1"], ["o2"]]);
   // 頼んでいないときは、書かれたねらい（なければ形から）
   assert.deepEqual(alignIdeaAims([{ aim: "return", kind: "lp" }, { kind: "lp" }]).ideas.map((x) => [x.aim, x.kind]), [["return", "tool"], ["demand", "lp"]]);
 });
