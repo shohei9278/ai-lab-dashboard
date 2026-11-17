@@ -19,5 +19,6 @@ test("使いたい API: 名前ごとにまとめて多い順に並べ、見る�
   assert.equal(s[0].key, false);
   assert.equal(s[1].key, true);
   assert.equal(apiWishOf({ name: "  " }), null);
-  assert.equal(apiWishOf({ name: "x".repeat(100) })!.name.length, 60);
+  assert.equal(apiWishOf({ name: "x".repeat(61) }), null);
+  assert.equal(apiWishOf({ name: "x".repeat(60) })!.name.length, 60);
 });

@@ -637,7 +637,7 @@ export function staticToolIssues(html: string, deep = false): string[] {
   const max = deep ? TOOL_DEEP_CODE_MAX : TOOL_HTML_MAX;
   if (html.length > max) issues.push(`長すぎる（${html.length}文字。${max}文字以内${deep ? "。データは window.labData のまま使い、コードに書き写さない" : ""}）`);
   if (!/<script[\s>]/i.test(html)) issues.push("スクリプトがなく、ツールとして動かない");
-  if (/id\s*=\s*["']lab-results["']/i.test(html) && !toolResultsOf(html)) issues.push("結果の一覧（lab-results）が、結果の名前の配列（JSON）として読めない");
+  if (/id\s*=\s*["']lab-results["']/i.test(html) && !toolResultsOf(html)) issues.push(`結果の一覧（lab-results）が決まりに合わない（結果の名前の配列（JSON）で、1〜${TOOL_RESULTS_MAX}個・どれも空でなく${TOOL_RESULT_LEN}文字以内にする。labResult の番号はこの並び順で数える）`);
   return issues;
 }
 

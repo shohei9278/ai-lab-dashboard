@@ -68,15 +68,20 @@ export const TOOL_HTML_MAX = 80_000;
 // 結果の名前の数と長さの上限（シェア画像に大きく出すので短く）
 export const TOOL_RESULTS_MAX = 40;
 export const TOOL_RESULT_LEN = 30;
-// ツールのコードに書かれた結果の一覧（<script type="application/json" id="lab-results">[...]</script>）を取り出す。なければ・読めなければ undefined
+// 結果の一覧として正しいか: 1〜TOOL_RESULTS_MAX 個の、空でない TOOL_RESULT_LEN 文字以内の文字列
+// ツールは番号（何番目か）で結果を知らせるので、要素を除いたり切ったりせず、1つでもおかしければ一覧ごと使わない
+export function isToolResults(v: unknown): v is string[] {
+  return Array.isArray(v) && v.length >= 1 && v.length <= TOOL_RESULTS_MAX
+    && v.every((x) => typeof x === "string" && x.trim().length > 0 && x.trim().length <= TOOL_RESULT_LEN);
+}
+// ツールのコードに書かれた結果の一覧（<script type="application/json" id="lab-results">[...]</script>）を取り出す
+// ないとき・読めないとき・決まりに合わないときは undefined（番号がずれないよう、そろえ直さない）
 export function toolResultsOf(html: string): string[] | undefined {
   const m = html.match(/<script[^>]*\bid\s*=\s*["']lab-results["'][^>]*>([\s\S]*?)<\/script>/i);
   if (!m) return undefined;
   try {
     const v = JSON.parse(m[1]) as unknown;
-    if (!Array.isArray(v)) return undefined;
-    const list = v.filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, TOOL_RESULTS_MAX).map((x) => x.trim().slice(0, TOOL_RESULT_LEN));
-    return list.length ? list : undefined;
+    return isToolResults(v) ? v.map((x) => x.trim()) : undefined;
   } catch {
     return undefined;
   }
@@ -164,8 +169,7 @@ export function normalizeLp(raw: unknown): Lp {
     const data = v.tool.data;
     if (Array.isArray(data) && data.length > 0 && data.length <= TOOL_DATA_ROWS_MAX && JSON.stringify(data).length <= TOOL_DATA_MAX) lp.tool.data = data;
     if (v.tool.fonts === true) lp.tool.fonts = true;
-    const results = strs(v.tool.results, TOOL_RESULTS_MAX, TOOL_RESULT_LEN).filter(Boolean);
-    if (results.length) lp.tool.results = results;
+    if (isToolResults(v.tool.results)) lp.tool.results = v.tool.results.map((x) => x.trim());
   }
   if (isObj(v.page) && isStr(v.page.html) && v.page.html.length <= PAGE_HTML_MAX) lp.page = { html: v.page.html };
   return lp;
