@@ -158,8 +158,8 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={v.freePage} onChange={(e) => set("freePage", e.target.checked)} />
           <span>
-            事前登録LPのページ全体を、AIに自由にデザインさせる
-            <span className="block text-xs text-muted">決まった部品の組み合わせではなく、AIがサービスごとの世界観を決めてページを丸ごと書きます。スマホとPCの画面を撮ってAIが崩れを確かめ、問題があれば1回直します。Claude と別の会社のAIで2案作り、3社のAIの採点で選びます（1件 約200〜300円）。うまく作れなかったときは部品のLPを使います。動くツールの案件には使いません。</span>
+            事前登録LPと、動くツールのページ全体を、AIに自由にデザインさせる
+            <span className="block text-xs text-muted">決まった部品の組み合わせではなく、AIがサービスごとの世界観を決めてページを丸ごと書きます。スマホとPCの画面を撮ってAIが崩れを確かめ、問題があれば1回直します。Claude と別の会社のAIで2案作り、3社のAIの採点で選びます（1件 約200〜300円）。うまく作れなかったときは部品のLPを使います。動くツールの案件は、短い見出しのすぐ下にツールを置き、その下に説明を置くページを書きます（新しく作るツールだけ。部品のページで公開中のツールは、作り直しても部品のまま）。</span>
           </span>
         </label>
         <Field

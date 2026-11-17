@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { viralHints } from "./viralPosts";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
-import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, toolResultsOf, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
+import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, hasResultsTag, isLpCore, toolResultsOf, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
 import { MODELS, hasKey, modelInfo } from "./models";
 import { screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
@@ -637,7 +637,7 @@ export function staticToolIssues(html: string, deep = false): string[] {
   const max = deep ? TOOL_DEEP_CODE_MAX : TOOL_HTML_MAX;
   if (html.length > max) issues.push(`長すぎる（${html.length}文字。${max}文字以内${deep ? "。データは window.labData のまま使い、コードに書き写さない" : ""}）`);
   if (!/<script[\s>]/i.test(html)) issues.push("スクリプトがなく、ツールとして動かない");
-  if (/id\s*=\s*["']lab-results["']/i.test(html) && !toolResultsOf(html)) issues.push(`結果の一覧（lab-results）が決まりに合わない（結果の名前の配列（JSON）で、1〜${TOOL_RESULTS_MAX}個・どれも空でなく${TOOL_RESULT_LEN}文字以内にする。labResult の番号はこの並び順で数える）`);
+  if (hasResultsTag(html) && !toolResultsOf(html)) issues.push(`結果の一覧（lab-results）が決まりに合わない（<script type="application/json" id="lab-results"> の中に結果の名前の配列（JSON）を書き、1〜${TOOL_RESULTS_MAX}個・どれも空でなく前後に空白を付けず${TOOL_RESULT_LEN}文字以内にする。labResult の番号はこの並び順で数える）`);
   return issues;
 }
 
@@ -1146,7 +1146,7 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const version = nextVersion(p.id);
   const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html);
   const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined, tool.html);
-  const review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
+  let review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
   let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline, fonts: true, results: toolResultsOf(tool.html), ...(tool.deep ?? {}) } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
   if (tool.deep?.data && !lp.tool.data) throw new Error("じっくり案件のデータが大きすぎるため保存できませんでした");
@@ -1154,6 +1154,13 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const drawn = await withIllustration(p, lp, version);
   lp = drawn.lp;
   if (drawn.note) logEvent(p.id, "system", "illustration", drawn.note);
+  // ツールのまわりのページも、AIが自由にデザインする（上の短い見出し → ツール → 下の説明）
+  // 新しく作るツールと、すでに自由なページを持つツールだけ。部品のページで公開中のツールは、作り直しても部品のまま（見た目を急に変えない）
+  if (getSettings().freePage && (!before || before.page)) {
+    const made = await withPage(p, lp, version, { prevHtml: before?.page?.html, instruction: opts.instruction, keepCore: opts.keepCore });
+    lp = made.lp;
+    if (made.check && !made.check.ok) review = { ok: false, issues: [...review.issues, ...made.check.issues.map((x) => `デザイン: ${x}`)] };
+  }
   const conn = db();
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, p.id);
   conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model, test, tool_model, tool_rewrites) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")

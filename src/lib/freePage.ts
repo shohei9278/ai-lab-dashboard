@@ -7,7 +7,7 @@ import { getModel, hasKey } from "./models";
 import { refImages, type DesignRef } from "./designRefs";
 import { dataDir, getSettings, type ProjectRow } from "./db";
 import { PAGE_HTML_MAX, type Lp } from "../../lp-site/src/lp/content";
-import { PAGE_RULES, imgOriginsOf, wrapPageHtml } from "../../lp-site/src/lp/pageHtml";
+import { PAGE_RULES, TOOL_SLOT, imgOriginsOf, splitToolPage, wrapPageHtml } from "../../lp-site/src/lp/pageHtml";
 
 // 部品を選ぶ方式ではなく、AIにLPのHTMLを丸ごと自由に書かせる
 // 1. 世界観を1つ決めて、ページ全体を書く
@@ -70,6 +70,24 @@ export function pageSystem(v: PageVariant = {}): string {
 }
 const SYSTEM = pageSystem();
 
+// 動くツールの案件のページ（ツール本体はこちらで差し込む。ページは上の部分と下の部分の2つの枠に分けて出す）
+const TOOL_TASK = "すでにある無料の「動くツール」の紹介ページを、1つのHTMLファイルとして書きます。ツール本体はこちらで差し込むので、ページにはツールを入れる場所だけを置きます。\n\n";
+const TOOL_RULES = `守ること:
+- body の直下に ${TOOL_SLOT} を1つだけ置く（中は空のまま。ほかの要素の中に入れない）。ここに動くツールが入る（高さは中身しだいで数百〜数千px）
+- ツールより上は短くする: ツールの名前・見出しの <h1>・1行の説明・「無料・登録不要」だけ。スマホ（375×812）の最初の画面でツールが始まるよう、上の部分は高さ300px以内
+- ツールより下に、困りごと・できること・使い方・よくある質問などを、世界観をそろえて置く
+- ページは、ツールより上と下の2つの枠に分けて表示し、枠の高さは中身に合わせる。そのため vh・dvh・svh・lvh の単位と、position: fixed・sticky は使わない。スクリプトを使うなら、上の部分と下の部分のそれぞれの中で完結させる
+- スマホ（幅375px）で最も美しく見えること。左右に必ず16px以上の余白をとる。PC（幅1280px）でも崩れないこと
+- 外部ファイルは Google Fonts だけ使ってよい。画像は、指定されたイラストのURLがあればそれだけ使ってよい。ほかの装飾はCSS・インラインSVG・絵文字で作る
+- fetch などの通信、localStorage・Cookie、alert、window.open、外部サイトへのリンクは使わない（隔離された枠の中で表示され、どれも動かない）。ページ内のリンクは href="#id" だけ（ツールへは href="#tool"）
+- 登録フォームは置かない。シェアのボタンはこちらで足すので書かない
+- お客様の声・利用実績・利用者数・効果の数字・受賞歴は書かない（でっち上げ禁止）。「必ず」「誰でも」などの誇大表現を使わない。ツールでできないことを、できるように書かない
+- ${PAGE_RULES.operator}（下の部分の一番下に置く）
+- <title> と <meta name="description">（ページの要約1文）を入れ、見出しの <h1> は1つだけ（上の部分に）にする
+- 日本語で書く。HTML全体で10万文字以内
+- 出力は <!doctype html> から始まるHTMLだけ。説明やコードブロックは付けない`;
+const TOOL_SYSTEM = `${ROLE}${TOOL_TASK}${STEPS.replace("説明の横に、その世界観を表す小さなUIの演出（実際の画面風のモック、カード、ログ、チャットなど）をHTML/CSSで作る", "ツールより下の説明に、その世界観を表す小さな演出（カード・図・アイコンなど）をHTML/CSSで作る")}${TOOL_RULES}`;
+
 function material(p: ProjectRow, lp: Lp): string {
   const ill = lp.design?.illustration;
   return `サービス名: ${p.title}
@@ -97,8 +115,8 @@ export async function writePageHtml(p: ProjectRow, lp: Lp, opts: { prevHtml?: st
   const instr = opts.instruction
     ? `\n\n今回の修正指示: ${opts.instruction}\n${opts.keepCore ? "指示された所だけ直し、それ以外（世界観・見た目・文言）は今のページのまま残すこと。" : "世界観は保ったまま、指示に合わせて直すこと。"}ページ全体を出力すること。`
     : "";
-  const purpose = opts.purpose ?? (opts.issues?.length ? "LPのデザイン修正" : "LPのデザイン");
-  const system = opts.system ?? SYSTEM;
+  const purpose = opts.purpose ?? `${lp.tool ? "ツールのページ" : "LP"}のデザイン${opts.issues?.length ? "修正" : ""}`;
+  const system = opts.system ?? (lp.tool ? TOOL_SYSTEM : SYSTEM);
   const user = `${material(p, lp)}${opts.prevHtml ? `\n\n今のページ:\n${opts.prevHtml}` : viralHints("page")}${instr}${fix}`;
   if (opts.modelId && getModel(opts.modelId).provider !== "anthropic") {
     return extractHtml(await callLong({ modelId: opts.modelId, purpose, projectId: p.id, system, user, maxTokens: 64000, effort: opts.effort }));
@@ -136,7 +154,8 @@ export function isGoogleFonts(href: string): boolean {
   }
 }
 
-export function staticPageIssues(html: string): string[] {
+// tool: 動くツールの案件のページ（登録フォームの代わりに、ツールを入れる場所と、上下2つの枠に分けられることを見る）
+export function staticPageIssues(html: string, tool = false): string[] {
   const issues: string[] = [];
   if (html.length > PAGE_HTML_MAX) issues.push(`HTMLが長すぎる（${html.length}文字。上限${PAGE_HTML_MAX}文字）`);
   const bad: [RegExp, string][] = [
@@ -150,10 +169,17 @@ export function staticPageIssues(html: string): string[] {
   for (const m of html.matchAll(/<link[^>]*href\s*=\s*["']([^"']+)["']/gi)) {
     if (!isGoogleFonts(m[1])) issues.push(`Google Fonts 以外のファイルを読み込んでいる: ${m[1].slice(0, 80)}`);
   }
-  if (!/<form[^>]*id\s*=\s*["']signup["']/i.test(html)) issues.push('登録フォーム form id="signup" がない');
-  if (!/<input[^>]*type\s*=\s*["']email["']/i.test(html)) issues.push("メールアドレスの入力欄がない");
-  if (!/<input[^>]*name\s*=\s*["']consent["']/i.test(html)) issues.push('プライバシーポリシーへの同意の欄 name="consent" がない');
-  if (!/data-lab\s*=\s*["']privacy["']/i.test(html)) issues.push('プライバシーポリシーへのリンク data-lab="privacy" がない');
+  if (tool) {
+    if (!splitToolPage(html)) issues.push(`ツールを入れる場所 ${TOOL_SLOT} が、body の中にちょうど1つない`);
+    if (/\b\d*\.?\d+\s*(?:vh|dvh|svh|lvh)\b/i.test(html)) issues.push("vh・dvh などの画面の高さの単位を使っている（枠の高さを中身に合わせるので、使うと枠が伸び続ける）");
+    if (/position\s*:\s*(?:fixed|sticky)/i.test(html)) issues.push("position: fixed・sticky を使っている（上下2つの枠に分けて出すので、うまく動かない）");
+    if (/<form[^>]*id\s*=\s*["']signup["']/i.test(html)) issues.push("ツールのページに登録フォームがある（置かない）");
+  } else {
+    if (!/<form[^>]*id\s*=\s*["']signup["']/i.test(html)) issues.push('登録フォーム form id="signup" がない');
+    if (!/<input[^>]*type\s*=\s*["']email["']/i.test(html)) issues.push("メールアドレスの入力欄がない");
+    if (!/<input[^>]*name\s*=\s*["']consent["']/i.test(html)) issues.push('プライバシーポリシーへの同意の欄 name="consent" がない');
+    if (!/data-lab\s*=\s*["']privacy["']/i.test(html)) issues.push('プライバシーポリシーへのリンク data-lab="privacy" がない');
+  }
   if (!/data-lab\s*=\s*["']operator["']/i.test(html)) issues.push('運営者名の欄 data-lab="operator" がない');
   if ((html.match(/<h1[\s>]/gi) ?? []).length !== 1) issues.push("見出しの h1 が1つではない");
   return [...new Set(issues)];
@@ -182,7 +208,9 @@ async function fillOperator(page: import("playwright-core").Page) {
 }
 
 // 本物のブラウザで開いて、スマホ幅で上から順に、PC幅で一番上を撮る
-export async function shootPage(html: string, imgOrigins: string[], name: string): Promise<{ skipped?: string; sp: Shot[]; pc?: Shot; errors: string[]; overflow: boolean; text: string }> {
+// ツールの案件のページを撮るときは、ツールを入れる場所に、ツールの代わりの箱を置く（公開時はここに本物のツールが入る）
+const TOOL_PLACEHOLDER = '<div id="lab-tool" style="box-sizing:border-box;height:640px;margin:16px;display:flex;align-items:center;justify-content:center;border:3px dashed #8a94a6;border-radius:16px;background:#eef1f6;color:#4a5568;font:700 18px sans-serif;text-align:center">ここに動くツールが入ります<br>（公開時は本物のツール）</div>';
+export async function shootPage(html: string, imgOrigins: string[], name: string, tool = false): Promise<{ skipped?: string; sp: Shot[]; pc?: Shot; errors: string[]; overflow: boolean; text: string; slotOk?: boolean }> {
   const browser = await launch();
   if (typeof browser === "string") return { skipped: browser, sp: [], errors: [], overflow: false, text: "" };
   const dir = dataDir("screenshots");
@@ -196,9 +224,12 @@ export async function shootPage(html: string, imgOrigins: string[], name: string
     const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
     const page = await ctx.newPage();
     page.on("pageerror", (e) => errors.push(`エラー: ${e.message}`));
-    await page.setContent(wrapPageHtml(html, { imgOrigins }), { waitUntil: "networkidle", timeout: 20_000 });
+    const shown = tool ? html.replace(/<div\s+id\s*=\s*["']lab-tool["']\s*>\s*<\/div>/i, TOOL_PLACEHOLDER) : html;
+    await page.setContent(wrapPageHtml(shown, { imgOrigins }), { waitUntil: "networkidle", timeout: 20_000 });
     await fillOperator(page);
     await page.waitForTimeout(800);
+    // ツールを入れる場所が body の直下にあるか（入れ子の中にあると、上下2つに分けたときに形が崩れる）
+    const slotOk = tool ? await page.evaluate(() => document.getElementById("lab-tool")?.parentElement === document.body) : undefined;
     const height = await page.evaluate(() => document.documentElement.scrollHeight);
     const sp: Shot[] = [];
     // 長すぎるページは、最初の8画面分だけ見る
@@ -210,11 +241,11 @@ export async function shootPage(html: string, imgOrigins: string[], name: string
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > 377);
     const text = (await page.evaluate(() => document.body.innerText)).slice(0, 6000);
     const pcPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
-    await pcPage.setContent(wrapPageHtml(html, { imgOrigins }), { waitUntil: "networkidle", timeout: 20_000 });
+    await pcPage.setContent(wrapPageHtml(shown, { imgOrigins }), { waitUntil: "networkidle", timeout: 20_000 });
     await fillOperator(pcPage);
     await pcPage.waitForTimeout(800);
     const pc = save(await pcPage.screenshot({ type: "jpeg", quality: 70 }), `${base}-pc.jpg`);
-    return { sp, pc, errors: [...new Set(errors)].slice(0, 5).map((e) => e.slice(0, 200)), overflow, text };
+    return { sp, pc, errors: [...new Set(errors)].slice(0, 5).map((e) => e.slice(0, 200)), overflow, text, slotOk };
   } catch (e) {
     return { sp: [], errors: [`確認の途中で失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`], overflow: false, text: "" };
   } finally {
@@ -223,7 +254,7 @@ export async function shootPage(html: string, imgOrigins: string[], name: string
 }
 
 // スクリーンショットをAIが見て、崩れと内容の問題を指摘する
-async function reviewShots(p: ProjectRow, shots: { sp: Shot[]; pc?: Shot; text: string }): Promise<string[]> {
+async function reviewShots(p: ProjectRow, shots: { sp: Shot[]; pc?: Shot; text: string }, tool = false): Promise<string[]> {
   const img = (s: Shot) => ({ type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: s.data } });
   const content: ClaudeContent = [
     { type: "text", text: `サービス: ${p.title}（対象: ${p.target}）\n解決策: ${p.solution}\n\n以下は、スマホ幅（375px）で上から順に撮った画面と、最後にPC幅（1280px）の一番上の画面です。` },
@@ -232,13 +263,14 @@ async function reviewShots(p: ProjectRow, shots: { sp: Shot[]; pc?: Shot; text: 
     { type: "text", text: `ページの文字（抜粋）:\n${shots.text}` },
   ];
   const out = await callClaude({
-    purpose: "LPのデザイン確認",
+    purpose: tool ? "ツールのページのデザイン確認" : "LPのデザイン確認",
     projectId: p.id,
     system: `あなたはLPの公開前チェック担当のアートディレクターです。画面を見て、次の点に当てはまるものだけを具体的に指摘します（場所と、どう直すか）。好みの問題や細かすぎる点は指摘しない。
 - 見た目の崩れ: 文字や要素の重なり・はみ出し・画面の端にくっついている（左右の余白がない）・読めない色の組み合わせ・意図しない大きな空白・表示されていない部分
-- 登録フォームが見つけにくい、押しにくい
+${tool ? `- 点線の箱「ここに動くツールが入ります」は、公開時に本物のツールが入る場所（箱そのものは問題にしない）。スマホの1画面目で、この箱が始まっていない（ツールより上が長すぎる）
+- 架空の実績・お客様の声・利用者数・効果の数字の断言、誇大表現、ツールでできないことをできるように書いている` : `- 登録フォームが見つけにくい、押しにくい
 - 架空の実績・お客様の声・利用者数・効果の数字の断言、誇大表現、開発前なのにすぐ使えるかのような書き方
-- 「開発中」「先行利用」「近日公開」など、まだ作ると決まっていないのに、作ることや提供の時期が決まっているかのような書き方
+- 「開発中」「先行利用」「近日公開」など、まだ作ると決まっていないのに、作ることや提供の時期が決まっているかのような書き方`}
 - 対象読者からずれている
 問題がなければ issues は空にする。
 出力はJSONのみ: {"issues":["問題と直し方"]}`,
@@ -254,11 +286,11 @@ async function reviewShots(p: ProjectRow, shots: { sp: Shot[]; pc?: Shot; text: 
   }
 }
 
-async function check(p: ProjectRow, html: string, imgOrigins: string[], name: string) {
-  const fixed = staticPageIssues(html);
-  const shots = await shootPage(html, imgOrigins, name);
+async function check(p: ProjectRow, html: string, imgOrigins: string[], name: string, tool = false) {
+  const shots = await shootPage(html, imgOrigins, name, tool);
+  const fixed = [...staticPageIssues(html, tool), ...(shots.slotOk === false ? [`ツールを入れる場所 ${TOOL_SLOT} が body の直下にない（ほかの要素の中に入れない）`] : [])];
   const browserIssues = [...shots.errors.map((e) => `ブラウザで開いたら出た${e}`), ...(shots.overflow ? ["スマホ幅（375px）で、横にはみ出している"] : [])];
-  const seen = shots.sp.length ? await reviewShots(p, shots) : [];
+  const seen = shots.sp.length ? await reviewShots(p, shots, tool) : [];
   return { fixed, issues: [...fixed, ...browserIssues, ...seen], shots };
 }
 
@@ -266,10 +298,11 @@ async function check(p: ProjectRow, html: string, imgOrigins: string[], name: st
 // 直すときも、書いたのと同じAIが直す（作り比べの結果がそのAIの出来になるように）
 export async function buildPage(p: ProjectRow, lp: Lp, name: string, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean; refs?: DesignRef[]; modelId?: string } = {}): Promise<{ html: string; check: PageCheck }> {
   let html = await writePageHtml(p, lp, opts);
-  let r = await check(p, html, imgOriginsOf(lp.design?.illustration?.url, html), name);
+  const tool = !!lp.tool;
+  let r = await check(p, html, imgOriginsOf(lp.design?.illustration?.url, html), name, tool);
   if (r.issues.length) {
     html = await writePageHtml(p, lp, { prevHtml: html, issues: r.issues, modelId: opts.modelId });
-    r = await check(p, html, imgOriginsOf(lp.design?.illustration?.url, html), name);
+    r = await check(p, html, imgOriginsOf(lp.design?.illustration?.url, html), name, tool);
   }
   if (r.fixed.length) throw new Error(`自由なデザインのページが決まりを守れていません: ${r.fixed.join(" / ")}`);
   return {

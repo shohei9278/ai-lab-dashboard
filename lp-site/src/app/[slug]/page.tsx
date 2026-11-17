@@ -9,7 +9,8 @@ import { LpView } from "@/lp/LpView";
 import { ShareButtons, ToolSection } from "./ToolSection";
 import { FreePage } from "./FreePage";
 import { FeedbackWidget } from "./FeedbackWidget";
-import { imgOriginsOf } from "@/lp/pageHtml";
+import { imgOriginsOf, splitToolPage } from "@/lp/pageHtml";
+import { ToolPageView } from "@/lp/ToolPageView";
 import { RelatedPages } from "./RelatedPages";
 import { PageSummary } from "./PageSummary";
 
@@ -25,7 +26,8 @@ export async function generateMetadata({ params, searchParams }: { params: Promi
   const resultName = no !== null ? lp.content.tool?.results?.[no] : undefined;
   if (resultName) {
     const rTitle = `「${resultName}」でした｜${lp.title}｜${SITE_NAME}`;
-    const image = { url: `/${slug}/share/${no}`, width: 1200, height: 630, alt: `${lp.title}の結果「${resultName}」` };
+    // 作り直すと結果の名前やデザインが変わるので、版の番号を付けて、前の版の画像がキャッシュから出ないようにする
+    const image = { url: `/${slug}/share/${no}?v=${lp.version}`, width: 1200, height: 630, alt: `${lp.title}の結果「${resultName}」` };
     return {
       title: rTitle,
       description: lp.content.subheadline,
@@ -72,6 +74,34 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
         <PageSummary title={lp.title} lp={lp.content} />
         <RelatedPages slug={lp.slug} />
         <FeedbackWidget slug={lp.slug} version={lp.version} kind="lp" />
+      </main>
+    );
+  }
+
+  // 動くツールの案件で、AIが自由に書いたページがあれば、上の部分 → ツール → 下の部分 の順に出す（分けられなければ部品の表示）
+  const tool = lp.content.tool;
+  if (tool && lp.content.page && splitToolPage(lp.content.page.html)) {
+    return (
+      <main>
+        <Tracker slug={lp.slug} version={lp.version} scroll={false} />
+        <ToolPageView
+          html={lp.content.page.html}
+          title={lp.title}
+          imgOrigins={imgOriginsOf(lp.content.design?.illustration?.url, lp.content.page.html)}
+          operator={`運営: ${SITE_NAME}`}
+          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} />}
+          after={
+            <section data-section="share" className="px-6 py-12">
+              <div className="mx-auto max-w-md space-y-4 text-center">
+                <h2 className="text-xl font-bold">役に立ったら、シェアしてもらえるとうれしいです</h2>
+                <ShareButtons slug={lp.slug} version={lp.version} text={tool.shareText} results={tool.results} />
+              </div>
+            </section>
+          }
+        />
+        <PageSummary title={lp.title} lp={lp.content} />
+        <RelatedPages slug={lp.slug} />
+        <FeedbackWidget slug={lp.slug} version={lp.version} kind="tool" />
       </main>
     );
   }

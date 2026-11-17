@@ -8,8 +8,14 @@ import { staticToolIssues } from "../src/lib/loop";
 const base = { headline: "h", subheadline: "s", pains: ["a"], features: [{ title: "t", body: "b" }], cta: "c", faq: [] };
 
 test("結果ごとのシェア: ツールに書かれた結果の一覧を取り出し、長さと数をそろえて残す", () => {
-  const ok = '<p>x</p><script type="application/json" id="lab-results">[" ひだまりタイプ ", "かげりタイプ"]</script><script>1</script>';
+  const ok = '<p>x</p><script type="application/json" id="lab-results">["ひだまりタイプ", "かげりタイプ"]</script><script>1</script>';
   assert.deepEqual(toolResultsOf(ok), ["ひだまりタイプ", "かげりタイプ"]);
+  // 前後の空白は整えずに一覧ごと使わない。type が application/json でないもの・data-id は結果の一覧として読まない
+  assert.equal(toolResultsOf('<script type="application/json" id="lab-results">[" ひだまり "]</script>'), undefined);
+  assert.equal(toolResultsOf('<script id="lab-results">["A"]</script>'), undefined);
+  assert.equal(toolResultsOf('<script type="application/json" data-id="lab-results">["A"]</script>'), undefined);
+  assert.ok(staticToolIssues('<script id="lab-results">["A"]</script><script>1</script>').some((x) => x.includes("lab-results")));
+  assert.ok(!staticToolIssues('<script type="application/json" data-id="lab-results">["A"]</script><script>1</script>').some((x) => x.includes("lab-results")));
   // ai-review の指摘: 要素を除いたり切ったりすると番号がずれるので、1つでもおかしければ一覧ごと使わない
   const tag = (v: unknown) => `<script type="application/json" id="lab-results">${JSON.stringify(v)}</script><script>1</script>`;
   assert.equal(toolResultsOf(tag(["A", " ", "B"])), undefined);

@@ -68,23 +68,29 @@ export const TOOL_HTML_MAX = 80_000;
 // 結果の名前の数と長さの上限（シェア画像に大きく出すので短く）
 export const TOOL_RESULTS_MAX = 40;
 export const TOOL_RESULT_LEN = 30;
-// 結果の一覧として正しいか: 1〜TOOL_RESULTS_MAX 個の、空でない TOOL_RESULT_LEN 文字以内の文字列
-// ツールは番号（何番目か）で結果を知らせるので、要素を除いたり切ったりせず、1つでもおかしければ一覧ごと使わない
+// 結果の一覧として正しいか: 1〜TOOL_RESULTS_MAX 個の、空でなく前後に空白のない TOOL_RESULT_LEN 文字以内の文字列
+// ツールは番号（何番目か）で結果を知らせるので、要素を除いたり切ったり整えたりせず、1つでもおかしければ一覧ごと使わない
 export function isToolResults(v: unknown): v is string[] {
   return Array.isArray(v) && v.length >= 1 && v.length <= TOOL_RESULTS_MAX
-    && v.every((x) => typeof x === "string" && x.trim().length > 0 && x.trim().length <= TOOL_RESULT_LEN);
+    && v.every((x) => typeof x === "string" && x.length > 0 && x.length <= TOOL_RESULT_LEN && x === x.trim());
 }
+// 結果の一覧を書く場所か: id がちょうど lab-results の <script>（data-id などは数えない）
+export const hasResultsTag = (html: string) => /<script\b[^>]*\sid\s*=\s*["']lab-results["']/i.test(html);
 // ツールのコードに書かれた結果の一覧（<script type="application/json" id="lab-results">[...]</script>）を取り出す
-// ないとき・読めないとき・決まりに合わないときは undefined（番号がずれないよう、そろえ直さない）
+// type が application/json でないもの（スクリプトとして動いてしまう）・読めないもの・決まりに合わないものは undefined（番号がずれないよう、そろえ直さない）
 export function toolResultsOf(html: string): string[] | undefined {
-  const m = html.match(/<script[^>]*\bid\s*=\s*["']lab-results["'][^>]*>([\s\S]*?)<\/script>/i);
-  if (!m) return undefined;
-  try {
-    const v = JSON.parse(m[1]) as unknown;
-    return isToolResults(v) ? v.map((x) => x.trim()) : undefined;
-  } catch {
-    return undefined;
+  for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    const attrs = m[1];
+    if (!/\sid\s*=\s*["']lab-results["']/i.test(attrs)) continue;
+    if (!/\stype\s*=\s*["']application\/json["']/i.test(attrs)) return undefined;
+    try {
+      const v = JSON.parse(m[2]) as unknown;
+      return isToolResults(v) ? v : undefined;
+    } catch {
+      return undefined;
+    }
   }
+  return undefined;
 }
 
 // じっくり案件のツールのコードの上限（データは別に置くので、コードだけで数える）
@@ -169,7 +175,7 @@ export function normalizeLp(raw: unknown): Lp {
     const data = v.tool.data;
     if (Array.isArray(data) && data.length > 0 && data.length <= TOOL_DATA_ROWS_MAX && JSON.stringify(data).length <= TOOL_DATA_MAX) lp.tool.data = data;
     if (v.tool.fonts === true) lp.tool.fonts = true;
-    if (isToolResults(v.tool.results)) lp.tool.results = v.tool.results.map((x) => x.trim());
+    if (isToolResults(v.tool.results)) lp.tool.results = v.tool.results;
   }
   if (isObj(v.page) && isStr(v.page.html) && v.page.html.length <= PAGE_HTML_MAX) lp.page = { html: v.page.html };
   return lp;
