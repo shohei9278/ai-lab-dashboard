@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
+import { makePlayVideoOnPublish } from "./playVideo";
 import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
@@ -2030,6 +2031,8 @@ async function announcePublish(projectId: number) {
       db().prepare("UPDATE projects SET published_at = COALESCE(published_at, datetime('now')) WHERE id = ?").run(projectId);
       // 初めて公開したときは、企画で決めた最初の届け方を、運営者がやること（提案箱）に入れる
       // フォロワーがほぼいない自動投稿だけでは、判断に必要な訪問が集まらないため
+      // ねらいが「広がる」の案件は、初めて公開したときに、投稿に使う遊ぶ様子の動画を裏で作っておく
+      if (!p.published_at) makePlayVideoOnPublish(p);
       // ねらいが「広がる」の案件は、1日1本出すので運営者の手作業は頼まない（自分の投稿で広がるかを見る）
       if (!p.published_at && asksFirstChannel(p)) {
         addProposal({

@@ -12,7 +12,7 @@ import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, approvedDe
 import { LpCandidates } from "@/components/LpCandidates";
 import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
-import { jstDateTime, pct, yen } from "@/lib/format";
+import { jstDateTime, jstFull, pct, yen } from "@/lib/format";
 import { ApprovalCard } from "@/components/ApprovalCard";
 import { Stat, ScrollHint } from "@/components/ui";
 import { ProjectActions } from "./ProjectActions";
@@ -30,6 +30,8 @@ import { getWant } from "@/lib/userWants";
 import { channelRows, funnel, funnelVersions } from "@/lib/funnel";
 import { eventDetails } from "@/lib/eventDetails";
 import { SnsPosts } from "./SnsPosts";
+import { PlayVideos } from "./PlayVideos";
+import { listPlayVideos } from "@/lib/playVideo";
 import { listPosts, postLink } from "@/lib/sns";
 import { projectCost } from "@/lib/cost";
 import { publicUrl } from "@/lib/publish";
@@ -339,6 +341,17 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
             const v = versions.find((x) => x.version === p.lp_version);
             return v?.tool_model ? { label: modelInfo(v.tool_model).label, rewrites: v.tool_rewrites } : null;
           })()}
+        />
+      )}
+
+      {owner && isTool && !p.demo && lp?.tool && (
+        <PlayVideos
+          projectId={p.id}
+          link={publicUrl(p.id)}
+          videos={listPlayVideos(p.id).map((v) => {
+            const check = v.check_json ? (JSON.parse(v.check_json) as { issues?: string[] }) : {};
+            return { id: v.id, at: jstFull(v.at), version: v.version, file: v.file, hook: v.hook, caption: v.caption, ok: !!v.ok, issues: check.issues ?? [] };
+          })}
         />
       )}
 

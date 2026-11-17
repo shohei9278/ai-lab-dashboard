@@ -343,6 +343,20 @@ CREATE TABLE IF NOT EXISTS interventions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 動くツールを遊ぶ様子の動画（SNSに投稿するため。AIが台本を書いて録画し、コマを確かめる。playVideo.ts）
+CREATE TABLE IF NOT EXISTS play_videos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  version INTEGER NOT NULL,
+  file TEXT NOT NULL,
+  hook TEXT NOT NULL,
+  caption TEXT NOT NULL,
+  script TEXT NOT NULL,
+  check_json TEXT,
+  ok INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS record_videos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
