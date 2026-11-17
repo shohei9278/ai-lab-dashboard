@@ -5,13 +5,14 @@ import { modelInfo } from "./models";
 import { sampleRows, type DeepSpec } from "./deep";
 
 // じっくり案件のデータの確認に出すもの。下書きはAIの出力なので、中身の例は運営者にだけ渡す
+// 下書きに失敗したとき（error）は、データの代わりに失敗の理由を出す
 function dataView(payload: string | null, owner: boolean): ApprovalView["data"] {
-  const dataId = payload ? (JSON.parse(payload) as { dataId?: number }).dataId : undefined;
-  const row = dataId ? (db().prepare("SELECT id, spec, rows FROM deep_data WHERE id = ?").get(dataId) as { id: number; spec: string; rows: string } | undefined) : undefined;
-  if (!row) return undefined;
+  const p = payload ? (JSON.parse(payload) as { dataId?: number; error?: string }) : {};
+  const row = p.dataId ? (db().prepare("SELECT id, spec, rows FROM deep_data WHERE id = ?").get(p.dataId) as { id: number; spec: string; rows: string } | undefined) : undefined;
+  if (!row) return { id: null, count: 0, fields: [], groups: 0, note: "", error: p.error ?? "データがありません", owner };
   const spec = JSON.parse(row.spec) as DeepSpec;
   const rows = JSON.parse(row.rows) as Record<string, unknown>[];
-  return { id: row.id, count: rows.length, fields: spec.fields, groups: spec.groups.length, note: spec.note, sample: owner ? sampleRows(rows, 30) : undefined };
+  return { id: row.id, count: rows.length, fields: spec.fields, groups: spec.groups.length, note: spec.note, sample: owner ? sampleRows(rows, 30) : undefined, owner };
 }
 
 // 承認待ちを、カードに表示できる形にまとめる

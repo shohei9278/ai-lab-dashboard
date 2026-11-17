@@ -8,7 +8,7 @@ import { notFound } from "next/navigation";
 import { db, getSettings, type EventRow } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
 import type { PageJudge } from "@/lib/freePage";
-import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, buildingNow, jstToday, getProject, lpCandidates, pageCandidates, pageCandidateLabel, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
+import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, approvedDeepData, buildingNow, jstToday, getProject, lpCandidates, pageCandidates, pageCandidateLabel, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
 import { LpCandidates } from "@/components/LpCandidates";
 import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
@@ -116,7 +116,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <AutoReviewCard id={p.id} review={p.human_review} note={p.human_review_note} at={p.human_review_at} url={publicUrl(p.id)} />
       )}
 
-      <ProjectActions demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
+      <ProjectActions demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} deepNoData={!!p.deep && !approvedDeepData(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
 
       {owner && !p.demo && ["live", "hold"].includes(p.stage) && (
         <HoldPanel id={p.id} held={p.stage === "hold"} reason={p.hold_reason} until={p.hold_until} today={jstToday()} blocked={approvals.length > 0 || !!buildingNow(p.id)} />

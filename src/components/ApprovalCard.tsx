@@ -16,7 +16,8 @@ export type ApprovalView = {
   createdAt: string;
   project: { id: number; title: string; target: string; problem: string; solution: string; hypothesis: string; confidence: number | null; demo: boolean; kind: "lp" | "tool"; lpVersion: number; publicVersion: number | null; deep: boolean };
   // じっくり案件のデータの確認。sample（中身の例）は運営者にだけ入る
-  data?: { id: number; count: number; groups: number; note: string; fields: { key: string; label: string; kind: "fact" | "view" }[]; sample?: Record<string, unknown>[] };
+  // error: 下書きに失敗したとき（id は null）。owner: 運営者が見ているか（データを自分で入れられる）
+  data?: { id: number | null; count: number; groups: number; note: string; fields: { key: string; label: string; kind: "fact" | "view" }[]; sample?: Record<string, unknown>[]; error?: string; owner: boolean };
   conv: { noun: string; rate: string }; // 成果の呼び方（事前登録LPは登録、動くツールは利用）
   decision?: { confidence: number; nextAction: string };
   review?: { ok: boolean; issues: string[] };
@@ -90,7 +91,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
         </dl>
       )}
 
-      {a.kind === "data" && a.data && <DataCheck d={a.data} />}
+      {a.kind === "data" && a.data && <DataCheck d={a.data} approvalId={a.id} />}
 
       {a.kind === "publish" && (
         <div className="space-y-2">
@@ -131,7 +132,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
         </dl>
       )}
 
-      <p className="text-xs text-muted">{k.after}</p>
+      <p className="text-xs text-muted">{a.kind === "data" && !a.data?.id ? "修正を指示すると、データを作り直します。データを自分で入れると、承認できるようになります。" : k.after}</p>
 
       {revising && (
         <textarea
@@ -154,7 +155,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
           </>
         ) : (
           <>
-            <ActionButton variant="primary" disabled={!!busy} onClick={() => send("approve", k.busy)}>✓ {k.approve}</ActionButton>
+            {!(a.kind === "data" && !a.data?.id) && <ActionButton variant="primary" disabled={!!busy} onClick={() => send("approve", k.busy)}>✓ {k.approve}</ActionButton>}
             <ActionButton disabled={!!busy} onClick={() => setRevising(true)}>修正を指示</ActionButton>
             <ActionButton variant="danger" disabled={!!busy} onClick={() => send("reject", "処理しています…")}>
               {a.kind === "decision" ? "採用せず集客を続ける" : "却下"}
@@ -168,10 +169,20 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
 }
 
 // じっくり案件のデータ: 項目（事実か見立てか）と、全体から等間隔に取った例。全部は JSON で保存して確かめられる
-function DataCheck({ d }: { d: NonNullable<ApprovalView["data"]> }) {
+// 下書きに失敗したときは理由を出す。運営者は、公式の表などのデータを自分で入れて差し替えられる
+function DataCheck({ d, approvalId }: { d: NonNullable<ApprovalView["data"]>; approvalId: number }) {
+  if (!d.id) {
+    return (
+      <div className="space-y-2 text-sm">
+        <p style={{ color: "var(--critical)" }}>データを作れませんでした: {d.error}</p>
+        {d.owner && <UploadData approvalId={approvalId} fields={d.fields} />}
+      </div>
+    );
+  }
   return (
     <div className="space-y-2 text-sm">
-      <p className="text-ink-2">{d.count.toLocaleString("ja-JP")}件（{d.groups}グループに分けて作成）</p>
+      <p className="text-ink-2">{d.count.toLocaleString("ja-JP")}件{d.groups > 0 ? `（${d.groups}グループに分けて作成）` : ""}</p>
+      {d.note && <p className="text-xs text-ink-2">{d.note}</p>}
       <ul className="flex flex-wrap gap-1.5 text-xs">
         {d.fields.map((f) => (
           <li key={f.key} className="rounded border border-line px-1.5 py-0.5">
@@ -201,7 +212,34 @@ function DataCheck({ d }: { d: NonNullable<ApprovalView["data"]> }) {
       ) : (
         <p className="text-xs text-muted">データの中身は、運営者だけが見られます。</p>
       )}
+      {d.owner && <UploadData approvalId={approvalId} fields={d.fields} />}
     </div>
+  );
+}
+
+// 運営者がデータを自分で入れる（CSV か JSON）。ファイルを選ぶか、貼り付ける。入れたあとも、承認するまではツールを作らない
+function UploadData({ approvalId, fields }: { approvalId: number; fields: NonNullable<ApprovalView["data"]>["fields"] }) {
+  const { run, busy, error } = useLoopAction();
+  const [text, setText] = useState("");
+  return (
+    <details className="rounded-lg border border-line p-3">
+      <summary className="cursor-pointer text-xs text-accent">データを自分で入れて差し替える（CSV か JSON）</summary>
+      <div className="mt-2 space-y-2">
+        <p className="text-xs text-ink-2">
+          公式の表など、AIの下書きより正確なデータがあるときに使います。CSV は1行目を見出しにしてください。
+          {fields.length > 0 ? <> 見出しは次の名前か key にします: {fields.map((f) => `${f.label}（${f.key}）`).join("・")}。ない列は空欄になります。</> : " 見出しが、そのままデータの項目になります。"}
+        </p>
+        <input
+          type="file"
+          accept=".csv,.json,text/csv,application/json"
+          onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }}
+          className="block text-xs"
+        />
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={4} placeholder="ここに貼り付けることもできます" className="w-full rounded-lg border border-line bg-surface p-2 font-mono text-xs" />
+        <ActionButton disabled={!!busy || !text.trim()} onClick={() => run("データを取り込んでいます…", { action: "deep-upload", approvalId, text })}>このデータに差し替える</ActionButton>
+        <BusyNote busy={busy} error={error} />
+      </div>
+    </details>
   );
 }
 

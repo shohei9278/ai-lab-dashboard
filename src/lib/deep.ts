@@ -29,32 +29,109 @@ export function sampleRows<T>(rows: T[], n: number): T[] {
 }
 
 const KEY = /^[a-z][a-z0-9_]{0,30}$/;
+// 表の位置の範囲で分けたグループ（「153〜202字目」など）を見分ける。こう分けた設計は、形が正しくないとしてAIにやり直させる（中身を挙げられず、空の一覧が返ってくるため）
+export const isPositionalGroup = (g: string) => /\d+\s*[〜~～-]\s*\d+\s*(字目|番目|件目|行目)/.test(g);
+
 export function isDeepSpec(v: unknown): v is DeepSpec {
   return isObj(v) && Array.isArray(v.fields) && v.fields.length >= 1 && v.fields.length <= 12
     && v.fields.every((f) => isObj(f) && isStr(f.key) && KEY.test(f.key) && isStr(f.label) && (f.kind === "fact" || f.kind === "view"))
     && new Set(v.fields.map((f) => (f as DeepField).key)).size === v.fields.length
-    && Array.isArray(v.groups) && v.groups.length >= 1 && v.groups.length <= DEEP_GROUP_MAX && v.groups.every(isStr)
+    && Array.isArray(v.groups) && v.groups.length >= 1 && v.groups.length <= DEEP_GROUP_MAX && v.groups.every(isStr) && !v.groups.some((g) => isPositionalGroup(g as string))
     && isStr(v.per_group) && isStr(v.note);
 }
 
-// AIが出した1グループ分の行から、決めた項目がそろったものだけを残す（値は文字・数・真偽だけ。長すぎる文字は切る）
-export function cleanRows(raw: unknown, fields: DeepField[]): DeepRow[] {
+// 行から、決めた項目の形にそろったものだけを残す（値は文字・数・真偽だけ。長すぎる文字は切る）
+// 空欄（"" や null）は「該当なし」として残す（例: 別の字体がない漢字）。最初の項目（その行が何かを表す名前など）が空の行と、項目が欠けた行は捨てる
+// max: 1回で受け取る件数の上限（AIの1グループ分。人が入れるときは全体の上限）
+export function cleanRows(raw: unknown, fields: DeepField[], max = DEEP_ROWS_PER_GROUP): DeepRow[] {
   if (!Array.isArray(raw)) return [];
   const out: DeepRow[] = [];
-  for (const r of raw.slice(0, DEEP_ROWS_PER_GROUP)) {
+  for (const r of raw.slice(0, max)) {
     if (!isObj(r)) continue;
     const row: DeepRow = {};
     let ok = true;
     for (const f of fields) {
       const v = r[f.key];
-      if (typeof v === "string" && v.trim()) row[f.key] = v.trim().slice(0, 200);
+      if (typeof v === "string") row[f.key] = v.trim().slice(0, 200);
+      else if (v === null) row[f.key] = "";
       else if (typeof v === "number" && Number.isFinite(v)) row[f.key] = v;
       else if (typeof v === "boolean") row[f.key] = v;
       else { ok = false; break; }
     }
-    if (ok) out.push(row);
+    if (ok && row[fields[0].key] !== "") out.push(row);
   }
   return out;
+}
+
+// CSV を行の配列にする（"…" で囲んだ値の中のカンマ・改行・"" に対応）
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  const src = text.replace(/^\uFEFF/, "");
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (quoted) {
+      if (c === '"' && src[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ",") { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && src[i + 1] === "\n") i++;
+      row.push(cell); cell = "";
+      if (row.some((x) => x.trim())) rows.push(row);
+      row = [];
+    } else cell += c;
+  }
+  row.push(cell);
+  if (row.some((x) => x.trim())) rows.push(row);
+  return rows;
+}
+
+// 人が入れたデータ（CSV か JSON）を、決めた項目の形にする。spec があれば、見出しを項目の key か label に合わせる
+// spec がない（AIが設計の前に失敗した）ときは、CSV の見出し・JSON の最初の行の名前から項目を作る（すべて事実の項目として扱う）
+export function parseUploadedData(text: string, spec: DeepSpec | null): { fields: DeepField[]; rows: DeepRow[] } {
+  const t = text.trim();
+  if (!t) throw new Error("データが空です");
+  let objs: Record<string, unknown>[];
+  let headers: string[];
+  if (t.startsWith("[") || t.startsWith("{")) {
+    let v: unknown;
+    try { v = JSON.parse(t); } catch { throw new Error("JSON として読めませんでした"); }
+    const arr = Array.isArray(v) ? v : isObj(v) && Array.isArray(v.rows) ? v.rows : null;
+    if (!arr || !arr.length || !isObj(arr[0])) throw new Error("JSON は、1件ずつの配列（または {\"rows\": [...]}）にしてください");
+    objs = arr.filter(isObj);
+    headers = Object.keys(objs[0]);
+  } else {
+    const table = parseCsv(t);
+    if (table.length < 2) throw new Error("CSV は、1行目に見出し、2行目からデータを書いてください");
+    headers = table[0].map((h) => h.trim());
+    objs = table.slice(1).map((r) => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ""])));
+  }
+  let fields: DeepField[];
+  let keyOf: (h: string) => string | null;
+  if (spec) {
+    fields = spec.fields;
+    keyOf = (h) => spec.fields.find((f) => f.key === h || f.label === h)?.key ?? null;
+  } else {
+    fields = headers.slice(0, 12).map((h, i) => ({ key: KEY.test(h) ? h : `col${i + 1}`, label: h || `列${i + 1}`, kind: "fact" as const }));
+    keyOf = (h) => fields[headers.indexOf(h)]?.key ?? null;
+  }
+  const used = new Set(headers.map(keyOf).filter((k): k is string => !!k));
+  if (!used.has(fields[0].key)) throw new Error(`見出しに「${fields[0].label}」（${fields[0].key}）がありません。見出しは項目の名前か key にしてください`);
+  const mapped = objs.map((o) => {
+    const r: Record<string, unknown> = Object.fromEntries(fields.map((f) => [f.key, ""]));
+    for (const [h, v] of Object.entries(o)) {
+      const k = keyOf(h);
+      if (k) r[k] = typeof v === "number" || typeof v === "boolean" ? v : v == null ? "" : String(v);
+    }
+    return r;
+  });
+  const rows = capRows(cleanRows(mapped, fields, Number.MAX_SAFE_INTEGER));
+  if (!rows.length) throw new Error("取り込める行がありませんでした");
+  return { fields, rows };
 }
 
 // 全体の件数と大きさを上限に収め、同じ行（全項目が同じ）を除く
@@ -87,6 +164,8 @@ export async function draftDeepData(p: { id: number; title: string; target: stri
     system: `あなたはWebツールで使うデータを設計する担当です。ツールが読む1つの一覧（配列）の、1件ごとの項目と、作るときの分け方（グループ）を決めます。
 - 項目は12個まで。key は英小文字・数字・_ だけ。ツールの機能に要るものだけにする
 - グループは、一覧を${DEEP_GROUP_MAX}個までに分けたもの（例: 都道府県ごと）。1つのグループに入る件数が${DEEP_ROWS_PER_GROUP}件を超えないように分ける（大きい所は「北海道（道央）」のようにさらに分ける）
+- グループは、名前を見ただけで中身を自分で挙げられる分け方にする（例: 都道府県・読みの行（あ行・か行）・分野）。「公式の表の何番目から何番目」のような、表の並び順や位置の範囲では分けない（位置は確かめられず、中身を挙げられない）
+- 公的な表など、正しい答えが1つに決まる事実だけの一覧は、AIの下書きに誤りが混ざりやすい。note に「人が公式の表のデータで入れ替えるとよい」と、元になる表の名前を書く
 - 全体で${TOOL_DATA_ROWS_MAX}件まで
 ${RULES}
 形式: {"fields":[{"key":"name","label":"市町村名","kind":"fact"},{"key":"mood","label":"町の雰囲気（見立て）","kind":"view"}],"groups":["北海道（道央）","青森県"],"per_group":"各グループで1件ずつ出すもの（例: そのグループの全市町村）","note":"このデータの説明。どこが事実で、どこが見立てか"}`,
