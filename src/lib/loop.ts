@@ -17,7 +17,7 @@ import { outsideText, recordVoiceEffects } from "./outside";
 import { notifyEvent, notifyHuman } from "./liveNotify";
 import { researchText } from "./research";
 import { budgetState } from "./budget";
-import { deepAllowance, draftDeepData, sampleRows, type DeepRow, type DeepSpec } from "./deep";
+import { deepAllowance, draftDeepData, parseUploadedData, sampleRows, type DeepRow, type DeepSpec } from "./deep";
 import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
 import {
   db, getSettings, saveSettings,
@@ -265,7 +265,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 アイデアごとに、世に出す形（kind）も選びます。形は1つにとらわれず、アイデアに合うものを選ぶこと。
 - lp: 事前登録LP。まだ作らずに、紹介ページのメール事前登録で需要を確かめる。プロダクトの種類も、作る大変さも問わない（需要が確かめられてから作る）。継続して使うもの・作るのに時間がかかるもの向け
 - tool: 動くツール。診断・シミュレーター・計算機・ジェネレーターなど、1つのWebページの中だけで完結して今すぐ使えるもの。外部のAPIやサーバー、ログイン、ブラウザの保存領域（localStorage など）は使えない。記録や保存が欲しい案は、solution に「画面を閉じると消える一時的な保持」と明記する。何度も使いたくなるもの・結果を人に見せたくなるものが向く
-- じっくり案件（tool のみ）: 大きなデータ（数百〜${TOOL_DATA_ROWS_MAX}件ほどの一覧。例: 全国の市町村ごとの特徴・数百の職業の特徴）がないと面白さが出ない tool は、deep に要るデータ（何の一覧で、1件ごとに何を持ち、何件くらいか）を書けば作れる。AIがデータを下書きし、人が確かめてから作る（直近7日で${s.deepPerWeek}件まで）。データを小さく縮めた案にせず、そのままの大きさで出してよい。deep は、本当に大きなデータが要る案だけに書く
+- じっくり案件（tool のみ）: 大きなデータ（数百〜${TOOL_DATA_ROWS_MAX}件ほどの一覧。例: 全国の市町村ごとの特徴・数百の職業の特徴）がないと面白さが出ない tool は、deep に要るデータ（何の一覧で、1件ごとに何を持ち、何件くらいか）を書けば作れる。AIがデータを下書きし、人が確かめてから作る（直近7日で${s.deepPerWeek}件まで）。データを小さく縮めた案にせず、そのままの大きさで出してよい。deep は、本当に大きなデータが要る案だけに書く。deep には、データがどのくらいの頻度で変わるか（変わらない・年1回・毎月など）と、変わるときに誰がどう更新するかも書く（すぐ古くなるデータ（売り場・配信作品・価格など）は、更新の手立てがなければ出さない）
 考える順番: まず「誰の、どんな困りごとか」を決め、次に「その人に最初にどう届けるか」を決め、形（kind）は最後に選ぶ。形から発想しない。
 条件:
 - 既にある案件が特定の時期や行事に偏っているときは、件数のうち1件以上はそれとは別の題材にする
@@ -367,15 +367,59 @@ export async function generateIdeas(theme: string, count = 3, deep = false): Pro
 // ---- じっくり案件のデータ ----
 
 // データの下書きを作り、人の確認（判断待ち）に回す。comment: 人の修正指示（作り直すとき）
+// 下書きに失敗したときも、案件を止めたままにせず、判断待ち（データの確認）に失敗の理由を出す。人は作り直す・自分でデータを入れる・見送るを選べる
 async function prepareDeepData(projectId: number, comment?: string) {
   const p = getProject(projectId)!;
   const prev = db().prepare("SELECT spec FROM deep_data WHERE project_id = ? ORDER BY id DESC LIMIT 1").get(projectId) as { spec: string } | undefined;
-  const { spec, rows } = await whileBuilding(projectId, "データを下書きしています", () => draftDeepData(p, comment, prev ? (JSON.parse(prev.spec) as DeepSpec) : undefined));
+  let drafted: { spec: DeepSpec; rows: DeepRow[] };
+  try {
+    drafted = await whileBuilding(projectId, "データを下書きしています", () => draftDeepData(p, comment, prev ? (JSON.parse(prev.spec) as DeepSpec) : undefined));
+  } catch (e) {
+    const msg = (e instanceof Error ? e.message : String(e)).slice(0, 300);
+    if (msg.startsWith("AIがいま")) throw e;
+    logEvent(projectId, "system", "deep-data-error", `じっくり案件のデータの下書きに失敗: ${msg}`);
+    addApproval(projectId, "data", `「${p.title}」のデータを作れませんでした`,
+      `AIのデータの下書きに失敗しました（${msg}）。修正を指示すると作り直します。公式の表などがあれば、データを自分で入れることもできます。見送るなら却下してください。`,
+      { error: msg });
+    return;
+  }
+  const { spec, rows } = drafted;
   const dataId = Number(db().prepare("INSERT INTO deep_data (project_id, spec, rows) VALUES (?, ?, ?)").run(projectId, JSON.stringify(spec), JSON.stringify(rows)).lastInsertRowid);
   logEvent(projectId, "ai", "deep-data", `じっくり案件のデータを下書きしました（${rows.length}件・項目${spec.fields.length}個${comment ? "・指示を反映" : ""}）`);
   addApproval(projectId, "data", `「${p.title}」のデータ（${rows.length}件）を確かめる`,
     `${spec.note}。事実の項目（${spec.fields.filter((f) => f.kind === "fact").map((f) => f.label).join("・") || "なし"}）に誤りがないか、見立ての項目（${spec.fields.filter((f) => f.kind === "view").map((f) => f.label).join("・") || "なし"}）が誰かをおとしめていないかを見てください。承認すると、このデータでツールを作ります。`,
     { dataId });
+}
+
+// データの下書きの途中で止まったじっくり案件（承認したデータも判断待ちもなく、作業中でもない）を、もう一度下書きから始める
+export function deepDataStuck(p: Pick<ProjectRow, "id" | "deep" | "stage">): boolean {
+  return !!p.deep && p.stage === "idea" && !buildingNow(p.id) && !approvedDeepData(p.id)
+    && !db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(p.id);
+}
+export async function retryDeepData(projectId: number) {
+  const p = getProject(projectId);
+  if (!p || !deepDataStuck(p)) throw new Error("データの下書きをやり直せる状態ではありません");
+  logEvent(projectId, "human", "deep-data-retry", "じっくり案件のデータの下書きを、やり直すよう指示しました");
+  await prepareDeepData(projectId);
+}
+
+// 人がデータを入れる（公式の表など、AIの下書きより正確なものがあるとき）。判断待ちのデータの確認を、入れたデータに差し替える
+// 承認はまだしない（入れたデータも、表で確かめてから承認する）
+export function uploadDeepData(approvalId: number, text: string): number {
+  const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
+  if (!a || a.kind !== "data" || a.status !== "pending") throw new Error("データを入れられる確認待ちが見つかりません");
+  const prevId = (JSON.parse(a.payload ?? "{}") as { dataId?: number }).dataId;
+  const prev = prevId ? (db().prepare("SELECT spec FROM deep_data WHERE id = ?").get(prevId) as { spec: string } | undefined) : undefined;
+  const prevSpec = prev ? (JSON.parse(prev.spec) as DeepSpec) : null;
+  const { fields, rows } = parseUploadedData(text, prevSpec);
+  const spec: DeepSpec = { fields, groups: [], per_group: "", note: `人が入れたデータ（${rows.length}件）${prevSpec ? `。項目はAIの設計に合わせた: ${prevSpec.note.slice(0, 200)}` : ""}` };
+  const dataId = Number(db().prepare("INSERT INTO deep_data (project_id, spec, rows) VALUES (?, ?, ?)").run(a.project_id, JSON.stringify(spec), JSON.stringify(rows)).lastInsertRowid);
+  if (prevId) db().prepare("UPDATE deep_data SET status = 'revised', comment = '人が入れたデータに差し替え' WHERE id = ?").run(prevId);
+  db().prepare("UPDATE approvals SET payload = ?, proposal = ?, reason = ? WHERE id = ?").run(
+    JSON.stringify({ dataId }), `「${getProject(a.project_id)?.title ?? ""}」のデータ（${rows.length}件・人が入れたもの）を確かめる`,
+    "人が入れたデータです。表で見て問題がなければ承認してください。承認すると、このデータでツールを作ります。", approvalId);
+  logEvent(a.project_id, "human", "deep-data-upload", `じっくり案件のデータを、人が入れたもの（${rows.length}件・項目${fields.length}個）に差し替えました`);
+  return rows.length;
 }
 
 // 人が承認した、いちばん新しいデータ（じっくり案件のツールに渡す）
@@ -1667,6 +1711,10 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
   if (!a) throw new Error("承認リクエストが見つかりません");
   if (a.status !== "pending") throw new Error("この承認リクエストは処理済みです");
   if (action === "revise" && !comment?.trim()) throw new Error("修正指示を書いてください");
+  // じっくり案件のデータの下書きに失敗したものは、データがないので承認できない（作り直すか、人がデータを入れる）
+  if (a.kind === "data" && action === "approve" && !(JSON.parse(a.payload ?? "{}") as { dataId?: number }).dataId) {
+    throw new Error("確かめるデータがありません。修正を指示して作り直すか、データを自分で入れてください");
+  }
 
   const status = action === "approve" ? "approved" : action === "reject" ? "rejected" : "revised";
   db().prepare("UPDATE approvals SET status = ?, comment = ?, decided_at = datetime('now') WHERE id = ?").run(status, comment ?? null, approvalId);
@@ -2155,7 +2203,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
 - 対象者が具体的で、その人に安く届けられるか
 - 「最初の届け方」が具体的で現実的か（広告なし・フォロワーほぼ0のアカウントと手作業で、本当に最初の利用者に会えるか）。曖昧なもの・書かれていないものは大きく減点する。自分の投稿（タグ付け）だけで、運営者が手でできる直接の接点（コミュニティの管理者への相談・知人に使ってもらう など）が入っていないものも減点する。他人の投稿への宣伝の返信・知らない人へのDMを使う案は大きく減点する
 - 困りごと・欲しい気持ちが強く、事前登録したくなるか（形が tool なら、使ってシェアしたくなるか）
-- 選んだ形（lp=事前登録LP / tool=1ページで完結する動くツール）が、そのアイデアに合っているか。tool なら外部の通信なしで本当に作れるか（じっくり案件は、書かれたデータを先に用意すれば作れるかで見る。データが大きいことでは減点しない）
+- 選んだ形（lp=事前登録LP / tool=1ページで完結する動くツール）が、そのアイデアに合っているか。tool なら外部の通信なしで本当に作れるか（じっくり案件は、書かれたデータを先に用意すれば作れるかで見る。データが大きいことでは減点しない。データがすぐ古くなるのに、更新の手立てが書かれていないものは減点する）
 - プロダクトの種類（Webサービス・スマホアプリ・拡張機能・ボット・デジタル商品など）では差をつけない。lp は作る前に需要を確かめるものなので、作るのが大変なことでは減点しない
 - 既存の無料サービスとの違いがはっきりしているか（「代わりになる既存の無料サービスとの違い」が書かれていない・名前がない・違いが弱いものは減点する）
 - 季節が過ぎても需要が残るか。季節もの（その時期だけ使われるもの）は、時期が過ぎたあとも使われる理由がなければ減点する（公開から判断まで1〜3週間かかり、育てる時間もいるため）

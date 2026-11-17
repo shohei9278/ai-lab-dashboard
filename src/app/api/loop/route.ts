@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  holdProject, resumeProject, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  holdProject, resumeProject, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -69,6 +69,13 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       case "test-tool":
         return NextResponse.json(await retestTool(requireProject(body).id));
+      case "deep-retry":
+        await retryDeepData(requireProject(body).id);
+        return NextResponse.json({ ok: true });
+      case "deep-upload": {
+        if (typeof body.text !== "string" || body.text.length > 1_500_000) throw new Error("データは1,500,000文字までの文字で入れてください");
+        return NextResponse.json({ rows: uploadDeepData(Number(body.approvalId), body.text) });
+      }
       case "use-page":
         await switchPageCandidate(requireProject(body).id, Number(body.candidateId));
         return NextResponse.json({ ok: true });

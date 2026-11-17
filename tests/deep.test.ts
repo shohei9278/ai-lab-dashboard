@@ -2,8 +2,8 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings } from "../src/lib/db";
-import { capRows, cleanRows, deepAllowance, isDeepSpec, sampleRows, type DeepField } from "../src/lib/deep";
-import { decide, isDeepIdea, staticToolIssues, type Idea } from "../src/lib/loop";
+import { capRows, cleanRows, deepAllowance, isDeepSpec, isPositionalGroup, parseCsv, parseUploadedData, sampleRows, type DeepField } from "../src/lib/deep";
+import { decide, deepDataStuck, getProject, isDeepIdea, staticToolIssues, uploadDeepData, type Idea } from "../src/lib/loop";
 import { pendingApprovals } from "../src/lib/views";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, normalizeLp } from "../lp-site/src/lp/content";
@@ -84,4 +84,43 @@ test("じっくり案件のデータの確認: 中身の例は運営者にだけ
   await decide(aid, "reject");
   assert.equal((db().prepare("SELECT stage FROM projects WHERE id = ?").get(pid) as { stage: string }).stage, "rejected");
   assert.equal((db().prepare("SELECT status FROM deep_data WHERE id = ?").get(dataId) as { status: string }).status, "rejected");
+});
+
+test("じっくり案件のデータ（2回目の直し）: 空欄は残し、名前が空の行は捨てる。位置の範囲で分けた設計は受け付けない", () => {
+  const f3: DeepField[] = [{ key: "kanji", label: "字", kind: "fact" }, { key: "grade", label: "学年", kind: "fact" }, { key: "variants", label: "許容字体", kind: "fact" }];
+  const rows = cleanRows([{ kanji: "囲", grade: 5, variants: "" }, { kanji: "", grade: 1, variants: "" }, { kanji: "叱", grade: "中学以降", variants: null }], f3);
+  assert.deepEqual(rows, [{ kanji: "囲", grade: 5, variants: "" }, { kanji: "叱", grade: "中学以降", variants: "" }]);
+  assert.equal(isPositionalGroup("4年（配当表の掲載順 153〜202字目）"), true);
+  assert.equal(isPositionalGroup("あ行"), false);
+  assert.equal(isDeepSpec({ fields: f3, groups: ["1年（1〜40字目）"], per_group: "", note: "" }), false);
+});
+
+test("人が入れるデータ: CSV の見出しは項目の名前か key に合わせ、引用符の中のカンマや改行も読む", () => {
+  assert.deepEqual(parseCsv('a,b\n"x,1","y\n2"\n'), [["a", "b"], ["x,1", "y\n2"]]);
+  const spec = { fields: FIELDS, groups: ["g"], per_group: "", note: "" };
+  const csv = parseUploadedData("﻿市町村名,mood,関係ない列\n札幌市,にぎやか,x\n,空の名前,x\n函館市,,x\n", spec);
+  assert.deepEqual(csv.rows, [{ name: "札幌市", mood: "にぎやか" }, { name: "函館市", mood: "" }]);
+  const json = parseUploadedData(JSON.stringify([{ name: "小樽市", mood: "坂が多い" }]), spec);
+  assert.equal(json.rows.length, 1);
+  const free = parseUploadedData("字,学年\n一,1\n", null);
+  assert.deepEqual(free.fields.map((f) => f.label), ["字", "学年"]);
+  assert.deepEqual(free.rows, [{ col1: "一", col2: "1" }]);
+  assert.throws(() => parseUploadedData("mood\nにぎやか\n", spec), /市町村名/);
+  assert.throws(() => parseUploadedData("{x", spec), /JSON/);
+});
+
+test("じっくり案件の下書きの失敗: 判断待ちに理由を出し、データがないうちは承認できず、人が入れたデータに差し替えられる", async () => {
+  const pid = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, deep) VALUES ('手紙ひらき帳', 't', 'p', 's', 'h', 'r', 'idea', 'm', 'tool', 1)").run().lastInsertRowid);
+  assert.equal(deepDataStuck(getProject(pid)!), true);
+  const aid = Number(db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason, payload) VALUES (?, 'data', '作れませんでした', '理由', ?)").run(pid, JSON.stringify({ error: "データの下書きを1件も作れませんでした" })).lastInsertRowid);
+  assert.equal(deepDataStuck(getProject(pid)!), false);
+  const v = pendingApprovals(pid, true).find((a) => a.id === aid)!;
+  assert.equal(v.data?.id, null);
+  assert.match(v.data?.error ?? "", /1件も/);
+  await assert.rejects(decide(aid, "approve"), /確かめるデータがありません/);
+  assert.equal((db().prepare("SELECT status FROM approvals WHERE id = ?").get(aid) as { status: string }).status, "pending");
+  assert.equal(uploadDeepData(aid, "字,学年\n一,1\n二,1\n"), 2);
+  const after = pendingApprovals(pid, true).find((a) => a.id === aid)!;
+  assert.equal(after.data?.count, 2);
+  assert.ok(after.proposal.includes("人が入れたもの"));
 });

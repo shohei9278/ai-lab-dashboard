@@ -4,8 +4,9 @@ import { useState } from "react";
 import type { Stage } from "@/lib/db";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 
-export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building, demo }: {
+export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building, demo, deepNoData = false }: {
   id: number; convNoun: string; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number; isTool: boolean; demo: boolean;
+  deepNoData?: boolean; // じっくり案件で、まだ承認したデータがない（止まっていたら、ツールではなくデータの下書きからやり直す）
   building: { what: string; since: number } | null; // AIが今作業中なら、その内容
   publicUrl: string | null; // 実際に公開しているときだけ入る
 }) {
@@ -98,6 +99,17 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
     );
   }
 
+  if (stuck && deepNoData && stage === "idea") {
+    return (
+      <div className="card space-y-2 p-4">
+        <p className="text-sm text-ink-2">じっくり案件のデータの下書きが途中で止まっています（AIの呼び出しに失敗したか、下書きの途中でサーバーが止まった可能性があります）。</p>
+        <ActionButton variant="primary" disabled={!!busy} onClick={() => run("AIがデータを下書きしています…（数分〜十数分かかります）", { action: "deep-retry", projectId: id })}>
+          データの下書きをやり直す
+        </ActionButton>
+        <BusyNote busy={busy} error={error} />
+      </div>
+    );
+  }
   if (stuck) {
     return (
       <div className="card space-y-2 p-4">
