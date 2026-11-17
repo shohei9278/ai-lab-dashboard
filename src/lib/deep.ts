@@ -117,9 +117,9 @@ export function parseUploadedData(text: string, spec: DeepSpec | null): { fields
     const table = parseCsv(t);
     if (table.length < 2) throw new Error("CSV は、1行目に見出し、2行目からデータを書いてください");
     headers = table[0].map((h) => h.trim());
-    // 同じ見出しが2つあると、どちらかの列が消えるので止める
-    const dup = headers.find((h, i) => h && headers.indexOf(h) !== i);
-    if (dup) throw new Error(`見出し「${dup}」が重なっています。見出しはそれぞれ別の名前にしてください`);
+    // 同じ見出しが2つあると、どちらかの列が消えるので止める（空の見出しが2つ以上あるときも同じ）
+    const dup = headers.find((h, i) => headers.indexOf(h) !== i);
+    if (dup !== undefined) throw new Error(dup ? `見出し「${dup}」が重なっています。見出しはそれぞれ別の名前にしてください` : "空の見出しが2つ以上あります。見出しはそれぞれ名前を付けてください");
     objs = table.slice(1).map((r) => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ""])));
   }
   let fields: DeepField[];
