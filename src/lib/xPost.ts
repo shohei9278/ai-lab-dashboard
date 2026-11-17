@@ -101,12 +101,17 @@ export const clampPerQuery = (n: number) => Math.max(10, Math.min(100, Math.roun
 
 // 複数の検索を、それぞれ1回（perQuery 件まで）ずつ、since のあとの投稿から話題の順に読む
 // 読んだ分だけ費用がかかるので、途中で失敗しても数えられるよう onRead で件数を知らせる
-export async function searchEach(queries: string[], perQuery: number, since: string, onRead: (n: number) => void): Promise<XSearchPost[]> {
+// 途中で失敗したら残りの検索はやめ（回数の上限などで続けて失敗するため）、それまでに読めた投稿と、失敗の理由を返す
+export async function searchEach(queries: string[], perQuery: number, since: string, onRead: (n: number) => void): Promise<{ posts: XSearchPost[]; error?: string }> {
   const seen = new Map<string, XSearchPost>();
-  for (const q of queries) {
-    const r = await searchRecent(q, undefined, clampPerQuery(perQuery), since);
-    onRead(r.posts.length);
-    for (const p of r.posts) seen.set(p.id, p);
+  for (const [i, q] of queries.entries()) {
+    try {
+      const r = await searchRecent(q, undefined, clampPerQuery(perQuery), since);
+      onRead(r.posts.length);
+      for (const p of r.posts) seen.set(p.id, p);
+    } catch (e) {
+      return { posts: [...seen.values()], error: `${queries.length}種類のうち${i + 1}種類目で失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}` };
+    }
   }
-  return [...seen.values()];
+  return { posts: [...seen.values()] };
 }

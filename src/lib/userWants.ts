@@ -38,13 +38,16 @@ export function deleteWant(id: number) {
 }
 
 // 前回の検索のあとの投稿を読み、いいね5以上のものをAIに選り分けさせる
-export async function searchWants(since: string): Promise<{ read: number; added: number }> {
+export async function searchWants(since: string): Promise<{ read: number; added: number; error?: string }> {
   const s = getSettings();
   if (s.wantsPerQuery <= 0) return { read: 0, added: 0 };
   let read = 0;
   try {
     const all: { id: string; text: string; created_at?: string; likes: number; reposts: number; bookmarks: number; replies: number }[] = [];
-    for (const p of await searchEach(WANT_QUERIES, s.wantsPerQuery, since, (n) => { read += n; })) {
+    const found = await searchEach(WANT_QUERIES, s.wantsPerQuery, since, (n) => { read += n; });
+    // 途中で失敗しても、それまでに読めた分は選り分ける（前回の日時は進むので、ここで捨てると二度と読まない）
+    if (found.error) logEvent(null, "system", "wants-error", `「欲しい」の声の検索が途中で失敗（読めた${read}件は選り分けます）: ${found.error}`);
+    for (const p of found.posts) {
       const m = p.public_metrics;
       if (m) all.push({ id: p.id, text: p.text, created_at: p.created_at, likes: m.like_count, reposts: m.retweet_count, bookmarks: m.bookmark_count ?? 0, replies: m.reply_count });
     }
@@ -52,7 +55,7 @@ export async function searchWants(since: string): Promise<{ read: number; added:
     const cands = all.filter((x) => x.likes >= 5 && !known.has(x.id)).sort((a, b) => b.likes - a.likes).slice(0, 40);
     if (!cands.length) {
       logEvent(null, "system", "wants-search", `Xで「欲しい」の声を検索: ${read}件を読み、新しい声はありませんでした`);
-      return { read, added: 0 };
+      return { read, added: 0, error: found.error };
     }
     const out = await callJson<{ items: { n: number; keep: boolean; who: string; problem: string; note: string }[] }>({
       purpose: "「欲しい」の声の選別",
@@ -78,7 +81,7 @@ export async function searchWants(since: string): Promise<{ read: number; added:
       if (keep) added++;
     }
     logEvent(null, "system", "wants-search", `Xで「欲しい」の声を検索: ${read}件を読み、${cands.length}件をAIが見て、${added}件を残しました`);
-    return { read, added };
+    return { read, added, error: found.error };
   } finally {
     if (read) db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (NULL, ?, 'x-api', 0, 0, ?, NULL)").run("Xで「欲しい」の声を検索", read * X_READ_COST_USD);
   }

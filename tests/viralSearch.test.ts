@@ -1,9 +1,9 @@
 import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getSettings, saveSettings } from "../src/lib/db";
+import { db, getSettings, saveSettings } from "../src/lib/db";
 import { clampPerQuery, searchSince } from "../src/lib/xPost";
-import { VIRAL_QUERIES, searchBeforeIdeas, searchReads, searchedToday } from "../src/lib/viralPosts";
+import { VIRAL_QUERIES, drainQueue, searchBeforeIdeas, searchReads, searchedToday } from "../src/lib/viralPosts";
 import { WANT_QUERIES } from "../src/lib/userWants";
 
 test("話題の投稿の検索: 読み始めは前回の検索のあと（7日より前・未来・なしなら、読める一番古いところ）", () => {
@@ -97,5 +97,54 @@ test("アイデア出しの前の検索: X の検索が失敗しても止めず�
   } finally {
     globalThis.fetch = realFetch;
     for (const k of ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"]) delete process.env[k];
+  }
+});
+
+const X_ENV = { X_API_KEY: "k", X_API_SECRET: "s", X_ACCESS_TOKEN: "t", X_ACCESS_SECRET: "ts" };
+const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "Content-Type": "application/json" } });
+
+test("話題の投稿の検索（PR #83 の ai-review の指摘）: 途中で失敗しても読めた分は取り込み、「欲しい」の声は読まず、次は始めた時刻のあとから読む", async () => {
+  const searches: number[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (url.pathname === "/2/tweets/search/recent") {
+      searches.push(Date.now());
+      await new Promise((ok) => setTimeout(ok, 30));
+      // 1種類目は伸びた投稿を1件返し、2種類目で失敗する
+      if (searches.length === 1) return json({ data: [{ id: "900000000000000001", text: "ゲーム作りました", public_metrics: { like_count: 120, retweet_count: 5, reply_count: 1, quote_count: 0, bookmark_count: 3 } }], meta: {} });
+      return json({ title: "Too Many Requests" }, 429);
+    }
+    // 取り込んだ投稿の本文の読み取り（fxtwitter）は失敗させる（まとめは「読めませんでした」になる）
+    return json({ message: "NOT_FOUND" }, 404);
+  }) as typeof fetch;
+  Object.assign(process.env, X_ENV);
+  try {
+    saveSettings({ viralSearch: true, lastViralSearch: new Date(Date.now() - 2 * 86_400_000).toISOString() });
+    await searchBeforeIdeas();
+    // 2種類目で止め、「欲しい」の声は読まない
+    assert.equal(searches.length, 2);
+    // 1種類目で読めた投稿は取り込まれている（まとめは本文を読めずに失敗で終わり、待ちのまま残らない）
+    const row = db().prepare("SELECT source, status FROM viral_posts WHERE tweet_id = ?").get("900000000000000001") as { source: string; status: string } | undefined;
+    assert.deepEqual(row, { source: "search", status: "error" });
+    // 次の検索の読み始めは、検索を始めた時刻（最初の検索より前）
+    assert.ok(Date.parse(getSettings().lastViralSearch) <= searches[0]);
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of Object.keys(X_ENV)) delete process.env[k];
+  }
+});
+
+test("話題の投稿のまとめを待つ時間（PR #83 の ai-review の指摘）: AIの呼び出しが止まっても、決めた時間で待つのをやめる", async () => {
+  const realFetch = globalThis.fetch;
+  // 本文の読み取りが返ってこない
+  globalThis.fetch = (() => new Promise<Response>(() => {})) as typeof fetch;
+  try {
+    db().prepare("INSERT INTO viral_posts (tweet_id, url, source) VALUES (?, ?, 'search')").run("900000000000000002", "https://x.com/i/web/status/900000000000000002");
+    const t = Date.now();
+    await drainQueue(300);
+    assert.ok(Date.now() - t < 2000, `待った時間 ${Date.now() - t}ms`);
+  } finally {
+    globalThis.fetch = realFetch;
   }
 });

@@ -184,22 +184,25 @@ export function searchReads(s: { viralPerQuery: number; wantsPerQuery: number })
 }
 
 // 前回の検索のあとの投稿を読み、反応の大きいものを上から取り込む（いいね50以上・最大10件）
-export async function searchViral(since: string): Promise<{ read: number; added: number }> {
+export async function searchViral(since: string): Promise<{ read: number; added: number; error?: string }> {
   if (g.__aiLabViralSearch) throw new Error("いま検索しているところです");
   g.__aiLabViralSearch = true;
   const s = getSettings();
   let read = 0;
   try {
     const all: { id: string; score: number; likes: number }[] = [];
-    for (const p of await searchEach(VIRAL_QUERIES, s.viralPerQuery, since, (n) => { read += n; })) {
+    const found = await searchEach(VIRAL_QUERIES, s.viralPerQuery, since, (n) => { read += n; });
+    for (const p of found.posts) {
       const m = p.public_metrics;
       if (m) all.push({ id: p.id, likes: m.like_count, score: m.like_count + (m.bookmark_count ?? 0) * 2 + m.retweet_count * 3 });
     }
     const known = new Set((db().prepare("SELECT tweet_id FROM viral_posts").all() as { tweet_id: string }[]).map((x) => x.tweet_id));
     const picks = all.filter((x) => x.likes >= 50 && !known.has(x.id)).sort((a, b) => b.score - a.score).slice(0, 10);
     const added = queueViral(picks.map((x) => `https://x.com/i/web/status/${x.id}`), "search");
-    logEvent(null, "system", "viral-search", `Xで話題の投稿を検索: ${read}件を読み、${added}件を取り込みました`);
-    return { read, added };
+    // 途中で失敗しても、それまでに読めた分は取り込む（前回の日時は進むので、ここで捨てると二度と読まない）
+    if (found.error) logEvent(null, "system", "viral-error", `Xで話題の投稿の検索が途中で失敗（読めた${read}件から${added}件を取り込みました）: ${found.error}`);
+    else logEvent(null, "system", "viral-search", `Xで話題の投稿を検索: ${read}件を読み、${added}件を取り込みました`);
+    return { read, added, error: found.error };
   } finally {
     // 読んだ分だけ費用がかかる（失敗しても、それまでに読んだ分は記録する）
     if (read) db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (NULL, ?, 'x-api', 0, 0, ?, NULL)").run("Xで話題の投稿を検索", read * X_READ_COST_USD);
@@ -208,13 +211,17 @@ export async function searchViral(since: string): Promise<{ read: number; added:
 }
 
 // 話題の投稿と「欲しい」の声を、続けて検索する（どちらも前回の検索のあとの投稿だけを読む）
+// 話題の投稿の検索が途中で失敗したら、「欲しい」の声は読まない（回数の上限などで続けて失敗するため）
 export async function searchAll(): Promise<{ read: number; added: number; wants: number; wantsError?: string }> {
   const since = searchSince(getSettings().lastViralSearch || undefined);
+  // 次の検索は、この検索を始めた時刻のあとから読む（終わった時刻にすると、検索している間に出た投稿を二度と読まない）
+  const startedAt = new Date().toISOString();
   try {
     const v = await searchViral(since);
+    if (v.error) return { read: v.read, added: v.added, wants: 0, wantsError: `話題の投稿の検索が途中で失敗したため、読みませんでした（${v.error}）` };
     try {
       const w = await searchWants(since);
-      return { read: v.read + w.read, added: v.added, wants: w.added };
+      return { read: v.read + w.read, added: v.added, wants: w.added, wantsError: w.error };
     } catch (e) {
       const msg = (e instanceof Error ? e.message : String(e)).slice(0, 200);
       logEvent(null, "system", "wants-error", `「欲しい」の声の検索でエラー: ${msg}`);
@@ -222,7 +229,7 @@ export async function searchAll(): Promise<{ read: number; added: number; wants:
     }
   } finally {
     // 失敗しても、その日はもう検索しない（同じ失敗で費用をかけ続けないため。その日も手で押せる）
-    saveSettings({ lastViralSearch: new Date().toISOString() });
+    saveSettings({ lastViralSearch: startedAt });
   }
 }
 
@@ -234,12 +241,15 @@ export function searchedToday(last: string, today = jstToday()): boolean {
 }
 
 // 取り込んだ投稿のまとめが終わるまで待つ（ほかで動いているまとめも待つ。長くても ms まで）
-async function drainQueue(ms: number) {
+export async function drainQueue(ms: number) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
     if (!g.__aiLabViralQueue) {
       if (!db().prepare("SELECT 1 FROM viral_posts WHERE status = 'queued' LIMIT 1").get()) return;
-      await processQueue();
+      // まとめ1回分（AIの呼び出し）が止まっても長く待ちすぎないよう、残りの時間で区切る（まとめは裏で続ける）
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([processQueue(), new Promise((ok) => { timer = setTimeout(ok, Math.max(0, end - Date.now())); })]);
+      clearTimeout(timer);
       continue;
     }
     await new Promise((ok) => setTimeout(ok, 2000));
