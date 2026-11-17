@@ -57,7 +57,8 @@ export async function searchWants(since: string): Promise<{ read: number; added:
       logEvent(null, "system", "wants-search", `Xで「欲しい」の声を検索: ${read}件を読み、新しい声はありませんでした`);
       return { read, added: 0, error: found.error };
     }
-    const out = await callJson<{ items: { n: number; keep: boolean; who: string; problem: string; note: string }[] }>({
+    // AIの選り分けは、呼び出しの失敗（混雑など）なら1回だけやり直す。それでも失敗したら、読めた声は使えない（前回の日時は進むので、次の検索でも読まない）
+    const select = () => callJson<{ items: { n: number; keep: boolean; who: string; problem: string; note: string }[] }>({
       purpose: "「欲しい」の声の選別",
       system: `あなたはプロダクトのリサーチャーです。Xの投稿から、個人や小さなチームが作れるプロダクト（アプリ・Webサービス・ツール・デジタル商品など）への需要だけを選びます。
 残すもの: 「〇〇できるアプリが欲しい」「〇〇を管理するツールないかな」のように、困りごとや欲しい機能が読み取れるもの。製品の名前が出ていなくても、「毎回〇〇の計算が面倒」のように、アプリやツールで解決できそうな具体的な困りごとも残す
@@ -67,6 +68,18 @@ export async function searchWants(since: string): Promise<{ read: number; added:
       user: external(cands.map((c, i) => `【${i + 1}】いいね${c.likes}・ブックマーク${c.bookmarks}・返信${c.replies}\n${c.text.slice(0, 400)}`).join("\n\n")),
       validate: (v): v is { items: { n: number; keep: boolean; who: string; problem: string; note: string }[] } => isObj(v) && Array.isArray(v.items),
     });
+    let out: Awaited<ReturnType<typeof select>>;
+    try {
+      out = await select();
+    } catch {
+      await new Promise((ok) => setTimeout(ok, 5000));
+      try {
+        out = await select();
+      } catch (e) {
+        logEvent(null, "system", "wants-error", `「欲しい」の声のAIの選り分けに2回失敗したため、読めた${cands.length}件の声は使えませんでした: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+        throw e;
+      }
+    }
     const insert = db().prepare(
       `INSERT OR IGNORE INTO user_wants (tweet_id, url, text, posted_at, likes, reposts, bookmarks, replies, status, who, problem, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );

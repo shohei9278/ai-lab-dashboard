@@ -155,7 +155,8 @@ share のときは、hook に「シェア文の型」、visual に「シェア�
   if (!isObj(v) || !isStr(v.why)) throw new Error("まとめを読み取れませんでした");
   const a: ViralAnalysis = {
     type: v.type === "share" ? "share" : "launch",
-    aim: typeof v.aim === "string" && v.aim in VIRAL_AIMS ? (v.aim as ViralAim) : undefined,
+    // 決めた値だけ（in だと constructor などの組み込みの名前も通るので、自分の項目かで見る）
+    aim: typeof v.aim === "string" && Object.hasOwn(VIRAL_AIMS, v.aim) ? (v.aim as ViralAim) : undefined,
     app: String(v.app ?? "").slice(0, 200),
     genre: String(v.genre ?? ""), format: String(v.format ?? ""), hook: String(v.hook ?? ""), visual: String(v.visual ?? ""),
     why: String(v.why).slice(0, 300), takeaway: String(v.takeaway ?? "").slice(0, 200), angle: String(v.angle ?? "").slice(0, 200),
@@ -244,9 +245,10 @@ async function searchAllOnce(): Promise<SearchResult> {
 
 // 日本時間の日付（YYYY-MM-DD）
 const jstDateOf = (iso: string) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(iso));
-// 今日（日本時間）すでに検索したか
-export function searchedToday(last: string, today = jstToday()): boolean {
-  return !!last && Number.isFinite(Date.parse(last)) && jstDateOf(last) === today;
+// 今日（日本時間）すでに検索したか（未来の日時は、読み始めにも使わない壊れた値なので「まだ」とみなす）
+export function searchedToday(last: string, today = jstToday(), now = Date.now()): boolean {
+  const t = Date.parse(last);
+  return !!last && Number.isFinite(t) && t <= now && jstDateOf(last) === today;
 }
 
 // 取り込んだ投稿のまとめが終わるまで待つ（ほかで動いているまとめも待つ。長くても ms まで）

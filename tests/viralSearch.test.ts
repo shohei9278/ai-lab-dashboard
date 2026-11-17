@@ -21,11 +21,15 @@ test("話題の投稿の検索: 読み始めは前回の検索のあと（7日�
 });
 
 test("話題の投稿の検索: 今日（日本時間）すでに検索したか", () => {
-  // 日本時間 11/18 0:30 は、UTC では 11/17 15:30
-  assert.equal(searchedToday("2026-11-17T15:30:00Z", "2026-11-18"), true);
-  assert.equal(searchedToday("2026-11-17T14:59:00Z", "2026-11-18"), false);
-  assert.equal(searchedToday("", "2026-11-18"), false);
-  assert.equal(searchedToday("こわれた値", "2026-11-18"), false);
+  // 日本時間 11/18 0:30 は、UTC では 11/17 15:30（今は日本時間 11/18 1:00）
+  const now = Date.parse("2026-11-17T16:00:00Z");
+  assert.equal(searchedToday("2026-11-17T15:30:00Z", "2026-11-18", now), true);
+  assert.equal(searchedToday("2026-11-17T14:59:00Z", "2026-11-18", now), false);
+  assert.equal(searchedToday("", "2026-11-18", now), false);
+  assert.equal(searchedToday("こわれた値", "2026-11-18", now), false);
+  // 未来の日時は「まだ」（PR #83 の ai-review の指摘）
+  assert.equal(searchedToday("2026-11-17T15:30:00Z", "2026-11-18", now), true);
+  assert.equal(searchedToday("2026-11-17T20:00:00Z", "2026-11-18", now), false);
 });
 
 test("話題の投稿の検索: 遊び・毎日・収益化・リンク先も読み、1回に読む数は 検索の数 × 件数", () => {
@@ -174,4 +178,15 @@ test("話題の投稿の検索（PR #83 の ai-review の指摘）: 検索の一
     globalThis.fetch = realFetch;
     for (const k of Object.keys(X_ENV)) delete process.env[k];
   }
+});
+
+test("検索の件数の設定（PR #83 の ai-review の指摘）: 「欲しい」の声は 0 か 10〜100 だけ受け付ける", async () => {
+  const { POST } = await import("../src/app/api/settings/route");
+  const send = (v: number) => POST(new Request("http://localhost/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wantsPerQuery: v }) }));
+  assert.equal((await send(5)).status, 400);
+  assert.equal((await send(101)).status, 400);
+  assert.equal((await send(0)).status, 200);
+  assert.equal(getSettings().wantsPerQuery, 0);
+  assert.equal((await send(10)).status, 200);
+  assert.equal(getSettings().wantsPerQuery, 10);
 });
