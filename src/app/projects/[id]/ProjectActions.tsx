@@ -103,9 +103,12 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
     return (
       <div className="card space-y-2 p-4">
         <p className="text-sm text-ink-2">じっくり案件のデータの下書きが途中で止まっています（AIの呼び出しに失敗したか、下書きの途中でサーバーが止まった可能性があります）。</p>
-        <ActionButton variant="primary" disabled={!!busy} onClick={() => run("AIがデータを下書きしています…（数分〜十数分かかります）", { action: "deep-retry", projectId: id })}>
-          データの下書きをやり直す
-        </ActionButton>
+        <div className="flex flex-wrap gap-2">
+          <ActionButton variant="primary" disabled={!!busy} onClick={() => run("AIがデータを下書きしています…（数分〜十数分かかります）", { action: "deep-retry", projectId: id })}>
+            データの下書きをやり直す
+          </ActionButton>
+          <Abandon id={id} />
+        </div>
         <BusyNote busy={busy} error={error} />
       </div>
     );
@@ -114,9 +117,12 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
     return (
       <div className="card space-y-2 p-4">
         <p className="text-sm text-ink-2">{thing}の作成が途中で止まっています（AIの呼び出しに失敗したか、作成中にサーバーが止まった可能性があります）。</p>
-        <ActionButton variant="primary" disabled={!!busy} onClick={() => run(`AIが${thing}を作っています…`, { action: "generate-lp", projectId: id })}>
-          {thing}を作り直す
-        </ActionButton>
+        <div className="flex flex-wrap gap-2">
+          <ActionButton variant="primary" disabled={!!busy} onClick={() => run(`AIが${thing}を作っています…`, { action: "generate-lp", projectId: id })}>
+            {thing}を作り直す
+          </ActionButton>
+          <Abandon id={id} />
+        </div>
         <BusyNote busy={busy} error={error} />
       </div>
     );
@@ -133,5 +139,27 @@ function Num({ label, value, onChange }: { label: string; value: string; onChang
         className="num mt-1 block w-28 rounded-lg border border-line bg-surface px-2 py-1 text-sm text-ink"
       />
     </label>
+  );
+}
+
+// 作成が止まった案件を見送る。理由は任意（経過に残る）。案件と記録は消さず、結果の「見送り」に移る
+function Abandon({ id }: { id: number }) {
+  const { run, busy, error } = useLoopAction();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  if (!open) return <ActionButton disabled={!!busy} onClick={() => setOpen(true)}>見送る</ActionButton>;
+  return (
+    <div className="w-full space-y-2 rounded-lg border border-line p-3">
+      <label className="block text-xs text-ink-2">
+        見送る理由（任意。経過に残ります）
+        <input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={200} placeholder="例: 前の作りで作った案件のため" className="mt-1 block w-full rounded-lg border border-line bg-surface px-2 py-1.5 text-sm" />
+      </label>
+      <p className="text-xs text-muted">見送っても、案件と記録（費用・経過・AIの入出力）は残り、案件の一覧の「結果」に「見送り」として並びます。</p>
+      <div className="flex flex-wrap gap-2">
+        <ActionButton variant="danger" disabled={!!busy} onClick={() => run("見送っています…", { action: "abandon", projectId: id, reason })}>見送りを決める</ActionButton>
+        <ActionButton disabled={!!busy} onClick={() => setOpen(false)}>やめる</ActionButton>
+      </div>
+      <BusyNote busy={busy} error={error} />
+    </div>
   );
 }

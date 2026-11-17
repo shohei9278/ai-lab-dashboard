@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings } from "../src/lib/db";
 import { capRows, cleanRows, deepAllowance, isDeepSpec, isPositionalGroup, parseCsv, parseUploadedData, sampleRows, type DeepField } from "../src/lib/deep";
-import { decide, deepDataStuck, getProject, isDeepIdea, staticToolIssues, uploadDeepData, type Idea } from "../src/lib/loop";
+import { abandonStuck, decide, deepDataStuck, getProject, isDeepIdea, staticToolIssues, uploadDeepData, type Idea } from "../src/lib/loop";
 import { pendingApprovals } from "../src/lib/views";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, normalizeLp } from "../lp-site/src/lp/content";
@@ -137,4 +137,20 @@ test("じっくり案件の下書きの失敗: 判断待ちに理由を出し、
   const after = pendingApprovals(pid, true).find((a) => a.id === aid)!;
   assert.equal(after.data?.count, 2);
   assert.ok(after.proposal.includes("人が入れたもの"));
+});
+
+test("作成が止まった案件を見送る: 止まった案件だけを見送りにし、記録は残す", () => {
+  const ins = (stage: string) => Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, deep, deep_need) VALUES ('止まった', 't', 'p', 's', 'h', 'r', ?, 'm', 'tool', 1, '漢字')").run(stage).lastInsertRowid);
+  const stuck = ins("idea");
+  abandonStuck(stuck, "前の作りで作った案件のため");
+  assert.equal(getProject(stuck)!.stage, "rejected");
+  const ev = db().prepare("SELECT actor, message FROM events WHERE project_id = ? AND kind = 'abandon'").get(stuck) as { actor: string; message: string };
+  assert.equal(ev.actor, "human");
+  assert.match(ev.message, /前の作りで作った案件のため/);
+  assert.throws(() => abandonStuck(stuck, ""), /作成が止まった案件だけ/);
+  const live = ins("live");
+  assert.throws(() => abandonStuck(live, ""), /作成が止まった案件だけ/);
+  const waiting = ins("idea");
+  db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason) VALUES (?, 'idea', 'p', 'r')").run(waiting);
+  assert.throws(() => abandonStuck(waiting, ""), /作成が止まった案件だけ/);
 });
