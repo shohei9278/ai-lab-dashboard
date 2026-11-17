@@ -1047,6 +1047,10 @@ function pageRivalFor(): string | null {
   return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
 }
 
+// ツールの版を作るとき、まわりのページをAIに自由にデザインさせるか
+// 新しく作るツール（前の版にツールがない）と、すでに自由なページを持つツールだけ。部品のページで公開中のツールは部品のまま
+export const shouldDesignToolPage = (freePage: boolean, before: Lp | null | undefined) => freePage && (!before?.tool || !!before.page);
+
 // AIにページ全体を自由にデザインさせる。失敗したら、部品で作ったLPのまま返す
 async function withPage(p: ProjectRow, lp: Lp, version: number, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean } = {}): Promise<{ lp: Lp; check: PageCheck | null }> {
   const done = (html: string, check: PageCheck, note: string) => {
@@ -1156,9 +1160,12 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   lp = drawn.lp;
   if (drawn.note) logEvent(p.id, "system", "illustration", drawn.note);
   // ツールのまわりのページも、AIが自由にデザインする（上の短い見出し → ツール → 下の説明）
-  // 新しく作るツールと、すでに自由なページを持つツールだけ。部品のページで公開中のツールは、作り直しても部品のまま（見た目を急に変えない）
-  if (getSettings().freePage && (!before || before.page)) {
-    const made = await withPage(p, lp, version, { prevHtml: before?.page?.html, instruction: opts.instruction, keepCore: opts.keepCore });
+  // 新しく作るツール（前の版にツールがない。事前登録のページからツールにするときも）と、すでに自由なページを持つツールだけ
+  // 部品のページで公開中のツールは、作り直しても部品のまま（見た目を急に変えない）
+  // 今のページを直すのは、前の版が自由なページのツールのときだけ（事前登録のページは登録フォームがあり、ツールのページとして直せないので、新しく作る）
+  const toolPage = before?.tool ? before.page : undefined;
+  if (shouldDesignToolPage(getSettings().freePage, before)) {
+    const made = await withPage(p, lp, version, { prevHtml: toolPage?.html, instruction: opts.instruction, keepCore: opts.keepCore });
     lp = made.lp;
     if (made.check && !made.check.ok) review = { ok: false, issues: [...review.issues, ...made.check.issues.map((x) => `デザイン: ${x}`)] };
   }

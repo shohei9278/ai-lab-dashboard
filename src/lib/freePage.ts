@@ -8,7 +8,7 @@ import { refImages, type DesignRef } from "./designRefs";
 import { dataDir, getSettings, type ProjectRow } from "./db";
 import { PAGE_HTML_MAX, type Lp } from "../../lp-site/src/lp/content";
 import { PAGE_RULES, TOOL_SLOT, imgOriginsOf, wrapPageHtml } from "../../lp-site/src/lp/pageHtml";
-import { fillToolSlot, splitToolPage } from "../../lp-site/src/lp/htmlDom";
+import { fillToolSlot, hasOperatorBelow, splitToolPage } from "../../lp-site/src/lp/htmlDom";
 
 // 部品を選ぶ方式ではなく、AIにLPのHTMLを丸ごと自由に書かせる
 // 1. 世界観を1つ決めて、ページ全体を書く
@@ -175,13 +175,15 @@ export function staticPageIssues(html: string, tool = false): string[] {
     if (/\b\d*\.?\d+\s*(?:vh|dvh|svh|lvh)\b/i.test(html)) issues.push("vh・dvh などの画面の高さの単位を使っている（枠の高さを中身に合わせるので、使うと枠が伸び続ける）");
     if (/position\s*:\s*(?:fixed|sticky)/i.test(html)) issues.push("position: fixed・sticky を使っている（上下2つの枠に分けて出すので、うまく動かない）");
     if (/<form\b/i.test(html)) issues.push("ツールのページにフォームがある（登録フォームなどは置かない）");
+    if (splitToolPage(html) && !hasOperatorBelow(html)) issues.push('運営者名の欄 <span data-lab="operator"></span> が、ツールより下の部分にない（下の部分の一番下に置く）');
   } else {
     if (!/<form[^>]*id\s*=\s*["']signup["']/i.test(html)) issues.push('登録フォーム form id="signup" がない');
     if (!/<input[^>]*type\s*=\s*["']email["']/i.test(html)) issues.push("メールアドレスの入力欄がない");
     if (!/<input[^>]*name\s*=\s*["']consent["']/i.test(html)) issues.push('プライバシーポリシーへの同意の欄 name="consent" がない');
     if (!/data-lab\s*=\s*["']privacy["']/i.test(html)) issues.push('プライバシーポリシーへのリンク data-lab="privacy" がない');
   }
-  if (!/data-lab\s*=\s*["']operator["']/i.test(html)) issues.push('運営者名の欄 data-lab="operator" がない');
+  // ツールのページは、ツールより下の部分にあるかをブラウザと同じ読み方で確かめる（上の hasOperatorBelow）
+  if (!tool && !/data-lab\s*=\s*["']operator["']/i.test(html)) issues.push('運営者名の欄 data-lab="operator" がない');
   if ((html.match(/<h1[\s>]/gi) ?? []).length !== 1) issues.push("見出しの h1 が1つではない");
   return [...new Set(issues)];
 }

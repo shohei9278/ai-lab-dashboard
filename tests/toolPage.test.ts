@@ -4,6 +4,8 @@ import { test } from "node:test";
 import { TOOL_SLOT, wrapPageHtml } from "../lp-site/src/lp/pageHtml";
 import { fillToolSlot, splitToolPage } from "../lp-site/src/lp/htmlDom";
 import { launch, shootPage, staticPageIssues, toolTopIssue, TOOL_TOP_MAX } from "../src/lib/freePage";
+import { shouldDesignToolPage } from "../src/lib/loop";
+import type { Lp } from "../lp-site/src/lp/content";
 
 const page = (body: string, head = '<style>body{color:red}</style>') => `<!doctype html><html lang="ja"><head><title>t</title>${head}</head><body class="x">${body}</body></html>`;
 
@@ -70,6 +72,12 @@ test("ツールのページの決まり: 場所が1つ・画面の高さの単�
   // ai-review の指摘: id が signup でないフォームも止める
   assert.ok(staticPageIssues(page(`<h1>名前</h1>${TOOL_SLOT}<form id="newsletter"><input type="email"></form><span data-lab="operator"></span>`), true).some((x) => x.includes("フォーム")));
   assert.ok(staticPageIssues(page(`<section><h1>名前</h1>${TOOL_SLOT}</section><span data-lab="operator"></span>`), true).some((x) => x.includes("lab-tool")));
+  // 7回目の ai-review の指摘: 運営者名の欄は、ツールより下の部分に本物の要素として置く
+  const op = (x: string) => staticPageIssues(page(x), true).some((i) => i.includes("運営者名"));
+  assert.ok(!op(`<h1>名前</h1>${TOOL_SLOT}<p>説明</p><footer><span data-lab="operator"></span><a href="#tool">上へ</a></footer>`));
+  assert.ok(op(`<h1>名前</h1><span data-lab="operator"></span>${TOOL_SLOT}<p>説明</p>`));
+  assert.ok(op(`<h1>名前</h1>${TOOL_SLOT}<p>説明</p><!-- <span data-lab="operator"></span> --><script>var s='data-lab="operator"'</script>`));
+  assert.ok(!op(`<h1>名前</h1>${TOOL_SLOT}<footer><span data-lab=operator></span></footer>`));
   // LP のページは、今までどおり登録フォームを求める
   assert.ok(staticPageIssues(good).some((x) => x.includes("登録フォーム")));
 });
@@ -159,4 +167,17 @@ test("ツールのページの撮影: ツールより上の部分の高さを測
   assert.ok(short.topHeight! <= TOOL_TOP_MAX, `高さ ${short.topHeight}`);
   // LP のページは測らない
   assert.equal((await shootPage(page("<h1>名前</h1>"), [], "lp", false)).topHeight, undefined);
+});
+
+test("ツールの版: まわりのページを自由にデザインするのは、新しく作るツールと、すでに自由なページを持つツールだけ（7回目の ai-review の指摘）", () => {
+  const base = { headline: "h", subheadline: "s", pains: [], features: [], cta: "c", faq: [] } as unknown as Lp;
+  const tool = { html: "<script></script>", shareText: "x" };
+  assert.equal(shouldDesignToolPage(true, null), true);
+  // 事前登録のページ（部品・自由のどちらも）からツールにするときも、新しく作るツールとして自由にデザインする
+  assert.equal(shouldDesignToolPage(true, base), true);
+  assert.equal(shouldDesignToolPage(true, { ...base, page: { html: "<form></form>" } }), true);
+  assert.equal(shouldDesignToolPage(true, { ...base, tool, page: { html: "x" } }), true);
+  // 部品のページで公開中のツールは部品のまま
+  assert.equal(shouldDesignToolPage(true, { ...base, tool }), false);
+  assert.equal(shouldDesignToolPage(false, null), false);
 });

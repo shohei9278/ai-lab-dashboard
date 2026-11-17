@@ -58,6 +58,13 @@ export function fillToolSlot(html: string, middle: string): string | null {
   return p && p.doc(p.top + middle + p.bottom);
 }
 
+// ツールのページで、運営者名の欄（data-lab="operator" の要素）が、ツールより下の部分に本物の要素としてあるか
+// （コメントや script の中の文字は数えない。上の部分にだけあるものも数えない）
+export function hasOperatorBelow(html: string): boolean {
+  const parts = toolPageParts(html);
+  return !!parts && elementsOf(parse(parts.doc(parts.bottom))).some((el) => attrOf(el, "data-lab") === "operator");
+}
+
 // 結果の一覧（<script type="application/json" id="lab-results">[...]</script>）を書く場所があるか（data-id などは数えない）
 const resultScripts = (html: string) => elementsOf(parse(html)).filter((el) => el.tagName === "script" && attrOf(el, "id") === "lab-results");
 export const hasResultsTag = (html: string) => resultScripts(html).length > 0;
