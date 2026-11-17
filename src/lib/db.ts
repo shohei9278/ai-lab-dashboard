@@ -343,6 +343,15 @@ CREATE TABLE IF NOT EXISTS interventions (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- 運営のアカウントのフォロワー数（1日1回。日本時間の日付ごと）。どの投稿・案件で増えたかを、だいたい見るため
+CREATE TABLE IF NOT EXISTS account_stats (
+  day TEXT NOT NULL,
+  platform TEXT NOT NULL,
+  followers INTEGER NOT NULL,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (day, platform)
+);
+
 -- 動くツールを遊ぶ様子の動画（SNSに投稿するため。AIが台本を書いて録画し、コマを確かめる。playVideo.ts）
 CREATE TABLE IF NOT EXISTS play_videos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -682,6 +691,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   // 「広がる」の判定の起点の、遊んだ人（利用）とシェアの累計（判断・再開のたびに今の累計にする。判定はこの差だけで見る）
   ["projects", "spread_base_plays", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "spread_base_shares", "INTEGER NOT NULL DEFAULT 0"],
+  ["projects", "spread_hit", "INTEGER"], // 「広がる」の判定の結果（1 当たり / 0 当たらず。判定前は空）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
   ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
@@ -806,6 +816,7 @@ export type Settings = {
   viralSearch: boolean; // アイデアを出す日に、その日まだ検索していなければ、Xで話題の投稿と「欲しい」の声を検索して取り込む（X のAPIキーが必要。読んだ投稿1件ごとに費用がかかる）
   viralPerQuery: number; // 話題の投稿の検索1つあたりに読む投稿の数（10〜100）
   lastViralSearch: string; // 最後に検索した日時（ISO）。次の検索は、このあとの投稿だけを読む
+  lastFollowersTry: string; // 最後にフォロワー数を読もうとした日（日本時間。失敗しても、その日はもう読まない）
   wantsPerQuery: number; // 「欲しい」の声の検索1つあたりに読む投稿の数（0 なら探さない）
   dailyReport: boolean; // 毎晩、AIが1日の日報と note の下書きを書く
   dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
@@ -849,6 +860,7 @@ const DEFAULTS: Settings = {
   viralSearch: true,
   viralPerQuery: 20,
   lastViralSearch: "",
+  lastFollowersTry: "",
   wantsPerQuery: 10,
   dailyReport: true,
   dailyPlan: true,
@@ -881,7 +893,7 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
+const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
 const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive"]);
 
 export function getSettings(): Settings {
@@ -981,6 +993,7 @@ export type ProjectRow = {
   growth_phase: number;
   spread_base_plays: number; // 「広がる」の判定の起点の累計（遊んだ人・シェア）
   spread_base_shares: number;
+  spread_hit: number | null; // 「広がる」の判定の結果（1 当たり / 0 当たらず）
   growth_count: number;
   human_review: "ok" | "bad" | null;
   human_review_note: string | null;

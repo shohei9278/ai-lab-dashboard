@@ -8,6 +8,7 @@ import { syncComments } from "./snsComments";
 import { maybeDailyBackup, maybeOffsiteBackup } from "./backup";
 import { resumeRefQueue } from "./designRefs";
 import { backfillViralApps, resumeViralQueue } from "./viralPosts";
+import { maybeRecordFollowersSafe } from "./hits";
 import { maybeCreatePlan, runPlanTasks } from "./plan";
 import { syncReactions } from "./postReactions";
 import { maybeNightlyReport } from "./diary";
@@ -66,6 +67,8 @@ async function tickNow() {
   } catch (e) {
     logEvent(null, "system", "report-error", `週の定例会議でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
   }
+  // 運営のアカウントのフォロワー数を1日1回記録する（当たりから学ぶ）
+  await maybeRecordFollowersSafe();
   resumeRefQueue();
   resumeViralQueue();
   await backfillViralApps().catch((e) => logEvent(null, "system", "viral-error", `話題の投稿のアプリの説明の追加でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500)));
