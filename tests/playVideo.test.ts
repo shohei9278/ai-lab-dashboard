@@ -76,6 +76,25 @@ test("遊ぶ様子の動画: 台本どおりに入れて押し、縦長の動画
   const r3 = await renderPlay({ hook: "x", caption: "", steps: [{ do: "click", target: "スマホで回す" }] }, responsive, {}, "幅", out.replace("v.mp4", "v3.mp4"));
   assert.equal(r3.done, 1);
   assert.deepEqual(r3.failed, []);
+  // 入れられない入力欄は短い時間で諦め、録画は15秒を超えない（PR #86 のマージ後の ai-review の指摘）
+  const locked = `<input id="n" disabled><button id="go">回す</button>`;
+  const t0 = Date.now();
+  const r5 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "fill", target: "#n", value: "やまだ" }, { do: "click", target: "回す" }] }, locked, {}, "止め", out.replace("v.mp4", "v5.mp4"));
+  assert.equal(r5.done, 1);
+  assert.match(r5.failed[0] ?? "", /1番目の「#n」を操作できなかった/);
+  assert.ok(Date.now() - t0 < 20_000, `かかった時間 ${Date.now() - t0}ms`);
+  // 台本の見積もりを超える手順は、録画の途中で打ち切る（コマは3枚そろう）
+  const r6 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "回す" }, ...Array.from({ length: 6 }, () => ({ do: "wait" as const, ms: 3000 }))] }, locked, {}, "長い", out.replace("v.mp4", "v6.mp4"));
+  assert.ok(r6.failed.some((x) => /15秒に収めるため/.test(x)));
+  assert.equal(r6.shots.length, 3);
+  const dur = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out.replace("v.mp4", "v6.mp4")], { encoding: "utf8" });
+  if (dur.status === 0) assert.ok(Number(dur.stdout) <= 15.1, `動画の長さ ${dur.stdout.trim()}秒`);
+  // 押せないボタンで操作が見積もりより遅れても、動画は15秒で切る（PR #87 の ai-review の指摘）
+  const covered = `<button id="go">回す</button><div style="position:fixed;inset:0;background:rgba(0,0,0,.01)"></div>`;
+  const r7 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "wait", ms: 3000 }, { do: "wait", ms: 3000 }, { do: "wait", ms: 2400 }, { do: "click", target: "回す" }, { do: "wait", ms: 300 }] }, covered, {}, "覆い", out.replace("v.mp4", "v7.mp4"));
+  assert.ok(r7.failed.some((x) => /操作できなかった/.test(x)), r7.failed.join(" / "));
+  const dur7 = spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", out.replace("v.mp4", "v7.mp4")], { encoding: "utf8" });
+  if (dur7.status === 0) assert.ok(Number(dur7.stdout) <= 15.1, `動画の長さ ${dur7.stdout.trim()}秒`);
   const probe = spawnSync("ffprobe", ["-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", out], { encoding: "utf8" });
   if (probe.status === 0) assert.equal(probe.stdout.trim(), "1080,1920");
 });
