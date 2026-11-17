@@ -8,7 +8,8 @@ import type { Page } from "playwright-core";
 // page は 1080×1920・deviceScaleFactor 1 で開いておくこと（画面の受け取りは倍率を無視するため、実寸で開く）
 // release は撮り終えたあと、変換の前に呼ぶ（サーバーのメモリが少ないので、ブラウザを先に閉じる）
 // run に渡す hold の間は撮らない（ページの読み込み待ちを動画に入れないため）
-export async function recordToMp4(page: Page, run: (hold: (fn: () => Promise<void>) => Promise<void>) => Promise<void>, out: string, release?: () => Promise<void>): Promise<void> {
+// maxSeconds を渡すと、動画をその長さで切る（撮る側の操作が遅れても、長さの上限を確実に守る）
+export async function recordToMp4(page: Page, run: (hold: (fn: () => Promise<void>) => Promise<void>) => Promise<void>, out: string, release?: () => Promise<void>, opts: { maxSeconds?: number } = {}): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "video-"));
   try {
     const frames: { file: string; t: number }[] = [];
@@ -45,7 +46,7 @@ export async function recordToMp4(page: Page, run: (hold: (fn: () => Promise<voi
     fs.writeFileSync(listFile, `${list}\nfile '${frames.at(-1)!.file}'\n`);
     fs.mkdirSync(path.dirname(out), { recursive: true });
     // メモリを節約する設定（スレッドを絞り、先読みをしない）
-    const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-threads", "1", "-filter_threads", "1", "-f", "concat", "-safe", "0", "-i", listFile, "-vf", "scale=1080:1920,setsar=1,fps=30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-x264-params", "threads=1:rc-lookahead=0:ref=1:bframes=0", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out], { encoding: "utf8" });
+    const r = spawnSync("ffmpeg", ["-y", "-loglevel", "error", "-threads", "1", "-filter_threads", "1", "-f", "concat", "-safe", "0", "-i", listFile, ...(opts.maxSeconds ? ["-t", String(opts.maxSeconds)] : []), "-vf", "scale=1080:1920,setsar=1,fps=30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-x264-params", "threads=1:rc-lookahead=0:ref=1:bframes=0", "-pix_fmt", "yuv420p", "-movflags", "+faststart", out], { encoding: "utf8" });
     if (r.error) throw new Error(`動画に変換できませんでした: ${r.error.message}`);
     if (r.signal) throw new Error(`動画への変換が途中で止められました（${r.signal}。サーバーのメモリ不足の可能性があります）`);
     if (r.status !== 0) throw new Error(`動画に変換できませんでした: ${(r.stderr || "").trim().slice(0, 300)}`);

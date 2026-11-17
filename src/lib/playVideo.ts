@@ -194,10 +194,10 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
       // 途中で打ち切って真ん中まで届かなかったときも、途中のコマを撮る（コマは最初・途中・最後の3枚にそろえる）
       if (shots.length < 2) await midShot(hold);
       await page.evaluate(() => { document.getElementById("finger")!.style.opacity = "0"; });
-      // 結果を読めるよう、最後に止める
-      await page.waitForTimeout(2200);
+      // 結果を読めるよう、最後に止める（残りの時間まで。動画は最後に15秒で切るので、結果を見せる場面が切れないよう短くする）
+      await page.waitForTimeout(Math.max(300, Math.min(2200, (PLAY_SECONDS_MAX - recorded()) * 1000)));
       await hold(async () => { shots.push(await page.screenshot({ type: "jpeg", quality: 70 })); });
-    }, out, () => browser.close());
+    }, out, () => browser.close(), { maxSeconds: PLAY_SECONDS_MAX });
     return { done, failed, shots };
   } finally {
     await browser.close().catch(() => undefined);
