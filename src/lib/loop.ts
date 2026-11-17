@@ -830,7 +830,24 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
         r = r2;
         logEvent(p.id, "ai", "tool-polish", "見た目を磨きました（チェックも通過）");
       } else {
-        logEvent(p.id, "system", "tool-polish", `磨いた版がチェックを通らなかったため、磨く前の版を使います: ${r2.review.issues.join(" / ").slice(0, 300)}`);
+        // 磨いた版で見つかった指摘は、磨く前の版にも当てはまることがある（#59 では、時刻の範囲が固定されている不具合が両方にあった）
+        // 磨く前の版にその指摘を渡して1回直させる。直した版がチェックを通ればそれを使う
+        logEvent(p.id, "system", "tool-polish", `磨いた版がチェックを通らなかったため、磨く前の版に同じ指摘を渡して直させます: ${r2.review.issues.join(" / ").slice(0, 300)}`);
+        const fixed = await write(`見た目を磨いた版のチェックで、次の問題が見つかった。今のコードにも当てはまるものだけを直すこと（当てはまらないものには何もしない。見た目と、ほかの機能は今のまま）: ${r2.review.issues.join(" / ")}`, html).catch((e) => {
+          logEvent(p.id, "system", "tool-polish", `磨く前の版の直しに失敗しました: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+          return null;
+        });
+        const r3 = fixed ? await check(fixed) : null;
+        if (fixed && r3?.review.ok) {
+          html = fixed;
+          r = r3;
+          rewrites++;
+          logEvent(p.id, "ai", "tool-polish", "磨いた版で見つかった問題を、磨く前の版で直しました（チェックも通過）");
+        } else {
+          // 直せなかったときは磨く前の版を使うが、指摘は残して人の確認に回す（磨く前の版にも当てはまるかもしれないため、全自動で公開しない）
+          r = { ...r, review: { ok: false, issues: [...r.review.issues, ...r2.review.issues.map((x) => `磨いた版のチェックで見つかった指摘（磨く前の版にも当てはまるか確かめてください）: ${x}`)] } };
+          logEvent(p.id, "system", "tool-polish", "磨いた版で見つかった問題を直しきれなかったため、磨く前の版を使い、指摘を判断待ちに出します");
+        }
       }
     }
   }
