@@ -30,7 +30,16 @@ export function sampleRows<T>(rows: T[], n: number): T[] {
 
 const KEY = /^[a-z][a-z0-9_]{0,30}$/;
 // 表の位置の範囲で分けたグループ（「153〜202字目」など）を見分ける。こう分けた設計は、形が正しくないとしてAIにやり直させる（中身を挙げられず、空の一覧が返ってくるため）
-export const isPositionalGroup = (g: string) => /\d+\s*[〜~～-]\s*\d+\s*(字目|番目|件目|行目)/.test(g);
+// 全角の数字・記号は半角にそろえてから見る（「１５３〜２０２字目」も見分ける）
+// - 数の範囲に、位置を表す言葉が付いている（「153〜202字目」「40番目〜80番目」）
+// - 位置を表す語と、数の範囲が一緒にある（「掲載順 153〜202」「No.153-202」）
+const POSITION_SUFFIX = "(?:字目|番目|件目|行目|位)";
+const RANGE = "\\d+\\s*" + POSITION_SUFFIX + "?\\s*[〜~\\-–—ー]\\s*\\d+";
+export const isPositionalGroup = (g: string) => {
+  const t = g.normalize("NFKC");
+  return new RegExp(`\\d+\\s*${POSITION_SUFFIX}\\s*[〜~\\-–—ー]|${RANGE}\\s*${POSITION_SUFFIX}`).test(t)
+    || (/掲載順|配当順|並び順|通し番号|番号|順番|位置|No\.\s*\d|#\s*\d/i.test(t) && new RegExp(RANGE).test(t));
+};
 
 export function isDeepSpec(v: unknown): v is DeepSpec {
   return isObj(v) && Array.isArray(v.fields) && v.fields.length >= 1 && v.fields.length <= 12
@@ -108,6 +117,9 @@ export function parseUploadedData(text: string, spec: DeepSpec | null): { fields
     const table = parseCsv(t);
     if (table.length < 2) throw new Error("CSV は、1行目に見出し、2行目からデータを書いてください");
     headers = table[0].map((h) => h.trim());
+    // 同じ見出しが2つあると、どちらかの列が消えるので止める
+    const dup = headers.find((h, i) => h && headers.indexOf(h) !== i);
+    if (dup) throw new Error(`見出し「${dup}」が重なっています。見出しはそれぞれ別の名前にしてください`);
     objs = table.slice(1).map((r) => Object.fromEntries(headers.map((h, i) => [h, r[i] ?? ""])));
   }
   let fields: DeepField[];
@@ -116,7 +128,14 @@ export function parseUploadedData(text: string, spec: DeepSpec | null): { fields
     fields = spec.fields;
     keyOf = (h) => spec.fields.find((f) => f.key === h || f.label === h)?.key ?? null;
   } else {
-    fields = headers.slice(0, 12).map((h, i) => ({ key: KEY.test(h) ? h : `col${i + 1}`, label: h || `列${i + 1}`, kind: "fact" as const }));
+    // key は重ならないようにする（「日本語,col1」のように、作った key と見出しがぶつかるときは、後ろに番号を付ける）
+    const taken = new Set<string>();
+    fields = headers.slice(0, 12).map((h, i) => {
+      let key = KEY.test(h) && !taken.has(h) ? h : `col${i + 1}`;
+      for (let n = 2; taken.has(key); n++) key = `col${i + 1}_${n}`;
+      taken.add(key);
+      return { key, label: h || `列${i + 1}`, kind: "fact" as const };
+    });
     keyOf = (h) => fields[headers.indexOf(h)]?.key ?? null;
   }
   const used = new Set(headers.map(keyOf).filter((k): k is string => !!k));

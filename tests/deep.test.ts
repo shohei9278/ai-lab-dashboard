@@ -92,6 +92,9 @@ test("じっくり案件のデータ（2回目の直し）: 空欄は残し、�
   assert.deepEqual(rows, [{ kanji: "囲", grade: 5, variants: "" }, { kanji: "叱", grade: "中学以降", variants: "" }]);
   assert.equal(isPositionalGroup("4年（配当表の掲載順 153〜202字目）"), true);
   assert.equal(isPositionalGroup("あ行"), false);
+  // ai-review の指摘: 言い方を変えた位置の範囲も見分ける。ふつうのグループは止めない
+  for (const g of ["配当表の掲載順 153〜202", "No.153-202", "１５３〜２０２字目", "40番目〜80番目", "#41-80", "通し番号 1～60"]) assert.equal(isPositionalGroup(g), true, g);
+  for (const g of ["北海道（道央）", "1〜3年", "11月1-15日", "Nov 1-15", "No.12 の章"]) assert.equal(isPositionalGroup(g), false, g);
   assert.equal(isDeepSpec({ fields: f3, groups: ["1年（1〜40字目）"], per_group: "", note: "" }), false);
 });
 
@@ -107,6 +110,12 @@ test("人が入れるデータ: CSV の見出しは項目の名前か key に合
   assert.deepEqual(free.rows, [{ col1: "一", col2: "1" }]);
   assert.throws(() => parseUploadedData("mood\nにぎやか\n", spec), /市町村名/);
   assert.throws(() => parseUploadedData("{x", spec), /JSON/);
+  // ai-review の指摘: 見出しが重なると列が消えるので止める。作った key と見出しがぶつかっても、key は重ならない
+  assert.throws(() => parseUploadedData("name,name\n札幌市,函館市\n", null), /重なっています/);
+  const clash = parseUploadedData("日本語,col1\nあ,い\n", null);
+  assert.equal(new Set(clash.fields.map((f) => f.key)).size, 2);
+  assert.deepEqual(clash.fields.map((f) => f.key), ["col1", "col2"]);
+  assert.deepEqual(clash.rows, [{ col1: "あ", col2: "い" }]);
 });
 
 test("じっくり案件の下書きの失敗: 判断待ちに理由を出し、データがないうちは承認できず、人が入れたデータに差し替えられる", async () => {
