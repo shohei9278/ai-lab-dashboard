@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { launch } from "../src/lib/freePage";
-import { PLAY_STEPS_MAX, parsePlayScript, playVideoPath, renderPlay } from "../src/lib/playVideo";
+import { PLAY_SECONDS_MAX, PLAY_STEPS_MAX, makePlayVideo, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
 
 test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がない台本は使わない", () => {
   const s = parsePlayScript({
@@ -28,7 +28,13 @@ test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がな
   assert.equal(parsePlayScript({ steps: [{ do: "wait", ms: 500 }] }), null);
   assert.equal(parsePlayScript({ hook: "x" }), null);
   // 手順は決めた数まで
-  assert.equal(parsePlayScript({ steps: Array.from({ length: 20 }, () => ({ do: "click", target: "回す" })) })!.steps.length, PLAY_STEPS_MAX);
+  assert.equal(parsePlayScript({ steps: Array.from({ length: 20 }, () => ({ do: "click", target: "回す" })) })!.steps.length, Math.min(PLAY_STEPS_MAX, 7)); // 押す手順は1つ約1.6秒なので、15秒に入るのは7つまで
+  // 動画の長さは上限（15秒）まで。超える分の手順は切る（PR #86 の ai-review の指摘）
+  const long = parsePlayScript({ steps: [{ do: "click", target: "回す" }, ...Array.from({ length: 9 }, () => ({ do: "wait", ms: 3000 }))] })!;
+  assert.deepEqual(long.steps.map((x) => x.do), ["click", "wait", "wait", "wait"]);
+  assert.ok(playSeconds(long.steps) <= PLAY_SECONDS_MAX);
+  // 待つだけで上限に達し、押す所まで届かない台本は使わない
+  assert.equal(parsePlayScript({ steps: [...Array.from({ length: 5 }, () => ({ do: "wait", ms: 3000 })), { do: "click", target: "回す" }] }), null);
   // 動画のファイル名は決めた形だけ（ほかの場所のファイルを返さない）
   assert.ok(playVideoPath("play-12-1763380000000.mp4"));
   assert.equal(playVideoPath("../play-1-2.mp4"), null);
@@ -48,6 +54,20 @@ test("遊ぶ様子の動画: 台本どおりに入れて押し、縦長の動画
   assert.deepEqual(r.failed, ["3番目の「ないボタン」が見つからなかった"]);
   assert.equal(r.shots.length, 3);
   assert.ok(fs.statSync(out).size > 10_000);
+  // 真ん中の手順が見つからなくても、途中のコマは撮り、コマは最初・途中・最後の3枚にそろう（PR #86 の ai-review の指摘）
+  const r2 = await renderPlay({ hook: "x", caption: "", steps: [{ do: "click", target: "回す" }, { do: "click", target: "ないボタン" }, { do: "wait", ms: 300 }] }, html, {}, "改名スロット", out.replace("v.mp4", "v2.mp4"));
+  assert.equal(r2.shots.length, 3);
   const probe = spawnSync("ffprobe", ["-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", out], { encoding: "utf8" });
   if (probe.status === 0) assert.equal(probe.stdout.trim(), "1080,1920");
+});
+
+test("遊ぶ様子の動画（PR #86 の ai-review の指摘）: 作っている途中に頼んでも断らず、順番に作る", async () => {
+  // 案件がないので、どちらも順番に「作れない」で終わる（「いま別の動画を作っています」で断らない）
+  const [a, b] = await Promise.allSettled([makePlayVideo(999_001), makePlayVideo(999_002)]);
+  for (const x of [a, b]) {
+    assert.equal(x.status, "rejected");
+    assert.match(String((x as PromiseRejectedResult).reason), /動くツールの案件だけ/);
+  }
+  // 前のものが失敗しても、次は動く
+  await assert.rejects(makePlayVideo(999_003), /動くツールの案件だけ/);
 });

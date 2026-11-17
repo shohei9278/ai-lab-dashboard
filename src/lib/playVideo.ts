@@ -20,17 +20,28 @@ export type PlayCheck = { ok: boolean; issues: string[]; skipped?: string };
 export type PlayVideoRow = { id: number; at: string; project_id: number; version: number; file: string; hook: string; caption: string; script: string; check_json: string | null; ok: number };
 
 export const PLAY_STEPS_MAX = 10;
+// 動画の長さの上限（秒）。これを超える分の手順は切る
+export const PLAY_SECONDS_MAX = 15;
 
-// AIの台本を、決めた形にそろえる（読めない・押す所がないものは null）
+// 手順1つにかかる時間（秒）の見積もり。押す・入れる: 指を動かす（約0.6秒）＋操作＋あとの待ち（0.7秒）。入れる文字は1文字0.07秒
+const stepSeconds = (s: PlayStep) => (s.do === "wait" ? (s.ms ?? 800) / 1000 : s.do === "fill" ? 1.5 + 0.07 * (s.value ?? "").length : 1.6);
+// 動画全体の長さの見積もり（最初の0.7秒と、結果を読ませる最後の2.2秒を含む）
+export const playSeconds = (steps: PlayStep[]) => 0.7 + steps.reduce((t, s) => t + stepSeconds(s), 0) + 2.2;
+
+// AIの台本を、決めた形にそろえる（読めない・押す所がないものは null）。長さが上限を超える分の手順は切る
 export function parsePlayScript(v: unknown): PlayScript | null {
   if (!isObj(v) || !Array.isArray(v.steps)) return null;
   const steps: PlayStep[] = [];
   for (const s of v.steps.slice(0, PLAY_STEPS_MAX)) {
     if (!isObj(s)) continue;
-    if (s.do === "wait") steps.push({ do: "wait", ms: Math.max(300, Math.min(3000, Number(s.ms) || 800)) });
+    let step: PlayStep | null = null;
+    if (s.do === "wait") step = { do: "wait", ms: Math.max(300, Math.min(3000, Number(s.ms) || 800)) };
     else if ((s.do === "click" || s.do === "fill") && isStr(s.target) && s.target.trim()) {
-      steps.push({ do: s.do, target: s.target.trim().slice(0, 80), ...(s.do === "fill" ? { value: String(s.value ?? "").slice(0, 60) } : {}) });
+      step = { do: s.do, target: s.target.trim().slice(0, 80), ...(s.do === "fill" ? { value: String(s.value ?? "").slice(0, 60) } : {}) };
     }
+    if (!step) continue;
+    if (playSeconds([...steps, step]) > PLAY_SECONDS_MAX) break;
+    steps.push(step);
   }
   if (!steps.some((s) => s.do === "click")) return null;
   return {
@@ -116,31 +127,36 @@ iframe{position:absolute;top:${TOP}px;left:0;width:1080px;height:${1920 - TOP - 
       await page.evaluate(() => { document.getElementById("finger")!.style.transform = "scale(1)"; });
     };
     shots.push(await page.screenshot({ type: "jpeg", quality: 70 }));
+    // 途中のコマは、真ん中の手順のあとに、うまくいったかにかかわらず必ず撮る（コマは最初・途中・最後の3枚にそろえる）
+    const mid = Math.floor((script.steps.length - 1) / 2);
     await recordToMp4(page, async (hold) => {
       await page.waitForTimeout(700);
       for (const [i, step] of script.steps.entries()) {
-        if (step.do === "wait") {
-          await page.waitForTimeout(step.ms ?? 800);
-          continue;
-        }
-        const l = await find(frame, step);
-        if (!l) {
-          failed.push(`${i + 1}番目の「${step.target}」が見つからなかった`);
-          continue;
-        }
         try {
-          await l.scrollIntoViewIfNeeded({ timeout: 1500 });
-          const box = await l.boundingBox();
-          if (box) await tap(box);
-          if (step.do === "fill") {
-            await l.fill("");
-            await l.pressSequentially(step.value ?? "", { delay: 70 });
-          } else await l.click({ timeout: 1500 });
-          done++;
-          await page.waitForTimeout(700);
-          if (i === Math.floor(script.steps.length / 2)) await hold(async () => { shots.push(await page.screenshot({ type: "jpeg", quality: 70 })); });
-        } catch (e) {
-          failed.push(`${i + 1}番目の「${step.target}」を操作できなかった（${(e instanceof Error ? e.message : String(e)).split("\n")[0].slice(0, 80)}）`);
+          if (step.do === "wait") {
+            await page.waitForTimeout(step.ms ?? 800);
+            continue;
+          }
+          const l = await find(frame, step);
+          if (!l) {
+            failed.push(`${i + 1}番目の「${step.target}」が見つからなかった`);
+            continue;
+          }
+          try {
+            await l.scrollIntoViewIfNeeded({ timeout: 1500 });
+            const box = await l.boundingBox();
+            if (box) await tap(box);
+            if (step.do === "fill") {
+              await l.fill("");
+              await l.pressSequentially(step.value ?? "", { delay: 70 });
+            } else await l.click({ timeout: 1500 });
+            done++;
+            await page.waitForTimeout(700);
+          } catch (e) {
+            failed.push(`${i + 1}番目の「${step.target}」を操作できなかった（${(e instanceof Error ? e.message : String(e)).split("\n")[0].slice(0, 80)}）`);
+          }
+        } finally {
+          if (i === mid) await hold(async () => { shots.push(await page.screenshot({ type: "jpeg", quality: 70 })); });
         }
       }
       await page.evaluate(() => { document.getElementById("finger")!.style.opacity = "0"; });
@@ -182,16 +198,24 @@ async function checkPlay(p: ProjectRow, script: PlayScript, shots: Buffer[]): Pr
   }
 }
 
-const g = globalThis as unknown as { __aiLabPlayVideo?: boolean };
+const g = globalThis as unknown as { __aiLabPlayQueue?: Promise<unknown> };
 
 // 動くツールの案件の、今の版を遊ぶ様子の動画を作る。台本 → 録画 → コマの確かめ。問題があれば台本を1回だけ直して撮り直す
-export async function makePlayVideo(projectId: number): Promise<number> {
+// 同時に作るのは1本だけ（ブラウザと動画の変換でメモリを使うため）。作っている途中に頼まれたら、順番待ちにして、前のものが終わってから作る（断らない）
+export function makePlayVideo(projectId: number): Promise<number> {
+  const run = (g.__aiLabPlayQueue ?? Promise.resolve()).catch(() => undefined).then(() => makeOnce(projectId));
+  g.__aiLabPlayQueue = run.catch(() => undefined);
+  return run;
+}
+
+async function makeOnce(projectId: number): Promise<number> {
   const p = getProject(projectId);
   if (!p || p.kind !== "tool") throw new Error("動くツールの案件だけ、遊ぶ様子の動画を作れます");
   const lp = versionLp(p, p.lp_version);
   if (!lp?.tool) throw new Error("ツールがまだありません");
-  if (g.__aiLabPlayVideo) throw new Error("いま別の遊ぶ様子の動画を作っています。終わってから試してください");
-  g.__aiLabPlayVideo = true;
+  // 途中で失敗したら、この回に作った動画のファイルを消す（どこからも参照されないファイルを残さない）
+  const made: string[] = [];
+  let saved = false;
   try {
     const tool = lp.tool;
     const opts = { data: tool.data, fonts: tool.fonts, illustration: lp.design?.illustration?.url };
@@ -200,6 +224,7 @@ export async function makePlayVideo(projectId: number): Promise<number> {
     let check: PlayCheck = { ok: false, issues: [] };
     for (let round = 0; round < 2; round++) {
       file = `play-${p.id}-${Date.now()}.mp4`;
+      made.push(file);
       const r = await renderPlay(script, tool.html, opts, p.title, playVideoPath(file)!);
       const notes = [...r.failed, ...(r.done === 0 ? ["台本の操作が1つもできなかった（押す所の文字やセレクタが、HTMLと合っていない）"] : [])];
       check = r.done === 0 ? { ok: false, issues: notes } : await checkPlay(p, script, r.shots);
@@ -210,10 +235,11 @@ export async function makePlayVideo(projectId: number): Promise<number> {
     }
     const id = Number(db().prepare("INSERT INTO play_videos (project_id, version, file, hook, caption, script, check_json, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(p.id, p.lp_version, file, script.hook, script.caption, JSON.stringify(script), JSON.stringify(check), check.ok ? 1 : 0).lastInsertRowid);
+    saved = true;
     logEvent(p.id, "ai", "play-video", `遊ぶ様子の動画を作りました（第${p.lp_version}版。「${script.hook}」${check.ok ? "" : `。確かめで残った問題: ${check.issues.join(" / ").slice(0, 200)}`}）`);
     return id;
   } finally {
-    g.__aiLabPlayVideo = false;
+    if (!saved) for (const f of made) fs.rmSync(playVideoPath(f)!, { force: true });
   }
 }
 
