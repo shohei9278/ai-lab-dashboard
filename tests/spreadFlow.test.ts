@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
-import { aimBlocks, asksFirstChannel, getProject, liveCounts, maybeAutoJudge, newProjectBlock, resumeProject, spreadMadeToday, spreadResult, spreadRoom } from "../src/lib/loop";
+import { aimBlocks, asksFirstChannel, createGate, getProject, liveCounts, maybeAutoJudge, newProjectBlock, resumeProject, spreadMadeToday, spreadResult, spreadRoom } from "../src/lib/loop";
 
 const add = (opts: { stage?: string; aim?: string | null; publishedDaysAgo?: number; createdDaysAgo?: number } = {}) =>
   Number(db().prepare(`INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, published_at, created_at)
@@ -98,4 +98,17 @@ test("広がる: 初めて公開したときに、最初の届け方を運営者
   assert.equal(asksFirstChannel({ first_channel: "コミュニティに紹介（2か所）", aim: "useful" }), true);
   assert.equal(asksFirstChannel({ first_channel: "コミュニティに紹介（2か所）", aim: null }), true);
   assert.equal(asksFirstChannel({ first_channel: null, aim: "useful" }), false);
+});
+
+test("広がる（PR #85 の ai-review の指摘）: 案件を作る直前に上限を確かめ直し、作るたびに残りを減らす", () => {
+  // 会議の前は「広がる」をあと2件作れた。会議の間に、お休みの1件を集客に戻して、残りは1件になった
+  saveSettings({ spreadMaxLive: liveCounts().spread + 2, spreadPerDay: 100 });
+  add({ aim: "spread", createdDaysAgo: 3 });
+  const gate = createGate({ daily: true });
+  assert.equal(gate("spread"), null);
+  assert.match(gate("spread") ?? "", /今回作ってよい「広がる」の件数に達しています/);
+  // ほかのねらいは、集客中の上限で確かめる
+  saveSettings({ maxLive: 0 });
+  assert.match(createGate()("useful") ?? "", /集客中の案件（「広がる」以外）/);
+  saveSettings({ spreadMaxLive: 7, spreadPerDay: 1, maxLive: 2 });
 });

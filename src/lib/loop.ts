@@ -381,6 +381,19 @@ export function spreadRoom({ daily = false } = {}): number {
   return daily ? Math.min(byLive, Math.max(0, s.spreadPerDay - spreadMadeToday())) : byLive;
 }
 
+// 会議のあと、案件を作る直前の確かめ直し。1件作るたびに呼び、作れないならその理由を返す（作れるなら null）
+// 会議の間（1〜2分）にお休みの案件を集客に戻すなどして上限が変わることがあるので、会議の前の確かめだけに頼らない
+// 「広がる」は、作ったばかりの案件（まだ集客中ではない）も数えるよう、確かめ直した時点の残りの件数を、作るたびに減らす
+export function createGate({ daily = false } = {}): (aim: Aim) => string | null {
+  let room = spreadRoom({ daily });
+  return (aim) => {
+    const late = aimBlocks({ daily })[aim] ?? (aim === "spread" && room <= 0 ? "今回作ってよい「広がる」の件数に達しています" : undefined);
+    if (late) return late;
+    if (aim === "spread") room--;
+    return null;
+  };
+}
+
 // 新しい案件を作れない理由（今月の予算で新しい案件を休む段階・集客中の上限）。作れるなら null
 // aim を指定したらそのねらいだけを見る。指定しなければ、配分で出すねらい（重みのあるもの）がどれも作れないときだけ止める
 export function newProjectBlock(aim?: Aim, opts: { daily?: boolean } = {}): string | null {
@@ -414,9 +427,10 @@ export async function generateIdeas(theme: string, count = 3, deep = false, aim?
     return { ids: [], blocked: blockedNow };
   }
   const ids: number[] = [];
+  const gate = createGate();
   for (const c of kept) {
     // 会議の間に、そのねらいの上限に達していたら作らない
-    const late = aimBlocks()[aimOfIdea(c.idea)];
+    const late = gate(aimOfIdea(c.idea));
     if (late) {
       logEvent(null, "ai", "idea-skipped", `アイデア「${c.idea.title}」は、案件にしませんでした（${late}）`);
       continue;
@@ -2302,7 +2316,14 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     const { candidates, kept } = await withIdeaLock("毎日のアイデア出し", () => gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday, false, { exclude, spreadRoom: spreadRoom({ daily: true }) }));
     if (!candidates.length) return skip("どのAIからもアイデアを得られなかったため休みました");
     const ids: number[] = [];
+    const gate = createGate({ daily: true });
     for (const c of kept) {
+      // 会議の間に、そのねらいの上限に達していたら作らない（会議の前の確かめだけに頼らない）
+      const late = gate(aimOfIdea(c.idea));
+      if (late) {
+        logEvent(null, "ai", "idea-skipped", `アイデア「${c.idea.title}」は、案件にしませんでした（${late}）`);
+        continue;
+      }
       // 承認するときに作者が分からないよう、ここでは作者名を出さない
       // 作者の自己申告は甘くなりがちなので、他社の採点の平均を自信として使う
       const conf = c.peerAvg !== null ? { value: c.peerAvg / 10, source: "他社のAIによる採点の平均" } : selfConfidence(c.idea);
