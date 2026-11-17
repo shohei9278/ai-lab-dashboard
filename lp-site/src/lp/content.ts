@@ -57,13 +57,31 @@ export type Lp = {
   beforeAfter?: { before: string[]; after: string[] };
   // 動くツールの案件だけ: ツール本体（1つのHTML）と、シェアするときの文
   // じっくり案件のツールは、人が確かめたデータ（data。枠の中で window.labData として読める）と、Google Fonts を使ってよい印（fonts）を持つ
-  tool?: { html: string; shareText: string; data?: unknown[]; fonts?: boolean };
+  // results: 結果の種類が決まっているツール（診断など）の結果の名前。シェアのリンク（?r=番号）と、結果ごとのシェア画像に使う
+  tool?: { html: string; shareText: string; data?: unknown[]; fonts?: boolean; results?: string[] };
   // AIが丸ごと自由に書いたページ（1つのHTML）。あれば部品の表示の代わりにこれを出す。上の文言はシェア画像・検索結果・予備に使う
   page?: { html: string };
 };
 
 // ツール本体の大きさの上限（文字数）
 export const TOOL_HTML_MAX = 80_000;
+// 結果の名前の数と長さの上限（シェア画像に大きく出すので短く）
+export const TOOL_RESULTS_MAX = 40;
+export const TOOL_RESULT_LEN = 30;
+// ツールのコードに書かれた結果の一覧（<script type="application/json" id="lab-results">[...]</script>）を取り出す。なければ・読めなければ undefined
+export function toolResultsOf(html: string): string[] | undefined {
+  const m = html.match(/<script[^>]*\bid\s*=\s*["']lab-results["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!m) return undefined;
+  try {
+    const v = JSON.parse(m[1]) as unknown;
+    if (!Array.isArray(v)) return undefined;
+    const list = v.filter((x): x is string => typeof x === "string" && x.trim().length > 0).slice(0, TOOL_RESULTS_MAX).map((x) => x.trim().slice(0, TOOL_RESULT_LEN));
+    return list.length ? list : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // じっくり案件のツールのコードの上限（データは別に置くので、コードだけで数える）
 export const TOOL_DEEP_CODE_MAX = 60_000;
 // じっくり案件のデータの上限（JSON にしたときの文字数）と件数
@@ -146,6 +164,8 @@ export function normalizeLp(raw: unknown): Lp {
     const data = v.tool.data;
     if (Array.isArray(data) && data.length > 0 && data.length <= TOOL_DATA_ROWS_MAX && JSON.stringify(data).length <= TOOL_DATA_MAX) lp.tool.data = data;
     if (v.tool.fonts === true) lp.tool.fonts = true;
+    const results = strs(v.tool.results, TOOL_RESULTS_MAX, TOOL_RESULT_LEN).filter(Boolean);
+    if (results.length) lp.tool.results = results;
   }
   if (isObj(v.page) && isStr(v.page.html) && v.page.html.length <= PAGE_HTML_MAX) lp.page = { html: v.page.html };
   return lp;

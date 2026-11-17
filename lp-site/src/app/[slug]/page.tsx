@@ -15,10 +15,25 @@ import { PageSummary } from "./PageSummary";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ r?: string }> }): Promise<Metadata> {
   const { slug } = await params;
+  const { r } = await searchParams;
   const lp = await getLp(slug);
   if (!lp) return { title: SITE_NAME };
+  // 結果つきでシェアされたリンク（?r=番号）は、その結果のシェア画像と題にする（番号はツールが決めた結果の一覧の中だけ）
+  const no = r !== undefined && /^\d{1,2}$/.test(r) ? Number(r) : null;
+  const resultName = no !== null ? lp.content.tool?.results?.[no] : undefined;
+  if (resultName) {
+    const rTitle = `「${resultName}」でした｜${lp.title}｜${SITE_NAME}`;
+    const image = { url: `/${slug}/share/${no}`, width: 1200, height: 630, alt: `${lp.title}の結果「${resultName}」` };
+    return {
+      title: rTitle,
+      description: lp.content.subheadline,
+      alternates: { canonical: `/${slug}` },
+      openGraph: { title: rTitle, description: lp.content.subheadline, siteName: SITE_NAME, type: "website", locale: "ja_JP", images: [image] },
+      twitter: { card: "summary_large_image", title: rTitle, description: lp.content.subheadline, images: [image.url] },
+    };
+  }
   const title = `${lp.title}｜${SITE_NAME}`;
   // シェア画像は、同じ階層の opengraph-image.tsx が自動で付ける
   // canonical: 投稿ごとの目印（?s=…）付きのURLを、同じページとして扱わせる
@@ -70,10 +85,10 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
         topCta={<CtaLink slug={lp.slug} version={lp.version} href={lp.content.tool ? "#tool" : "#signup"}>{lp.content.cta}</CtaLink>}
         signup={
           lp.content.tool
-            ? <ShareButtons slug={lp.slug} version={lp.version} text={lp.content.tool.shareText} />
+            ? <ShareButtons slug={lp.slug} version={lp.version} text={lp.content.tool.shareText} results={lp.content.tool.results} />
             : <SignupForm slug={lp.slug} version={lp.version} cta={lp.content.cta} />
         }
-        tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} data={lp.content.tool.data} fonts={lp.content.tool.fonts} /> : undefined}
+        tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} data={lp.content.tool.data} fonts={lp.content.tool.fonts} illustration={lp.content.design?.illustration?.url} /> : undefined}
       />
       <RelatedPages slug={lp.slug} />
       <FeedbackWidget slug={lp.slug} version={lp.version} kind={lp.content.tool ? "tool" : "lp"} />
