@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  holdProject, resumeProject, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  holdProject, resumeProject, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -69,6 +69,9 @@ export async function POST(req: Request) {
         return NextResponse.json({ ok: true });
       case "test-tool":
         return NextResponse.json(await retestTool(requireProject(body).id));
+      case "abandon":
+        abandonStuck(requireProject(body).id, typeof body.reason === "string" ? body.reason : "");
+        return NextResponse.json({ ok: true });
       case "deep-retry":
         await retryDeepData(requireProject(body).id);
         return NextResponse.json({ ok: true });

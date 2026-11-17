@@ -395,6 +395,17 @@ async function prepareDeepData(projectId: number, comment?: string) {
 }
 
 // データの下書きの途中で止まったじっくり案件（承認したデータも判断待ちもなく、作業中でもない）を、もう一度下書きから始める
+// 作成が途中で止まった案件（まだ公開しておらず、判断待ちがなく、作業中でもない）を、人が見送る。案件と記録（費用・経過・AIの入出力）は残す
+export function abandonStuck(projectId: number, reason: string) {
+  const p = getProject(projectId);
+  const stuck = !!p && !buildingNow(p.id) && (p.stage === "idea" || (p.stage === "lp" && !p.lp))
+    && !db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(p.id);
+  if (!stuck) throw new Error("作成が止まった案件だけ、ここから見送れます");
+  setStage(projectId, "rejected");
+  const r = reason.trim().slice(0, 200);
+  logEvent(projectId, "human", "abandon", `作成が止まった案件を見送りました${r ? `（${r}）` : ""}`);
+}
+
 export function deepDataStuck(p: Pick<ProjectRow, "id" | "deep" | "deep_need" | "stage">): boolean {
   return !!p.deep && !!p.deep_need && p.stage === "idea" && !buildingNow(p.id) && !approvedDeepData(p.id)
     && !db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(p.id);
