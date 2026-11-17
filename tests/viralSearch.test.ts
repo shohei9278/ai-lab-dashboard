@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
 import { clampPerQuery, searchSince } from "../src/lib/xPost";
-import { VIRAL_QUERIES, drainQueue, searchBeforeIdeas, searchReads, searchedToday } from "../src/lib/viralPosts";
+import { VIRAL_QUERIES, drainQueue, searchAll, searchBeforeIdeas, searchReads, searchedToday } from "../src/lib/viralPosts";
 import { WANT_QUERIES } from "../src/lib/userWants";
 
 test("話題の投稿の検索: 読み始めは前回の検索のあと（7日より前・未来・なしなら、読める一番古いところ）", () => {
@@ -146,5 +146,32 @@ test("話題の投稿のまとめを待つ時間（PR #83 の ai-review の指�
     assert.ok(Date.now() - t < 2000, `待った時間 ${Date.now() - t}ms`);
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+test("話題の投稿の検索（PR #83 の ai-review の指摘）: 検索の一式は同時に1つだけ動き、動いている間に呼ばれたら同じ結果を待つ", async () => {
+  let n = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    n++;
+    await new Promise((ok) => setTimeout(ok, 20));
+    return json({ data: [], meta: {} });
+  }) as typeof fetch;
+  Object.assign(process.env, X_ENV);
+  try {
+    saveSettings({ lastViralSearch: new Date(Date.now() - 2 * 86_400_000).toISOString() });
+    // 1つ目が「欲しい」の声を検索している途中で、2つ目を呼ぶ
+    const first = searchAll();
+    while (n <= VIRAL_QUERIES.length) await new Promise((ok) => setTimeout(ok, 5));
+    const second = searchAll();
+    const [a, b] = await Promise.all([first, second]);
+    assert.equal(a, b);
+    assert.equal(n, VIRAL_QUERIES.length + WANT_QUERIES.length);
+    // 終わったあとは、また検索できる
+    await searchAll();
+    assert.equal(n, 2 * (VIRAL_QUERIES.length + WANT_QUERIES.length));
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of Object.keys(X_ENV)) delete process.env[k];
   }
 });

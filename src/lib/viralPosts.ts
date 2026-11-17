@@ -48,7 +48,8 @@ export function deleteViral(id: number) {
   db().prepare("DELETE FROM viral_posts WHERE id = ?").run(id);
 }
 
-const g = globalThis as unknown as { __aiLabViralQueue?: boolean; __aiLabViralSearch?: boolean };
+type SearchResult = { read: number; added: number; wants: number; wantsError?: string };
+const g = globalThis as unknown as { __aiLabViralQueue?: boolean; __aiLabViralSearch?: Promise<SearchResult> };
 
 async function processQueue() {
   if (g.__aiLabViralQueue) return;
@@ -185,8 +186,6 @@ export function searchReads(s: { viralPerQuery: number; wantsPerQuery: number })
 
 // 前回の検索のあとの投稿を読み、反応の大きいものを上から取り込む（いいね50以上・最大10件）
 export async function searchViral(since: string): Promise<{ read: number; added: number; error?: string }> {
-  if (g.__aiLabViralSearch) throw new Error("いま検索しているところです");
-  g.__aiLabViralSearch = true;
   const s = getSettings();
   let read = 0;
   try {
@@ -206,13 +205,23 @@ export async function searchViral(since: string): Promise<{ read: number; added:
   } finally {
     // 読んだ分だけ費用がかかる（失敗しても、それまでに読んだ分は記録する）
     if (read) db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (NULL, ?, 'x-api', 0, 0, ?, NULL)").run("Xで話題の投稿を検索", read * X_READ_COST_USD);
-    g.__aiLabViralSearch = false;
   }
 }
 
 // 話題の投稿と「欲しい」の声を、続けて検索する（どちらも前回の検索のあとの投稿だけを読む）
 // 話題の投稿の検索が途中で失敗したら、「欲しい」の声は読まない（回数の上限などで続けて失敗するため）
-export async function searchAll(): Promise<{ read: number; added: number; wants: number; wantsError?: string }> {
+// 検索の一式（話題の投稿・「欲しい」の声・前回の日時の保存）は同時に1つだけ動かす。動いている間に呼ばれたら、その結果を待つ
+// （2つ動くと、読む費用が二重にかかり、保存する前回の日時がずれて投稿を読み落とすため）
+export function searchAll(): Promise<SearchResult> {
+  if (g.__aiLabViralSearch) return g.__aiLabViralSearch;
+  const run = searchAllOnce().finally(() => {
+    g.__aiLabViralSearch = undefined;
+  });
+  g.__aiLabViralSearch = run;
+  return run;
+}
+
+async function searchAllOnce(): Promise<SearchResult> {
   const since = searchSince(getSettings().lastViralSearch || undefined);
   // 次の検索は、この検索を始めた時刻のあとから読む（終わった時刻にすると、検索している間に出た投稿を二度と読まない）
   const startedAt = new Date().toISOString();
