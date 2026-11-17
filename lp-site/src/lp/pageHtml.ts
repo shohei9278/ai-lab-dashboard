@@ -32,8 +32,8 @@ document.addEventListener("click",function(e){
   var href=a.getAttribute("href")||"";
   if(a.dataset.lab==="privacy"||href==="/privacy"){e.preventDefault();post({__lab:"open",path:"/privacy"});return}
   // ページ内のリンク: この枠の中にあればそこへ。高さを中身に合わせた枠（ツールのページ）は枠の中でスクロールしないので、親にも位置を知らせる
-  // この枠の中にないとき（ツール #tool・もう一方の枠の中）は、親に探してもらう（y:null）
-  if(href.charAt(0)==="#"){e.preventDefault();var id=href.slice(1),t=id&&document.getElementById(id);if(t){t.scrollIntoView({behavior:"smooth",block:"start"});post({__lab:"jump",id:id,y:t.getBoundingClientRect().top+scrollY})}else if(id)post({__lab:"jump",id:id,y:null});if(href==="#signup")ev("cta_click",{position:a.dataset.position||"page"});return}
+  // この枠の中にないとき（もう一方の枠の中）と、ツール #tool（枠の外の本物のツール。枠の中に同じ id があっても使わない）は、親に探してもらう（y:null）
+  if(href.charAt(0)==="#"){e.preventDefault();var id=href.slice(1),t=id&&id!=="tool"&&document.getElementById(id);if(t){t.scrollIntoView({behavior:"smooth",block:"start"});post({__lab:"jump",id:id,y:t.getBoundingClientRect().top+scrollY})}else if(id)post({__lab:"jump",id:id,y:null});if(href==="#signup")ev("cta_click",{position:a.dataset.position||"page"});return}
   e.preventDefault();
 },true);
 document.addEventListener("focusin",function(e){if(!started&&e.target.type==="email"){started=true;ev("form_start")}});
@@ -69,7 +69,8 @@ if(document.fonts&&document.fonts.ready)document.fonts.ready.then(hs);
 function bg(){var c=getComputedStyle(document.body).backgroundColor;if(!c||c==="rgba(0, 0, 0, 0)")c=getComputedStyle(document.documentElement).backgroundColor;post({__lab:"bg",color:c})}
 addEventListener("load",bg);
 addEventListener("load",h);setTimeout(h,300);
-addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.__lab==="ping"){h();bg()}});
+// 聞き直されたら、準備ができた知らせ（運営者名などを受け取るため）・高さ・背景色を送り直す（親が受け取れるようになる前に読み込みが終わっていたとき）
+addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.__lab==="ping"){post({__lab:"ready"});h();bg()}});
 // 親から「この id はこの枠の中にあるか」と聞かれたら、あるときだけ位置を返す（もう一方の枠からのリンク）
 addEventListener("message",function(e){var d=e.data;if(e.source===parent&&d&&d.__lab==="where"&&typeof d.id==="string"){var t=document.getElementById(d.id);if(t)post({__lab:"jump",id:d.id,y:t.getBoundingClientRect().top+scrollY})}});
 post({__lab:"ready"});

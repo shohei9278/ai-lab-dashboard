@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { TOOL_SLOT, wrapPageHtml } from "../lp-site/src/lp/pageHtml";
 import { fillToolSlot, splitToolPage } from "../lp-site/src/lp/htmlDom";
-import { launch, staticPageIssues } from "../src/lib/freePage";
+import { launch, shootPage, staticPageIssues, toolTopIssue, TOOL_TOP_MAX } from "../src/lib/freePage";
 
 const page = (body: string, head = '<style>body{color:red}</style>') => `<!doctype html><html lang="ja"><head><title>t</title>${head}</head><body class="x">${body}</body></html>`;
 
@@ -77,7 +77,7 @@ test("ツールのページの決まり: 場所が1つ・画面の高さの単�
 test("ツールのページの枠: 高さと背景色を親に知らせ、聞き直されたら知らせ直す", () => {
   const w = wrapPageHtml(page("<h1>x</h1>"));
   assert.ok(w.includes('__lab:"height"') && w.includes('__lab:"bg"'));
-  assert.ok(w.includes('__lab==="ping"){h();bg()}'));
+  assert.ok(w.includes('__lab==="ping"){post({__lab:"ready"});h();bg()}'));
 });
 
 test("ツールのページの枠: html・body が height:100% でも、中身が伸びたら高さを知らせ直す（ブラウザで確かめる）", async (t) => {
@@ -110,7 +110,8 @@ test("ツールのページの枠: ページ内のリンクの行き先を親に
   if (typeof browser === "string") return t.skip(browser);
   try {
     const p = await browser.newPage({ viewport: { width: 375, height: 812 } });
-    const body = `<a id="to-tool" href="#tool">ツールを使う</a><a id="to-faq" href="#faq">質問へ</a><div style="height:1500px"></div><h2 id="faq">よくある質問</h2>`;
+    // 5回目の ai-review の指摘: 枠の中に id="tool" があっても、#tool は本物のツール（親）へ
+    const body = `<span id="tool"></span><a id="to-tool" href="#tool">ツールを使う</a><a id="to-faq" href="#faq">質問へ</a><div style="height:1500px"></div><h2 id="faq">よくある質問</h2>`;
     await p.setContent(wrapPageHtml(page(body, `<script>window.jumps=[];addEventListener("message",function(e){if(e.data&&e.data.__lab==="jump")window.jumps.push(e.data)})</script>`)), { waitUntil: "load" });
     const jumps = () => p.evaluate(() => (window as unknown as { jumps: { id: string; y: number | null }[] }).jumps);
     // 枠の中にない #tool は、親に探してもらう
@@ -130,7 +131,24 @@ test("ツールのページの枠: ページ内のリンクの行き先を親に
     const after = await jumps();
     assert.equal(after.length, 3);
     assert.equal(after[2].id, "faq");
+    // 5回目の ai-review の指摘: 聞き直し（ping）には、準備ができた知らせも送り直す（運営者名を受け取り直すため）
+    await p.evaluate(() => { (window as unknown as { readies: number }).readies = 0; addEventListener("message", (e) => { if (e.data?.__lab === "ready") (window as unknown as { readies: number }).readies++; }); postMessage({ __lab: "ping" }, "*"); });
+    await p.waitForTimeout(100);
+    assert.equal(await p.evaluate(() => (window as unknown as { readies: number }).readies), 1);
   } finally {
     await browser.close();
   }
+});
+
+test("ツールのページの撮影: ツールより上の部分の高さを測る（5回目の ai-review の指摘。ブラウザで確かめる）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  await browser.close();
+  const tall = await shootPage(page(`<header style="height:500px"><h1>名前</h1></header>${TOOL_SLOT}<p>説明</p><span data-lab="operator"></span>`), [], "toptall", true);
+  assert.ok(tall.topHeight! >= 500 && tall.topHeight! <= 540, `高さ ${tall.topHeight}`);
+  assert.ok(tall.topHeight! > TOOL_TOP_MAX && toolTopIssue(tall.topHeight!).includes(`${TOOL_TOP_MAX}px 以内`));
+  const short = await shootPage(page(`<header style="height:200px"><h1>名前</h1></header>${TOOL_SLOT}<p>説明</p><span data-lab="operator"></span>`), [], "topshort", true);
+  assert.ok(short.topHeight! <= TOOL_TOP_MAX, `高さ ${short.topHeight}`);
+  // LP のページは測らない
+  assert.equal((await shootPage(page("<h1>名前</h1>"), [], "lp", false)).topHeight, undefined);
 });

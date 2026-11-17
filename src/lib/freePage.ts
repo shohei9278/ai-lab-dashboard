@@ -210,8 +210,9 @@ async function fillOperator(page: import("playwright-core").Page) {
 
 // 本物のブラウザで開いて、スマホ幅で上から順に、PC幅で一番上を撮る
 // ツールの案件のページを撮るときは、ツールを入れる場所に、ツールの代わりの箱を置く（公開時はここに本物のツールが入る）
-const TOOL_PLACEHOLDER = '<div id="lab-tool" style="box-sizing:border-box;height:640px;margin:16px;display:flex;align-items:center;justify-content:center;border:3px dashed #8a94a6;border-radius:16px;background:#eef1f6;color:#4a5568;font:700 18px sans-serif;text-align:center">ここに動くツールが入ります<br>（公開時は本物のツール）</div>';
-export async function shootPage(html: string, imgOrigins: string[], name: string, tool = false): Promise<{ skipped?: string; sp: Shot[]; pc?: Shot; errors: string[]; overflow: boolean; text: string; slotOk?: boolean }> {
+const TOOL_PLACEHOLDER_MARGIN = 16;
+const TOOL_PLACEHOLDER = `<div id="lab-tool" style="box-sizing:border-box;height:640px;margin:${TOOL_PLACEHOLDER_MARGIN}px;display:flex;align-items:center;justify-content:center;border:3px dashed #8a94a6;border-radius:16px;background:#eef1f6;color:#4a5568;font:700 18px sans-serif;text-align:center">ここに動くツールが入ります<br>（公開時は本物のツール）</div>`;
+export async function shootPage(html: string, imgOrigins: string[], name: string, tool = false): Promise<{ skipped?: string; sp: Shot[]; pc?: Shot; errors: string[]; overflow: boolean; text: string; slotOk?: boolean; topHeight?: number }> {
   const browser = await launch();
   if (typeof browser === "string") return { skipped: browser, sp: [], errors: [], overflow: false, text: "" };
   const dir = dataDir("screenshots");
@@ -232,6 +233,8 @@ export async function shootPage(html: string, imgOrigins: string[], name: string
     await page.waitForTimeout(800);
     // ツールを入れる場所が body の直下にあるか（入れ子の中にあると、上下2つに分けたときに形が崩れる）
     const slotOk = tool ? await page.evaluate(() => document.getElementById("lab-tool")?.parentElement === document.body) : undefined;
+    // ツールより上の部分の高さ（スマホ幅で、目印の箱の上端の位置から箱の上の余白を引く）
+    const topHeight = tool && slotOk ? await page.evaluate((m) => Math.round(document.getElementById("lab-tool")!.getBoundingClientRect().top + window.scrollY - m), TOOL_PLACEHOLDER_MARGIN) : undefined;
     const height = await page.evaluate(() => document.documentElement.scrollHeight);
     const sp: Shot[] = [];
     // 長すぎるページは、最初の8画面分だけ見る
@@ -247,7 +250,7 @@ export async function shootPage(html: string, imgOrigins: string[], name: string
     await fillOperator(pcPage);
     await pcPage.waitForTimeout(800);
     const pc = save(await pcPage.screenshot({ type: "jpeg", quality: 70 }), `${base}-pc.jpg`);
-    return { sp, pc, errors: [...new Set(errors)].slice(0, 5).map((e) => e.slice(0, 200)), overflow, text, slotOk };
+    return { sp, pc, errors: [...new Set(errors)].slice(0, 5).map((e) => e.slice(0, 200)), overflow, text, slotOk, topHeight };
   } catch (e) {
     return { sp: [], errors: [`確認の途中で失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`], overflow: false, text: "" };
   } finally {
@@ -288,10 +291,18 @@ ${tool ? `- 点線の箱「ここに動くツールが入ります」は、公�
   }
 }
 
+// ツールより上の部分の高さの上限（スマホ幅）。超えたら直させ、直らなければ人の判断待ちに出す（デザインの問題なので、ページは捨てない）
+export const TOOL_TOP_MAX = 300;
+export const toolTopIssue = (h: number) => `スマホ幅（375px）で、ツールより上の部分が ${h}px ある（${TOOL_TOP_MAX}px 以内にする。名前・h1・1行の説明・「無料・登録不要」だけにし、余白や画像を小さくする）`;
+
 async function check(p: ProjectRow, html: string, imgOrigins: string[], name: string, tool = false) {
   const shots = await shootPage(html, imgOrigins, name, tool);
   const fixed = [...staticPageIssues(html, tool), ...(shots.slotOk === false ? [`ツールを入れる場所 ${TOOL_SLOT} が body の直下にない（ほかの要素の中に入れない）`] : [])];
-  const browserIssues = [...shots.errors.map((e) => `ブラウザで開いたら出た${e}`), ...(shots.overflow ? ["スマホ幅（375px）で、横にはみ出している"] : [])];
+  const browserIssues = [
+    ...shots.errors.map((e) => `ブラウザで開いたら出た${e}`),
+    ...(shots.overflow ? ["スマホ幅（375px）で、横にはみ出している"] : []),
+    ...(shots.topHeight !== undefined && shots.topHeight > TOOL_TOP_MAX ? [toolTopIssue(shots.topHeight)] : []),
+  ];
   const seen = shots.sp.length ? await reviewShots(p, shots, tool) : [];
   return { fixed, issues: [...fixed, ...browserIssues, ...seen], shots };
 }

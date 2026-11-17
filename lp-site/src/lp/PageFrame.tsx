@@ -37,7 +37,8 @@ export function PageFrame({
       if (e.source !== ref.current?.contentWindow || typeof e.data !== "object" || !e.data) return;
       const d = e.data as Record<string, unknown>;
       if (d.__lab === "ready") send({ __lab: "init", operator: operator ?? "" });
-      if (autoHeight && d.__lab === "height" && typeof d.h === "number") setAutoH(Math.max(40, Math.min(20000, d.h)));
+      // 高さは中身のとおりにする（よくある質問を全部開くなどで長くなっても切らない。おかしな数字だけ弾く）
+      if (autoHeight && d.__lab === "height" && typeof d.h === "number" && Number.isFinite(d.h)) setAutoH(Math.max(40, Math.min(1_000_000, d.h)));
       // 色の書き方（rgb(…)・rgba(…)）だけを受け取る
       if (d.__lab === "bg" && typeof d.color === "string" && /^rgba?\([\d\s.,]+\)$/.test(d.color)) onBackground?.(d.color);
       // ページ内のリンク: 高さを中身に合わせた枠は枠の中でスクロールしないので、親のページを、枠の位置＋枠の中の位置までスクロールする
@@ -56,8 +57,8 @@ export function PageFrame({
       }
     }
     window.addEventListener("message", onMessage);
-    // 受け取れるようになる前に枠が読み込まれていると、最初の高さを取りこぼすので聞き直す
-    if (autoHeight) ref.current?.contentWindow?.postMessage({ __lab: "ping" }, "*");
+    // 受け取れるようになる前に枠が読み込まれていると、準備ができた知らせ（運営者名を送る合図）や最初の高さを取りこぼすので聞き直す
+    ref.current?.contentWindow?.postMessage({ __lab: "ping" }, "*");
     return () => window.removeEventListener("message", onMessage);
   }, [operator, onSignup, onEvent, autoHeight, onBackground, onMissing]);
 
