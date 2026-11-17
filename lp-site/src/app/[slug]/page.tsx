@@ -9,7 +9,8 @@ import { LpView } from "@/lp/LpView";
 import { ShareButtons, ToolSection } from "./ToolSection";
 import { FreePage } from "./FreePage";
 import { FeedbackWidget } from "./FeedbackWidget";
-import { imgOriginsOf, splitToolPage } from "@/lp/pageHtml";
+import { imgOriginsOf } from "@/lp/pageHtml";
+import { splitToolPage } from "@/lp/htmlDom";
 import { ToolPageView } from "@/lp/ToolPageView";
 import { RelatedPages } from "./RelatedPages";
 import { PageSummary } from "./PageSummary";
@@ -80,12 +81,13 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
 
   // 動くツールの案件で、AIが自由に書いたページがあれば、上の部分 → ツール → 下の部分 の順に出す（分けられなければ部品の表示）
   const tool = lp.content.tool;
-  if (tool && lp.content.page && splitToolPage(lp.content.page.html)) {
+  const parts = tool && lp.content.page ? splitToolPage(lp.content.page.html) : null;
+  if (tool && lp.content.page && parts) {
     return (
       <main>
         <Tracker slug={lp.slug} version={lp.version} scroll={false} />
         <ToolPageView
-          html={lp.content.page.html}
+          parts={parts}
           title={lp.title}
           imgOrigins={imgOriginsOf(lp.content.design?.illustration?.url, lp.content.page.html)}
           operator={`運営: ${SITE_NAME}`}

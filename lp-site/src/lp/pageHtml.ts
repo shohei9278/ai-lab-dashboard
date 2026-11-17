@@ -3,8 +3,6 @@
 // - 登録フォームの送信・プライバシーポリシーを開く・GAのイベントは、こちらで差し込む小さなスクリプトが親のページに頼む
 //   （枠の中からは通信できないので、AIの書いたコードに頼らない）
 
-import { attrOf, htmlTags, type HtmlTag } from "./htmlTags";
-
 // AIに守らせる、ページの決まりごと（作成の指示文と、公開前の機械チェックで同じものを使う）
 export const PAGE_RULES = {
   form: 'form id="signup" の中に、input type="email"（メールアドレス）・input type="checkbox" name="consent"（プライバシーポリシーへの同意）・送信ボタンを置く',
@@ -72,47 +70,8 @@ export function wrapPageHtml(html: string, opts: { imgOrigins?: string[] } = {})
   return "<!doctype html>" + out;
 }
 
-// ツールの案件のページ: AIが書いたページの body の直下に、ツールを入れる場所 <div id="lab-tool"></div> が1つある
-// その前後で、同じ <head>（書体・色の指定）を持つ2つのページに分ける（上の部分 → ツール → 下の部分 の順に、別々の枠で出す）
-// 場所が見つからない・2つ以上ある・ほかの要素の中にある・形が違うときは null（ふつうの部品の表示にする）
+// ツールの案件のページで、ツールを入れる場所（この場所の前後で上下2つの枠に分ける。分ける処理はサーバーだけで使う htmlDom.ts）
 export const TOOL_SLOT = '<div id="lab-tool"></div>';
-// 中身を持たない要素（閉じタグがない）
-const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
-// 開いた要素がすべて、名前の合う閉じタグで順に閉じているか（= この並びのあとが body の直下か）
-// 閉じタグの名前が食い違う（<section></div> など）ときは、ブラウザが別の形に組み直すので、閉じていないとみなす
-function balanced(tags: HtmlTag[]): boolean {
-  const stack: string[] = [];
-  for (const t of tags) {
-    if (VOID.has(t.name) || t.selfClose) continue;
-    if (!t.close) stack.push(t.name);
-    else if (stack.pop() !== t.name) return false;
-  }
-  return stack.length === 0;
-}
-export const closedBefore = (fragment: string) => balanced(htmlTags(fragment));
-
-export function splitToolPage(html: string): { top: string; bottom: string } | null {
-  const head = html.match(/<head[^>]*>([\s\S]*?)<\/head>/i)?.[1] ?? "";
-  const htmlAttrs = html.match(/<html([^>]*)>/i)?.[1] ?? ' lang="ja"';
-  const bodyOpen = html.match(/<body([^>]*)>/i);
-  const bodyStart = bodyOpen ? (bodyOpen.index ?? 0) + bodyOpen[0].length : -1;
-  const bodyEnd = html.search(/<\/body>/i);
-  if (bodyStart < 0 || bodyEnd < bodyStart) return null;
-  const body = html.slice(bodyStart, bodyEnd);
-  const tags = htmlTags(body);
-  // id が lab-tool の要素は、タグの種類や属性の書き方に関係なくちょうど1つ
-  const slots = tags.filter((t) => !t.close && attrOf(t, "id") === "lab-tool");
-  if (slots.length !== 1) return null;
-  const at = tags.indexOf(slots[0]);
-  const slot = tags[at];
-  const end = tags[at + 1];
-  // 形は <div id="lab-tool"></div> だけ（ほかの属性・中身なし）
-  if (slot.name !== "div" || slot.selfClose || slot.attrs.length !== 1 || !end || !end.close || end.name !== "div" || body.slice(slot.end, end.start).trim()) return null;
-  // 置き場所がほかの要素の中にあると、上下に分けたときに開きと閉じのタグが別れて形が崩れるので、分けない
-  if (!balanced(tags.slice(0, at))) return null;
-  const doc = (inner: string) => `<!doctype html><html${htmlAttrs}><head>${head}</head><body${bodyOpen![1]}>${inner}</body></html>`;
-  return { top: doc(body.slice(0, slot.start)), bottom: doc(body.slice(end.end)) };
-}
 
 // イラストの画像を置いている場所（Supabase の公開用の保存領域）だけ、画像の読み込みを許す
 // イラストを描き直した・外したあとも、ページに書かれた前のイラストが表示されるよう、ページの中のURLも見る

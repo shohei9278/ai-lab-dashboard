@@ -7,7 +7,8 @@ import { getModel, hasKey } from "./models";
 import { refImages, type DesignRef } from "./designRefs";
 import { dataDir, getSettings, type ProjectRow } from "./db";
 import { PAGE_HTML_MAX, type Lp } from "../../lp-site/src/lp/content";
-import { PAGE_RULES, TOOL_SLOT, imgOriginsOf, splitToolPage, wrapPageHtml } from "../../lp-site/src/lp/pageHtml";
+import { PAGE_RULES, TOOL_SLOT, imgOriginsOf, wrapPageHtml } from "../../lp-site/src/lp/pageHtml";
+import { fillToolSlot, splitToolPage } from "../../lp-site/src/lp/htmlDom";
 
 // 部品を選ぶ方式ではなく、AIにLPのHTMLを丸ごと自由に書かせる
 // 1. 世界観を1つ決めて、ページ全体を書く
@@ -224,7 +225,8 @@ export async function shootPage(html: string, imgOrigins: string[], name: string
     const ctx = await browser.newContext({ viewport: { width: 375, height: 812 }, deviceScaleFactor: 1, isMobile: true, hasTouch: true });
     const page = await ctx.newPage();
     page.on("pageerror", (e) => errors.push(`エラー: ${e.message}`));
-    const shown = tool ? html.replace(/<div\s+id\s*=\s*["']lab-tool["']\s*>\s*<\/div>/i, TOOL_PLACEHOLDER) : html;
+    // ツールを入れる場所を、目印の箱に差し替えて撮る（場所の見つけ方は公開のときと同じ。見つからなければそのまま撮り、決まりのチェックで止まる）
+    const shown = tool ? (fillToolSlot(html, TOOL_PLACEHOLDER) ?? html) : html;
     await page.setContent(wrapPageHtml(shown, { imgOrigins }), { waitUntil: "networkidle", timeout: 20_000 });
     await fillOperator(page);
     await page.waitForTimeout(800);

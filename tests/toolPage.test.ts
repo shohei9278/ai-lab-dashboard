@@ -1,7 +1,8 @@
 import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { splitToolPage, TOOL_SLOT, wrapPageHtml } from "../lp-site/src/lp/pageHtml";
+import { TOOL_SLOT, wrapPageHtml } from "../lp-site/src/lp/pageHtml";
+import { fillToolSlot, splitToolPage } from "../lp-site/src/lp/htmlDom";
 import { staticPageIssues } from "../src/lib/freePage";
 
 const page = (body: string, head = '<style>body{color:red}</style>') => `<!doctype html><html lang="ja"><head><title>t</title>${head}</head><body class="x">${body}</body></html>`;
@@ -23,7 +24,8 @@ test("ツールのページ: ツールを入れる場所の前後で、同じ he
   assert.ok(splitToolPage(page(`<header><h1>名前</h1><img src="x"><br/></header><!-- <div> --><script>if (a<b) {}</script>${TOOL_SLOT}<p>説明</p>`)));
   // ai-review の指摘: 閉じタグの名前が食い違うと、ブラウザは置き場所を section の中に入れるので分けない
   assert.equal(splitToolPage(page(`<section></div>${TOOL_SLOT}</section>`)), null);
-  assert.equal(splitToolPage(page(`<div><span></div></span>${TOOL_SLOT}<p>説明</p>`)), null);
+  // ブラウザが組み直して body の直下に来るときは、組み直したあとの形で分ける
+  assert.ok(splitToolPage(page(`<div><span></div></span>${TOOL_SLOT}<p>説明</p>`))!.top.includes('<body class="x"><div><span></span></div></body>'));
   // ai-review の指摘: 属性の付いたもの・div 以外・引用符なしでも、id が lab-tool の要素が2つ以上なら分けない
   assert.equal(splitToolPage(page(`${TOOL_SLOT}<span id="lab-tool"></span>`)), null);
   assert.equal(splitToolPage(page(`<section id=lab-tool></section>${TOOL_SLOT}`)), null);
@@ -35,6 +37,27 @@ test("ツールのページ: ツールを入れる場所の前後で、同じ he
   // script の文字列やコメントに書かれた id は要素ではないので数えない。引用符なし・空白入りの書き方の置き場所は分ける
   assert.ok(splitToolPage(page(`<script>document.getElementById("lab-tool");var s='<div id="lab-tool"></div>'</script><!-- <div id="lab-tool"></div> -->${TOOL_SLOT}<p>説明</p>`)));
   assert.ok(splitToolPage(page(`<h1>名前</h1><div id=lab-tool >\n</div><p>説明</p>`)));
+});
+
+test("ツールのページ: HTMLはブラウザと同じ規則で読む（3回目の ai-review の指摘）", () => {
+  // script の中に書かれた <body> や </body> の文字は、本物の body として扱わない
+  const fake = `<!doctype html><html lang="ja"><head><script>const s = \`<body>${TOOL_SLOT}</body>\`;</script></head><body><h1>名前</h1>${TOOL_SLOT}<p>説明</p></body></html>`;
+  const parts = splitToolPage(fake)!;
+  assert.ok(parts.top.includes("<h1>名前</h1>") && parts.bottom.includes("<p>説明</p>"));
+  const cut = splitToolPage(page(`<h1>名前</h1>${TOOL_SLOT}<script>var e = "</body>";</script><p>説明</p>`))!;
+  assert.ok(cut.bottom.includes("<p>説明</p>"));
+  // div などの <div/> は閉じない（ブラウザでは後ろの置き場所がその中に入る）ので分けない。svg の中の /> は閉じる
+  assert.equal(splitToolPage(page(`<div/>${TOOL_SLOT}<p>説明</p>`)), null);
+  assert.ok(splitToolPage(page(`<svg><circle r="1"/></svg>${TOOL_SLOT}<p>説明</p>`)));
+  // 文字参照で書かれた id も同じ id として数える
+  assert.equal(splitToolPage(page(`${TOOL_SLOT}<span id="lab&#45;tool"></span>`)), null);
+  // template の中身はページの要素にならないので数えない
+  assert.ok(splitToolPage(page(`<template><div id="lab-tool"></div></template>${TOOL_SLOT}<p>説明</p>`)));
+  // 公開前の撮影: 引用符なしの置き場所でも、目印の箱に差し替える。分けられないページは null
+  const filled = fillToolSlot(page(`<h1>名前</h1><div id=lab-tool></div><p>説明</p>`), "<div id=\"lab-tool\">ここに動くツールが入ります</div>")!;
+  assert.ok(/<h1>名前<\/h1><div id="lab-tool">ここに動くツールが入ります<\/div><p>説明<\/p>/.test(filled));
+  assert.ok(filled.includes("<style>body{color:red}</style>") && filled.includes('<body class="x">'));
+  assert.equal(fillToolSlot(page(`<section>${TOOL_SLOT}</section>`), "x"), null);
 });
 
 test("ツールのページの決まり: 場所が1つ・画面の高さの単位と固定を使わない・登録フォームを置かない。LPの決まりは今のまま", () => {

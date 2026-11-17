@@ -1,8 +1,6 @@
 // LPの中身と見た目の型。ダッシュボード（プレビュー・AIの出力の確認）と公開用LPサイトの両方で使う
 // どちらの環境にも依存しないよう、ここでは外部のライブラリを読み込まない
 
-import { attrCount, attrOf, htmlTags } from "./htmlTags";
-
 export const THEMES = {
   // light / dark の色。アクセントは文字色との差が十分あるものだけ
   trust: { label: "信頼感（青）", accent: ["#1f62c4", "#5a9cf0"], soft: ["#eaf1fb", "#17243a"] },
@@ -76,25 +74,7 @@ export function isToolResults(v: unknown): v is string[] {
   return Array.isArray(v) && v.length >= 1 && v.length <= TOOL_RESULTS_MAX
     && v.every((x) => typeof x === "string" && x.length > 0 && x.length <= TOOL_RESULT_LEN && x === x.trim());
 }
-// 結果の一覧を書く場所か: id が lab-results の <script>（data-id などは数えない。引用符なしの id=lab-results も数える）
-const resultTags = (html: string) => htmlTags(html).filter((t) => t.name === "script" && !t.close && attrOf(t, "id") === "lab-results");
-export const hasResultsTag = (html: string) => resultTags(html).length > 0;
-// ツールのコードに書かれた結果の一覧（<script type="application/json" id="lab-results">[...]</script>）を取り出す
-// type が application/json でないもの（スクリプトとして動いてしまう）・読めないもの・決まりに合わないものは undefined（番号がずれないよう、そろえ直さない）
-// id が lab-results の <script> がちょうど1つで、id と type をそれぞれ1回だけ書いたときだけ読む（2つ以上あると、どれが本物か分からない）
-export function toolResultsOf(html: string): string[] | undefined {
-  const tags = resultTags(html);
-  if (tags.length !== 1) return undefined;
-  const tag = tags[0];
-  if (attrCount(tag, "id") !== 1 || attrCount(tag, "type") !== 1) return undefined;
-  if (attrOf(tag, "type")!.trim().toLowerCase() !== "application/json") return undefined;
-  try {
-    const v = JSON.parse(tag.inner ?? "") as unknown;
-    return isToolResults(v) ? v : undefined;
-  } catch {
-    return undefined;
-  }
-}
+// 結果の一覧を取り出す処理（hasResultsTag・toolResultsOf）は、HTMLのパーサーを使うので htmlDom.ts にある（画面のコードに入れない）
 
 // じっくり案件のツールのコードの上限（データは別に置くので、コードだけで数える）
 export const TOOL_DEEP_CODE_MAX = 60_000;

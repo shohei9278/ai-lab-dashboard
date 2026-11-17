@@ -1,7 +1,8 @@
 import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { normalizeLp, toolResultsOf } from "../lp-site/src/lp/content";
+import { normalizeLp } from "../lp-site/src/lp/content";
+import { toolResultsOf } from "../lp-site/src/lp/htmlDom";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { staticToolIssues } from "../src/lib/loop";
 
@@ -34,7 +35,11 @@ test("結果ごとのシェア: ツールに書かれた結果の一覧を取り
   assert.equal(toolResultsOf('<script type=text/javascript id=lab-results>["A"]</script>'), undefined);
   assert.ok(staticToolIssues('<script type=text/javascript id=lab-results>["A"]</script><script>1</script>').some((x) => x.includes("lab-results")));
   assert.equal(toolResultsOf('<script type="text/javascript" type="application/json" id="lab-results">["A"]</script>'), undefined);
-  assert.equal(toolResultsOf('<script type="application/json" id="lab-results" id="x">["A"]</script>'), undefined);
+  // 同じ名前の属性が2つあるときは、ブラウザと同じく最初のものを使う
+  assert.deepEqual(toolResultsOf('<script type="application/json" id="lab-results" id="x">["A"]</script>'), ["A"]);
+  // ai-review の指摘: 文字参照（&#45; など）で書かれた id もブラウザと同じく読む
+  assert.ok(staticToolIssues('<script id="lab&#45;results" type="text/javascript">["A"]</script><script>1</script>').some((x) => x.includes("lab-results")));
+  assert.deepEqual(toolResultsOf('<script type="application/json" id="lab&#45;results">["A"]</script>'), ["A"]);
   // コメントの中に書かれたものは数えない
   assert.deepEqual(toolResultsOf('<!-- <script id="lab-results"></script> --><script type="application/json" id="lab-results">["A"]</script>'), ["A"]);
   assert.equal(normalizeLp({ ...base, tool: { html: "<script></script>", shareText: "x", results: ["A", 3, "B"] } }).tool?.results, undefined);
