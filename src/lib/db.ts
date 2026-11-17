@@ -663,6 +663,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "deep", "INTEGER NOT NULL DEFAULT 0"], // じっくり案件（大きなデータ・素材・磨く段を使い、人が要所で確かめる）
   ["projects", "deep_need", "TEXT"], // じっくり案件で要るデータ（アイデアに書かれたもの。大きなデータが要らないじっくり案件は空）
   ["projects", "deep_plan", "TEXT"], // じっくり案件で何を作り込むか（アイデアに書かれたもの）
+  ["projects", "aim", "TEXT"], // ねらい（spread 広がる / useful 役に立つ / return また来てもらう / demand 需要を確かめる。aims.ts）。前からある案件は空
+  ["projects", "genre", "TEXT"], // ジャンル（自由な短い言葉。例: ガチャ・診断）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
   ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
@@ -747,6 +749,12 @@ export type Settings = {
   maxAutoImprove: number; // 自動モードで、人の承認なしにLPを改善してよい回数
   staleDays: number; // この日数放置された承認待ちは見送りにする
   deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）
+  // アイデア出しのねらいの配分（重み。0〜10）。広がる・役に立つ・また来てもらう・需要を確かめる
+  aimSpread: number;
+  aimUseful: number;
+  aimReturn: number;
+  aimDemand: number;
+  ideaGenres: string; // アイデアのジャンル（カンマ区切り）。空ならおまかせ
   lastDailyRun: string; // 最後に毎日の実行をした日（YYYY-MM-DD）
   shadowJudge: boolean; // 判断のたびに他社の上位AIにも同じ判断をさせて記録する
   debateEnabled: boolean; // AIの判断が割れたら、AI同士に1回反論させて要約する
@@ -834,6 +842,11 @@ const DEFAULTS: Settings = {
   maxAutoImprove: 2,
   staleDays: 7,
   deepPerWeek: 1,
+  aimSpread: 4,
+  aimUseful: 3,
+  aimReturn: 2,
+  aimDemand: 1,
+  ideaGenres: "",
   lastDailyRun: "",
   shadowJudge: true,
   debateEnabled: true,
@@ -841,7 +854,7 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "promoOff", "plainOff", "notifyOff"]);
+const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
 const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive"]);
 
 export function getSettings(): Settings {
@@ -931,6 +944,8 @@ export type ProjectRow = {
   deep: number; // 1 = じっくり案件
   deep_need: string | null; // 大きなデータが要るじっくり案件だけ
   deep_plan: string | null;
+  aim: string | null; // ねらい（aims.ts の Aim）。前からある案件は null
+  genre: string | null;
   hold_until: string | null;
   resumed_at: string | null;
   rethink_count: number;

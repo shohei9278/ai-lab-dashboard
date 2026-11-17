@@ -5,6 +5,7 @@ import {
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
+import { isAim } from "@/lib/aims";
 
 // 製品ループの操作をまとめて受け付ける
 export async function POST(req: Request) {
@@ -21,7 +22,8 @@ export async function POST(req: Request) {
         const theme = typeof body.theme === "string" ? body.theme.slice(0, 200) : "";
         const count = Math.min(5, Math.max(1, Number(body.count) || 3));
         const deep = body.deep === true;
-        return NextResponse.json(await generateIdeas(theme, deep ? Math.min(count, 2) : count, deep));
+        const aim = isAim(body.aim) ? body.aim : undefined;
+        return NextResponse.json(await generateIdeas(theme, deep ? Math.min(count, 2) : count, deep, aim));
       }
       case "decide": {
         const action = body.decision as ApprovalAction;

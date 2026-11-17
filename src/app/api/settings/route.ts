@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSettings, saveSettings } from "@/lib/db";
 import { MODELS } from "@/lib/models";
+import { genresOf } from "@/lib/aims";
 
 export async function GET(req: Request) {
   const s = getSettings();
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
     patch.lpBaseUrl = v;
   }
   if (typeof body.trendNotes === "string") patch.trendNotes = body.trendNotes.trim().slice(0, 500);
+  if (typeof body.ideaGenres === "string") patch.ideaGenres = genresOf(body.ideaGenres).join(",");
   if (typeof body.snsAccount === "string") {
     const v = body.snsAccount.trim().replace(/^@/, "");
     if (v && !/^[A-Za-z0-9_]{1,15}$/.test(v)) return NextResponse.json({ error: "X のユーザー名は、英数字と _ の15文字以内です" }, { status: 400 });
@@ -85,6 +87,10 @@ export async function POST(req: Request) {
     ["judgeAfterDays", 1, 60],
     ["staleDays", 1, 90],
     ["deepPerWeek", 0, 7],
+    ["aimSpread", 0, 10],
+    ["aimUseful", 0, 10],
+    ["aimReturn", 0, 10],
+    ["aimDemand", 0, 10],
     ["autoConfidence", 0, 1],
     ["targetUseRate", 0.001, 1],
   ];

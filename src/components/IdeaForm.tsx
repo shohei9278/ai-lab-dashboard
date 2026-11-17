@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
 import { useIdeaBusy } from "./useIdeaBusy";
+import { AIMS, AIM_KEYS, type Aim } from "@/lib/aims";
 
 // blocked: 新しい案件を作れない理由。あるときは、会議と採点だけ行い案件にしない（アイデアの質の確かめには使える）
 export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: string | null }) {
@@ -12,6 +13,9 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
   // じっくり案件だけ: ふつうのツールの制限を外して作り込む案だけを出させる（費用が高く、データが要る案は人が確かめるので、件数は2件まで）
   const [deep, setDeep] = useState(false);
   const n = deep ? Math.min(count, 2) : count;
+  // ねらい: 空ならおまかせ（設定の配分どおり）。じっくり案件はツールだけなので、需要を確かめる（事前登録LP）は選べない
+  const [aim, setAim] = useState<Aim | "">("");
+  const aimNow = deep && aim && AIMS[aim].kind !== "tool" ? "" : aim;
   const ideaBusy = useIdeaBusy();
 
   return (
@@ -53,6 +57,15 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
           className="min-w-[12rem] flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm"
         />
         <select
+          value={aimNow}
+          onChange={(e) => setAim(e.target.value as Aim | "")}
+          className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm"
+          aria-label="ねらい"
+        >
+          <option value="">ねらい: おまかせ（配分どおり）</option>
+          {AIM_KEYS.filter((a) => !deep || AIMS[a].kind === "tool").map((a) => <option key={a} value={a}>ねらい: {AIMS[a].label}</option>)}
+        </select>
+        <select
           value={n}
           onChange={(e) => setCount(Number(e.target.value))}
           className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm"
@@ -64,7 +77,7 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
           variant="primary"
           disabled={!!busy || !!ideaBusy}
           onClick={async () => {
-            if (await run(`3社のAIが${deep ? "じっくり案件の" : ""}アイデアを考えて採点しています…（1〜2分ほど。ホームのライブでも見られます${blocked ? "。今回は案件にしません" : ""}）`, { action: "ideas", theme, count: n, deep })) setTheme("");
+            if (await run(`3社のAIが${deep ? "じっくり案件の" : ""}アイデアを考えて採点しています…（1〜2分ほど。ホームのライブでも見られます${blocked ? "。今回は案件にしません" : ""}）`, { action: "ideas", theme, count: n, deep, ...(aimNow ? { aim: aimNow } : {}) })) setTheme("");
           }}
         >
           アイデアを出す
