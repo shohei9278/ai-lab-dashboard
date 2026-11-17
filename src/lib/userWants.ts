@@ -1,11 +1,11 @@
 import { callJson, isObj } from "./ai";
 import { db, getSettings } from "./db";
 import { logEvent } from "./loop";
-import { X_READ_COST_USD, searchAcross } from "./xPost";
+import { X_READ_COST_USD, searchEach } from "./xPost";
 import { external } from "./untrusted";
 
 // 「こういうの欲しい」の声
-// 週1回、X で「〇〇できるアプリ欲しい」「誰か作って」などの投稿を探し、AIがプロダクトの需要だけを残す。
+// アイデアを出す日に、X で「〇〇できるアプリ欲しい」「誰か作って」などの投稿を探し、AIがプロダクトの需要だけを残す。
 // いいねの数は「自分も欲しい」人の数の目安。アイデア出しに渡し、声から生まれた案件には元の声を残す。
 // 投稿者への返信・メンション・引用はしない（拾うだけ）
 
@@ -37,15 +37,14 @@ export function deleteWant(id: number) {
   db().prepare("UPDATE user_wants SET status = 'rejected', note = '運営者が外しました' WHERE id = ?").run(id);
 }
 
-// 直近7日の投稿を読み、いいね5以上のものをAIに選り分けさせる
-export async function searchWants(): Promise<{ read: number; added: number }> {
+// 前回の検索のあとの投稿を読み、いいね5以上のものをAIに選り分けさせる
+export async function searchWants(since: string): Promise<{ read: number; added: number }> {
   const s = getSettings();
-  const pages = Math.round(s.wantsSearchCount / 100);
-  if (pages <= 0) return { read: 0, added: 0 };
+  if (s.wantsPerQuery <= 0) return { read: 0, added: 0 };
   let read = 0;
   try {
     const all: { id: string; text: string; created_at?: string; likes: number; reposts: number; bookmarks: number; replies: number }[] = [];
-    for (const p of await searchAcross(WANT_QUERIES, pages, (n) => { read += n; })) {
+    for (const p of await searchEach(WANT_QUERIES, s.wantsPerQuery, since, (n) => { read += n; })) {
       const m = p.public_metrics;
       if (m) all.push({ id: p.id, text: p.text, created_at: p.created_at, likes: m.like_count, reposts: m.retweet_count, bookmarks: m.bookmark_count ?? 0, replies: m.reply_count });
     }

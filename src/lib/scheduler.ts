@@ -7,7 +7,7 @@ import { maybeAutoPost } from "./sns";
 import { syncComments } from "./snsComments";
 import { maybeDailyBackup, maybeOffsiteBackup } from "./backup";
 import { resumeRefQueue } from "./designRefs";
-import { backfillViralApps, maybeWeeklyViral, resumeViralQueue } from "./viralPosts";
+import { backfillViralApps, resumeViralQueue } from "./viralPosts";
 import { maybeCreatePlan, runPlanTasks } from "./plan";
 import { syncReactions } from "./postReactions";
 import { maybeNightlyReport } from "./diary";
@@ -69,11 +69,6 @@ async function tickNow() {
   resumeRefQueue();
   resumeViralQueue();
   await backfillViralApps().catch((e) => logEvent(null, "system", "viral-error", `話題の投稿のアプリの説明の追加でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500)));
-  try {
-    await maybeWeeklyViral();
-  } catch (e) {
-    logEvent(null, "system", "viral-error", `Xで話題の投稿の検索でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
-  }
   try {
     const file = await maybeDailyBackup();
     if (file) logEvent(null, "system", "backup", `データベースのバックアップを取りました（${file}）`);

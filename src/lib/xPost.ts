@@ -60,11 +60,12 @@ export type XSearchPost = {
   id: string; text: string; created_at?: string; attachments?: { media_keys?: string[] };
   public_metrics?: { like_count: number; retweet_count: number; reply_count: number; quote_count: number; bookmark_count?: number; impression_count?: number };
 };
-export async function searchRecent(query: string, nextToken?: string, maxResults = 100): Promise<{ posts: XSearchPost[]; next?: string }> {
+export async function searchRecent(query: string, nextToken?: string, maxResults = 100, startTime?: string): Promise<{ posts: XSearchPost[]; next?: string }> {
   if (!xConfigured()) throw new Error("X のAPIキーが設定されていません");
   const url = "https://api.x.com/2/tweets/search/recent";
   const params: Record<string, string> = { query, max_results: String(maxResults), sort_order: "relevancy", "tweet.fields": "public_metrics,created_at,attachments" };
   if (nextToken) params.next_token = nextToken;
+  if (startTime) params.start_time = startTime;
   const qs = Object.entries(params).map(([k, v]) => `${enc(k)}=${enc(v)}`).join("&");
   const res = await fetch(`${url}?${qs}`, { headers: { Authorization: authHeader("GET", url, params) } });
   const data = (await res.json().catch(() => ({}))) as { data?: XSearchPost[]; meta?: { next_token?: string }; detail?: string; title?: string };
@@ -87,22 +88,25 @@ export async function tweetMetrics(ids: string[]): Promise<Map<string, { likes: 
   }]));
 }
 
-// 複数の検索を順番に1ページずつ読む（合計 pages ページまで）。投稿が尽きた検索の分は、ほかの検索に回す
+// 検索で読める期間（X の検索は直近7日まで。境目で失敗しないよう少し内側にする）
+const SEARCH_WINDOW_MS = 7 * 86_400_000 - 3_600_000;
+// 読み始める日時: 前回の検索のあとから（同じ投稿を読み直して費用をかけないため）。前回がない・7日より前なら、読める一番古いところから
+export function searchSince(last: string | undefined, now = Date.now()): string {
+  const oldest = now - SEARCH_WINDOW_MS;
+  const t = last ? Date.parse(last) : NaN;
+  return new Date(Number.isFinite(t) && t > oldest && t < now ? t : oldest).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+// 1回の検索で読む件数（X の API は1回10〜100件）
+export const clampPerQuery = (n: number) => Math.max(10, Math.min(100, Math.round(n)));
+
+// 複数の検索を、それぞれ1回（perQuery 件まで）ずつ、since のあとの投稿から話題の順に読む
 // 読んだ分だけ費用がかかるので、途中で失敗しても数えられるよう onRead で件数を知らせる
-export async function searchAcross(queries: string[], pages: number, onRead: (n: number) => void): Promise<XSearchPost[]> {
+export async function searchEach(queries: string[], perQuery: number, since: string, onRead: (n: number) => void): Promise<XSearchPost[]> {
   const seen = new Map<string, XSearchPost>();
-  const active = queries.map((q) => ({ q, next: undefined as string | undefined }));
-  let left = pages;
-  while (left > 0 && active.length) {
-    for (const a of [...active]) {
-      if (left <= 0) break;
-      const r = await searchRecent(a.q, a.next);
-      left--;
-      onRead(r.posts.length);
-      for (const p of r.posts) seen.set(p.id, p);
-      a.next = r.next;
-      if (!r.next) active.splice(active.indexOf(a), 1);
-    }
+  for (const q of queries) {
+    const r = await searchRecent(q, undefined, clampPerQuery(perQuery), since);
+    onRead(r.posts.length);
+    for (const p of r.posts) seen.set(p.id, p);
   }
   return [...seen.values()];
 }

@@ -1,6 +1,7 @@
 import { isOwner } from "@/lib/viewer";
 import Link from "next/link";
 import { db, getSettings } from "@/lib/db";
+import { searchReads } from "@/lib/viralPosts";
 import { getModel, modelInfo } from "@/lib/models";
 import { CONV, autoPublishStats } from "@/lib/loop";
 import { WAIT_LABEL, overview, waitingItems } from "@/lib/overview";
@@ -127,7 +128,7 @@ export default async function Home() {
               meeting={{ members: members().map((id) => ({ id, label: modelInfo(id).label, color: `var(--series-${modelInfo(id).provider})` })), running: adhocRunning() }}
               ideaAuthors={ideaAuthors().map((id) => getModel(id).label)}
               ideaBlocked={newProjectBlock()}
-              viral={{ ready: xConfigured(), yen: Math.round((s.viralSearchCount + s.wantsSearchCount) * 0.005 * 150) }}
+              viral={{ ready: xConfigured(), yen: Math.round(searchReads(s) * 0.005 * 150) }}
             />
           ) : undefined}
         />

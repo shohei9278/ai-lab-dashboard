@@ -4,9 +4,9 @@ import { PageIntro } from "@/components/PageIntro";
 import { GrowthTabs } from "@/components/LabTabs";
 import { getSettings } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
-import { listViral } from "@/lib/viralPosts";
+import { VIRAL_QUERIES, listViral } from "@/lib/viralPosts";
 import { xConfigured } from "@/lib/xPost";
-import { listWants } from "@/lib/userWants";
+import { WANT_QUERIES, listWants } from "@/lib/userWants";
 import Link from "next/link";
 import { AddViral, DeleteViral, DeleteWant, SearchControls, ViralBookmarklet } from "./ViralActions";
 
@@ -40,21 +40,22 @@ export default async function ViralPage() {
           <AddViral />
         </section>
         <section className="card space-y-3 p-4">
-          <h2 className="font-bold">週1回の自動検索</h2>
+          <h2 className="font-bold">アイデアを出す日の自動検索</h2>
           <p className="text-xs text-muted">
-            直近7日の、作った人の投稿（「個人開発」「リリースしました」など）・使った人のシェア（診断・メーカーなど）・便利なものの紹介（「神ツール」「これ便利」など）を読み、いいね50以上で反応の大きいものを最大10件取り込みます。
-            続けて「〇〇できるアプリ欲しい」などの声と、「〇〇の管理が面倒」のような困りごとを読み、いいね5以上のものからAIがプロダクトの需要だけを残します。読む件数は、検索ごとに順番に割り振ります。X の API は、読んだ投稿1件ごとに $0.005 かかります。
+            アイデアを出すとき、その日（日本時間）まだ検索していなければ、先に検索してからアイデアを出します。読むのは前回の検索のあとの投稿だけです（同じ投稿を読み直さない）。
+            作った人の投稿（「個人開発」「リリースしました」など）・使った人のシェア（診断・メーカーなど）・便利なものの紹介（「神ツール」など）・遊び（「ゲーム作りました」「ブラウザゲーム」など）・毎日遊ぶもの（「日替わり」など）・収益化の話・個人が作ったものを置く場所（github.io・vercel.app など）へのリンクの {VIRAL_QUERIES.length}種類を読み、いいね50以上で反応の大きいものを最大10件取り込みます。
+            続けて「〇〇できるアプリ欲しい」などの声と、「〇〇の管理が面倒」のような困りごと（{WANT_QUERIES.length}種類）を読み、いいね5以上のものからAIがプロダクトの需要だけを残します。X の API は、読んだ投稿1件ごとに $0.005 かかります。
             {s.lastViralSearch ? ` 前回: ${jstDateTime(s.lastViralSearch)}` : " まだ検索していません。"}
           </p>
           {!ready && <p className="text-xs" style={{ color: "var(--critical)" }}>X の APIキーが設定されていないため、検索できません。</p>}
-          <SearchControls enabled={s.viralSearch} count={s.viralSearchCount} wantsCount={s.wantsSearchCount} ready={ready} />
+          <SearchControls enabled={s.viralSearch} perQuery={s.viralPerQuery} wantsPerQuery={s.wantsPerQuery} viralQueries={VIRAL_QUERIES.length} wantQueries={WANT_QUERIES.length} ready={ready} />
         </section>
       </div>
 
       <section className="space-y-2">
         <h2 className="font-bold">「欲しい」の声（{wants.length}件）</h2>
         {wants.length === 0 ? (
-          <div className="card p-6 text-sm text-ink-2">まだありません。次の自動検索か「今すぐ検索する」で集まります。</div>
+          <div className="card p-6 text-sm text-ink-2">まだありません。次にアイデアを出す日の検索か「今すぐ検索する」で集まります。</div>
         ) : (
           <div className="card overflow-x-auto">
             <ShowMore as="table" initial={10} className="w-full text-sm" head={<thead className="text-left text-xs text-muted">

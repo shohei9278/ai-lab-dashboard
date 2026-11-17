@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { viralHints } from "./viralPosts";
+import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
@@ -2235,6 +2235,15 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   const title = opts.title ?? (practice ? "アイデア出し（見るだけ）" : "毎日のアイデア出し");
   const prov = (id: string) => modelInfo(id).provider;
   try {
+  // 0. 今日（日本時間）まだ検索していなければ、Xで話題の投稿と「欲しい」の声を検索して、まとめ終わるまで待つ（見るだけのときは検索しない）
+  if (!practice) {
+    setStep(`${act}-search`, title, "X の検索", "今日の話題の投稿と「欲しい」の声を確かめています");
+    try {
+      await searchBeforeIdeas();
+    } finally {
+      liveEnd(`${act}-search`);
+    }
+  }
   authors.forEach((a) => setStep(act, title, modelLabel(a), "アイデアを考えています"));
 
   // 1. 各社にアイデアを出させる（失敗したAIは飛ばす）。届いた順に、ライブ画面にすぐ出す
