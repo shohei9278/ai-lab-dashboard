@@ -64,6 +64,8 @@ export type Lp = {
 
 // ツール本体の大きさの上限（文字数）
 export const TOOL_HTML_MAX = 80_000;
+// じっくり案件のツールのコードの上限（データは別に置くので、コードだけで数える）
+export const TOOL_DEEP_CODE_MAX = 60_000;
 // じっくり案件のデータの上限（JSON にしたときの文字数）と件数
 export const TOOL_DATA_MAX = 600_000;
 export const TOOL_DATA_ROWS_MAX = 2_500;
@@ -138,7 +140,8 @@ export function normalizeLp(raw: unknown): Lp {
     const after = strs(v.beforeAfter.after, 4, 80);
     if (before.length && after.length) lp.beforeAfter = { before, after };
   }
-  if (isObj(v.tool) && isStr(v.tool.html) && v.tool.html.length <= TOOL_HTML_MAX) {
+  // データを持つツール（じっくり案件）は、コードの上限を TOOL_DEEP_CODE_MAX にする
+  if (isObj(v.tool) && isStr(v.tool.html) && v.tool.html.length <= (Array.isArray(v.tool.data) ? TOOL_DEEP_CODE_MAX : TOOL_HTML_MAX)) {
     lp.tool = { html: v.tool.html, shareText: isStr(v.tool.shareText) ? cut(v.tool.shareText, 100) : lp.headline };
     const data = v.tool.data;
     if (Array.isArray(data) && data.length > 0 && data.length <= TOOL_DATA_ROWS_MAX && JSON.stringify(data).length <= TOOL_DATA_MAX) lp.tool.data = data;

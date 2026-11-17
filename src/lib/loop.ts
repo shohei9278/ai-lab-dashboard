@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { viralHints } from "./viralPosts";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
-import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
+import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
 import { MODELS, hasKey, modelInfo } from "./models";
 import { screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
@@ -557,9 +557,9 @@ function scriptStrings(js: string): string[] {
 // ---- 動くツールの本体 ----
 
 // 隔離された枠の中では使えないもの・外部への通信など、コードを読めば分かる問題を先に見つける
-// fonts: じっくり案件で Google Fonts を使ってよいとき（その読み込みだけは外部のファイルとして数えない）
-export function staticToolIssues(html: string, fonts = false): string[] {
-  const src = fonts ? html.replace(/<link[^>]*\bhref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"']*["'][^>]*>/gi, "").replace(/@import\s+url\(\s*["']?https:\/\/fonts\.googleapis\.com\/[^)]*\)\s*;?/gi, "") : html;
+// deep: じっくり案件のとき（Google Fonts の読み込みだけは外部のファイルとして数えない。コードの上限は TOOL_DEEP_CODE_MAX）
+export function staticToolIssues(html: string, deep = false): string[] {
+  const src = deep ? html.replace(/<link[^>]*\bhref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"']*["'][^>]*>/gi, "").replace(/@import\s+url\(\s*["']?https:\/\/fonts\.googleapis\.com\/[^)]*\)\s*;?/gi, "") : html;
   const rules: [RegExp, string][] = [
     [/\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|navigator\.sendBeacon/, "外部と通信している（通信は遮断されるので動かない）"],
     [/<script[^>]*\bsrc\s*=|<link[^>]*\bhref\s*=|@import|url\(\s*['"]?https?:/i, "外部のファイルを読み込んでいる"],
@@ -569,7 +569,8 @@ export function staticToolIssues(html: string, fonts = false): string[] {
     [/<(html|head|body)[\s>]/i, "<html><head><body> を書いている（中身だけにする）"],
   ];
   const issues = rules.filter(([re]) => re.test(src)).map(([, msg]) => msg);
-  if (html.length > TOOL_HTML_MAX) issues.push(`長すぎる（${html.length}文字。${TOOL_HTML_MAX}文字以内）`);
+  const max = deep ? TOOL_DEEP_CODE_MAX : TOOL_HTML_MAX;
+  if (html.length > max) issues.push(`長すぎる（${html.length}文字。${max}文字以内${deep ? "。データは window.labData のまま使い、コードに書き写さない" : ""}）`);
   if (!/<script[\s>]/i.test(html)) issues.push("スクリプトがなく、ツールとして動かない");
   return issues;
 }
@@ -580,7 +581,7 @@ function deepToolNote(deep: { spec: DeepSpec; rows: DeepRow[] }): string {
 - データは、人が確かめた一覧が window.labData（配列。${deep.rows.length}件）として先に置かれている。コードに書き写さず、window.labData を読んで使う。項目: ${deep.spec.fields.map((f) => `${f.key}（${f.label}・${f.kind === "fact" ? "事実" : "遊びのための見立て"}）`).join(" / ")}
 - 見立ての項目は、事実のように見せない（結果の画面に「遊びの見立てです」と分かる一言を入れる）
 - 見た目に手をかける: 色・余白・文字の大きさ・動き（CSS のアニメーション）を工夫し、結果の画面を、人に見せたくなる・記憶に残るものにする。効果音を使うなら Web Audio API で作り（ファイルは使えない）、最初は鳴らさず、押したときだけ鳴らす
-- コードは全体で60,000文字以内（データは含めない）。読みやすく、動作の確かなコードにする`;
+- コードは全体で${TOOL_DEEP_CODE_MAX.toLocaleString("en-US")}文字以内（データは含めない）。読みやすく、動作の確かなコードにする`;
 }
 
 // ツールを書くときの決まり（作るときと、じっくり案件の見た目を磨くときで共通）

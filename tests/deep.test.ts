@@ -6,7 +6,7 @@ import { capRows, cleanRows, deepAllowance, isDeepSpec, sampleRows, type DeepFie
 import { decide, isDeepIdea, staticToolIssues, type Idea } from "../src/lib/loop";
 import { pendingApprovals } from "../src/lib/views";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
-import { TOOL_DATA_ROWS_MAX, normalizeLp } from "../lp-site/src/lp/content";
+import { TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, normalizeLp } from "../lp-site/src/lp/content";
 
 const FIELDS: DeepField[] = [{ key: "name", label: "市町村名", kind: "fact" }, { key: "mood", label: "雰囲気", kind: "view" }];
 
@@ -27,6 +27,9 @@ test("じっくり案件の中身: 上限を超えるデータは公開する中
   const big = normalizeLp({ ...base, tool: { html: "<script></script>", shareText: "x", data: Array.from({ length: TOOL_DATA_ROWS_MAX + 1 }, (_, i) => ({ i })) } });
   assert.equal(big.tool?.data, undefined);
   assert.equal(normalizeLp({ ...base, tool: { html: "<script></script>", shareText: "x", fonts: "yes" } }).tool?.fonts, undefined);
+  const long = `<script>${"x".repeat(TOOL_DEEP_CODE_MAX)}</script>`;
+  assert.equal(normalizeLp({ ...base, tool: { html: long, shareText: "x", data: [{ name: "札幌市" }] } }).tool, undefined);
+  assert.ok(normalizeLp({ ...base, tool: { html: long, shareText: "x" } }).tool);
 });
 
 test("じっくり案件のコードの決まり: Google Fonts の読み込みだけを許し、ほかの外部ファイルや通信は止める", () => {
@@ -35,6 +38,9 @@ test("じっくり案件のコードの決まり: Google Fonts の読み込み�
   assert.deepEqual(staticToolIssues(font, true), []);
   assert.ok(staticToolIssues('<link href="https://example.com/a.css" rel="stylesheet"><script>1</script>', true).some((x) => x.includes("外部のファイル")));
   assert.ok(staticToolIssues('<script>fetch("https://fonts.googleapis.com/x")</script>', true).some((x) => x.includes("通信")));
+  const long = `<script>${"x".repeat(TOOL_DEEP_CODE_MAX)}</script>`;
+  assert.ok(staticToolIssues(long, true).some((x) => x.includes("長すぎる")));
+  assert.ok(!staticToolIssues(long, false).some((x) => x.includes("長すぎる")));
 });
 
 test("じっくり案件のデータ: 項目がそろった行だけを残し、同じ行を除き、例は等間隔に取る", () => {
