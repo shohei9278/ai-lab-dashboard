@@ -17,6 +17,10 @@ test("ツールのページ: ツールを入れる場所の前後で、同じ he
   }
   assert.equal(splitToolPage(page("<h1>名前</h1><section>説明</section>")), null);
   assert.equal(splitToolPage(page(`${TOOL_SLOT}<p>x</p>${TOOL_SLOT}`)), null);
+  // ai-review の指摘: 置き場所がほかの要素の中にあるときは分けない（上下でタグが別れて形が崩れる）
+  assert.equal(splitToolPage(page(`<section><h1>名前</h1>${TOOL_SLOT}</section><p>説明</p>`)), null);
+  // body の直下なら、前に閉じたタグ・中身のない要素・コメント・script があっても分ける
+  assert.ok(splitToolPage(page(`<header><h1>名前</h1><img src="x"><br/></header><!-- <div> --><script>if (a<b) {}</script>${TOOL_SLOT}<p>説明</p>`)));
 });
 
 test("ツールのページの決まり: 場所が1つ・画面の高さの単位と固定を使わない・登録フォームを置かない。LPの決まりは今のまま", () => {
@@ -25,7 +29,10 @@ test("ツールのページの決まり: 場所が1つ・画面の高さの単�
   assert.ok(staticPageIssues(page(`<h1>名前</h1><section>説明</section><span data-lab="operator"></span>`), true).some((x) => x.includes("lab-tool")));
   assert.ok(staticPageIssues(page(`<h1 style="min-height:100vh">名前</h1>${TOOL_SLOT}<span data-lab="operator"></span>`), true).some((x) => x.includes("vh")));
   assert.ok(staticPageIssues(page(`<h1 style="position: sticky">名前</h1>${TOOL_SLOT}<span data-lab="operator"></span>`), true).some((x) => x.includes("sticky")));
-  assert.ok(staticPageIssues(page(`<h1>名前</h1>${TOOL_SLOT}<form id="signup"></form><span data-lab="operator"></span>`), true).some((x) => x.includes("登録フォーム")));
+  assert.ok(staticPageIssues(page(`<h1>名前</h1>${TOOL_SLOT}<form id="signup"></form><span data-lab="operator"></span>`), true).some((x) => x.includes("フォーム")));
+  // ai-review の指摘: id が signup でないフォームも止める
+  assert.ok(staticPageIssues(page(`<h1>名前</h1>${TOOL_SLOT}<form id="newsletter"><input type="email"></form><span data-lab="operator"></span>`), true).some((x) => x.includes("フォーム")));
+  assert.ok(staticPageIssues(page(`<section><h1>名前</h1>${TOOL_SLOT}</section><span data-lab="operator"></span>`), true).some((x) => x.includes("lab-tool")));
   // LP のページは、今までどおり登録フォームを求める
   assert.ok(staticPageIssues(good).some((x) => x.includes("登録フォーム")));
 });

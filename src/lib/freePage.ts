@@ -170,10 +170,10 @@ export function staticPageIssues(html: string, tool = false): string[] {
     if (!isGoogleFonts(m[1])) issues.push(`Google Fonts 以外のファイルを読み込んでいる: ${m[1].slice(0, 80)}`);
   }
   if (tool) {
-    if (!splitToolPage(html)) issues.push(`ツールを入れる場所 ${TOOL_SLOT} が、body の中にちょうど1つない`);
+    if (!splitToolPage(html)) issues.push(`ツールを入れる場所 ${TOOL_SLOT} が、body の直下にちょうど1つない（ほかの要素の中に入れない）`);
     if (/\b\d*\.?\d+\s*(?:vh|dvh|svh|lvh)\b/i.test(html)) issues.push("vh・dvh などの画面の高さの単位を使っている（枠の高さを中身に合わせるので、使うと枠が伸び続ける）");
     if (/position\s*:\s*(?:fixed|sticky)/i.test(html)) issues.push("position: fixed・sticky を使っている（上下2つの枠に分けて出すので、うまく動かない）");
-    if (/<form[^>]*id\s*=\s*["']signup["']/i.test(html)) issues.push("ツールのページに登録フォームがある（置かない）");
+    if (/<form\b/i.test(html)) issues.push("ツールのページにフォームがある（登録フォームなどは置かない）");
   } else {
     if (!/<form[^>]*id\s*=\s*["']signup["']/i.test(html)) issues.push('登録フォーム form id="signup" がない');
     if (!/<input[^>]*type\s*=\s*["']email["']/i.test(html)) issues.push("メールアドレスの入力欄がない");

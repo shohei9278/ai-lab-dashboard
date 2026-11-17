@@ -78,19 +78,18 @@ export function isToolResults(v: unknown): v is string[] {
 export const hasResultsTag = (html: string) => /<script\b[^>]*\sid\s*=\s*["']lab-results["']/i.test(html);
 // ツールのコードに書かれた結果の一覧（<script type="application/json" id="lab-results">[...]</script>）を取り出す
 // type が application/json でないもの（スクリプトとして動いてしまう）・読めないもの・決まりに合わないものは undefined（番号がずれないよう、そろえ直さない）
+// id が lab-results の <script> がちょうど1つのときだけ読む（2つ以上あると、どれが本物か分からない）
 export function toolResultsOf(html: string): string[] | undefined {
-  for (const m of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
-    const attrs = m[1];
-    if (!/\sid\s*=\s*["']lab-results["']/i.test(attrs)) continue;
-    if (!/\stype\s*=\s*["']application\/json["']/i.test(attrs)) return undefined;
-    try {
-      const v = JSON.parse(m[2]) as unknown;
-      return isToolResults(v) ? v : undefined;
-    } catch {
-      return undefined;
-    }
+  const tags = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)].filter((m) => /\sid\s*=\s*["']lab-results["']/i.test(m[1]));
+  if (tags.length !== 1) return undefined;
+  const [, attrs, body] = tags[0];
+  if (!/\stype\s*=\s*["']application\/json["']/i.test(attrs)) return undefined;
+  try {
+    const v = JSON.parse(body) as unknown;
+    return isToolResults(v) ? v : undefined;
+  } catch {
+    return undefined;
   }
-  return undefined;
 }
 
 // じっくり案件のツールのコードの上限（データは別に置くので、コードだけで数える）

@@ -14,6 +14,10 @@ test("結果ごとのシェア: ツールに書かれた結果の一覧を取り
   assert.equal(toolResultsOf('<script type="application/json" id="lab-results">[" ひだまり "]</script>'), undefined);
   assert.equal(toolResultsOf('<script id="lab-results">["A"]</script>'), undefined);
   assert.equal(toolResultsOf('<script type="application/json" data-id="lab-results">["A"]</script>'), undefined);
+  // ai-review の指摘: 結果の一覧が2つ以上あるときは読まず、チェックで止める
+  const two = '<script type="application/json" id="lab-results">["A"]</script><script id="lab-results">["B"]</script><script>1</script>';
+  assert.equal(toolResultsOf(two), undefined);
+  assert.ok(staticToolIssues(two).some((x) => x.includes("lab-results")));
   assert.ok(staticToolIssues('<script id="lab-results">["A"]</script><script>1</script>').some((x) => x.includes("lab-results")));
   assert.ok(!staticToolIssues('<script type="application/json" data-id="lab-results">["A"]</script><script>1</script>').some((x) => x.includes("lab-results")));
   // ai-review の指摘: 要素を除いたり切ったりすると番号がずれるので、1つでもおかしければ一覧ごと使わない

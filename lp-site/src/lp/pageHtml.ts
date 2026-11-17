@@ -75,6 +75,21 @@ export function wrapPageHtml(html: string, opts: { imgOrigins?: string[] } = {})
 // 場所が見つからない・2つ以上あるときは null（ふつうの部品の表示にする）
 export const TOOL_SLOT = '<div id="lab-tool"></div>';
 const SLOT_RE = /<div\s+id\s*=\s*["']lab-tool["']\s*>\s*<\/div>/gi;
+// 中身を持たない要素（閉じタグがない）
+const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+// body の中で、ここまでに開いた要素がすべて閉じているか（= この位置が body の直下か）。コメント・script・style の中身は数えない
+export function closedBefore(fragment: string): boolean {
+  const src = fragment.replace(/<!--[\s\S]*?-->/g, "").replace(/<(script|style|template|textarea)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
+  let depth = 0;
+  for (const m of src.matchAll(/<(\/?)([a-zA-Z][\w-]*)\b[^>]*?(\/?)>/g)) {
+    const name = m[2].toLowerCase();
+    if (VOID.has(name) || m[3] === "/") continue;
+    depth += m[1] ? -1 : 1;
+    if (depth < 0) return false;
+  }
+  return depth === 0;
+}
+
 export function splitToolPage(html: string): { top: string; bottom: string } | null {
   const slots = html.match(SLOT_RE) ?? [];
   if (slots.length !== 1) return null;
@@ -87,6 +102,8 @@ export function splitToolPage(html: string): { top: string; bottom: string } | n
   const body = html.slice(bodyStart, bodyEnd);
   const at = body.search(SLOT_RE);
   if (at < 0) return null;
+  // 置き場所がほかの要素の中にあると、上下に分けたときに開きと閉じのタグが別れて形が崩れるので、分けない
+  if (!closedBefore(body.slice(0, at))) return null;
   const slot = body.match(new RegExp(SLOT_RE.source, "i"))![0];
   const doc = (inner: string) => `<!doctype html><html${htmlAttrs}><head>${head}</head><body${bodyOpen![1]}>${inner}</body></html>`;
   return { top: doc(body.slice(0, at)), bottom: doc(body.slice(at + slot.length)) };
