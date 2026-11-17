@@ -104,3 +104,33 @@ test("ツールのページの枠: html・body が height:100% でも、中身�
     await browser.close();
   }
 });
+
+test("ツールのページの枠: ページ内のリンクの行き先を親に知らせる（#tool・もう一方の枠の中。ブラウザで確かめる）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  try {
+    const p = await browser.newPage({ viewport: { width: 375, height: 812 } });
+    const body = `<a id="to-tool" href="#tool">ツールを使う</a><a id="to-faq" href="#faq">質問へ</a><div style="height:1500px"></div><h2 id="faq">よくある質問</h2>`;
+    await p.setContent(wrapPageHtml(page(body, `<script>window.jumps=[];addEventListener("message",function(e){if(e.data&&e.data.__lab==="jump")window.jumps.push(e.data)})</script>`)), { waitUntil: "load" });
+    const jumps = () => p.evaluate(() => (window as unknown as { jumps: { id: string; y: number | null }[] }).jumps);
+    // 枠の中にない #tool は、親に探してもらう
+    await p.click("#to-tool");
+    await p.waitForTimeout(100);
+    assert.deepEqual(await jumps(), [{ __lab: "jump", id: "tool", y: null }]);
+    // 枠の中にある id は、枠の中の位置を知らせる
+    await p.evaluate(() => scrollTo(0, 0));
+    await p.click("#to-faq");
+    await p.waitForTimeout(100);
+    const faq = (await jumps())[1];
+    assert.equal(faq.id, "faq");
+    assert.ok(typeof faq.y === "number" && faq.y > 1500);
+    // 親から聞かれたら、あるときだけ位置を返す
+    await p.evaluate(() => { postMessage({ __lab: "where", id: "faq" }, "*"); postMessage({ __lab: "where", id: "nothing" }, "*"); });
+    await p.waitForTimeout(100);
+    const after = await jumps();
+    assert.equal(after.length, 3);
+    assert.equal(after[2].id, "faq");
+  } finally {
+    await browser.close();
+  }
+});

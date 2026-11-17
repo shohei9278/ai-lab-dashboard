@@ -11,9 +11,13 @@ export type SignupResult = { ok: boolean; message?: string };
 //   画面に固定はしない。枠の下に、検索エンジンにも読める概要と、ほかのツールへの案内を置くため（枠の中を下まで読むと、続けてページが動く）
 // autoHeight: 枠の高さを中身に合わせる（ツールの案件で、ページを上下2つの枠に分けて出すとき。枠の中ではスクロールしない）
 export function PageFrame({
-  html, title, imgOrigins, operator, fill, height = 760, autoHeight, onBackground, onSignup, onEvent,
+  html, title, imgOrigins, operator, fill, height = 760, autoHeight, onBackground, onMissing, seek, onSignup, onEvent,
 }: {
   autoHeight?: boolean;
+  // autoHeight の枠で、ページ内のリンクの行き先がこの枠の中にないとき（ツールの #tool・もう一方の枠の中）
+  onMissing?: (id: string) => void;
+  // この枠の中に id があれば、そこまで親のページをスクロールする（n を変えるたびに聞く）
+  seek?: { id: string; n: number };
   onBackground?: (color: string) => void; // ページの背景色（ツールのまわりを同じ色にするため）
   html: string;
   title: string;
@@ -36,6 +40,12 @@ export function PageFrame({
       if (autoHeight && d.__lab === "height" && typeof d.h === "number") setAutoH(Math.max(40, Math.min(20000, d.h)));
       // 色の書き方（rgb(…)・rgba(…)）だけを受け取る
       if (d.__lab === "bg" && typeof d.color === "string" && /^rgba?\([\d\s.,]+\)$/.test(d.color)) onBackground?.(d.color);
+      // ページ内のリンク: 高さを中身に合わせた枠は枠の中でスクロールしないので、親のページを、枠の位置＋枠の中の位置までスクロールする
+      if (autoHeight && d.__lab === "jump" && typeof d.id === "string") {
+        if (typeof d.y === "number" && Number.isFinite(d.y) && ref.current) {
+          window.scrollTo({ top: ref.current.getBoundingClientRect().top + window.scrollY + Math.max(0, d.y), behavior: "smooth" });
+        } else if (d.y === null) onMissing?.(d.id.slice(0, 100));
+      }
       if (d.__lab === "open" && d.path === "/privacy") window.open("/privacy", "_blank", "noopener");
       if (d.__lab === "event" && typeof d.name === "string") onEvent?.(d.name.slice(0, 40), (typeof d.params === "object" && d.params ? d.params : {}) as Record<string, unknown>);
       if (d.__lab === "signup") {
@@ -49,7 +59,11 @@ export function PageFrame({
     // 受け取れるようになる前に枠が読み込まれていると、最初の高さを取りこぼすので聞き直す
     if (autoHeight) ref.current?.contentWindow?.postMessage({ __lab: "ping" }, "*");
     return () => window.removeEventListener("message", onMessage);
-  }, [operator, onSignup, onEvent, autoHeight, onBackground]);
+  }, [operator, onSignup, onEvent, autoHeight, onBackground, onMissing]);
+
+  useEffect(() => {
+    if (seek) ref.current?.contentWindow?.postMessage({ __lab: "where", id: seek.id }, "*");
+  }, [seek]);
 
   return (
     <iframe
