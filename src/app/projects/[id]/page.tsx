@@ -94,7 +94,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           {p.stage === "killed" && p.end_reason && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">撤退の理由: {END_REASON_LABEL[p.end_reason] ?? p.end_reason}</span>}
           {!!p.growth_phase && <span className="rounded px-1.5 py-0.5 text-xs font-medium" style={{ background: "var(--surface-2)", color: "var(--good)" }}>育てる段階（実験 {p.growth_count}回）</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{KIND_LABEL[p.kind]}</span>
-          {!!p.deep && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2" title={p.deep_need ?? undefined}>じっくり案件</span>}
+          {!!p.deep && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2" title={[p.deep_plan, p.deep_need && `要るデータ: ${p.deep_need}`].filter(Boolean).join(" / ") || undefined}>じっくり案件</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{MODE_LABEL[p.mode]}モード</span>
           {p.origin === "daily" && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">毎日の自動実行で作成</span>}
           {p.demo ? <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">デモ</span> : null}
@@ -116,7 +116,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <AutoReviewCard id={p.id} review={p.human_review} note={p.human_review_note} at={p.human_review_at} url={publicUrl(p.id)} />
       )}
 
-      <ProjectActions demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} deepNoData={!!p.deep && !approvedDeepData(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
+      <ProjectActions demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} deepNoData={!!p.deep && !!p.deep_need && !approvedDeepData(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
 
       {owner && !p.demo && ["live", "hold"].includes(p.stage) && (
         <HoldPanel id={p.id} held={p.stage === "hold"} reason={p.hold_reason} until={p.hold_until} today={jstToday()} blocked={approvals.length > 0 || !!buildingNow(p.id)} />

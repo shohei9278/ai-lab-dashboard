@@ -110,8 +110,11 @@ test("人が入れるデータ: CSV の見出しは項目の名前か key に合
 });
 
 test("じっくり案件の下書きの失敗: 判断待ちに理由を出し、データがないうちは承認できず、人が入れたデータに差し替えられる", async () => {
-  const pid = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, deep) VALUES ('手紙ひらき帳', 't', 'p', 's', 'h', 'r', 'idea', 'm', 'tool', 1)").run().lastInsertRowid);
+  const pid = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, deep, deep_need) VALUES ('手紙ひらき帳', 't', 'p', 's', 'h', 'r', 'idea', 'm', 'tool', 1, '常用漢字')").run().lastInsertRowid);
   assert.equal(deepDataStuck(getProject(pid)!), true);
+  // 大きなデータが要らないじっくり案件は、データの下書きがないので、止まっていてもデータからやり直さない
+  const plain = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, deep, deep_plan) VALUES ('演出つき診断', 't', 'p', 's', 'h', 'r', 'idea', 'm', 'tool', 1, '結果の演出')").run().lastInsertRowid);
+  assert.equal(deepDataStuck(getProject(plain)!), false);
   const aid = Number(db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason, payload) VALUES (?, 'data', '作れませんでした', '理由', ?)").run(pid, JSON.stringify({ error: "データの下書きを1件も作れませんでした" })).lastInsertRowid);
   assert.equal(deepDataStuck(getProject(pid)!), false);
   const v = pendingApprovals(pid, true).find((a) => a.id === aid)!;
