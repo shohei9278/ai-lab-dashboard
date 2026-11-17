@@ -30,19 +30,27 @@ export function PageFrame({
 }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [autoH, setAutoH] = useState(120);
+  // まだ答えの来ていない「この id はあるか」の問い合わせ。枠の準備ができる前に送ると取りこぼされるので、準備ができた知らせで送り直す
+  const pending = useRef<string | null>(null);
 
   useEffect(() => {
     const send = (m: object) => ref.current?.contentWindow?.postMessage({ ...m }, "*");
     async function onMessage(e: MessageEvent) {
       if (e.source !== ref.current?.contentWindow || typeof e.data !== "object" || !e.data) return;
       const d = e.data as Record<string, unknown>;
-      if (d.__lab === "ready") send({ __lab: "init", operator: operator ?? "" });
+      if (d.__lab === "ready") {
+        send({ __lab: "init", operator: operator ?? "" });
+        // 準備ができた知らせは、枠が問い合わせを受け取れるようになってから届く（橋渡しのスクリプトの最後に送る）
+        if (pending.current) send({ __lab: "where", id: pending.current });
+        pending.current = null;
+      }
       // 高さは中身のとおりにする（よくある質問を全部開くなどで長くなっても切らない。おかしな数字だけ弾く）
       if (autoHeight && d.__lab === "height" && typeof d.h === "number" && Number.isFinite(d.h)) setAutoH(Math.max(40, Math.min(1_000_000, d.h)));
       // 色の書き方（rgb(…)・rgba(…)）だけを受け取る
       if (d.__lab === "bg" && typeof d.color === "string" && /^rgba?\([\d\s.,]+\)$/.test(d.color)) onBackground?.(d.color);
       // ページ内のリンク: 高さを中身に合わせた枠は枠の中でスクロールしないので、親のページを、枠の位置＋枠の中の位置までスクロールする
       if (autoHeight && d.__lab === "jump" && typeof d.id === "string") {
+        if (d.id === pending.current) pending.current = null;
         if (typeof d.y === "number" && Number.isFinite(d.y) && ref.current) {
           window.scrollTo({ top: ref.current.getBoundingClientRect().top + window.scrollY + Math.max(0, d.y), behavior: "smooth" });
         } else if (d.y === null) onMissing?.(d.id.slice(0, 100));
@@ -63,7 +71,9 @@ export function PageFrame({
   }, [operator, onSignup, onEvent, autoHeight, onBackground, onMissing]);
 
   useEffect(() => {
-    if (seek) ref.current?.contentWindow?.postMessage({ __lab: "where", id: seek.id }, "*");
+    if (!seek) return;
+    pending.current = seek.id;
+    ref.current?.contentWindow?.postMessage({ __lab: "where", id: seek.id }, "*");
   }, [seek]);
 
   return (
