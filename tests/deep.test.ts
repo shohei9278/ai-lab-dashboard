@@ -17,6 +17,8 @@ test("じっくり案件の枠: データは window.labData に置き、閉じ�
   assert.ok(html.includes("https://fonts.googleapis.com") && html.includes("https://fonts.gstatic.com"));
   const plain = wrapToolHtml("<p>x</p>");
   assert.ok(!plain.includes("labData") && !plain.includes("fonts.googleapis.com"));
+  // 親のページが遅れて受け取れるようになっても、聞き直せば高さを知らせ直す
+  assert.ok(plain.includes('e.data.__lab==="ping")h()'));
 });
 
 test("じっくり案件の中身: 上限を超えるデータは公開する中身に入れない", () => {

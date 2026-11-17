@@ -25,6 +25,8 @@ export function ToolFrame({ html, title, onUse, data, fonts }: { html: string; t
       }
     }
     window.addEventListener("message", onMessage);
+    // 受け取れるようになる前に枠が読み込まれていると、最初の高さの知らせを取りこぼすので、今の高さを聞き直す
+    ref.current?.contentWindow?.postMessage({ __lab: "ping" }, "*");
     return () => window.removeEventListener("message", onMessage);
   }, [onUse]);
 
