@@ -764,7 +764,7 @@ export type Settings = {
   contactEmail: string; // 登録者に連絡するときの問い合わせ先
   snsAccount: string; // LP・ツールを紹介する X のアカウント（@なし）
   illustrations: boolean; // LPの見出しの横に、AIが描いたイラストを置く
-  freePage: boolean; // 事前登録LPのページ全体を、部品ではなくAIに自由にデザインさせる
+  freePage: boolean; // 事前登録LPのページ全体と、新しく作るツールのまわりのページを、部品ではなくAIに自由にデザインさせる
   fullAuto: boolean; // 自動モードの案件は、公開・撤退も人の承認なしで行う（人はあとから見て印を付ける）
   autoPublishPerWeek: number; // 人の承認なしで新しく公開してよい件数（直近7日）
   autoPost: boolean; // 集客中の案件を、AIが X に自動で投稿する（X のAPIキーが必要）

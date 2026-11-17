@@ -31,7 +31,9 @@ document.addEventListener("click",function(e){
   var a=e.target.closest&&e.target.closest("a");if(!a)return;
   var href=a.getAttribute("href")||"";
   if(a.dataset.lab==="privacy"||href==="/privacy"){e.preventDefault();post({__lab:"open",path:"/privacy"});return}
-  if(href.charAt(0)==="#"){e.preventDefault();var t=href.length>1&&document.getElementById(href.slice(1));if(t)t.scrollIntoView({behavior:"smooth",block:"start"});if(href==="#signup")ev("cta_click",{position:a.dataset.position||"page"});return}
+  // ページ内のリンク: この枠の中にあればそこへ。高さを中身に合わせた枠（ツールのページ）は枠の中でスクロールしないので、親にも位置を知らせる
+  // この枠の中にないとき（もう一方の枠の中）と、ツール #tool（枠の外の本物のツール。枠の中に同じ id があっても使わない）は、親に探してもらう（y:null）
+  if(href.charAt(0)==="#"){e.preventDefault();var id=href.slice(1),t=id&&id!=="tool"&&document.getElementById(id);if(t){t.scrollIntoView({behavior:"smooth",block:"start"});post({__lab:"jump",id:id,y:t.getBoundingClientRect().top+scrollY})}else if(id)post({__lab:"jump",id:id,y:null});if(href==="#signup")ev("cta_click",{position:a.dataset.position||"page"});return}
   e.preventDefault();
 },true);
 document.addEventListener("focusin",function(e){if(!started&&e.target.type==="email"){started=true;ev("form_start")}});
@@ -52,6 +54,33 @@ addEventListener("message",function(e){
     else{var b=form.querySelector('[type="submit"],button:not([type])');if(b)b.disabled=false;msg(d.message||"送信できませんでした。時間をおいてもう一度お試しください。","lab-error")}
   }
 });
+// 高さを知らせる（ツールのページを上下2つの枠に分けて出すとき、枠の高さを中身に合わせるため。聞き直し {__lab:"ping"} にも答える）
+// ページ全体の高さ（scrollHeight）は枠の高さより小さくならず、伸びた枠が縮まないので、中身の下端から計算する
+// = body の中身（文字も含む）と body の直下の要素の下端のうち一番下 ＋ その要素の下の余白 ＋ body の下の余白・枠線
+function ch(){var b=document.body,y=window.scrollY,px=function(v){return parseFloat(v)||0},bs=getComputedStyle(b),bot=0,mb=0;
+var rg=document.createRange();rg.selectNodeContents(b);var rr=rg.getBoundingClientRect();if(rr.height)bot=rr.bottom+y;
+for(var i=0;i<b.children.length;i++){var c=b.children[i],cs=getComputedStyle(c);if(cs.display==="none"||cs.position==="fixed")continue;var r=c.getBoundingClientRect();if(!r.height&&!r.width)continue;if(r.bottom+y>=bot){bot=r.bottom+y;mb=px(cs.marginBottom)}}
+var pb=px(bs.paddingBottom)+px(bs.borderBottomWidth),bm=px(bs.marginBottom);
+// body に下の余白・枠線がなければ、最後の要素の下の余白と body の下の余白は重なる（大きい方だけ）
+return Math.ceil(bot+(pb?mb+pb+bm:Math.max(mb,bm))+px(getComputedStyle(document.documentElement).paddingBottom))}
+var lastH=-1;function h(){lastH=ch();post({__lab:"height",h:lastH})}
+// 中身が伸び縮みしたら知らせ直す（変わったときだけ。1コマに1回まで）
+// html・body に height:100% があると、ページ全体の大きさは変わらないので、body の直下の要素の大きさ・要素の出し入れ・details の開け閉め・書体の読み込みも見る
+var hq=0;function hs(){if(hq)return;hq=1;requestAnimationFrame(function(){hq=0;if(ch()!==lastH)h()})}
+var ro=window.ResizeObserver?new ResizeObserver(hs):null;
+function watch(){if(ro){ro.observe(document.documentElement);ro.observe(document.body);for(var i=0;i<document.body.children.length;i++)ro.observe(document.body.children[i])}}
+watch();
+if(window.MutationObserver)new MutationObserver(function(){hs();watch()}).observe(document.body,{childList:true,subtree:true,attributes:true,characterData:true});
+document.addEventListener("toggle",hs,true);document.addEventListener("transitionend",hs,true);
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(hs);
+// ページの背景色も知らせる（ツールのまわりを、ページと同じ色にするため）
+function bg(){var c=getComputedStyle(document.body).backgroundColor;if(!c||c==="rgba(0, 0, 0, 0)")c=getComputedStyle(document.documentElement).backgroundColor;post({__lab:"bg",color:c})}
+addEventListener("load",bg);
+addEventListener("load",h);setTimeout(h,300);
+// 聞き直されたら、準備ができた知らせ（運営者名などを受け取るため）・高さ・背景色を送り直す（親が受け取れるようになる前に読み込みが終わっていたとき）
+addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.__lab==="ping"){post({__lab:"ready"});h();bg()}});
+// 親から「この id はこの枠の中にあるか」と聞かれたら、あるときだけ位置を返す（もう一方の枠からのリンク）
+addEventListener("message",function(e){var d=e.data;if(e.source===parent&&d&&d.__lab==="where"&&typeof d.id==="string"){var t=document.getElementById(d.id);if(t)post({__lab:"jump",id:d.id,y:t.getBoundingClientRect().top+scrollY})}});
 post({__lab:"ready"});
 })();</script>`;
 
@@ -62,6 +91,9 @@ export function wrapPageHtml(html: string, opts: { imgOrigins?: string[] } = {})
   out = /<\/body>/i.test(out) ? out.replace(/<\/body>/i, BRIDGE + "</body>") : out + BRIDGE;
   return "<!doctype html>" + out;
 }
+
+// ツールの案件のページで、ツールを入れる場所（この場所の前後で上下2つの枠に分ける。分ける処理はサーバーだけで使う htmlDom.ts）
+export const TOOL_SLOT = '<div id="lab-tool"></div>';
 
 // イラストの画像を置いている場所（Supabase の公開用の保存領域）だけ、画像の読み込みを許す
 // イラストを描き直した・外したあとも、ページに書かれた前のイラストが表示されるよう、ページの中のURLも見る
