@@ -6,6 +6,7 @@ import {
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
 import { isAim } from "@/lib/aims";
+import { makePlayVideo } from "@/lib/playVideo";
 
 // 製品ループの操作をまとめて受け付ける
 export async function POST(req: Request) {
@@ -69,6 +70,8 @@ export async function POST(req: Request) {
         if (body.mode === "remove") await removePage(requireProject(body).id);
         else await redesignPage(requireProject(body).id);
         return NextResponse.json({ ok: true });
+      case "play-video":
+        return NextResponse.json({ id: await makePlayVideo(requireProject(body).id) });
       case "test-tool":
         return NextResponse.json(await retestTool(requireProject(body).id));
       case "abandon":

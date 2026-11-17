@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import { recordVideoPath } from "@/lib/recordVideo";
+import { playVideoPath } from "@/lib/playVideo";
 import { isOwner } from "@/lib/viewer";
 
 // 作った動画を返す（投稿前のものなので運営者だけ）。スマホの再生に必要なので、範囲の指定にも応える
 export async function GET(req: Request, { params }: { params: Promise<{ file: string }> }) {
   if (!(await isOwner())) return new Response("Forbidden", { status: 403 });
   const { file } = await params;
-  const p = recordVideoPath(file);
+  const p = recordVideoPath(file) ?? playVideoPath(file);
   if (!p || !fs.existsSync(p)) return new Response("Not found", { status: 404 });
   const body = fs.readFileSync(p);
   const headers = { "Content-Type": "video/mp4", "Accept-Ranges": "bytes", "Cache-Control": "no-store" };
