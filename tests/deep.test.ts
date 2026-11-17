@@ -112,6 +112,8 @@ test("人が入れるデータ: CSV の見出しは項目の名前か key に合
   assert.throws(() => parseUploadedData("{x", spec), /JSON/);
   // ai-review の指摘: 見出しが重なると列が消えるので止める。作った key と見出しがぶつかっても、key は重ならない
   assert.throws(() => parseUploadedData("name,name\n札幌市,函館市\n", null), /重なっています/);
+  assert.throws(() => parseUploadedData(",,name\na,b,c\n", null), /空の見出しが2つ以上/);
+  assert.equal(parseUploadedData(",name\na,b\n", null).fields.length, 2);
   const clash = parseUploadedData("日本語,col1\nあ,い\n", null);
   assert.equal(new Set(clash.fields.map((f) => f.key)).size, 2);
   assert.deepEqual(clash.fields.map((f) => f.key), ["col1", "col2"]);
