@@ -1,6 +1,8 @@
 // ツール本体を、隔離された枠に入れるページの形にする。公開サイト・プレビュー・公開前の自動テストで同じものを使う
 // - CSP で外部への通信や外部ファイルの読み込みを止める
 // - 枠の高さと「使われたか」は、こちらで差し込む小さなスクリプトが知らせる（ツールの中身に頼らない）
+//   高さは、親のページが受け取れるようになってから聞き直す（{__lab:"ping"}）と、もう一度知らせる
+//   （ページの準備より先に枠が読み込まれると、最初の知らせを取りこぼして、枠が初めの高さのまま下が切れていた）
 //   「使った」は、ボタンなどの押せる所を押した・入力欄や選択肢を変えたときだけ（スクロールで触れただけでは数えない）
 //   入力欄・選択肢・ラベルは、押しただけでは数えない（中身を変えたときに input・change で数える）
 // - ツールは結果が出たら window.labShare("…") で、シェアの文に使う結果の一文を知らせられる
@@ -11,6 +13,7 @@ const BRIDGE = `<script>(function(){var u=false;function h(){parent.postMessage(
 function use(){if(u)return;u=true;parent.postMessage({__lab:"use"},"*")}
 window.labShare=function(t){if(typeof t==="string"&&t.trim())parent.postMessage({__lab:"share-text",text:t.trim().slice(0,200)},"*")};
 addEventListener("load",h);if(window.ResizeObserver){new ResizeObserver(h).observe(document.documentElement)}setTimeout(h,300);
+addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.__lab==="ping")h()});
 var T="button,a,summary,canvas,[role=button],[role=tab],[role=option],[role=slider],[onclick]";var F="input,select,textarea,label";
 addEventListener("click",function(e){var t=e.target;if(!t||!t.closest||t.closest(F))return;if(t.closest(T)||getComputedStyle(t).cursor==="pointer")use()},true);
 addEventListener("input",use,true);addEventListener("change",use,true);})();</script>`;
