@@ -42,7 +42,7 @@ export function OwnerActions({ meeting, ideaAuthors, ideaBlocked, viral }: Props
   );
 }
 
-// X で話題の投稿と「欲しい」の声を今すぐ検索する（件数や週1回の自動検索の設定は、話題の投稿の画面で変える）
+// X で話題の投稿と「欲しい」の声を今すぐ検索する（件数や、アイデアを出す日の自動検索の設定は、話題の投稿の画面で変える）
 function ViralSearch({ ready, yen }: { ready: boolean; yen: number }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);

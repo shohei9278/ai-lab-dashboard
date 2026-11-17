@@ -67,35 +67,38 @@ export function AddViral() {
   );
 }
 
-// 週1回の検索の設定と、今すぐ検索するボタン
-export function SearchControls({ enabled, count, wantsCount, ready }: { enabled: boolean; count: number; wantsCount: number; ready: boolean }) {
+// アイデアを出す日の検索の設定と、今すぐ検索するボタン（件数は検索1つあたり。1回の費用は 検索の数 × 件数 で決まる）
+export function SearchControls({ enabled, perQuery, wantsPerQuery, viralQueries, wantQueries, ready }: {
+  enabled: boolean; perQuery: number; wantsPerQuery: number; viralQueries: number; wantQueries: number; ready: boolean;
+}) {
   const router = useRouter();
   const [on, setOn] = useState(enabled);
-  const [n, setN] = useState(count);
-  const [w, setW] = useState(wantsCount);
+  const [n, setN] = useState(perQuery);
+  const [w, setW] = useState(wantsPerQuery);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const save = async (patch: Record<string, unknown>) => {
     await fetch("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
     router.refresh();
   };
-  const yen = Math.round((n + w) * 0.005 * 150);
+  const yenOf = (posts: number) => Math.round(posts * 0.005 * 150);
+  const yen = yenOf(viralQueries * n + (w > 0 ? wantQueries * w : 0));
   return (
     <div className="space-y-2 text-sm">
       <label className="flex items-center gap-2">
         <input type="checkbox" checked={on} disabled={!ready} onChange={(e) => { setOn(e.target.checked); void save({ viralSearch: e.target.checked }); }} />
-        週1回、自動で検索する
+        アイデアを出す日に、まだ検索していなければ自動で検索する（1日1回まで。1回 約{yen}円・月に毎日なら約{yen * 30}円）
       </label>
       <label className="flex items-center gap-2 text-xs text-ink-2">
-        1回に読む投稿
-        <select value={n} disabled={!ready} onChange={(e) => { const v = Number(e.target.value); setN(v); void save({ viralSearchCount: v }); }} className="rounded-lg border border-line bg-surface px-2 py-1">
-          {[100, 200, 300, 500].map((x) => <option key={x} value={x}>{x}件（約{Math.round(x * 0.005 * 150)}円）</option>)}
+        話題の投稿を、検索1つ（{viralQueries}種類）あたり
+        <select value={n} disabled={!ready} onChange={(e) => { const v = Number(e.target.value); setN(v); void save({ viralPerQuery: v }); }} className="rounded-lg border border-line bg-surface px-2 py-1">
+          {[10, 20, 30, 50, 100].map((x) => <option key={x} value={x}>{x}件（{viralQueries * x}件・約{yenOf(viralQueries * x)}円）</option>)}
         </select>
       </label>
       <label className="flex items-center gap-2 text-xs text-ink-2">
-        「欲しい」の声を読む数
-        <select value={w} disabled={!ready} onChange={(e) => { const v = Number(e.target.value); setW(v); void save({ wantsSearchCount: v }); }} className="rounded-lg border border-line bg-surface px-2 py-1">
-          {[0, 100, 200, 300].map((x) => <option key={x} value={x}>{x ? `${x}件（約${Math.round(x * 0.005 * 150)}円）` : "探さない"}</option>)}
+        「欲しい」の声を、検索1つ（{wantQueries}種類）あたり
+        <select value={w} disabled={!ready} onChange={(e) => { const v = Number(e.target.value); setW(v); void save({ wantsPerQuery: v }); }} className="rounded-lg border border-line bg-surface px-2 py-1">
+          {[0, 10, 20, 30, 50].map((x) => <option key={x} value={x}>{x ? `${x}件（${wantQueries * x}件・約${yenOf(wantQueries * x)}円）` : "探さない"}</option>)}
         </select>
       </label>
       <div className="flex flex-wrap items-center gap-2 text-xs">

@@ -1,0 +1,192 @@
+import "./setup";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { db, getSettings, saveSettings } from "../src/lib/db";
+import { clampPerQuery, searchSince } from "../src/lib/xPost";
+import { VIRAL_QUERIES, drainQueue, searchAll, searchBeforeIdeas, searchReads, searchedToday } from "../src/lib/viralPosts";
+import { WANT_QUERIES } from "../src/lib/userWants";
+
+test("話題の投稿の検索: 読み始めは前回の検索のあと（7日より前・未来・なしなら、読める一番古いところ）", () => {
+  const now = Date.parse("2026-11-17T12:00:00Z");
+  const oldest = "2026-11-10T13:00:00Z";
+  assert.equal(searchSince(undefined, now), oldest);
+  assert.equal(searchSince("", now), oldest);
+  assert.equal(searchSince("2026-11-16T09:30:15.123Z", now), "2026-11-16T09:30:15Z");
+  assert.equal(searchSince("2026-11-01T00:00:00Z", now), oldest);
+  assert.equal(searchSince("2026-11-18T00:00:00Z", now), oldest);
+  assert.equal(searchSince("こわれた値", now), oldest);
+  assert.equal(clampPerQuery(5), 10);
+  assert.equal(clampPerQuery(20), 20);
+  assert.equal(clampPerQuery(300), 100);
+});
+
+test("話題の投稿の検索: 今日（日本時間）すでに検索したか", () => {
+  // 日本時間 11/18 0:30 は、UTC では 11/17 15:30（今は日本時間 11/18 1:00）
+  const now = Date.parse("2026-11-17T16:00:00Z");
+  assert.equal(searchedToday("2026-11-17T15:30:00Z", "2026-11-18", now), true);
+  assert.equal(searchedToday("2026-11-17T14:59:00Z", "2026-11-18", now), false);
+  assert.equal(searchedToday("", "2026-11-18", now), false);
+  assert.equal(searchedToday("こわれた値", "2026-11-18", now), false);
+  // 未来の日時は「まだ」（PR #83 の ai-review の指摘）
+  assert.equal(searchedToday("2026-11-17T15:30:00Z", "2026-11-18", now), true);
+  assert.equal(searchedToday("2026-11-17T20:00:00Z", "2026-11-18", now), false);
+});
+
+test("話題の投稿の検索: 遊び・毎日・収益化・リンク先も読み、1回に読む数は 検索の数 × 件数", () => {
+  assert.equal(VIRAL_QUERIES.length, 7);
+  assert.ok(VIRAL_QUERIES.some((q) => q.includes("ブラウザゲーム")));
+  assert.ok(VIRAL_QUERIES.some((q) => q.includes("日替わり")));
+  assert.ok(VIRAL_QUERIES.some((q) => q.includes("収益")));
+  assert.ok(VIRAL_QUERIES.some((q) => q.includes("url:github.io")));
+  // X の検索の言葉の長さの上限（512文字）に収まり、リポスト・返信は読まない
+  for (const q of [...VIRAL_QUERIES, ...WANT_QUERIES]) assert.ok(q.length <= 512 && q.includes("-is:retweet") && q.includes("-is:reply"), q);
+  assert.equal(searchReads({ viralPerQuery: 20, wantsPerQuery: 10 }), 7 * 20 + 3 * 10);
+  assert.equal(searchReads({ viralPerQuery: 20, wantsPerQuery: 0 }), 140);
+  // 初めの値: 話題の投稿は検索1つあたり20件、「欲しい」の声は10件
+  const s = getSettings();
+  assert.equal(s.viralPerQuery, 20);
+  assert.equal(s.wantsPerQuery, 10);
+});
+
+test("アイデア出しの前の検索: 今日まだなら検索1つにつき1回だけ、前回のあとの投稿を読む。同じ日の2回目は読まない", async () => {
+  const calls: URL[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    calls.push(url);
+    return new Response(JSON.stringify({ data: [], meta: {} }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+  // X のキーがないときは、何もしない
+  await searchBeforeIdeas();
+  assert.equal(calls.length, 0);
+  Object.assign(process.env, { X_API_KEY: "k", X_API_SECRET: "s", X_ACCESS_TOKEN: "t", X_ACCESS_SECRET: "ts" });
+  try {
+    const last = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    // 検索しない設定のときは、何もしない
+    saveSettings({ viralSearch: false, lastViralSearch: last });
+    await searchBeforeIdeas();
+    assert.equal(calls.length, 0);
+    saveSettings({ viralSearch: true });
+    await searchBeforeIdeas();
+    // 話題の投稿 7種類 × 20件 と、「欲しい」の声 3種類 × 10件。どれも前回の検索のあとから
+    assert.equal(calls.length, VIRAL_QUERIES.length + WANT_QUERIES.length);
+    assert.deepEqual(calls.map((u) => u.searchParams.get("max_results")), [...VIRAL_QUERIES.map(() => "20"), ...WANT_QUERIES.map(() => "10")]);
+    assert.ok(calls.every((u) => u.searchParams.get("start_time") === last.replace(/\.\d{3}Z$/, "Z")));
+    assert.deepEqual(calls.map((u) => u.searchParams.get("query")), [...VIRAL_QUERIES, ...WANT_QUERIES]);
+    assert.ok(searchedToday(getSettings().lastViralSearch));
+    // 同じ日の2回目は検索しない
+    await searchBeforeIdeas();
+    assert.equal(calls.length, VIRAL_QUERIES.length + WANT_QUERIES.length);
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"]) delete process.env[k];
+  }
+});
+
+test("アイデア出しの前の検索: X の検索が失敗しても止めず、その日はもう検索しない", async () => {
+  let n = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    n++;
+    return new Response(JSON.stringify({ title: "Too Many Requests" }), { status: 429, headers: { "Content-Type": "application/json" } });
+  }) as typeof fetch;
+  Object.assign(process.env, { X_API_KEY: "k", X_API_SECRET: "s", X_ACCESS_TOKEN: "t", X_ACCESS_SECRET: "ts" });
+  try {
+    saveSettings({ viralSearch: true, lastViralSearch: new Date(Date.now() - 3 * 86_400_000).toISOString() });
+    await searchBeforeIdeas();
+    assert.equal(n, 1);
+    assert.ok(searchedToday(getSettings().lastViralSearch));
+    await searchBeforeIdeas();
+    assert.equal(n, 1);
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"]) delete process.env[k];
+  }
+});
+
+const X_ENV = { X_API_KEY: "k", X_API_SECRET: "s", X_ACCESS_TOKEN: "t", X_ACCESS_SECRET: "ts" };
+const json = (v: unknown, status = 200) => new Response(JSON.stringify(v), { status, headers: { "Content-Type": "application/json" } });
+
+test("話題の投稿の検索（PR #83 の ai-review の指摘）: 途中で失敗しても読めた分は取り込み、「欲しい」の声は読まず、次は始めた時刻のあとから読む", async () => {
+  const searches: number[] = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+    if (url.pathname === "/2/tweets/search/recent") {
+      searches.push(Date.now());
+      await new Promise((ok) => setTimeout(ok, 30));
+      // 1種類目は伸びた投稿を1件返し、2種類目で失敗する
+      if (searches.length === 1) return json({ data: [{ id: "900000000000000001", text: "ゲーム作りました", public_metrics: { like_count: 120, retweet_count: 5, reply_count: 1, quote_count: 0, bookmark_count: 3 } }], meta: {} });
+      return json({ title: "Too Many Requests" }, 429);
+    }
+    // 取り込んだ投稿の本文の読み取り（fxtwitter）は失敗させる（まとめは「読めませんでした」になる）
+    return json({ message: "NOT_FOUND" }, 404);
+  }) as typeof fetch;
+  Object.assign(process.env, X_ENV);
+  try {
+    saveSettings({ viralSearch: true, lastViralSearch: new Date(Date.now() - 2 * 86_400_000).toISOString() });
+    await searchBeforeIdeas();
+    // 2種類目で止め、「欲しい」の声は読まない
+    assert.equal(searches.length, 2);
+    // 1種類目で読めた投稿は取り込まれている（まとめは本文を読めずに失敗で終わり、待ちのまま残らない）
+    const row = db().prepare("SELECT source, status FROM viral_posts WHERE tweet_id = ?").get("900000000000000001") as { source: string; status: string } | undefined;
+    assert.deepEqual(row, { source: "search", status: "error" });
+    // 次の検索の読み始めは、検索を始めた時刻（最初の検索より前）
+    assert.ok(Date.parse(getSettings().lastViralSearch) <= searches[0]);
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of Object.keys(X_ENV)) delete process.env[k];
+  }
+});
+
+test("話題の投稿のまとめを待つ時間（PR #83 の ai-review の指摘）: AIの呼び出しが止まっても、決めた時間で待つのをやめる", async () => {
+  const realFetch = globalThis.fetch;
+  // 本文の読み取りが返ってこない
+  globalThis.fetch = (() => new Promise<Response>(() => {})) as typeof fetch;
+  try {
+    db().prepare("INSERT INTO viral_posts (tweet_id, url, source) VALUES (?, ?, 'search')").run("900000000000000002", "https://x.com/i/web/status/900000000000000002");
+    const t = Date.now();
+    await drainQueue(300);
+    assert.ok(Date.now() - t < 2000, `待った時間 ${Date.now() - t}ms`);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("話題の投稿の検索（PR #83 の ai-review の指摘）: 検索の一式は同時に1つだけ動き、動いている間に呼ばれたら同じ結果を待つ", async () => {
+  let n = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    n++;
+    await new Promise((ok) => setTimeout(ok, 20));
+    return json({ data: [], meta: {} });
+  }) as typeof fetch;
+  Object.assign(process.env, X_ENV);
+  try {
+    saveSettings({ lastViralSearch: new Date(Date.now() - 2 * 86_400_000).toISOString() });
+    // 1つ目が「欲しい」の声を検索している途中で、2つ目を呼ぶ
+    const first = searchAll();
+    while (n <= VIRAL_QUERIES.length) await new Promise((ok) => setTimeout(ok, 5));
+    const second = searchAll();
+    const [a, b] = await Promise.all([first, second]);
+    assert.equal(a, b);
+    assert.equal(n, VIRAL_QUERIES.length + WANT_QUERIES.length);
+    // 終わったあとは、また検索できる
+    await searchAll();
+    assert.equal(n, 2 * (VIRAL_QUERIES.length + WANT_QUERIES.length));
+  } finally {
+    globalThis.fetch = realFetch;
+    for (const k of Object.keys(X_ENV)) delete process.env[k];
+  }
+});
+
+test("検索の件数の設定（PR #83 の ai-review の指摘）: 「欲しい」の声は 0 か 10〜100 だけ受け付ける", async () => {
+  const { POST } = await import("../src/app/api/settings/route");
+  const send = (v: number) => POST(new Request("http://localhost/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ wantsPerQuery: v }) }));
+  assert.equal((await send(5)).status, 400);
+  assert.equal((await send(101)).status, 400);
+  assert.equal((await send(0)).status, 200);
+  assert.equal(getSettings().wantsPerQuery, 0);
+  assert.equal((await send(10)).status, 200);
+  assert.equal(getSettings().wantsPerQuery, 10);
+});

@@ -80,8 +80,8 @@ export async function POST(req: Request) {
     ["autoPublishPerWeek", 0, 50],
     ["autoPostPerDay", 1, 10],
     ["postSafetyPerDay", 1, 50],
-    ["viralSearchCount", 100, 1000],
-    ["wantsSearchCount", 0, 1000],
+    ["viralPerQuery", 10, 100],
+    ["wantsPerQuery", 0, 100],
     ["judgeAfterDays", 1, 60],
     ["staleDays", 1, 90],
     ["deepPerWeek", 0, 7],
@@ -94,6 +94,8 @@ export async function POST(req: Request) {
     if (!Number.isFinite(v) || v < min || v > max) return NextResponse.json({ error: `${key} が不正です` }, { status: 400 });
     (patch as Record<string, number>)[key] = v;
   }
+  // 「欲しい」の声は 0（探さない）か 10〜100（X の検索は1回10件から。1〜9 だと画面の件数・費用と実際が食い違う）
+  if (patch.wantsPerQuery !== undefined && patch.wantsPerQuery > 0 && patch.wantsPerQuery < 10) return NextResponse.json({ error: "wantsPerQuery は 0 か 10〜100 にしてください" }, { status: 400 });
   saveSettings(patch);
   return NextResponse.json(getSettings());
 }

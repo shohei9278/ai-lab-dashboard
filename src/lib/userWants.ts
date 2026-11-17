@@ -1,11 +1,11 @@
 import { callJson, isObj } from "./ai";
 import { db, getSettings } from "./db";
 import { logEvent } from "./loop";
-import { X_READ_COST_USD, searchAcross } from "./xPost";
+import { X_READ_COST_USD, searchEach } from "./xPost";
 import { external } from "./untrusted";
 
 // 「こういうの欲しい」の声
-// 週1回、X で「〇〇できるアプリ欲しい」「誰か作って」などの投稿を探し、AIがプロダクトの需要だけを残す。
+// アイデアを出す日に、X で「〇〇できるアプリ欲しい」「誰か作って」などの投稿を探し、AIがプロダクトの需要だけを残す。
 // いいねの数は「自分も欲しい」人の数の目安。アイデア出しに渡し、声から生まれた案件には元の声を残す。
 // 投稿者への返信・メンション・引用はしない（拾うだけ）
 
@@ -37,15 +37,17 @@ export function deleteWant(id: number) {
   db().prepare("UPDATE user_wants SET status = 'rejected', note = '運営者が外しました' WHERE id = ?").run(id);
 }
 
-// 直近7日の投稿を読み、いいね5以上のものをAIに選り分けさせる
-export async function searchWants(): Promise<{ read: number; added: number }> {
+// 前回の検索のあとの投稿を読み、いいね5以上のものをAIに選り分けさせる
+export async function searchWants(since: string): Promise<{ read: number; added: number; error?: string }> {
   const s = getSettings();
-  const pages = Math.round(s.wantsSearchCount / 100);
-  if (pages <= 0) return { read: 0, added: 0 };
+  if (s.wantsPerQuery <= 0) return { read: 0, added: 0 };
   let read = 0;
   try {
     const all: { id: string; text: string; created_at?: string; likes: number; reposts: number; bookmarks: number; replies: number }[] = [];
-    for (const p of await searchAcross(WANT_QUERIES, pages, (n) => { read += n; })) {
+    const found = await searchEach(WANT_QUERIES, s.wantsPerQuery, since, (n) => { read += n; });
+    // 途中で失敗しても、それまでに読めた分は選り分ける（前回の日時は進むので、ここで捨てると二度と読まない）
+    if (found.error) logEvent(null, "system", "wants-error", `「欲しい」の声の検索が途中で失敗（読めた${read}件は選り分けます）: ${found.error}`);
+    for (const p of found.posts) {
       const m = p.public_metrics;
       if (m) all.push({ id: p.id, text: p.text, created_at: p.created_at, likes: m.like_count, reposts: m.retweet_count, bookmarks: m.bookmark_count ?? 0, replies: m.reply_count });
     }
@@ -53,9 +55,10 @@ export async function searchWants(): Promise<{ read: number; added: number }> {
     const cands = all.filter((x) => x.likes >= 5 && !known.has(x.id)).sort((a, b) => b.likes - a.likes).slice(0, 40);
     if (!cands.length) {
       logEvent(null, "system", "wants-search", `Xで「欲しい」の声を検索: ${read}件を読み、新しい声はありませんでした`);
-      return { read, added: 0 };
+      return { read, added: 0, error: found.error };
     }
-    const out = await callJson<{ items: { n: number; keep: boolean; who: string; problem: string; note: string }[] }>({
+    // AIの選り分けは、呼び出しの失敗（混雑など）なら1回だけやり直す。それでも失敗したら、読めた声は使えない（前回の日時は進むので、次の検索でも読まない）
+    const select = () => callJson<{ items: { n: number; keep: boolean; who: string; problem: string; note: string }[] }>({
       purpose: "「欲しい」の声の選別",
       system: `あなたはプロダクトのリサーチャーです。Xの投稿から、個人や小さなチームが作れるプロダクト（アプリ・Webサービス・ツール・デジタル商品など）への需要だけを選びます。
 残すもの: 「〇〇できるアプリが欲しい」「〇〇を管理するツールないかな」のように、困りごとや欲しい機能が読み取れるもの。製品の名前が出ていなくても、「毎回〇〇の計算が面倒」のように、アプリやツールで解決できそうな具体的な困りごとも残す
@@ -65,6 +68,18 @@ export async function searchWants(): Promise<{ read: number; added: number }> {
       user: external(cands.map((c, i) => `【${i + 1}】いいね${c.likes}・ブックマーク${c.bookmarks}・返信${c.replies}\n${c.text.slice(0, 400)}`).join("\n\n")),
       validate: (v): v is { items: { n: number; keep: boolean; who: string; problem: string; note: string }[] } => isObj(v) && Array.isArray(v.items),
     });
+    let out: Awaited<ReturnType<typeof select>>;
+    try {
+      out = await select();
+    } catch {
+      await new Promise((ok) => setTimeout(ok, 5000));
+      try {
+        out = await select();
+      } catch (e) {
+        logEvent(null, "system", "wants-error", `「欲しい」の声のAIの選り分けに2回失敗したため、読めた${cands.length}件の声は使えませんでした: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+        throw e;
+      }
+    }
     const insert = db().prepare(
       `INSERT OR IGNORE INTO user_wants (tweet_id, url, text, posted_at, likes, reposts, bookmarks, replies, status, who, problem, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
@@ -79,7 +94,7 @@ export async function searchWants(): Promise<{ read: number; added: number }> {
       if (keep) added++;
     }
     logEvent(null, "system", "wants-search", `Xで「欲しい」の声を検索: ${read}件を読み、${cands.length}件をAIが見て、${added}件を残しました`);
-    return { read, added };
+    return { read, added, error: found.error };
   } finally {
     if (read) db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (NULL, ?, 'x-api', 0, 0, ?, NULL)").run("Xで「欲しい」の声を検索", read * X_READ_COST_USD);
   }

@@ -417,7 +417,7 @@ CREATE TABLE IF NOT EXISTS design_refs (
   note TEXT, -- どこが良いか（AIのメモ）
   used INTEGER NOT NULL DEFAULT 0 -- ページ作りで参考にした回数
 );
--- 話題の個人開発の投稿: あなたが貼ったURLと、週1回のXの検索で拾ったもの。AIが「なぜ伸びたか」をまとめ、投稿・LP・アイデア出しの参考にする（画像は保存しない）
+-- 話題の個人開発の投稿: あなたが貼ったURLと、アイデアを出す日のXの検索で拾ったもの。AIが「なぜ伸びたか」をまとめ、投稿・LP・アイデア出しの参考にする（画像は保存しない）
 CREATE TABLE IF NOT EXISTS viral_posts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -432,7 +432,7 @@ CREATE TABLE IF NOT EXISTS viral_posts (
   likes INTEGER, reposts INTEGER, bookmarks INTEGER, views INTEGER, images INTEGER,
   analysis TEXT -- JSON: { genre, format, hook, visual, why, takeaway, angle }
 );
--- 「こういうの欲しい」の声: 週1回のXの検索で拾い、AIがプロダクトの需要だけを残す。アイデア出しに渡す（投稿者には返信・メンションしない）
+-- 「こういうの欲しい」の声: アイデアを出す日のXの検索で拾い、AIがプロダクトの需要だけを残す。アイデア出しに渡す（投稿者には返信・メンションしない）
 CREATE TABLE IF NOT EXISTS user_wants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -773,10 +773,10 @@ export type Settings = {
   lastDigest: string; // 最後に1日のまとめを送った日（日本時間の YYYY-MM-DD）
   notifyLive: boolean; // AIが何かを始めた・終えたときに、その場で通知する（1日のまとめとは別）
   notifyOff: string; // その場の通知で送らない種類（カンマ区切り。liveNotify.ts の NOTIFY_KINDS）
-  viralSearch: boolean; // 週1回、Xで話題の個人開発の投稿を検索して取り込む（X のAPIキーが必要。読んだ投稿1件ごとに費用がかかる）
-  viralSearchCount: number; // 1回の検索で読む投稿の数（100件ずつ）
-  lastViralSearch: string; // 最後に検索した日時（ISO）
-  wantsSearchCount: number; // 同じ検索のときに、「欲しい」の声を読む数（100件ずつ。0 なら探さない）
+  viralSearch: boolean; // アイデアを出す日に、その日まだ検索していなければ、Xで話題の投稿と「欲しい」の声を検索して取り込む（X のAPIキーが必要。読んだ投稿1件ごとに費用がかかる）
+  viralPerQuery: number; // 話題の投稿の検索1つあたりに読む投稿の数（10〜100）
+  lastViralSearch: string; // 最後に検索した日時（ISO）。次の検索は、このあとの投稿だけを読む
+  wantsPerQuery: number; // 「欲しい」の声の検索1つあたりに読む投稿の数（0 なら探さない）
   dailyReport: boolean; // 毎晩、AIが1日の日報と note の下書きを書く
   dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
   promoOff: string; // 宣伝の投稿（リンク付き）をしない場所（カンマ区切り。例: x）
@@ -817,9 +817,9 @@ const DEFAULTS: Settings = {
   notifyLive: true,
   notifyOff: "",
   viralSearch: true,
-  viralSearchCount: 300,
+  viralPerQuery: 20,
   lastViralSearch: "",
-  wantsSearchCount: 200,
+  wantsPerQuery: 10,
   dailyReport: true,
   dailyPlan: true,
   postSafetyPerDay: 10,
