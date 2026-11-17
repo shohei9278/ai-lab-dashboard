@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
 import { useIdeaBusy } from "./useIdeaBusy";
 
@@ -9,6 +10,7 @@ export function DailyCard({ enabled, hour, lastRun, lastMessage, count, keep, mo
 }) {
   const { run, busy, error } = useLoopAction();
   const ideaBusy = useIdeaBusy();
+  const [accepted, setAccepted] = useState(false);
   return (
     <div className="card space-y-3 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -26,7 +28,10 @@ export function DailyCard({ enabled, hour, lastRun, lastMessage, count, keep, mo
         </div>
         <ActionButton
           disabled={!!busy || !!ideaBusy}
-          onClick={() => run("AIがアイデアを出して選別しています…（1〜2分ほど）", { action: "daily" })}
+          onClick={async () => {
+            setAccepted(false);
+            if (await run("受け付けています…", { action: "daily" })) setAccepted(true);
+          }}
         >
           今すぐ1回実行
         </ActionButton>
@@ -35,6 +40,7 @@ export function DailyCard({ enabled, hour, lastRun, lastMessage, count, keep, mo
         最後の実行: {lastRun || "まだありません"}
         {lastMessage && <span className="block text-xs text-muted">{lastMessage}</span>}
       </p>
+      {accepted && !busy && <p className="text-sm text-ink-2" role="status">受け付けました。裏で進みます（数分かかることがあります）。進み具合はホームのライブで見られ、終わると「最後の実行」に結果が出ます。</p>}
       {ideaBusy && !busy && <p className="text-xs text-muted">いま「{ideaBusy}」が動いています。終わると押せるようになります。</p>}
       <BusyNote busy={busy} error={error} />
     </div>
