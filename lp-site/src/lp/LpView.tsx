@@ -6,6 +6,7 @@ import { SECTIONS, THEMES, type IconName, type Lp, type SectionKey } from "./con
 // 見出しの形・書体・背景の模様・角・各部分の見せ方と並び順は、AIが DESIGN_OPTIONS から選ぶ
 // topCta / signup に、それぞれの環境のボタンや登録フォームを差し込む
 // 動くツールの案件では、tool にツール本体（ToolFrame）を、signup にシェアのボタンを差し込む
+// 動くツールの案件は、短い見出しのすぐ下にツールを置き、スマホでも最初の画面から触れるようにする（イラストはツールの下。シェア画像には使う）
 export function LpView({ lp, title, topCta, signup, tool }: { lp: Lp; title: string; topCta: ReactNode; signup: ReactNode; tool?: ReactNode }) {
   const d = lp.design;
   const theme = THEMES[d?.theme ?? "trust"];
@@ -20,8 +21,8 @@ export function LpView({ lp, title, topCta, signup, tool }: { lp: Lp; title: str
     fontFamily: d?.font === "rounded" ? "var(--font-rounded), var(--font-noto), sans-serif" : d?.font === "mincho" ? "var(--font-mincho), serif" : undefined,
   } as CSSProperties;
 
-  // 見出しの横（または下）に置くもの: イラストがあればイラスト、なければ画面イメージ
-  const side = ill ? <Illustration ill={ill} /> : !isTool && lp.preview ? <Preview p={lp.preview} /> : null;
+  // 見出しの横（または下）に置くもの: イラストがあればイラスト、なければ画面イメージ（動くツールの案件は、見出しの横に置かない）
+  const side = isTool ? null : ill ? <Illustration ill={ill} /> : lp.preview ? <Preview p={lp.preview} /> : null;
   // イラストを見出しに使ったときは、画面イメージを別の部分として後ろに出す
   const previewSection = ill && !isTool && lp.preview;
   const band = layout === "band";
@@ -108,6 +109,26 @@ export function LpView({ lp, title, topCta, signup, tool }: { lp: Lp; title: str
     ),
   };
 
+  // 動くツールの案件の見出し: 名前・見出し・1行の説明だけの短いもの（ボタンは置かない。すぐ下がツール）
+  const toolHeader = (
+    <div className={`relative mx-auto max-w-3xl px-6 pb-5 pt-8 sm:pt-12 ${layout === "center" ? "text-center" : ""}`}>
+      <div className="flex flex-wrap items-center gap-2 text-sm opacity-70" style={layout === "center" ? { justifyContent: "center" } : undefined}>
+        <span>{title}</span>
+        {d?.badge && (
+          <span
+            className="rounded-full px-2.5 py-0.5 text-xs font-bold opacity-100"
+            style={band ? { background: "var(--lp-on-accent)", color: "var(--lp-accent)" } : { background: "var(--lp-accent)", color: "var(--lp-on-accent)" }}
+          >
+            {d.badge}
+          </span>
+        )}
+      </div>
+      <h1 className="mt-2 text-2xl font-bold leading-snug sm:text-4xl sm:leading-tight">{lp.headline}</h1>
+      <p className="mt-2 text-sm opacity-85 sm:text-base">{lp.subheadline}</p>
+      <p className="mt-2 text-xs opacity-70">無料・登録不要で、このページですぐに使えます。</p>
+    </div>
+  );
+
   return (
     <div style={vars} className="text-[color:var(--text)]">
       <header
@@ -117,15 +138,23 @@ export function LpView({ lp, title, topCta, signup, tool }: { lp: Lp; title: str
           : { background: "linear-gradient(180deg, var(--lp-soft), transparent)" }}
       >
         {d?.pattern && d.pattern !== "none" && <div aria-hidden className="pointer-events-none absolute inset-0" style={patternStyle(d.pattern, band)} />}
-        <div className={`relative mx-auto px-6 py-16 sm:py-24 ${twoCol ? "grid max-w-5xl items-center gap-10 lg:grid-cols-2" : layout === "left" ? "max-w-4xl" : "max-w-3xl"}`}>
-          {heroText}
-          {side && <div className={twoCol ? "" : "mx-auto mt-12 max-w-xl text-left"}>{side}</div>}
-        </div>
+        {isTool ? toolHeader : (
+          <div className={`relative mx-auto px-6 py-16 sm:py-24 ${twoCol ? "grid max-w-5xl items-center gap-10 lg:grid-cols-2" : layout === "left" ? "max-w-4xl" : "max-w-3xl"}`}>
+            {heroText}
+            {side && <div className={twoCol ? "" : "mx-auto mt-12 max-w-xl text-left"}>{side}</div>}
+          </div>
+        )}
       </header>
 
       {isTool && (
-        <section id="tool" data-section="tool" className="px-4 pb-16 pt-8">
+        <section id="tool" data-section="tool" className="px-4 pb-12 pt-4">
           <div className="mx-auto max-w-3xl overflow-hidden rounded-[var(--lp-r)] border border-[color:var(--border)] bg-[color:var(--bg)] shadow-xl">{tool}</div>
+        </section>
+      )}
+
+      {isTool && ill && (
+        <section className="px-6 pb-4">
+          <div className="mx-auto max-w-xl"><Illustration ill={ill} /></div>
         </section>
       )}
 
