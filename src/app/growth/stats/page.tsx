@@ -1,6 +1,8 @@
 import { PageIntro } from "@/components/PageIntro";
 import { GrowthTabs } from "@/components/LabTabs";
 import { PostStatsView } from "../../plan/PlanView";
+import { AIMS } from "@/lib/aims";
+import { followerHistory, hitGroups, hitRows } from "@/lib/hits";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,79 @@ export default function GrowthStatsPage() {
       <section className="card p-4">
         <PostStatsView />
       </section>
+      <HitsView />
     </div>
+  );
+}
+
+// 当たりの記録: ねらい・ジャンルごとの成績と、X のフォロワー数の動き（次のアイデア出しにも、同じまとめを渡している）
+function HitsView() {
+  const rows = hitRows();
+  const groups = hitGroups(rows);
+  const followers = followerHistory(14);
+  const first = followers[0]?.followers;
+  const last = followers.at(-1)?.followers;
+  const mark = (h: boolean | null) => (h === null ? "—" : h ? "当たり" : "当たらず");
+  return (
+    <section className="card space-y-4 p-4">
+      <div>
+        <h2 className="font-bold">当たりの記録</h2>
+        <p className="text-xs text-muted">
+          ねらい・ジャンルごとに、遊んだ・使った人、シェア、当たり（「広がる」は公開から3日の判定、ほかは「続ける」で育てる段階に入ったか）と、公開から3日のフォロワーの増えをまとめています（公開から90日）。同じまとめを、次のアイデア出しにも渡しています。フォロワーの増えは、ほかの案件の公開と重なることもあるので、だいたいの数です。
+        </p>
+      </div>
+      <div>
+        <h3 className="text-sm font-bold">X のフォロワー数（直近14日）</h3>
+        {followers.length === 0 ? (
+          <p className="text-sm text-ink-2">まだ記録がありません（1日1回、X から読んで記録します）。</p>
+        ) : (
+          <>
+            <p className="text-sm"><span className="num font-bold">{last}</span>人{followers.length > 1 && first !== undefined && last !== undefined ? <span className="text-ink-2">（{followers[0].day} から <span className="num">{last - first >= 0 ? "+" : ""}{last - first}</span>人）</span> : null}</p>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-2">
+              {followers.map((f) => <span key={f.day} className="num">{f.day.slice(5)} {f.followers}</span>)}
+            </div>
+          </>
+        )}
+      </div>
+      <div>
+        <h3 className="text-sm font-bold">ねらい・ジャンルごと</h3>
+        {groups.length === 0 ? (
+          <p className="text-sm text-ink-2">まだありません（ねらいの付いた案件を公開すると、ここにたまります）。</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-muted">
+                <tr><th className="py-1 pr-3">ねらい・ジャンル</th><th className="py-1 pr-3 text-right">件数</th><th className="py-1 pr-3 text-right">当たり</th><th className="py-1 pr-3 text-right">遊んだ・使った</th><th className="py-1 pr-3 text-right">シェア</th><th className="py-1 text-right">フォロワーの増え</th></tr>
+              </thead>
+              <tbody>
+                {groups.map((g) => (
+                  <tr key={`${g.aim}-${g.genre}`} className="border-t border-line">
+                    <td className="py-1 pr-3">{AIMS[g.aim].label}・{g.genre}</td>
+                    <td className="num py-1 pr-3 text-right">{g.count}</td>
+                    <td className="num py-1 pr-3 text-right">{g.hits}/{g.judged}</td>
+                    <td className="num py-1 pr-3 text-right">{g.plays}</td>
+                    <td className="num py-1 pr-3 text-right">{g.shares}</td>
+                    <td className="num py-1 text-right">{g.gain === null ? "—" : `${g.gain >= 0 ? "+" : ""}${g.gain}`}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {rows.length > 0 && (
+        <details>
+          <summary className="cursor-pointer text-sm">案件ごと（{rows.length}件）</summary>
+          <ul className="mt-2 space-y-1 text-xs">
+            {rows.map((r) => (
+              <li key={r.id}>
+                <a href={`/projects/${r.id}`} className="text-accent underline">{r.title}</a>
+                <span className="text-ink-2">（{AIMS[r.aim].label}{r.genre ? `・${r.genre}` : ""}・{r.publishedDay} 公開）遊んだ・使った {r.plays}人・シェア {r.shares}件・{mark(r.hit)}{r.followersGain === null ? "" : `・フォロワー ${r.followersGain >= 0 ? "+" : ""}${r.followersGain}`}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </section>
   );
 }

@@ -73,6 +73,19 @@ export async function searchRecent(query: string, nextToken?: string, maxResults
   return { posts: data.data ?? [], next: data.meta?.next_token };
 }
 
+// 運営のアカウントのフォロワー数を読む（1回読むごとに費用がかかる。X_READ_COST_USD）
+export async function xMyFollowers(): Promise<number> {
+  if (!xConfigured()) throw new Error("X のAPIキーが設定されていません");
+  const url = "https://api.x.com/2/users/me";
+  const params: Record<string, string> = { "user.fields": "public_metrics" };
+  const qs = Object.entries(params).map(([k, v]) => `${enc(k)}=${enc(v)}`).join("&");
+  const res = await fetch(`${url}?${qs}`, { headers: { Authorization: authHeader("GET", url, params) } });
+  const data = (await res.json().catch(() => ({}))) as { data?: { public_metrics?: { followers_count?: number } }; detail?: string; title?: string };
+  const n = data.data?.public_metrics?.followers_count;
+  if (!res.ok || typeof n !== "number") throw new Error(`X のフォロワー数を読めません（${res.status}）: ${(data.detail ?? data.title ?? "").slice(0, 200)}`);
+  return n;
+}
+
 // 自分の投稿の反応（いいね・返信・リポスト）を読む。1件ごとに読む費用がかかる（X_READ_COST_USD）
 export async function tweetMetrics(ids: string[]): Promise<Map<string, { likes: number; replies: number; reposts: number }>> {
   if (!xConfigured()) throw new Error("X のAPIキーが設定されていません");

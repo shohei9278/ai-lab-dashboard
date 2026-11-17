@@ -65,6 +65,8 @@ test("広がる: 3日たつまでは判定しない。当たらなければ、�
   assert.equal(p.stage, "hold");
   assert.equal(p.hold_until, null);
   assert.match(p.hold_reason ?? "", /遊んだ人19人・シェア2件/);
+  // 判定の結果を残す（当たりから学ぶ）
+  assert.equal(p.spread_hit, 0);
   // 判断待ちは作らない
   assert.equal((db().prepare("SELECT COUNT(*) AS n FROM approvals WHERE project_id = ?").get(miss) as { n: number }).n, 0);
 });
