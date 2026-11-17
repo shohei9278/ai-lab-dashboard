@@ -661,7 +661,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "index_uses", "INTEGER NOT NULL DEFAULT 0"], // そのうち登録・利用した人の数
   ["projects", "hold_reason", "TEXT"], // 保留にした理由（人が書く）
   ["projects", "deep", "INTEGER NOT NULL DEFAULT 0"], // じっくり案件（大きなデータ・素材・磨く段を使い、人が要所で確かめる）
-  ["projects", "deep_need", "TEXT"], // じっくり案件で要るデータ（アイデアに書かれたもの）
+  ["projects", "deep_need", "TEXT"], // じっくり案件で要るデータ（アイデアに書かれたもの。大きなデータが要らないじっくり案件は空）
+  ["projects", "deep_plan", "TEXT"], // じっくり案件で何を作り込むか（アイデアに書かれたもの）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
   ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
@@ -928,7 +929,8 @@ export type ProjectRow = {
   index_uses: number;
   hold_reason: string | null;
   deep: number; // 1 = じっくり案件
-  deep_need: string | null;
+  deep_need: string | null; // 大きなデータが要るじっくり案件だけ
+  deep_plan: string | null;
   hold_until: string | null;
   resumed_at: string | null;
   rethink_count: number;

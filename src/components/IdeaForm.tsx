@@ -9,7 +9,7 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
   const { run, busy, error } = useLoopAction();
   const [theme, setTheme] = useState("");
   const [count, setCount] = useState(3);
-  // じっくり案件だけ: 大きなデータが要るツールの案だけを出させる（データは人が確かめてから作るので、件数は2件まで）
+  // じっくり案件だけ: ふつうのツールの制限を外して作り込む案だけを出させる（費用が高く、データが要る案は人が確かめるので、件数は2件まで）
   const [deep, setDeep] = useState(false);
   const n = deep ? Math.min(count, 2) : count;
   const ideaBusy = useIdeaBusy();
@@ -38,7 +38,7 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
         </div>
         {deep && (
           <p className="mt-1 text-xs text-ink-2">
-            大きなデータ（数百〜2,500件の一覧）がないと面白さが出ないツールの案だけを出させます。選ばれた案は、AIがデータを下書きし、あなたが判断待ちで確かめてから作ります。手で頼んだ分は、週の上限が埋まっていても作ります（数には入ります）。ツールを作るところまで進むと、1件あたりの費用はふつうの案件より高くなります。
+            ふつうのツールの制限（40,000文字まで・データは代表的なものだけ・フォントなし）を外して作り込む案だけを出させます。できたツールは、見た目を磨く段も通ります。大きなデータ（数百〜2,500件の一覧）が要る案は、AIがデータを下書きし、あなたが判断待ちで確かめてから作ります。手で頼んだ分は、週の上限が埋まっていても作ります（数には入ります）。1件あたりの費用は、ふつうの案件より高くなります。
           </p>
         )}
         {blocked && <p className="mt-1 text-xs text-ink-2">いまは{blocked}。押すと会議と採点だけ行い、案件にはしません（会議の記録には残ります）。</p>}
