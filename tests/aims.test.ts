@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getSettings } from "../src/lib/db";
-import { AIMS, aimOfIdea, aimWeightsOf, aimsByDeficit, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "../src/lib/aims";
+import { AIMS, aimOfIdea, aimWeightsOf, aimsByDeficit, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "../src/lib/aims";
 
 const W = { spread: 4, useful: 3, return: 2, demand: 1 };
 
@@ -88,4 +88,18 @@ test("案件にする案の選び方: 足りないねらいの、点の高い案
   assert.deepEqual(pickByAims(list, 1, W, {}, all, 5, (x) => x.id !== "s7").map((x) => x.id), ["s6"]);
   // 同じ点なら、まだ選んでいない作者の案を先にする
   assert.deepEqual(pickByAims([c("p", "spread", 7, "A"), c("q", "useful", 7, "A"), c("r", "useful", 7, "B")], 2, W, {}, all, 5).map((x) => x.id), ["p", "r"]);
+});
+
+test("AIの答えのねらい（PR #84 の ai-review の指摘）: 頼んだねらいにない案は外し、形はねらいに合わせる", () => {
+  const r = alignIdeaAims([
+    { title: "a", aim: "spread", kind: "lp", genre: " クイズ " },
+    { title: "b", aim: "demand", kind: "lp" },
+    { title: "c", kind: "tool" },
+    { title: "d", aim: "useful", kind: "tool", genre: "あ".repeat(40) },
+  ], ["spread", "useful", "useful"]);
+  // a は頼んだねらい（形はツールに直す）、b は頼んでいない需要を確かめる → 外す、c は書かれていないので頼んだ順（3件目 = 役に立つ）
+  assert.deepEqual(r.ideas.map((x) => [x.title, x.aim, x.kind, x.genre]), [["a", "spread", "tool", "クイズ"], ["c", "useful", "tool", undefined], ["d", "useful", "tool", "あ".repeat(30)]]);
+  assert.deepEqual(r.dropped.map((x) => [x.idea.title, x.aim]), [["b", "demand"]]);
+  // 頼んでいないときは、書かれたねらい（なければ形から）
+  assert.deepEqual(alignIdeaAims([{ aim: "return", kind: "lp" }, { kind: "lp" }]).ideas.map((x) => [x.aim, x.kind]), [["return", "tool"], ["demand", "lp"]]);
 });

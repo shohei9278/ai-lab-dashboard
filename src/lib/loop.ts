@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
-import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "./aims";
+import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
@@ -260,7 +260,8 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
   const s = getSettings();
   if (aims.length) count = aims.length;
   const genres = genresOf(s.ideaGenres);
-  const recentGenres = [...new Set((db().prepare("SELECT genre FROM projects WHERE demo = 0 AND genre IS NOT NULL AND created_at >= datetime('now', '-14 days') ORDER BY id DESC LIMIT 10").all() as { genre: string }[]).map((r) => r.genre))];
+  // 最近14日の案件のジャンル（重なりを除き、新しい順。件数が多くても全部のジャンルが入るよう、ジャンルごとに数える）
+  const recentGenres = (db().prepare("SELECT genre, MAX(id) AS last FROM projects WHERE demo = 0 AND genre IS NOT NULL AND created_at >= datetime('now', '-14 days') GROUP BY genre ORDER BY last DESC LIMIT 30").all() as { genre: string }[]).map((r) => r.genre);
   const lessons = activeLessons().map(lessonLine).join("\n") || "（まだなし）";
   const existing = [...alsoExisting, ...(db().prepare("SELECT title FROM projects WHERE demo = 0 ORDER BY id DESC LIMIT 30").all() as { title: string }[]).map((p) => p.title)]
     .map((t) => `- ${t}`).join("\n") || "（まだなし）";
@@ -307,11 +308,11 @@ genre には、アイデアのジャンルを短い言葉で書く（例: ${GENR
     user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}${aims.length ? `\n今回のねらい（この順に1件ずつ出す）: ${aims.map((a, i) => `${i + 1}件目=${a}（${AIMS[a].label}）`).join("、")}` : ""}\nジャンル: ${genres.length ? `運営者が選んだもの（合うものがなければ、ないジャンルを使ってよい）: ${genres.join("・")}` : `おまかせ（最近の案件のジャンル: ${recentGenres.join("・") || "まだなし"}。同じジャンルが続かないようにする）`}${deepOnly ? "\n今回は運営者の依頼で、すべてをじっくり案件（kind は tool、deep に何を作り込むかを書く。大きなデータが要るときは deep_data も書く）で出すこと。ふつうの tool の制限では面白さが出ない題材を選ぶ" : ""}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n- spread は上の tool の基準に加えて、公開から3日の、遊んだ人の数とシェアの数も見る。return は、何日かあとにまた来た人がいるかも見る\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
-  // ねらいと形をそろえる（書かれていなければ頼んだ順のねらい。ねらいが形と合わなければ、ねらいに合わせて形を決める）
-  const ideas = out.ideas.map((idea, i) => {
-    const aim = isAim(idea.aim) ? idea.aim : aims[i] ?? aimOfIdea(idea);
-    return { ...idea, aim, kind: AIMS[aim].kind, genre: isStr(idea.genre) ? idea.genre.trim().slice(0, 30) : undefined } as Idea;
-  });
+  // ねらいと形をそろえる。頼んだねらいにない案は候補にしない（運営者が絞ったねらい・配分を0にしたねらいの案件ができないように）
+  const { ideas, dropped } = alignIdeaAims(out.ideas, aims);
+  for (const d of dropped) {
+    logEvent(null, "system", "idea-aim-skip", `${modelId ? modelInfo(modelId).label : "AI"}の案「${String(d.idea.title).slice(0, 60)}」は、頼んだねらい（${[...new Set(aims)].map((a) => AIMS[a].label).join("・")}）と違う「${AIMS[d.aim].label}」だったため、候補にしませんでした`);
+  }
   return (deepOnly ? ideas.filter((x) => isDeepIdea(x) && x.kind === "tool") : ideas).slice(0, count);
 }
 
@@ -2284,7 +2285,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
         const ideas = await askIdeas(opts.theme ?? "", perModel, author, opts.alsoExisting, opts.deepOnly, dealt[ai]);
         setStep(act, title, modelLabel(author), `アイデア${ideas.length}件を出しました。ほかの社を待っています`);
         for (const idea of ideas) {
-          liveNote({ who: modelLabel(author), provider: prov(author), kind: `アイデアを提案（${AIMS[aimOfIdea(idea)].label}・${idea.kind === "tool" ? "動くツール" : "事前登録LP"}・${idea.season === "seasonal" ? "季節もの" : "1年中"}）`, text: `「${idea.title}」— ${idea.solution}${idea.channel ? `\n届け方: ${idea.channel}` : ""}`, batch: batchId });
+          liveNote({ who: modelLabel(author), provider: prov(author), kind: `アイデアを提案（${AIMS[aimOfIdea(idea)].label}・${idea.kind === "tool" ? "動くツール" : "事前登録LP"}${idea.genre ? `・${idea.genre}` : ""}・${idea.season === "seasonal" ? "季節もの" : "1年中"}）`, text: `「${idea.title}」— ${idea.solution}${idea.channel ? `\n届け方: ${idea.channel}` : ""}`, batch: batchId });
         }
         return ideas.map((idea) => ({ author, idea }));
       } catch (e) {
