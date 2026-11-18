@@ -149,6 +149,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <Field label="「広がる」の当たり: シェア"><input type="number" min={1} {...num("spreadHitShares")} className={input} /></Field>
           <Field label="承認待ちの期限（日）" note="過ぎたら自動で見送りにします。"><input type="number" min={1} {...num("staleDays")} className={input} /></Field>
           <Field label="じっくり案件（直近7日）" note="ふつうのツールの制限を外して作り込む案件を、7日で何件まで作るか。AIが設計書を書き、ツールは Claude Code で作ります（大きなデータが要るときは、先に人がデータを確かめる）。0 で止めます。"><input type="number" min={0} max={7} {...num("deepPerWeek")} className={input} /></Field>
+          <Field label="人の作業待ちの上限" note="保存の場所・外部のAPI・その場でAIを呼ぶ など、まだない仕組みが要るじっくり案件を、同時に何件まで止めておくか。これ以上あれば、そういう案件を新しく作りません。0 で作りません。"><input type="number" min={0} max={20} {...num("needsWaitMax")} className={input} /></Field>
           <Field label="じっくり案件の開発待ちの上限" note="Claude Code で作るのを待っているじっくり案件がこの件数以上なら、新しいじっくり案件を作りません（手で頼んだ分は止めません）。"><input type="number" min={1} max={10} {...num("deepDevWaitMax")} className={input} /></Field>
         </div>
         <div className="space-y-2 border-t border-line pt-3">

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { makePlayVideoOnPublish } from "./playVideo";
 import { hitsText } from "./hits";
+import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
@@ -48,6 +49,7 @@ export type Idea = {
   deep_data?: string; // じっくり案件で大きなデータが要るときだけ: 要るデータ（何の一覧で、1件ごとに何を持ち、何件くらいか・鮮度）
   // 使えたら明らかに良くなる外部の API（今は通信を止めているので使わない。何がどれだけ欲しがられたかを記録し、許すかを人が決める材料にする）
   api_wish?: { name: string; purpose: string; key: boolean; sends: string };
+  needs?: Need[]; // じっくり案件で、作るのに要るもの（保存の場所・外部のAPI・その場でAIを呼ぶ など。今はない仕組みが要るなら、人の作業待ちで止める）
   aim?: Aim; // ねらい（aims.ts）。形（kind）はねらいから決まる
   genre?: string; // ジャンル（短い言葉）
 };
@@ -277,10 +279,11 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 プロダクトの種類は問わない（Webサービス・スマホアプリ・ブラウザ拡張・LINEボットやSlackアプリ・AIを使うサービス・テンプレートや素材などのデジタル商品など）。Webサービスばかりに偏らないこと。
 世に出す形（kind）は2つあり、下に書くねらい（aim）から決まります（demand は lp、ほかは tool）。
 - lp: 事前登録LP。まだ作らずに、紹介ページのメール事前登録で需要を確かめる。プロダクトの種類も、作る大変さも問わない（需要が確かめられてから作る）。継続して使うもの・作るのに時間がかかるもの向け
-- tool: 動くツール。診断・シミュレーター・計算機・ジェネレーターなど、1つのWebページの中だけで完結して今すぐ使えるもの。外部のAPIやサーバー、ログイン、ブラウザの保存領域（localStorage など）は使えない。記録や保存が欲しい案は、solution に「画面を閉じると消える一時的な保持」と明記する。何度も使いたくなるもの・結果を人に見せたくなるものが向く
+- tool: 動くツール。診断・シミュレーター・計算機・ジェネレーターなど、1つのWebページの中だけで完結して今すぐ使えるもの。外部のAPIやサーバー、ログイン、ブラウザの保存領域（localStorage など）は使えない。記録や保存が欲しい案は、solution に「画面を閉じると消える一時的な保持」と明記する（ただし、保存の場所・外部のAPI・その場でAIを呼ぶ などがないと成り立たない案は、縮めずに、下の needs を書いたじっくり案件として出してよい）。何度も使いたくなるもの・結果を人に見せたくなるものが向く
 - じっくり案件（tool のみ）: ふつうの tool の制限（40,000文字まで・データは代表的なものだけ・フォントなし・AIが1回で書き上げる）を外し、時間をかけて作り込む枠（直近7日で${s.deepPerWeek}件まで）。AIが設計書を書き、開発担当（Claude Code）がブラウザで確かめながら作る。コードは${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで、Google Fonts が使える。制限のせいで小さく縮めるしかない案は、縮めずに deep に何を作り込むか（見せ方・演出・データの大きさなど）を書いて出してよい。deep は、ふつうの tool では面白さが出ない案だけに書く
 - じっくり案件で大きなデータ（数百〜${TOOL_DATA_ROWS_MAX}件ほどの一覧。例: 全国の市町村ごとの特徴・数百の職業の特徴）が要るときだけ、deep_data に要るデータ（何の一覧で、1件ごとに何を持ち、何件くらいか）を書く。AIがデータを下書きし、人が確かめてから作る。deep_data には、データがどのくらいの頻度で変わるか（変わらない・年1回・毎月など）と、変わるときに誰がどう更新するかも書く（すぐ古くなるデータ（売り場・配信作品・価格など）は、更新の手立てがなければ出さない）。データが要らないじっくり案件は deep_data を書かない
-- 外部の API・サービスは今は使えない（通信は止めている）。使えたら明らかに良くなる、または使えないと作れない API があれば、api_wish に書く（API の名前・何に使うか・鍵（APIキー）が要るか・訪問者のどんな情報を送ることになるか）。人が、その API を許すかを決める材料として記録する。api_wish を書いても、solution は通信なしで作れる形にする。思いつきで書かず、本当に効くものだけにする（なければ書かない）
+- 外部の API・サービスは今は使えない（通信は止めている）。使えたら明らかに良くなる、または使えないと作れない API があれば、api_wish に書く（API の名前・何に使うか・鍵（APIキー）が要るか・訪問者のどんな情報を送ることになるか）。人が、その API を許すかを決める材料として記録する。api_wish は、通信なしでも成り立つ案で、API があればもっと良くなるときに書く（solution は通信なしで作れる形にする）。API がないと成り立たない案は、api_wish ではなく needs（api）を書いたじっくり案件にする。思いつきで書かず、本当に効くものだけにする（なければ書かない）
+- 次のような、今はまだない仕組みが要る案も出してよい。じっくり案件にして、needs に要るものを書く（作り始める前に止めて、人が仕組みを用意してから作る。何が要る案がどれだけ溜まるかで、次に作る仕組みを決める）: ${Object.entries(NEED_KINDS).map(([k, v]) => `${k}（${v.label}: ${v.hint}）`).join(" / ")}。needs を書いた案の solution は、その仕組みがある前提で書いてよい（「通信なし・保存なし」の決まりは、needs を書かない案だけのもの）。仕組みがなくても作れる案には needs を書かない
 アイデアごとに、ねらい（aim）を1つ決める。ねらいは、何をもって当たりとするかを決める。形（kind）はねらいから決まる（demand は lp、ほかは tool）。
 - spread（${AIMS.spread.label}）: tool。見た人が思わず触り、結果やオチを人に見せたくなり、作った人の次の作品も見たくなるもの。遊び・診断・ネタ・おもちゃ・なりきり・見て楽しむものなど、形は自由（役に立たなくてよい）。30秒ほどで遊べて、何をするものかが1秒で伝わるものにする
 - useful（${AIMS.useful.label}）: tool。困りごとを今すぐ解決する道具として、何度も使われるもの
@@ -305,7 +308,7 @@ genre には、アイデアのジャンルを短い言葉で書く（例: ${GENR
 - 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案や、知らない人へのDM・個別の勧誘は出さない（スパム扱いされやすいため）
 - 自分の投稿だけ（フォロワーほぼ0では、ほとんど表示されない）にせず、運営者が手でできる直接の接点を最低1つ、数つきで channel に入れる（first_test には書かない）。例: 対象の人が集まるコミュニティ・グループの管理者に、紹介してよいか相談する（2か所）/ 対象に当てはまる知人に使ってもらい、感想を聞く（3人）/ ルールで紹介が認められている場（自己紹介・成果物の共有の場など）に1回だけ載せる
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
-形式: {"ideas":[{"aim":"spread・useful・return・demand のどれか","genre":"ジャンル（短い言葉）","kind":"lp または tool（aim から決まる）","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 何を作り込むか","deep_data":"じっくり案件で大きなデータが要るときだけ: 要るデータ","api_wish":{"name":"使いたい API の名前（あるときだけ）","purpose":"何に使うか","key":true または false（鍵が要るか）,"sends":"訪問者のどんな情報を送ることになるか（送らないなら「なし」）"}}]}`,
+形式: {"ideas":[{"aim":"spread・useful・return・demand のどれか","genre":"ジャンル（短い言葉）","kind":"lp または tool（aim から決まる）","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 何を作り込むか","deep_data":"じっくり案件で大きなデータが要るときだけ: 要るデータ","needs":[{"kind":"store・api・ai・asset・other のどれか（じっくり案件で、今はない仕組みが要るときだけ）","what":"何が要るか（短く）","why":"なぜ要るか"}],"api_wish":{"name":"使いたい API の名前（あるときだけ）","purpose":"何に使うか","key":true または false（鍵が要るか）,"sends":"訪問者のどんな情報を送ることになるか（送らないなら「なし」）"}}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
     user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}${aims.length ? `\n今回のねらい（この順に1件ずつ出す）: ${aims.map((a, i) => `${i + 1}件目=${a}（${AIMS[a].label}）`).join("、")}` : ""}\nジャンル: ${genres.length ? `運営者が選んだもの（合うものがなければ、ないジャンルを使ってよい）: ${genres.join("・")}` : `おまかせ（最近の案件のジャンル: ${recentGenres.join("・") || "まだなし"}。同じジャンルが続かないようにする）`}${deepOnly ? "\n今回は運営者の依頼で、すべてをじっくり案件（kind は tool、deep に何を作り込むかを書く。大きなデータが要るときは deep_data も書く）で出すこと。ふつうの tool の制限では面白さが出ない題材を選ぶ" : ""}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n- spread は上の tool の基準に加えて、公開から3日の、遊んだ人の数とシェアの数も見る。return は、何日かあとにまた来た人がいるかも見る\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}${hitsText()}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
@@ -324,14 +327,15 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
   const id = Number(
     db()
       .prepare(
-        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind, first_channel, first_test, want_id, deep, deep_need, deep_plan, aim, genre)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind, first_channel, first_test, want_id, deep, deep_need, deep_plan, aim, genre, needs)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(idea.title, idea.target, idea.problem, idea.solution, idea.hypothesis, idea.reason, conf, getSettings().loopModel, theme || null, mode, origin, ideaModel, choice.confidence, idea.kind === "tool" ? "tool" : "lp",
         isStr(idea.channel) ? idea.channel.slice(0, 500) : null, isStr(idea.first_test) ? idea.first_test.slice(0, 500) : null,
         typeof idea.want_id === "number" && getWant(idea.want_id)?.status === "ok" ? idea.want_id : null,
         isDeepIdea(idea) ? 1 : 0, isDeepIdea(idea) && isStr(idea.deep_data) && idea.deep_data.trim() ? idea.deep_data.slice(0, 500) : null,
-        isDeepIdea(idea) ? idea.deep!.slice(0, 500) : null, aimOfIdea(idea), isStr(idea.genre) ? idea.genre.trim().slice(0, 30) : null)
+        isDeepIdea(idea) ? idea.deep!.slice(0, 500) : null, aimOfIdea(idea), isStr(idea.genre) ? idea.genre.trim().slice(0, 30) : null,
+        isDeepIdea(idea) && needsOf(idea.needs).length ? JSON.stringify(needsOf(idea.needs)) : null)
       .lastInsertRowid,
   );
   logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${AIMS[aimOfIdea(idea)].label}${isStr(idea.genre) && idea.genre.trim() ? `・${idea.genre.trim().slice(0, 30)}` : ""}${isDeepIdea(idea) ? "・じっくり案件" : ""}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
@@ -340,10 +344,17 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
 
 // 毎回承認ならアイデアの承認待ちへ、自動ならLPまで作って公開の承認待ちへ
 // 大きなデータが要るじっくり案件は、どちらのモードでも、まずデータの下書きを作って人の確認に回す（データが要らないじっくり案件は、ふつうと同じ）
-async function startProject(id: number) {
+// decided: 人がすでに進めると決めた（人の作業待ちの「済み」など）。毎回承認の設定でも、アイデアの承認を挟まない
+async function startProject(id: number, opts: { decided?: boolean } = {}) {
   const p = getProject(id)!;
+  // まだない仕組み（保存の場所・API・AIなど）が要るじっくり案件は、人が用意して「済み」にするまで、作り始めない（人の作業待ち）
+  const needs = p.deep && p.needs ? needsOf(JSON.parse(p.needs)) : [];
+  if (needs.length && !p.needs_done) {
+    logEvent(id, "system", "needs-wait", `作るのに要るもの（${needs.map((n) => `${NEED_KINDS[n.kind].label}: ${n.what}`).join(" / ")}）があるため、人の作業待ちにしました。用意できたら、案件の画面で「済み」にすると作り始めます`);
+    return;
+  }
   if (p.deep && p.deep_need) return prepareDeepData(id);
-  if (p.mode === "manual") {
+  if (p.mode === "manual" && !opts.decided) {
     addApproval(id, "idea", `「${p.title}」で進める`, p.ai_reason);
     return;
   }
@@ -505,6 +516,27 @@ export async function retryDeepData(projectId: number) {
   await prepareDeepData(projectId);
 }
 
+// ---- 人の作業待ち ----
+
+// 要るものを人が用意した（仕組みを作った）ので、作り始める（データが要ればデータの下書き、なければ設計書を書いて開発待ちへ）
+// 判断を待たずに返すよう、作り始める流れの Promise を返す（決まりに合わないときは、すぐ理由を返す）
+export function markNeedsDone(projectId: number): Promise<void> {
+  const p = getProject(projectId);
+  if (!p || !p.needs || p.needs_done || p.stage !== "idea") throw new Error("人の作業待ちの案件ではありません");
+  // まだない仕組み（保存の場所・API・AI）が要るものは、仕組みを作る（ツールの決まりも変える）までは「済み」にできない（作ってもツールから使えないため）
+  const missing = notReady(needsOf(JSON.parse(p.needs)));
+  if (missing.length) throw new Error(`まだない仕組み（${[...new Set(missing.map((n) => NEED_KINDS[n.kind].label))].join("・")}）が要るため、まだ「済み」にできません（その仕組みを作るときに、使えるようにします）`);
+  db().prepare("UPDATE projects SET needs_done = 1, needs_done_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(projectId);
+  logEvent(projectId, "human", "needs-done", "作るのに要るものを用意したので、作り始めます");
+  // 人が「済み」で決めたので、毎回承認の設定でもアイデアの承認は挟まない。作り始めに失敗したら、人の作業待ちに戻す（宙に浮かせない）
+  return startProject(projectId, { decided: true }).catch((e) => {
+    db().prepare("UPDATE projects SET needs_done = 0, needs_done_at = NULL, updated_at = datetime('now') WHERE id = ?").run(projectId);
+    // 失敗の詳しい内容は、来訪者には伏せる（種類に error を含めると伏せられる）
+    logEvent(projectId, "system", "needs-error", `作り始めに失敗したため、人の作業待ちに戻しました（もう一度「済み」にできます）: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+    throw e;
+  });
+}
+
 // ---- じっくり案件の開発（ここ = Claude Code で作る） ----
 // じっくり案件のツールは込み入っていて、AIが1回で書くと長さの上限で途中で切れやすい（#60）。AIは設計書を書き、ツールは Claude Code で、
 // ブラウザで確かめながら作る。できたHTMLを運営者が入れると、いつもどおりチェック・動作の確かめ・紹介ページ・公開の判断に進む
@@ -524,6 +556,12 @@ function lastDevDesign(projectId: number): string | null {
   return r?.payload ? ((JSON.parse(r.payload) as { design?: string }).design ?? null) : null;
 }
 
+// 人の作業待ちで「済み」にした、要るもの（設計書を書くAIと、Claude Code への依頼文に渡す）。なければ空
+function needsNote(p: ProjectRow): string {
+  if (!p.needs || !p.needs_done) return "";
+  return needsOf(JSON.parse(p.needs)).map((n) => `- ${NEED_KINDS[n.kind].label}: ${n.what}${n.why ? `（${n.why}）` : ""}`).join("\n");
+}
+
 async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | null): Promise<string> {
   const out = await callJson<{ design: string }>({
     purpose: "じっくり案件の設計",
@@ -541,7 +579,7 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
 ## できたかの確かめ（動作の確かめの項目。5〜10個）
 実在の人物・既存の作品を使わない。人をばかにするネタにしない。誇大な約束をしない。
 出力はJSONのみ: {"design":"設計書（Markdown）"}`,
-    user: `ツール名: ${p.title}\n対象: ${p.target}\n${p.aim === "spread" ? "刺さる気持ち" : "困りごと"}: ${p.problem}\n何ができるか: ${p.solution}\n作り込む所（じっくり案件）: ${p.deep_plan ?? "（なし）"}${p.deep_need ? `\n使うデータ: ${p.deep_need}` : ""}${prev ? `\n\n前の設計書:\n${prev}` : ""}${comment ? `\n\n運営者の指示（この指示に沿って設計書を直す）: ${comment}` : ""}`,
+    user: `ツール名: ${p.title}\n対象: ${p.target}\n${p.aim === "spread" ? "刺さる気持ち" : "困りごと"}: ${p.problem}\n何ができるか: ${p.solution}\n作り込む所（じっくり案件）: ${p.deep_plan ?? "（なし）"}${p.deep_need ? `\n使うデータ: ${p.deep_need}` : ""}${needsNote(p) ? `\n人が用意したもの（人の作業待ちで「済み」にしたもの。これを使う前提で設計する）:\n${needsNote(p)}` : ""}${prev ? `\n\n前の設計書:\n${prev}` : ""}${comment ? `\n\n運営者の指示（この指示に沿って設計書を直す）: ${comment}` : ""}`,
     validate: (v): v is { design: string } => isObj(v) && isStr(v.design) && v.design.trim().length > 0,
   });
   // 頼んだ長さ（6,000文字）を超えた分は切る（依頼文が長くなりすぎないように）
@@ -585,6 +623,7 @@ export function devRequestText(projectId: number, design: string, instruction: s
     p.lp && instruction ? `直す指示: ${instruction}\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。` : "",
     `## 設計書\n${design}`,
     `## データ\n${dataNote}`,
+    needsNote(p) ? `## 人が用意したもの（人の作業待ちで「済み」にしたもの）\n${needsNote(p)}\n素材の場所・使い方など、ここに書いていないことは、作る前に運営者に聞く。` : "",
     `## 作るときの決まり（AIが書くときと同じ。ただし Claude Code で作るときは、コードの長さは${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）\n${rules}`,
     `## できたら\n1つのHTMLの断片（<html><head><body> は書かない）・${TOOL_HTML_MAX.toLocaleString("en-US")}文字以内にして、スマホ幅でブラウザで動かして確かめてから、案件の判断待ちの「ツールのHTMLを入れる」から入れる。入れると、いつもどおりチェック・動作の確かめ・紹介ページ・公開の判断に進む。`,
   ].filter(Boolean).join("\n\n");
@@ -2645,6 +2684,8 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   let deepLeft = practice || opts.deepOnly ? Infinity : deepAllowance();
   // 今回案件にするじっくり案件の数（開発待ちの上限に、これから開発待ちになる分も数える）
   let deepMade = 0;
+  // 今回案件にする、人の作業待ちになる案の数
+  let needsMade = 0;
   // ねらいの配分を守る: 最近30日の案件を数え、配分に比べていちばん足りないねらいから、点の高い案を選ぶ（pickByAims）
   const aimCounts: Partial<Record<Aim, number>> = {};
   for (const r of db().prepare("SELECT aim, COUNT(*) AS n FROM projects WHERE demo = 0 AND aim IS NOT NULL AND created_at >= datetime('now', '-30 days') GROUP BY aim").all() as { aim: string; n: number }[]) {
@@ -2655,9 +2696,20 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
     // 「広がる」は今回案件にしてよい件数まで（同時に集客中の上限・1日の上限）、じっくり案件は直近7日の上限まで
     // どちらの条件も通ってから枠を減らす（片方で外れた案が、もう片方の枠を使わないように）
     const deep = isDeepIdea(c.idea);
+    const needs = deep ? needsOf(c.idea.needs) : [];
     if (aim === "spread" && spreadLeft <= 0) {
       logEvent(null, "system", "spread-skipped", `アイデア「${c.idea.title}」は「広がる」ですが、今回作ってよい件数を超えるため、案件にしません`);
       return false;
+    }
+    // まだない仕組みが要る案は、人の作業待ちに止めるだけなので、週の上限や開発待ちには数えず、人の作業待ちの上限で見る（人が頼んだときは止めない）
+    if (needs.length) {
+      if (!practice && !opts.deepOnly && needsWaiting() + needsMade >= getSettings().needsWaitMax) {
+        logEvent(null, "system", "needs-skipped", `アイデア「${c.idea.title}」は、まだない仕組み（${needs.map((n) => NEED_KINDS[n.kind].label).join("・")}）が要りますが、人の作業待ちが${getSettings().needsWaitMax}件以上になるため、今回は案件にしません`);
+        return false;
+      }
+      if (aim === "spread") spreadLeft--;
+      needsMade++;
+      return true;
     }
     if (deep && deepLeft <= 0) {
       logEvent(null, "system", "deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、直近7日の上限に達しているため、今回は案件にしません`);

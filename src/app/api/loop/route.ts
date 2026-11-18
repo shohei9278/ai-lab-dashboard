@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  holdProject, ideaRunning, logEvent, resumeProject, startDevUpload, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  holdProject, ideaRunning, logEvent, resumeProject, startDevUpload, markNeedsDone, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -90,6 +90,9 @@ export async function POST(req: Request) {
         if (body.mode === "remove") await removePage(requireProject(body).id);
         else await redesignPage(requireProject(body).id);
         return NextResponse.json({ ok: true });
+      case "needs-done":
+        background(Number(body.projectId), "作り始めること", markNeedsDone(requireProject(body).id));
+        return NextResponse.json({ accepted: true });
       case "dev-upload": {
         // 決まりに合わないHTMLは、すぐ理由を返す。入れたら、チェック・紹介ページづくりは裏で進める（数分かかる）
         const html = typeof body.html === "string" ? body.html : "";

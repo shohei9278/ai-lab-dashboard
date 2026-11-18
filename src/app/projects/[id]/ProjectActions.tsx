@@ -4,7 +4,9 @@ import { useState } from "react";
 import type { Stage } from "@/lib/db";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 
-export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building, demo, deepNoData = false }: {
+export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building, demo, deepNoData = false, needs = null }: {
+  // 人の作業待ち（まだない仕組みが要るじっくり案件）。要るものの一覧
+  needs?: { label: string; what: string; why: string; ready: boolean }[] | null;
   id: number; convNoun: string; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number; isTool: boolean; demo: boolean;
   deepNoData?: boolean; // じっくり案件で、まだ承認したデータがない（止まっていたら、ツールではなくデータの下書きからやり直す）
   building: { what: string; since: number } | null; // AIが今作業中なら、その内容
@@ -95,6 +97,26 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
     return (
       <div className="card p-4 text-sm text-ink-2">
         <span aria-hidden style={{ color: "var(--accent)" }}>◐</span> AIが{building.what}（{Math.max(1, Math.round((Date.now() - building.since) / 60000))}分前から）。終わると自動で次に進みます。ページを開き直すと最新の状態になります。
+      </div>
+    );
+  }
+
+  if (needs && needs.length && stage === "idea" && !hasPending) {
+    return (
+      <div className="card space-y-2 p-4">
+        <h2 className="font-bold">人の作業待ち</h2>
+        <p className="text-sm text-ink-2">作るのに、今はまだない仕組みや、人が用意するものが要るため、作り始める前に止めています。用意できたら「済み」にすると、作り始めます（データが要るならデータの下書き、なければ設計書を書いて開発待ちへ）。</p>
+        <ul className="list-disc space-y-1 pl-5 text-sm">
+          {needs.map((n, i) => <li key={i}><span className="font-medium">{n.label}</span>: {n.what}{n.why ? <span className="text-ink-2">（{n.why}）</span> : null}{!n.ready && <span className="ml-1 text-xs" style={{ color: "var(--warning)" }}>（この仕組みはまだありません）</span>}</li>)}
+        </ul>
+        {needs.some((n) => !n.ready) && <p className="text-xs text-muted">まだない仕組みが要るため、まだ「済み」にできません。その仕組みを作るとき（ツールから使えるようにするとき）に、押せるようになります。</p>}
+        <div className="flex flex-wrap gap-2">
+          <ActionButton variant="primary" disabled={!!busy || needs.some((n) => !n.ready)} onClick={() => run("受け付けています…", { action: "needs-done", projectId: id })}>
+            用意した（済み）・作り始める
+          </ActionButton>
+          <Abandon id={id} />
+        </div>
+        <BusyNote busy={busy} error={error} />
       </div>
     );
   }

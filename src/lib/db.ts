@@ -692,6 +692,9 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "spread_base_plays", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "spread_base_shares", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "spread_hit", "INTEGER"], // 「広がる」の判定の結果（1 当たり / 0 当たらず。判定前は空）
+  ["projects", "needs", "TEXT"], // じっくり案件で、作るのに要るもの（保存の場所・外部のAPI・AIなど。needs.ts の Need の JSON）。なければ空
+  ["projects", "needs_done", "INTEGER NOT NULL DEFAULT 0"], // 要るものを人が用意した（「済み」）か。0 のあいだは、作り始める前に止めておく
+  ["projects", "needs_done_at", "TEXT"], // 人の作業待ちを「済み」にして作り始めた日時（じっくり案件の週の上限は、この日から数える）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
   ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
@@ -781,6 +784,7 @@ export type Settings = {
   maxAutoImprove: number; // 自動モードで、人の承認なしにLPを改善してよい回数
   staleDays: number; // この日数放置された承認待ちは見送りにする
   deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）
+  needsWaitMax: number; // 人の作業待ち（保存の場所・API・AIなど、まだない仕組みが要るじっくり案件）がこの件数以上なら、そういう案件を新しく作らない
   deepDevWaitMax: number; // 開発待ち（Claude Code で作るのを待っている）のじっくり案件がこの件数以上なら、新しいじっくり案件を作らない
   // アイデア出しのねらいの配分（重み。0〜10）。広がる・役に立つ・また来てもらう・需要を確かめる
   aimSpread: number;
@@ -883,6 +887,7 @@ const DEFAULTS: Settings = {
   staleDays: 7,
   deepPerWeek: 3,
   deepDevWaitMax: 2,
+  needsWaitMax: 5,
   aimSpread: 4,
   aimUseful: 3,
   aimReturn: 2,
@@ -996,6 +1001,9 @@ export type ProjectRow = {
   spread_base_plays: number; // 「広がる」の判定の起点の累計（遊んだ人・シェア）
   spread_base_shares: number;
   spread_hit: number | null; // 「広がる」の判定の結果（1 当たり / 0 当たらず）
+  needs: string | null; // 作るのに要るもの（Need[] の JSON）
+  needs_done: number; // 要るものを人が用意した（「済み」）か
+  needs_done_at: string | null; // 「済み」にして作り始めた日時
   growth_count: number;
   human_review: "ok" | "bad" | null;
   human_review_note: string | null;
