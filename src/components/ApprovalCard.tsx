@@ -6,6 +6,7 @@ import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
 import { DecisionCard } from "./DecisionCard";
 import { jstDateTime } from "@/lib/format";
 import { plainIssue } from "@/lib/issueText";
+import { fixInstruction, pageOnlyIssues } from "@/lib/fixText";
 import { hasUnpublishedVersion, versionLabel } from "@/lib/versionLabel";
 
 export type ApprovalView = {
@@ -120,7 +121,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
             )}
           </span>
           {a.review && !a.review.ok && a.review.issues.length > 0 && (
-            <AutoFix approvalId={a.id} issues={a.review.issues} isTool={a.project.kind === "tool"} />
+            <AutoFix approvalId={a.id} issues={a.review.issues} isTool={a.project.kind === "tool"} deep={a.project.deep} />
           )}
         </div>
       )}
@@ -257,16 +258,24 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
 }
 
 // チェックの指摘に沿って、AIに直させる（そのまま直させるか、直す内容を確認・書き足してから送る）
-function AutoFix({ approvalId, issues, isTool }: { approvalId: number; issues: string[]; isTool: boolean }) {
+// じっくり案件のツールは Claude Code で作るので、ツールの指摘があれば開発待ち（設計書と依頼文）になる。紹介ページの指摘だけなら、ツールは今のままで紹介ページだけをAIが直す
+function AutoFix({ approvalId, issues, isTool, deep }: { approvalId: number; issues: string[]; isTool: boolean; deep: boolean }) {
   const { run, busy, error } = useLoopAction();
-  const draft = `AIのチェックで見つかった次の問題だけを直すこと。それ以外（世界観・見た目・文言・機能）は今のまま残す。\n${issues.map((x, i) => `${i + 1}. ${x.replace(/^デザイン: /, "")}`).join("\n")}`;
+  const draft = fixInstruction(issues, isTool);
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(draft);
-  const label = isTool ? "AIがツールと紹介ページを直しています（数分かかります）…" : "AIがLPを直しています（数分かかります）…";
+  const pageOnly = isTool && deep && pageOnlyIssues(issues);
+  const toDev = isTool && deep && !pageOnly;
+  const label = pageOnly ? "AIが紹介ページを直しています（ツールは今のまま。数分かかります）…"
+    : toDev ? "直す依頼（設計書）を作っています…"
+    : isTool ? "AIがツールと紹介ページを直しています（数分かかります）…" : "AIがLPを直しています（数分かかります）…";
   return (
     <div className="space-y-2 rounded-lg bg-surface-2 p-3">
       <div className="text-sm font-medium">指摘に沿って直させる</div>
-      <p className="text-xs text-muted">チェックで出た問題だけを直させます。直した版はもう一度チェックし、通れば全自動の案件はそのまま公開されます。通らなければ、またここに戻ってきます（1回 約50〜200円）。</p>
+      {pageOnly && <p className="text-xs text-muted">指摘はどれも紹介ページのものなので、ツールは今のまま使い、紹介ページだけをAIが直します。</p>}
+      {toDev && <p className="text-xs text-muted">ツールの指摘があるので、開発待ちにして Claude Code で直します（依頼文を Claude Code に貼ります）。「紹介ページ:」の指摘は、直したツールを入れたあとにAIが直します。</p>}
+      {/* 開発待ちにするときは、AIがすぐ直すわけではないので出さない（直したツールを入れたあとに、いつものチェックに進む） */}
+      {!toDev && <p className="text-xs text-muted">チェックで出た問題だけを直させます。直した版はもう一度チェックし、通れば全自動の案件はそのまま公開されます。通らなければ、またここに戻ってきます（1回 約50〜200円）。</p>}
       {editing && (
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} maxLength={2000} className="block w-full rounded-lg border border-line bg-surface p-2 text-sm" />
       )}

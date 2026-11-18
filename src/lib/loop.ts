@@ -3,6 +3,7 @@ import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { makePlayVideoOnPublish } from "./playVideo";
 import { hitsText } from "./hits";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
+import { fixInstruction, pageOnlyIssues } from "./fixText";
 import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
@@ -620,7 +621,7 @@ export function devRequestText(projectId: number, design: string, instruction: s
   }
   return [
     `ai-lab の案件 #${p.id}「${p.title}」の、じっくり案件のツールを${p.lp ? "直して" : "作って"}ください。`,
-    p.lp && instruction ? `直す指示: ${instruction}\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。` : "",
+    p.lp && instruction ? `直す指示: ${instruction}\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。${/^\d+\. 紹介ページ: /m.test(instruction) ? "\n「紹介ページ:」で始まる指摘は、ツールではなくAIが書く紹介ページのもの。ツールを入れたあとに、AIが紹介ページを作り直すときに直すので、ツールでは直さない。" : ""}` : "",
     `## 設計書\n${design}`,
     `## データ\n${dataNote}`,
     needsNote(p) ? `## 人が用意したもの（人の作業待ちで「済み」にしたもの）\n${needsNote(p)}\n素材の場所・使い方など、ここに書いていないことは、作る前に運営者に聞く。` : "",
@@ -1226,13 +1227,13 @@ export async function switchLpCandidate(candidateId: number) {
 
 // LPを書き、チェックし、問題があれば1回だけ直す。新しい版として保存する
 // 動くツールの案件では、ツール本体も作る（改善のときは、指示がツールとページのどちらに向くかをAIの指示文に任せる）
-async function buildLpVersion(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string }) {
+async function buildLpVersion(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string; keepTool?: boolean }) {
   const kind = getProject(projectId)!.kind;
-  const what = `${kind === "tool" ? "ツール" : "LP"}を${opts.instruction || opts.keepCore ? "直して" : "作って"}います`;
+  const what = `${kind === "tool" ? (opts.keepTool ? "紹介ページ" : "ツール") : "LP"}を${opts.instruction || opts.keepCore ? "直して" : "作って"}います`;
   return whileBuilding(projectId, what, () => buildLpVersionNow(projectId, opts));
 }
 
-async function buildLpVersionNow(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string }) {
+async function buildLpVersionNow(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string; keepTool?: boolean }) {
   const p = getProject(projectId)!;
   const before = p.lp ? (JSON.parse(p.lp) as Lp) : undefined;
   if (p.kind === "tool") return buildToolVersion(p, before, opts);
@@ -1387,12 +1388,14 @@ export async function removePage(projectId: number) {
   if (now.public_slug && now.public_version === now.lp_version && now.stage !== "killed") await announcePublish(projectId);
 }
 
-async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string }) {
+async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string; keepTool?: boolean }) {
   const { shareText, ...page } = await writeLp(p, opts.instruction, opts.keepCore);
   const version = nextVersion(p.id);
-  const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html, opts.toolHtml);
+  // ツールを今のまま使うとき（紹介ページの指摘だけを直す）は、ツールのチェックに紹介ページへの指示を渡さない（ツールで直していないと誤って指摘しないように）
+  const tool = await buildTool(p, `p${p.id}-v${version}`, opts.keepTool ? undefined : opts.instruction, before?.tool?.html, opts.toolHtml);
   const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined, tool.html);
-  let review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
+  // 紹介ページの文の指摘には「紹介ページ: 」を付けて、ツールの指摘と分ける（じっくり案件で、紹介ページだけを直せるように）
+  let review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues.map((x) => `紹介ページ: ${x}`)] };
   let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline, fonts: true, results: toolResultsOf(tool.html), ...(tool.deep ?? {}) } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
   if (tool.deep?.data && !lp.tool.data) throw new Error("じっくり案件のデータが大きすぎるため保存できませんでした");
@@ -1435,12 +1438,16 @@ function nextVersion(projectId: number): number {
   return (r.v ?? 0) + 1;
 }
 
-export async function prepareLp(projectId: number, instruction?: string, opts: { keepCore?: boolean; byHuman?: boolean; auto?: boolean; toolHtml?: string } = {}) {
+// keepTool: じっくり案件のツールを今のまま使い、紹介ページだけを作り直す（紹介ページの指摘だけを直すとき）
+export async function prepareLp(projectId: number, instruction?: string, opts: { keepCore?: boolean; byHuman?: boolean; auto?: boolean; toolHtml?: string; keepTool?: boolean } = {}) {
   const p = getProject(projectId)!;
+  const current = opts.keepTool && p.lp ? (JSON.parse(p.lp) as Lp).tool?.html : undefined;
   // じっくり案件のツールは、AIが1回で書かずに、ここ（Claude Code）で作る・直す。AIは設計書を書き、開発待ちにする
-  if (p.kind === "tool" && p.deep && opts.toolHtml === undefined) return requestDev(projectId, instruction);
+  if (p.kind === "tool" && p.deep && opts.toolHtml === undefined && current === undefined) return requestDev(projectId, instruction);
+  const toolHtml = opts.toolHtml ?? current;
   const note = !instruction ? "最初の版" : opts.byHuman ? `あなたの指示: ${instruction}` : `指示: ${instruction}`;
-  const { lp, review } = await buildLpVersion(projectId, { instruction, note: opts.toolHtml !== undefined ? `${note}（ツールは Claude Code で作った）` : note, keepCore: opts.keepCore, toolHtml: opts.toolHtml });
+  const made = current !== undefined ? "（ツールは今のまま、紹介ページだけ直した）" : toolHtml !== undefined ? "（ツールは Claude Code で作った）" : "";
+  const { lp, review } = await buildLpVersion(projectId, { instruction, note: `${note}${made}`, keepCore: opts.keepCore, toolHtml, keepTool: current !== undefined });
   setStage(projectId, "lp");
   // 全自動: チェックを通ったものだけ、人の承認なしで公開する（あとから人が見て印を付ける）
   const blocked = opts.auto ? autoPublishBlocked(p, review) : "対象外";
@@ -2127,23 +2134,21 @@ function rejectPublish(pid: number) {
 }
 
 // 案件の画面から、今のLP・ツールへの修正を指示する。作った版は、承認されるまで公開しない
-// AIのチェックの指摘から、直すための指示文を作る（AIは使わない。指摘そのものが具体的なので、そのまま渡す）
-export function fixInstruction(issues: string[]): string {
-  return `AIのチェックで見つかった次の問題だけを直すこと。それ以外（世界観・見た目・文言・機能）は今のまま残す。\n${issues.map((x, i) => `${i + 1}. ${x.replace(/^デザイン: /, "")}`).join("\n")}`;
-}
-
 // 判断待ちの公開を、チェックの指摘に沿ってAIに直させる。直した版がチェックを通り、全自動の案件なら、そのまま公開する
 export async function autoFixPublish(approvalId: number, instruction?: string) {
   const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
   if (!a || a.kind !== "publish" || a.status !== "pending") throw new Error("直せる公開の承認待ちが見つかりません");
   const review = (JSON.parse(a.payload ?? "{}") as { review?: Review }).review;
-  const text = instruction?.trim() || (review?.issues.length ? fixInstruction(review.issues) : "");
+  const p = getProject(a.project_id)!;
+  const text = instruction?.trim() || (review?.issues.length ? fixInstruction(review.issues, p.kind === "tool") : "");
   if (!text) throw new Error("直す内容がありません（チェックの指摘がないため）");
   db().prepare("UPDATE approvals SET status = 'revised', comment = ?, decided_at = datetime('now') WHERE id = ?").run(text.slice(0, 1000), approvalId);
-  logEvent(a.project_id, "human", "auto-fix", `チェックの指摘に沿って、AIに直させました${instruction?.trim() ? "（指示を確認して送信）" : ""}`);
-  const p = getProject(a.project_id)!;
+  // じっくり案件のツールで、指摘が紹介ページのものだけなら、ツールは今のままにして紹介ページだけを作り直す
+  // （ツールは Claude Code で作ったもので、直す所がないのに開発待ちにすると、直す所のない依頼になる）
+  const keepTool = p.kind === "tool" && !!p.deep && pageOnlyIssues(review?.issues ?? []);
+  logEvent(a.project_id, "human", "auto-fix", `チェックの指摘に沿って、AIに直させました${keepTool ? "（紹介ページだけ。ツールは今のまま）" : ""}${instruction?.trim() ? "（指示を確認して送信）" : ""}`);
   // まだ一度も公開していない全自動の案件は、直した版がチェックを通れば、最初に作ったときと同じように自動で公開する
-  await prepareLp(a.project_id, text, { keepCore: true, byHuman: true, auto: p.mode === "auto" && !p.public_slug });
+  await prepareLp(a.project_id, text, { keepCore: true, byHuman: true, auto: p.mode === "auto" && !p.public_slug, keepTool });
 }
 
 export async function requestRevision(projectId: number, instruction: string, keepCore: boolean) {
