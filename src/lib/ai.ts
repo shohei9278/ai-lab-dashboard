@@ -9,15 +9,35 @@ import { withExternalRule } from "./untrusted";
 
 export class GuardError extends Error {}
 
+// いま呼んでいる途中のAI（呼んだ記録 ai_calls は、終わってから書くので、ツールを書くような長い呼び出しの間は何も残らない）
+// オフィスの画面で、長い作業の間も社員をその部屋に置くために使う
+export type OngoingCall = { id: number; modelId: string; purpose: string; projectId: number | null; since: number };
+const gOngoing = globalThis as unknown as { __aiLabOngoing?: Map<number, OngoingCall>; __aiLabOngoingSeq?: number };
+const ongoing = (gOngoing.__aiLabOngoing ??= new Map());
+export const ongoingCalls = (): OngoingCall[] => [...ongoing.values()];
+export async function tracked<T>(modelId: string, purpose: string, projectId: number | undefined, fn: () => Promise<T>): Promise<T> {
+  const id = (gOngoing.__aiLabOngoingSeq = (gOngoing.__aiLabOngoingSeq ?? 0) + 1);
+  ongoing.set(id, { id, modelId, purpose, projectId: projectId ?? null, since: Date.now() });
+  try {
+    return await fn();
+  } finally {
+    ongoing.delete(id);
+  }
+}
+
 // 製品ループ用のAI呼び出し。予算・緊急停止を確認し、費用を記録してJSONを返す
-export async function callJson<T>(opts: {
+type JsonOpts<T> = {
   purpose: string;
   projectId?: number;
   system: string;
   user: string;
   validate: (v: unknown) => v is T;
   modelId?: string; // 指定しなければ、設定の「製品ループで使うAI」
-}): Promise<T> {
+};
+export function callJson<T>(opts: JsonOpts<T>): Promise<T> {
+  return tracked(opts.modelId ?? getSettings().loopModel, opts.purpose, opts.projectId, () => callJsonRaw(opts));
+}
+async function callJsonRaw<T>(opts: JsonOpts<T>): Promise<T> {
   const s = getSettings();
   if (s.killSwitch) throw new GuardError("緊急停止中のため、AIを呼び出せません");
   if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) throw new GuardError("今月のAI予算の上限に達しています");
@@ -55,7 +75,11 @@ export function claudeModelId(): string | null {
 export type ClaudeContent = ({ type: "text"; text: string } | { type: "image"; source: { type: "base64"; media_type: "image/png" | "image/jpeg"; data: string } })[];
 const contentText = (c: ClaudeContent) => c.map((x) => (x.type === "text" ? x.text : "（画像）")).join("\n");
 
-export async function callClaude(opts: { purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number; modelId?: string; effort?: "low" | "medium" | "high" }): Promise<string> {
+type ClaudeOpts = { purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number; modelId?: string; effort?: "low" | "medium" | "high" };
+export function callClaude(opts: ClaudeOpts): Promise<string> {
+  return tracked(opts.modelId ?? claudeModelId() ?? "", opts.purpose, opts.projectId, () => callClaudeRaw(opts));
+}
+async function callClaudeRaw(opts: ClaudeOpts): Promise<string> {
   const s = getSettings();
   if (s.killSwitch) throw new GuardError("緊急停止中のため、AIを呼び出せません");
   if (monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy) throw new GuardError("今月のAI予算の上限に達しています");
@@ -90,7 +114,12 @@ export async function callClaude(opts: { purpose: string; projectId?: number; sy
 }
 
 // 長い出力（ツールやページのHTMLなど）を、決めたAIで最後まで受け取る。Claude・OpenAI・Gemini に対応（文字のまま返す）
-export async function callLong(opts: { modelId: string; purpose: string; projectId?: number; system: string; user: string; maxTokens: number; effort?: "low" | "medium" | "high" }): Promise<string> {
+type LongOpts = { modelId: string; purpose: string; projectId?: number; system: string; user: string; maxTokens: number; effort?: "low" | "medium" | "high" };
+export function callLong(opts: LongOpts): Promise<string> {
+  // Claude は callClaude の中で数える（二重にしない）
+  return getModel(opts.modelId).provider === "anthropic" ? callLongRaw(opts) : tracked(opts.modelId, opts.purpose, opts.projectId, () => callLongRaw(opts));
+}
+async function callLongRaw(opts: LongOpts): Promise<string> {
   const model = getModel(opts.modelId);
   if (model.provider === "anthropic") {
     return callClaude({ purpose: opts.purpose, projectId: opts.projectId, system: opts.system, content: [{ type: "text", text: opts.user }], maxTokens: opts.maxTokens, modelId: model.id, effort: opts.effort });
@@ -142,7 +171,11 @@ export async function callLong(opts: { modelId: string; purpose: string; project
 }
 
 // 画像を見せて短い答えをもらう（LPの画面の採点など）。Claude・OpenAI・Gemini に対応（文字のまま返す）
-export async function callVision(opts: { modelId: string; purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number }): Promise<string> {
+type VisionOpts = { modelId: string; purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number };
+export function callVision(opts: VisionOpts): Promise<string> {
+  return getModel(opts.modelId).provider === "anthropic" ? callVisionRaw(opts) : tracked(opts.modelId, opts.purpose, opts.projectId, () => callVisionRaw(opts));
+}
+async function callVisionRaw(opts: VisionOpts): Promise<string> {
   const model = getModel(opts.modelId);
   if (model.provider === "anthropic") return callClaude({ ...opts, modelId: model.id });
   const s = getSettings();
