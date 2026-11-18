@@ -526,12 +526,13 @@ export function markNeedsDone(projectId: number): Promise<void> {
   // まだない仕組み（保存の場所・API・AI）が要るものは、仕組みを作る（ツールの決まりも変える）までは「済み」にできない（作ってもツールから使えないため）
   const missing = notReady(needsOf(JSON.parse(p.needs)));
   if (missing.length) throw new Error(`まだない仕組み（${[...new Set(missing.map((n) => NEED_KINDS[n.kind].label))].join("・")}）が要るため、まだ「済み」にできません（その仕組みを作るときに、使えるようにします）`);
-  db().prepare("UPDATE projects SET needs_done = 1, updated_at = datetime('now') WHERE id = ?").run(projectId);
+  db().prepare("UPDATE projects SET needs_done = 1, needs_done_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(projectId);
   logEvent(projectId, "human", "needs-done", "作るのに要るものを用意したので、作り始めます");
   // 人が「済み」で決めたので、毎回承認の設定でもアイデアの承認は挟まない。作り始めに失敗したら、人の作業待ちに戻す（宙に浮かせない）
   return startProject(projectId, { decided: true }).catch((e) => {
-    db().prepare("UPDATE projects SET needs_done = 0, updated_at = datetime('now') WHERE id = ?").run(projectId);
-    logEvent(projectId, "system", "needs-wait", `作り始めに失敗したため、人の作業待ちに戻しました（もう一度「済み」にできます）: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+    db().prepare("UPDATE projects SET needs_done = 0, needs_done_at = NULL, updated_at = datetime('now') WHERE id = ?").run(projectId);
+    // 失敗の詳しい内容は、来訪者には伏せる（種類に error を含めると伏せられる）
+    logEvent(projectId, "system", "needs-error", `作り始めに失敗したため、人の作業待ちに戻しました（もう一度「済み」にできます）: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
     throw e;
   });
 }

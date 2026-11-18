@@ -43,6 +43,15 @@ test("人の作業待ち: 数え方・種類ごとのまとめ。止まってい
   assert.equal(deepAllowance(), Math.max(0, before - 1));
 });
 
+test("人の作業待ち（PR #91 の2回目の ai-review の指摘）: 長く待ってから作り始めたものは、作った日ではなく「済み」にした日から週の上限に数える", () => {
+  const before = deepAllowance();
+  const old = add([{ kind: "asset", what: "効果音" }], { needs_done: 1 });
+  db().prepare("UPDATE projects SET created_at = datetime('now', '-20 days'), needs_done_at = datetime('now') WHERE id = ?").run(old);
+  assert.equal(deepAllowance(), Math.max(0, before - 1));
+  db().prepare("UPDATE projects SET needs_done_at = datetime('now', '-8 days') WHERE id = ?").run(old);
+  assert.equal(deepAllowance(), before);
+});
+
 test("人の作業待ち（PR #91 の ai-review の指摘）: まだない仕組み（保存の場所・API・AI）が要る案件は、まだ「済み」にできない", () => {
   const id = add([{ kind: "asset", what: "効果音" }, { kind: "ai", what: "AIが名前を付ける" }]);
   assert.throws(() => markNeedsDone(id), /まだない仕組み（その場でAIを呼ぶ）が要るため/);
@@ -61,5 +70,8 @@ test("人の作業待ち: 「済み」にすると、毎回承認の設定でも
   assert.equal(db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'idea'").get(id), undefined);
   // 失敗したので、人の作業待ちに戻っている（もう一度「済み」にできる）
   assert.equal(getProject(id)!.needs_done, 0);
+  assert.equal(getProject(id)!.needs_done_at, null);
   assert.ok(needsProjects().some((p) => p.id === id));
+  // 失敗の詳しい内容は、来訪者に伏せられる種類で残す
+  assert.ok(db().prepare("SELECT 1 FROM events WHERE project_id = ? AND kind = 'needs-error'").get(id));
 });
