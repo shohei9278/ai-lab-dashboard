@@ -278,7 +278,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 世に出す形（kind）は2つあり、下に書くねらい（aim）から決まります（demand は lp、ほかは tool）。
 - lp: 事前登録LP。まだ作らずに、紹介ページのメール事前登録で需要を確かめる。プロダクトの種類も、作る大変さも問わない（需要が確かめられてから作る）。継続して使うもの・作るのに時間がかかるもの向け
 - tool: 動くツール。診断・シミュレーター・計算機・ジェネレーターなど、1つのWebページの中だけで完結して今すぐ使えるもの。外部のAPIやサーバー、ログイン、ブラウザの保存領域（localStorage など）は使えない。記録や保存が欲しい案は、solution に「画面を閉じると消える一時的な保持」と明記する。何度も使いたくなるもの・結果を人に見せたくなるものが向く
-- じっくり案件（tool のみ）: ふつうの tool の制限（40,000文字まで・データは代表的なものだけ・フォントなし・1回で書き上げる）を外し、時間とお金をかけて作り込む枠（直近7日で${s.deepPerWeek}件まで）。コードは60,000文字まで、Google Fonts が使え、できたあとに見た目を磨く段を通る。制限のせいで小さく縮めるしかない案は、縮めずに deep に何を作り込むか（見せ方・演出・データの大きさなど）を書いて出してよい。deep は、ふつうの tool では面白さが出ない案だけに書く
+- じっくり案件（tool のみ）: ふつうの tool の制限（40,000文字まで・データは代表的なものだけ・フォントなし・AIが1回で書き上げる）を外し、時間をかけて作り込む枠（直近7日で${s.deepPerWeek}件まで）。AIが設計書を書き、開発担当（Claude Code）がブラウザで確かめながら作る。コードは${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで、Google Fonts が使える。制限のせいで小さく縮めるしかない案は、縮めずに deep に何を作り込むか（見せ方・演出・データの大きさなど）を書いて出してよい。deep は、ふつうの tool では面白さが出ない案だけに書く
 - じっくり案件で大きなデータ（数百〜${TOOL_DATA_ROWS_MAX}件ほどの一覧。例: 全国の市町村ごとの特徴・数百の職業の特徴）が要るときだけ、deep_data に要るデータ（何の一覧で、1件ごとに何を持ち、何件くらいか）を書く。AIがデータを下書きし、人が確かめてから作る。deep_data には、データがどのくらいの頻度で変わるか（変わらない・年1回・毎月など）と、変わるときに誰がどう更新するかも書く（すぐ古くなるデータ（売り場・配信作品・価格など）は、更新の手立てがなければ出さない）。データが要らないじっくり案件は deep_data を書かない
 - 外部の API・サービスは今は使えない（通信は止めている）。使えたら明らかに良くなる、または使えないと作れない API があれば、api_wish に書く（API の名前・何に使うか・鍵（APIキー）が要るか・訪問者のどんな情報を送ることになるか）。人が、その API を許すかを決める材料として記録する。api_wish を書いても、solution は通信なしで作れる形にする。思いつきで書かず、本当に効くものだけにする（なければ書かない）
 アイデアごとに、ねらい（aim）を1つ決める。ねらいは、何をもって当たりとするかを決める。形（kind）はねらいから決まる（demand は lp、ほかは tool）。
@@ -503,6 +503,111 @@ export async function retryDeepData(projectId: number) {
   if (!p || !deepDataStuck(p)) throw new Error("データの下書きをやり直せる状態ではありません");
   logEvent(projectId, "human", "deep-data-retry", "じっくり案件のデータの下書きを、やり直すよう指示しました");
   await prepareDeepData(projectId);
+}
+
+// ---- じっくり案件の開発（ここ = Claude Code で作る） ----
+// じっくり案件のツールは込み入っていて、AIが1回で書くと長さの上限で途中で切れやすい（#60）。AIは設計書を書き、ツールは Claude Code で、
+// ブラウザで確かめながら作る。できたHTMLを運営者が入れると、いつもどおりチェック・動作の確かめ・紹介ページ・公開の判断に進む
+
+export const CLAUDE_CODE = "claude-code";
+
+// 開発待ち（Claude Code で作るのを待っている）のじっくり案件の数
+export function devWaiting(): number {
+  return (db().prepare("SELECT COUNT(*) AS n FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND a.status = 'pending' AND p.demo = 0").get() as { n: number }).n;
+}
+
+// 前の設計書（いちばん新しい開発待ちのもの）
+function lastDevDesign(projectId: number): string | null {
+  const r = db().prepare("SELECT payload FROM approvals WHERE project_id = ? AND kind = 'dev' ORDER BY id DESC LIMIT 1").get(projectId) as { payload: string | null } | undefined;
+  return r?.payload ? ((JSON.parse(r.payload) as { design?: string }).design ?? null) : null;
+}
+
+async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | null): Promise<string> {
+  const out = await callJson<{ design: string }>({
+    purpose: "じっくり案件の設計",
+    projectId: p.id,
+    system: `あなたは小さなWebツールの設計担当です。じっくり案件のツールの設計書を書きます。ツールは開発担当（Claude Code）が、この設計書をもとに、ブラウザで確かめながら作ります。
+ツールは、紹介ページの中の枠に埋め込まれる1つのHTMLの断片で、外部との通信・保存の領域は使えません（作る側の決まりは別に渡します）。
+設計書には、次の見出しで書く（Markdown。全体で6,000文字以内）:
+## 一言で（何をするツールか。1〜2文）
+## 画面（上から順に。スマホ幅360pxでの並び）
+## 遊び方・使い方（操作の順番。最初の3秒で何をすればよいか分かること）
+## 演出・手ざわり（動き・音・反応。どこに手をかけるか）
+## 結果の見せ方とシェア（結果の画面・シェアの一文。結果の種類が決まっているなら、その名前の一覧）
+## データ（使うデータとその使い方。要らなければ「なし」）
+## 作り込むところ・やらないこと（時間をかける所と、今回は入れないもの）
+## できたかの確かめ（動作の確かめの項目。5〜10個）
+実在の人物・既存の作品を使わない。人をばかにするネタにしない。誇大な約束をしない。
+出力はJSONのみ: {"design":"設計書（Markdown）"}`,
+    user: `ツール名: ${p.title}\n対象: ${p.target}\n${p.aim === "spread" ? "刺さる気持ち" : "困りごと"}: ${p.problem}\n何ができるか: ${p.solution}\n作り込む所（じっくり案件）: ${p.deep_plan ?? "（なし）"}${p.deep_need ? `\n使うデータ: ${p.deep_need}` : ""}${prev ? `\n\n前の設計書:\n${prev}` : ""}${comment ? `\n\n運営者の指示（この指示に沿って設計書を直す）: ${comment}` : ""}`,
+    validate: (v): v is { design: string } => isObj(v) && isStr(v.design) && v.design.trim().length > 0,
+  });
+  return out.design.trim().slice(0, 8000);
+}
+
+// 開発待ちにする。最初に作るとき・設計を直す指示のときは、AIが設計書を書く（直すときは、前の設計書と直す指示を渡す）
+// instruction: 公開した版を直すときの指示（改善・修正の指示）。comment: 運営者が設計書を直すよう指示したとき
+async function requestDev(projectId: number, instruction?: string, comment?: string) {
+  const p = getProject(projectId)!;
+  const prev = lastDevDesign(projectId);
+  const design = !prev || comment
+    ? await whileBuilding(projectId, "ツールの設計書を書いています", () => writeDevDesign(p, comment, prev))
+    : prev;
+  const first = !p.lp;
+  addApproval(
+    projectId, "dev",
+    first ? `「${p.title}」のツールを Claude Code で作る` : `「${p.title}」のツールを Claude Code で直す`,
+    first
+      ? "AIが設計書を書きました。依頼文を Claude Code に貼って作り、できたツールのHTMLをここから入れてください。入れると、いつもどおりチェック・動作の確かめ・紹介ページづくりをして、公開の判断待ちに出します。"
+      : `次の指示で直します: ${instruction ?? comment ?? "（指示なし）"}。依頼文を Claude Code に貼って直し、できたHTMLをここから入れてください。入れるまでは、今の版のままです。`,
+    { design, instruction: instruction ?? null },
+  );
+  logEvent(projectId, "ai", "dev-design", first || comment ? `じっくり案件のツールの設計書を書き、開発待ちにしました（Claude Code で作ります）${comment ? "・指示を反映" : ""}` : `じっくり案件のツールを直すため、開発待ちにしました（Claude Code で直します）: ${(instruction ?? "").slice(0, 120)}`);
+}
+
+// Claude Code に貼る依頼文（設計書・作るときの決まり・データ・入れ方）
+export function devRequestText(projectId: number, design: string, instruction: string | null): string {
+  const p = getProject(projectId)!;
+  let rules = "";
+  let dataNote = "なし（コードの中に書く）";
+  try {
+    const deep = deepContext(p);
+    rules = toolRules(deep);
+    if (deep?.data) dataNote = `window.labData（${deep.data.rows.length}件）。${deep.data.spec.note}。案件の画面の「データを保存」から JSON を取れます`;
+  } catch (e) {
+    rules = `（作るときの決まりを出せませんでした: ${e instanceof Error ? e.message : String(e)}）`;
+  }
+  return [
+    `ai-lab の案件 #${p.id}「${p.title}」の、じっくり案件のツールを${p.lp ? "直して" : "作って"}ください。`,
+    p.lp && instruction ? `直す指示: ${instruction}\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。` : "",
+    `## 設計書\n${design}`,
+    `## データ\n${dataNote}`,
+    `## 作るときの決まり（AIが書くときと同じ。ただし Claude Code で作るときは、コードの長さは${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）\n${rules}`,
+    `## できたら\n1つのHTMLの断片（<html><head><body> は書かない）・${TOOL_HTML_MAX.toLocaleString("en-US")}文字以内にして、スマホ幅でブラウザで動かして確かめてから、案件の判断待ちの「ツールのHTMLを入れる」から入れる。入れると、いつもどおりチェック・動作の確かめ・紹介ページ・公開の判断に進む。`,
+  ].filter(Boolean).join("\n\n");
+}
+
+// ここで作ったツールのHTMLを入れる。決まり（外部との通信・保存の領域など）に合わないものは、すぐ理由を返す（入れない）
+// 入れたら開発待ちを閉じ、いつもの流れ（チェック・動作の確かめ・紹介ページ・公開の判断）を始める（返すのは、その流れの Promise）
+export function startDevUpload(approvalId: number, html: string): Promise<void> {
+  const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
+  if (!a || a.kind !== "dev" || a.status !== "pending") throw new Error("ツールを入れられる開発待ちが見つかりません");
+  const t = html.trim();
+  if (!t) throw new Error("ツールのHTMLが空です");
+  if (t.length > TOOL_HTML_MAX) throw new Error(`ツールのHTMLが長すぎます（${t.length.toLocaleString("en-US")}文字。${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）`);
+  const issues = staticToolIssues(t);
+  if (issues.length) throw new Error(`決まりに合わないため入れられません: ${issues.join(" / ")}`);
+  const p = getProject(a.project_id)!;
+  db().prepare("UPDATE approvals SET status = 'approved', comment = ?, decided_at = datetime('now') WHERE id = ?").run("Claude Code で作ったツールを入れた", approvalId);
+  logEvent(p.id, "human", "dev-upload", `Claude Code で作ったツール（${(t.length / 1000).toFixed(1)}千文字）を入れました`);
+  const payload = JSON.parse(a.payload ?? "{}") as { design?: string; instruction?: string | null };
+  const instruction = payload.instruction ?? undefined;
+  // 取り込みの途中（紹介ページづくり・チェックなど）で失敗したら、開発待ちに戻す（同じHTMLをもう一度入れられるように。作り直しにはしない）
+  return prepareLp(p.id, instruction, { toolHtml: t, keepCore: !!p.lp, auto: p.mode === "auto" && !p.public_slug }).catch((e) => {
+    const msg = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+    addApproval(p.id, "dev", a.proposal, `入れたツールの取り込みに失敗しました（${msg}）。同じHTMLを、もう一度ここから入れてください。`, payload);
+    throw e;
+  });
 }
 
 // 人がデータを入れる（公式の表など、AIの下書きより正確なものがあるとき）。判断待ちのデータの確認を、入れたデータに差し替える
@@ -882,8 +987,9 @@ ${toolRules(deep)}
   return text.replace(/^\s*```(?:html)?\s*/i, "").replace(/```\s*$/, "").trim();
 }
 
-async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string): Promise<{ html: string; review: Review; test: ToolTest; model: string; rewrites: number; deep: { data?: DeepRow[]; fonts: true } | null }> {
-  let model = toolModelFor(p);
+// given: ここ（Claude Code）で作ったツールのHTML。あれば、AIは書かずに、チェックと動作の確かめだけをする（書き直し・見た目を磨く段は通さない）
+async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string, given?: string): Promise<{ html: string; review: Review; test: ToolTest; model: string; rewrites: number; deep: { data?: DeepRow[]; fonts: true } | null }> {
+  let model = given !== undefined ? CLAUDE_CODE : toolModelFor(p);
   const deep = deepContext(p);
   const frame = deep ? { data: deep.data?.rows, fonts: true as const } : { fonts: true as const };
   // 長すぎて最後まで書けなかったら、別の会社のAIに規模を絞って書き直してもらう（同じAIで繰り返すと、同じ所で切れやすい）
@@ -901,12 +1007,19 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
       return writeToolHtml(p, note ? `${note} / ${shrink}` : shrink, base, model, "medium");
     }
   };
-  let html = await write(instruction, prevHtml);
   const check = async (h: string): Promise<{ review: Review; test: ToolTest }> => {
     const [ai, test] = await Promise.all([reviewTool(p, h, instruction), testTool(h, shotName, frame)]);
-    const issues = [...staticToolIssues(h, !!deep), ...ai.issues, ...testIssues(test)];
+    // Claude Code で作ったツールは、長さの上限をふつうのツールと同じ（80,000文字）にする（AIが1回で書くときだけ、じっくり案件はコードを短めにさせる）
+    const issues = [...staticToolIssues(h, !!deep && given === undefined), ...ai.issues, ...testIssues(test)];
     return { review: { ok: issues.length === 0 && ai.ok, issues }, test };
   };
+  if (given !== undefined) {
+    // 人とここで確かめながら作ったものなので、AIは書き直さない。チェックで残った指摘は、公開の判断待ちに出す（直すなら、また開発待ちにする）
+    const r0 = await check(given);
+    if (!r0.review.ok) logEvent(p.id, "ai", "review", `Claude Code で作ったツールのチェックで指摘があります（公開の判断待ちに出します）: ${r0.review.issues.join(" / ").slice(0, 300)}`);
+    return { html: given, ...r0, model, rewrites: 0, deep: deep ? { ...(deep.data ? { data: deep.data.rows } : {}), fonts: true } : null };
+  }
+  let html = await write(instruction, prevHtml);
   let r = await check(html);
   let rewrites = 0;
   if (!r.review.ok) {
@@ -1069,13 +1182,13 @@ export async function switchLpCandidate(candidateId: number) {
 
 // LPを書き、チェックし、問題があれば1回だけ直す。新しい版として保存する
 // 動くツールの案件では、ツール本体も作る（改善のときは、指示がツールとページのどちらに向くかをAIの指示文に任せる）
-async function buildLpVersion(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean }) {
+async function buildLpVersion(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string }) {
   const kind = getProject(projectId)!.kind;
   const what = `${kind === "tool" ? "ツール" : "LP"}を${opts.instruction || opts.keepCore ? "直して" : "作って"}います`;
   return whileBuilding(projectId, what, () => buildLpVersionNow(projectId, opts));
 }
 
-async function buildLpVersionNow(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean }) {
+async function buildLpVersionNow(projectId: number, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string }) {
   const p = getProject(projectId)!;
   const before = p.lp ? (JSON.parse(p.lp) as Lp) : undefined;
   if (p.kind === "tool") return buildToolVersion(p, before, opts);
@@ -1230,10 +1343,10 @@ export async function removePage(projectId: number) {
   if (now.public_slug && now.public_version === now.lp_version && now.stage !== "killed") await announcePublish(projectId);
 }
 
-async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { instruction?: string; note: string; keepCore?: boolean }) {
+async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string }) {
   const { shareText, ...page } = await writeLp(p, opts.instruction, opts.keepCore);
   const version = nextVersion(p.id);
-  const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html);
+  const tool = await buildTool(p, `p${p.id}-v${version}`, opts.instruction, before?.tool?.html, opts.toolHtml);
   const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined, tool.html);
   let review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues] };
   let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline, fonts: true, results: toolResultsOf(tool.html), ...(tool.deep ?? {}) } });
@@ -1278,10 +1391,12 @@ function nextVersion(projectId: number): number {
   return (r.v ?? 0) + 1;
 }
 
-export async function prepareLp(projectId: number, instruction?: string, opts: { keepCore?: boolean; byHuman?: boolean; auto?: boolean } = {}) {
+export async function prepareLp(projectId: number, instruction?: string, opts: { keepCore?: boolean; byHuman?: boolean; auto?: boolean; toolHtml?: string } = {}) {
   const p = getProject(projectId)!;
+  // じっくり案件のツールは、AIが1回で書かずに、ここ（Claude Code）で作る・直す。AIは設計書を書き、開発待ちにする
+  if (p.kind === "tool" && p.deep && opts.toolHtml === undefined) return requestDev(projectId, instruction);
   const note = !instruction ? "最初の版" : opts.byHuman ? `あなたの指示: ${instruction}` : `指示: ${instruction}`;
-  const { lp, review } = await buildLpVersion(projectId, { instruction, note, keepCore: opts.keepCore });
+  const { lp, review } = await buildLpVersion(projectId, { instruction, note: opts.toolHtml !== undefined ? `${note}（ツールは Claude Code で作った）` : note, keepCore: opts.keepCore, toolHtml: opts.toolHtml });
   setStage(projectId, "lp");
   // 全自動: チェックを通ったものだけ、人の承認なしで公開する（あとから人が見て印を付ける）
   const blocked = opts.auto ? autoPublishBlocked(p, review) : "対象外";
@@ -1877,6 +1992,8 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
   if (!a) throw new Error("承認リクエストが見つかりません");
   if (a.status !== "pending") throw new Error("この承認リクエストは処理済みです");
   if (action === "revise" && !comment?.trim()) throw new Error("修正指示を書いてください");
+  // 開発待ちは、ここ（Claude Code）で作ったツールのHTMLを入れることで進める（承認のボタンでは進めない）
+  if (a.kind === "dev" && action === "approve") throw new Error("Claude Code で作ったツールのHTMLを入れてください");
   // じっくり案件のデータの下書きに失敗したものは、データがないので承認できない（作り直すか、人がデータを入れる）
   if (a.kind === "data" && action === "approve" && !(JSON.parse(a.payload ?? "{}") as { dataId?: number }).dataId) {
     throw new Error("確かめるデータがありません。修正を指示して作り直すか、データを自分で入れてください");
@@ -1888,6 +2005,12 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
   logEvent(a.project_id, "human", "approval", `${verb}: ${a.proposal}${comment ? `（${comment}）` : ""}`);
 
   const pid = a.project_id;
+  if (a.kind === "dev") {
+    // 作り直す（設計を直す）指示なら、設計書を書き直して、また開発待ちにする。却下なら、まだ一度も作っていない案件は見送り、公開中の案件は今の版のまま
+    if (action === "revise") return requestDev(pid, (JSON.parse(a.payload ?? "{}") as { instruction?: string | null }).instruction ?? undefined, comment);
+    if (action === "reject" && !getProject(pid)?.lp) return setStage(pid, "rejected");
+    return;
+  }
   if (a.kind === "data") {
     const dataId = (JSON.parse(a.payload ?? "{}") as { dataId?: number }).dataId;
     db().prepare("UPDATE deep_data SET status = ?, comment = ? WHERE id = ?").run(status, comment ?? null, dataId ?? 0);
@@ -2498,6 +2621,8 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   // じっくり案件は直近7日の上限まで。上限を超えた案は、縮めて作らず、次の案に回す
   // 運営者が「じっくり案件だけ」を頼んだときも、人が選んだので上限で止めない
   let deepLeft = practice || opts.deepOnly ? Infinity : deepAllowance();
+  // 今回案件にするじっくり案件の数（開発待ちの上限に、これから開発待ちになる分も数える）
+  let deepMade = 0;
   // ねらいの配分を守る: 最近30日の案件を数え、配分に比べていちばん足りないねらいから、点の高い案を選ぶ（pickByAims）
   const aimCounts: Partial<Record<Aim, number>> = {};
   for (const r of db().prepare("SELECT aim, COUNT(*) AS n FROM projects WHERE demo = 0 AND aim IS NOT NULL AND created_at >= datetime('now', '-30 days') GROUP BY aim").all() as { aim: string; n: number }[]) {
@@ -2516,8 +2641,16 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
       logEvent(null, "system", "deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、直近7日の上限に達しているため、今回は案件にしません`);
       return false;
     }
+    // 開発待ちが溜まっているあいだは、新しいじっくり案件を作らない（Claude Code で作るのが追いつかないまま増やさない。人が頼んだときは止めない）
+    if (deep && !practice && !opts.deepOnly && devWaiting() + deepMade >= getSettings().deepDevWaitMax) {
+      logEvent(null, "system", "deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、開発待ちが${getSettings().deepDevWaitMax}件以上になるため、今回は案件にしません`);
+      return false;
+    }
     if (aim === "spread") spreadLeft--;
-    if (deep) deepLeft--;
+    if (deep) {
+      deepLeft--;
+      deepMade++;
+    }
     return true;
   }).map((x) => x.c);
   if (!practice && !opts.noRevival) proposeRevival(candidates.filter((c) => !kept.includes(c)));

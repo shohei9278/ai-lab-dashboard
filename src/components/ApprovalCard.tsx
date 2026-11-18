@@ -10,7 +10,7 @@ import { hasUnpublishedVersion, versionLabel } from "@/lib/versionLabel";
 
 export type ApprovalView = {
   id: number;
-  kind: "idea" | "publish" | "decision" | "data";
+  kind: "idea" | "publish" | "decision" | "data" | "dev";
   proposal: string;
   reason: string;
   createdAt: string;
@@ -18,6 +18,8 @@ export type ApprovalView = {
   // じっくり案件のデータの確認。sample（中身の例）は運営者にだけ入る
   // error: 下書きに失敗したとき（id は null）。owner: 運営者が見ているか（データを自分で入れられる）
   data?: { id: number | null; count: number; groups: number; note: string; fields: { key: string; label: string; kind: "fact" | "view" }[]; sample?: Record<string, unknown>[]; error?: string; owner: boolean };
+  // じっくり案件の開発待ち（Claude Code で作る）。設計書と依頼文は運営者にだけ入る
+  dev?: { owner: boolean; design: string; request: string; instruction: string | null; hasData: boolean; hasTool: boolean };
   conv: { noun: string; rate: string }; // 成果の呼び方（事前登録LPは登録、動くツールは利用）
   decision?: { confidence: number; nextAction: string };
   review?: { ok: boolean; issues: string[] };
@@ -39,6 +41,7 @@ export type ApprovalView = {
 const KIND = {
   idea: { label: "アイデアの採用", approve: "このアイデアで進める", after: "承認すると、AIがLP（動くツールの場合はツール本体も）を作ります。", busy: "AIが作っています…" },
   data: { label: "データの確認", approve: "このデータで作る", after: "承認すると、AIがこのデータを使ってツールを作ります（そのあと、公開の承認があります）。修正を指示すると、データを作り直します。", busy: "AIがツールを作っています…" },
+  dev: { label: "開発（Claude Code）", approve: "", after: "依頼文を Claude Code に貼って作り、できたツールのHTMLを入れると、チェック・動作の確かめ・紹介ページづくりをして、公開の判断待ちに出します。修正を指示すると、AIが設計書を直します。", busy: "処理しています…" },
   publish: { label: "公開", approve: "公開して集客を始める", after: "承認すると公開されて「公開中・集客中」になります（広告の出稿は手動）。", busy: "処理しています…" },
   decision: {
     label: "AIの判断",
@@ -92,6 +95,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
       )}
 
       {a.kind === "data" && a.data && <DataCheck d={a.data} approvalId={a.id} />}
+      {a.kind === "dev" && a.dev && <DevBox d={a.dev} approvalId={a.id} projectId={a.project.id} />}
 
       {a.kind === "publish" && (
         <div className="space-y-2">
@@ -155,7 +159,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
           </>
         ) : (
           <>
-            {!(a.kind === "data" && !a.data?.id) && <ActionButton variant="primary" disabled={!!busy} onClick={() => send("approve", k.busy)}>✓ {k.approve}</ActionButton>}
+            {!(a.kind === "data" && !a.data?.id) && a.kind !== "dev" && <ActionButton variant="primary" disabled={!!busy} onClick={() => send("approve", k.busy)}>✓ {k.approve}</ActionButton>}
             <ActionButton disabled={!!busy} onClick={() => setRevising(true)}>修正を指示</ActionButton>
             <ActionButton variant="danger" disabled={!!busy} onClick={() => send("reject", "処理しています…")}>
               {a.kind === "decision" ? "採用せず集客を続ける" : "却下"}
@@ -291,4 +295,46 @@ function shortReason(a: ApprovalView): string {
   const i = a.reason.indexOf(": ");
   if (!issues.length || i < 0 || !a.reason.includes(issues[0])) return a.reason;
   return `${a.reason.slice(0, i)}。指摘は下のとおりです。`;
+}
+
+// じっくり案件の開発待ち: 設計書・Claude Code に貼る依頼文・データと今のツールの保存・できたツールのHTMLを入れる
+function DevBox({ d, approvalId, projectId }: { d: NonNullable<ApprovalView["dev"]>; approvalId: number; projectId: number }) {
+  const { run, busy, error } = useLoopAction();
+  const [copied, setCopied] = useState(false);
+  const [done, setDone] = useState(false);
+  if (!d.owner) return <p className="text-sm text-ink-2">開発担当（Claude Code）が、AIの設計書をもとにツールを作っています。</p>;
+  return (
+    <div className="space-y-2 text-sm">
+      {d.instruction && <p><span className="text-muted">直す指示:</span> {d.instruction}</p>}
+      <details>
+        <summary className="cursor-pointer">AIの設計書を読む</summary>
+        <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-xs">{d.design}</pre>
+      </details>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" data-demo-ok onClick={() => navigator.clipboard.writeText(d.request).then(() => setCopied(true)).catch(() => {})} className="rounded-lg border border-line px-3 py-1.5">
+          {copied ? "コピーしました" : "Claude Code への依頼文をコピー"}
+        </button>
+        {d.hasData && <a href={`/api/dev/${projectId}?file=data`} download={`p${projectId}-data.json`} data-demo-ok className="rounded-lg border border-line px-3 py-1.5">データを保存</a>}
+        {d.hasTool && <a href={`/api/dev/${projectId}?file=tool`} download={`p${projectId}-tool.html`} data-demo-ok className="rounded-lg border border-line px-3 py-1.5">今のツールを保存</a>}
+        <label className="cursor-pointer rounded-lg bg-accent px-3 py-1.5 font-medium text-accent-ink">
+          ツールのHTMLを入れる
+          <input
+            type="file"
+            accept=".html,.htm,text/html"
+            className="hidden"
+            disabled={!!busy}
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              setDone(false);
+              if (await run("入れています…", { action: "dev-upload", approvalId, html: await f.text() })) setDone(true);
+            }}
+          />
+        </label>
+      </div>
+      {done && !busy && <p className="text-ink-2" role="status">入れました。裏でチェック・動作の確かめ・紹介ページづくりをして、終わると公開の判断待ちに出します（数分かかります）。</p>}
+      <BusyNote busy={busy} error={error} />
+    </div>
+  );
 }

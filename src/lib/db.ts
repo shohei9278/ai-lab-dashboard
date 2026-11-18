@@ -781,6 +781,7 @@ export type Settings = {
   maxAutoImprove: number; // 自動モードで、人の承認なしにLPを改善してよい回数
   staleDays: number; // この日数放置された承認待ちは見送りにする
   deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）
+  deepDevWaitMax: number; // 開発待ち（Claude Code で作るのを待っている）のじっくり案件がこの件数以上なら、新しいじっくり案件を作らない
   // アイデア出しのねらいの配分（重み。0〜10）。広がる・役に立つ・また来てもらう・需要を確かめる
   aimSpread: number;
   aimUseful: number;
@@ -880,7 +881,8 @@ const DEFAULTS: Settings = {
   spreadHitShares: 3,
   maxAutoImprove: 2,
   staleDays: 7,
-  deepPerWeek: 1,
+  deepPerWeek: 3,
+  deepDevWaitMax: 2,
   aimSpread: 4,
   aimUseful: 3,
   aimReturn: 2,
@@ -1032,4 +1034,4 @@ export type LessonRow = { id: number; at: string; project_id: number | null; tex
 
 // 案件の段階: アイデア → LP作成 → 集客中 → 判断待ち → 継続 / 撤退（却下はアイデア段階で止めたもの）
 export type Stage = "idea" | "lp" | "live" | "hold" | "deciding" | "continued" | "killed" | "rejected"; // hold = 公開は続けるが、宣伝・判断・改善を止めている
-export type ApprovalKind = "idea" | "publish" | "decision" | "data"; // data = じっくり案件のデータの確認
+export type ApprovalKind = "idea" | "publish" | "decision" | "data" | "dev"; // data = じっくり案件のデータの確認 / dev = じっくり案件のツールを Claude Code で作る（開発待ち）

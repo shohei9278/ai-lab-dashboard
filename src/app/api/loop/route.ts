@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  holdProject, ideaRunning, logEvent, resumeProject, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  holdProject, ideaRunning, logEvent, resumeProject, startDevUpload, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -90,6 +90,14 @@ export async function POST(req: Request) {
         if (body.mode === "remove") await removePage(requireProject(body).id);
         else await redesignPage(requireProject(body).id);
         return NextResponse.json({ ok: true });
+      case "dev-upload": {
+        // 決まりに合わないHTMLは、すぐ理由を返す。入れたら、チェック・紹介ページづくりは裏で進める（数分かかる）
+        const html = typeof body.html === "string" ? body.html : "";
+        const approvalId = Number(body.approvalId);
+        const job = startDevUpload(approvalId, html);
+        background(null, "Claude Code で作ったツールの取り込み", job);
+        return NextResponse.json({ accepted: true });
+      }
       case "play-video": {
         const p = requireProject(body);
         if (p.kind !== "tool") throw new Error("動くツールの案件だけ、遊ぶ様子の動画を作れます");
