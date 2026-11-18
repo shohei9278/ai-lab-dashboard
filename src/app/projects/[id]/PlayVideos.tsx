@@ -22,7 +22,7 @@ export function PlayVideos({ projectId, videos, link }: { projectId: number; vid
         AIがツールの遊び方の台本を書き、スマホの並びで実際に動かして、縦長の動画（10〜15秒・音なし）に録画します。録画の最初・途中・最後のコマをAIが見て、何をするものか伝わるかを確かめます。ねらいが「広がる」の案件は、初めて公開したときに自動で作ります。ほかの動画を作っている途中なら、終わってから作ります。投稿は、動画を保存して、投稿文の案と一緒に手で行ってください。
       </p>
       <BusyNote busy={busy} error={error} />
-      {accepted && !busy && <p className="text-sm text-ink-2" role="status">受け付けました。裏で作ります（1〜2分ほど。ほかの動画を作っている途中なら、そのあと）。できたら、画面を読み込み直すとここに出ます。</p>}
+      {accepted && !busy && <p className="text-sm text-ink-2" role="status">受け付けました。裏で作ります（1〜2分ほど。ほかの動画を作っている途中なら、そのあと）。進み具合はホームのライブで見られ、できたら画面を読み込み直すとここに出ます（できあがるまで、同じ案件の動画は重ねて頼めません）。</p>}
       {videos.length === 0 ? (
         <p className="text-sm text-ink-2">まだありません。</p>
       ) : (

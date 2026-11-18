@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
   holdProject, ideaRunning, logEvent, resumeProject, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
@@ -10,8 +10,15 @@ import { makePlayVideo } from "@/lib/playVideo";
 
 // 長くかかる操作（アイデア会議・毎日の自動実行・遊ぶ様子の動画）は、受け付けたらすぐ返し、裏で進める
 // 会議の前にXの検索も入るので、1回の通信で終わるまで待つと途中で切れ、画面に「通信に失敗しました」と出るため。進み具合はライブと経過で見る
+// 返事のあとも終わるまで動かすよう、Next.js の after に渡す（本番は1台のサーバーで動き続けるが、実行の基盤に任せず保証する）
 function background(projectId: number | null, label: string, job: Promise<unknown>) {
-  void job.catch((e) => logEvent(projectId, "system", "background-error", `${label}に失敗しました: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
+  const done = job.catch((e) => logEvent(projectId, "system", "background-error", `${label}に失敗しました: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
+  try {
+    after(() => done);
+  } catch {
+    // リクエストの外（テストなど）では after を使えないので、そのまま進める
+    void done;
+  }
 }
 function ideaFree() {
   const busy = ideaRunning();

@@ -42,3 +42,18 @@ test("遊ぶ様子の動画のボタン: 動くツールでない案件は、す
   assert.equal(res.status, 400);
   assert.match((await res.json()).error, /動くツールの案件だけ/);
 });
+
+test("遊ぶ様子の動画のボタン: 同じ案件の動画を作っている（順番待ちを含む）あいだは、重ねて受け付けない", async () => {
+  const { makePlayVideo, playVideoPending } = await import("../src/lib/playVideo");
+  const id = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind) VALUES ('t', 't', 'p', 's', 'h', 'r', 'live', 'claude', 'tool')").run().lastInsertRowid);
+  // 前の動画が作っている途中（順番待ち）にしておく
+  (globalThis as unknown as { __aiLabPlayQueue?: Promise<unknown> }).__aiLabPlayQueue = new Promise((ok) => setTimeout(ok, 800));
+  const first = makePlayVideo(id);
+  assert.ok(playVideoPending(id));
+  const res = await post({ action: "play-video", projectId: id });
+  assert.equal(res.status, 400);
+  assert.match((await res.json()).error, /いま作っています/);
+  // 終わったら（ここではツールがないので失敗で終わる）、また頼める
+  await first.catch(() => undefined);
+  assert.equal(playVideoPending(id), false);
+});
