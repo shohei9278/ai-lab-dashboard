@@ -1,8 +1,20 @@
 import type { ApprovalView } from "@/components/ApprovalCard";
 import { db, getSettings, type ApprovalRow, type ProjectRow } from "./db";
-import { CONV, debateFor, projectTotals, shadowModels, targetRate, type Decision, type Review, type ShadowRow } from "./loop";
+import { CONV, approvedDeepData, debateFor, devRequestText, projectTotals, shadowModels, targetRate, type Decision, type Lp, type Review, type ShadowRow } from "./loop";
 import { modelInfo } from "./models";
 import { sampleRows, type DeepSpec } from "./deep";
+
+// じっくり案件の開発待ちに出すもの。設計書と依頼文はAIの出力なので、運営者にだけ渡す
+function devView(projectId: number, payload: string | null, owner: boolean): ApprovalView["dev"] {
+  if (!owner) return { owner: false, design: "", request: "", instruction: null, hasData: false, hasTool: false };
+  const p = payload ? (JSON.parse(payload) as { design?: string; instruction?: string | null }) : {};
+  const design = p.design ?? "";
+  const proj = db().prepare("SELECT lp FROM projects WHERE id = ?").get(projectId) as { lp: string | null } | undefined;
+  return {
+    owner: true, design, instruction: p.instruction ?? null, request: devRequestText(projectId, design, p.instruction ?? null),
+    hasData: !!approvedDeepData(projectId), hasTool: !!proj?.lp && !!(JSON.parse(proj.lp) as Lp).tool,
+  };
+}
 
 // じっくり案件のデータの確認に出すもの。下書きはAIの出力なので、中身の例は運営者にだけ渡す
 // 下書きに失敗したとき（error）は、データの代わりに失敗の理由を出す
@@ -42,6 +54,7 @@ export function pendingApprovals(projectId?: number, owner = false): ApprovalVie
         hypothesis: r.hypothesis, confidence: r.ai_confidence, demo: !!r.demo, kind: r.product_kind, lpVersion: r.lp_version, publicVersion: r.public_version, deep: !!r.deep,
       },
       data: r.kind === "data" ? dataView(r.payload, owner) : undefined,
+      dev: r.kind === "dev" ? devView(r.project_id, r.payload, owner) : undefined,
       decision: d ? { confidence: d.confidence, nextAction: d.next_action } : undefined,
       review,
       totals: t ? { visits: t.visits, signups: t.signups, rate: t.rate, adSpendJpy: t.adSpendJpy, simulated: t.simulated } : undefined,

@@ -92,7 +92,7 @@ export function buildDigest(): string {
   }
   if (waiting.length || comments) {
     lines.push(`\n**あなたの確認待ち ${waiting.length}件**`);
-    lines.push(...waiting.slice(0, 8).map((w) => `- ${w.title}（${{ idea: "アイデアの採用", data: "じっくり案件のデータの確認", publish: "公開", decision: "判断", stuck: "作業が止まっている", notify: "登録者への連絡", review: "AIだけで公開した分の確認", comment: "SNSのコメント" }[w.kind]}）`));
+    lines.push(...waiting.slice(0, 8).map((w) => `- ${w.title}（${{ idea: "アイデアの採用", data: "じっくり案件のデータの確認", dev: "じっくり案件の開発（Claude Code）", publish: "公開", decision: "判断", stuck: "作業が止まっている", notify: "登録者への連絡", review: "AIだけで公開した分の確認", comment: "SNSのコメント" }[w.kind]}）`));
   } else {
     lines.push("\nあなたの確認待ちはありません。");
   }

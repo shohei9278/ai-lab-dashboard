@@ -148,7 +148,8 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <Field label="「広がる」の当たり: 遊んだ人" note="これ以上か、シェアが下の数以上なら当たり（今の判断の流れで、続ける・育てるかを決めます）。どちらも届かなければ、承認なしで集客をお休みにします（ページは公開したまま遊べます）。"><input type="number" min={1} {...num("spreadHitPlays")} className={input} /></Field>
           <Field label="「広がる」の当たり: シェア"><input type="number" min={1} {...num("spreadHitShares")} className={input} /></Field>
           <Field label="承認待ちの期限（日）" note="過ぎたら自動で見送りにします。"><input type="number" min={1} {...num("staleDays")} className={input} /></Field>
-          <Field label="じっくり案件（直近7日）" note="ふつうのツールの制限を外して作り込む案件（大きなデータが要るときは、人がデータを確かめてから作る）を、7日で何件まで作るか。0 で止めます。"><input type="number" min={0} max={7} {...num("deepPerWeek")} className={input} /></Field>
+          <Field label="じっくり案件（直近7日）" note="ふつうのツールの制限を外して作り込む案件を、7日で何件まで作るか。AIが設計書を書き、ツールは Claude Code で作ります（大きなデータが要るときは、先に人がデータを確かめる）。0 で止めます。"><input type="number" min={0} max={7} {...num("deepPerWeek")} className={input} /></Field>
+          <Field label="じっくり案件の開発待ちの上限" note="Claude Code で作るのを待っているじっくり案件がこの件数以上なら、新しいじっくり案件を作りません（手で頼んだ分は止めません）。"><input type="number" min={1} max={10} {...num("deepDevWaitMax")} className={input} /></Field>
         </div>
         <div className="space-y-2 border-t border-line pt-3">
           <h3 className="text-sm font-bold">ねらいの配分</h3>

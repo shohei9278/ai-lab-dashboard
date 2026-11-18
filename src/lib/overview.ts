@@ -10,6 +10,7 @@ export const WAIT_LABEL: Record<ApprovalKind, { title: string; action: string }>
   publish: { title: "LPの公開", action: "公開してよいか決める" },
   decision: { title: "続ける・改善・撤退", action: "次にどうするか決める" },
   data: { title: "じっくり案件のデータ", action: "データが正しいか確かめる" },
+  dev: { title: "じっくり案件の開発", action: "Claude Code で作って、ツールを入れる" },
 };
 
 export type WaitItem = {
