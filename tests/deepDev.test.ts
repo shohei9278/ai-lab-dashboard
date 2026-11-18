@@ -62,7 +62,7 @@ test("じっくり案件: 開発待ちを却下すると、まだ作っていな
   await decide(pendingDev(fresh)!.id, "reject");
   assert.equal(getProject(fresh)!.stage, "rejected");
   const live = addDeep(JSON.stringify({ headline: "h", tool: { html: "<script></script>", shareText: "x" } }));
-  db().prepare("UPDATE projects SET stage = 'live' WHERE id = ?").run(live);
+  db().prepare("UPDATE projects SET stage = 'live', public_slug = 'live-bag', public_version = 1, lp_version = 1 WHERE id = ?").run(live);
   seedDesign(live);
   await prepareLp(live, "ボタンを大きく");
   const a = pendingDev(live)!;
@@ -70,6 +70,26 @@ test("じっくり案件: 開発待ちを却下すると、まだ作っていな
   assert.equal((JSON.parse(a.payload) as { instruction: string }).instruction, "ボタンを大きく");
   await decide(a.id, "reject");
   assert.equal(getProject(live)!.stage, "live");
+});
+
+test("じっくり案件（PR #90 の3回目の ai-review の指摘）: 開発待ちの却下は、公開の却下と同じく、公開していなければ見送り、公開中なら公開中の版に戻す", async () => {
+  const tool = (v: string) => JSON.stringify({ headline: v, tool: { html: "<script></script>", shareText: "x" } });
+  // まだ公開していない（作った版はある）案件を、公開の判断で直す指示 → 開発待ち → 却下: 見送り
+  const unpublished = addDeep(tool("1"));
+  db().prepare("UPDATE projects SET stage = 'lp' WHERE id = ?").run(unpublished);
+  seedDesign(unpublished);
+  await prepareLp(unpublished, "色を変える");
+  await decide(pendingDev(unpublished)!.id, "reject");
+  assert.equal(getProject(unpublished)!.stage, "rejected");
+  // 公開中（第1版）で、第2版の公開待ちから直す指示 → 開発待ち → 却下: 公開中の第1版に戻して集客中
+  const pub = addDeep(tool("2"));
+  db().prepare("INSERT INTO lp_versions (project_id, version, lp, note) VALUES (?, 1, ?, '最初'), (?, 2, ?, '直し')").run(pub, tool("1"), pub, tool("2"));
+  db().prepare("UPDATE projects SET stage = 'lp', public_slug = 'bag', public_version = 1, lp_version = 2 WHERE id = ?").run(pub);
+  seedDesign(pub);
+  await prepareLp(pub, "ボタンを大きく");
+  await decide(pendingDev(pub)!.id, "reject");
+  const after = getProject(pub)!;
+  assert.deepEqual([after.stage, after.lp_version, JSON.parse(after.lp!).headline], ["live", 1, "1"]);
 });
 
 test("じっくり案件（PR #90 の ai-review の指摘）: 修正の指示で設計書の書き直しに失敗したら、元の開発待ちに戻す", async () => {

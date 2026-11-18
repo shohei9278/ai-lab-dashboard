@@ -2018,7 +2018,17 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
         throw e;
       });
     }
-    if (action === "reject" && !getProject(pid)?.lp) return setStage(pid, "rejected");
+    // 却下は、公開の却下と同じ扱い（開発待ちに入っても段階は変わらないため、ここで戻す）
+    // 一度も公開していなければ見送り。公開中なら、公開中の版に戻して集客を続ける（今の版がもう公開中の版なら、そのまま集客中にする）
+    if (action === "reject") {
+      const p = getProject(pid)!;
+      if (p.public_slug && p.public_version !== null && p.lp_version === p.public_version) {
+        if (p.stage !== "live") setStage(pid, "live");
+        logEvent(pid, "system", "revert", `Claude Code での直しは見送り、公開中の第${p.public_version}版のまま集客を続けます`);
+        return;
+      }
+      return rejectPublish(pid);
+    }
     return;
   }
   if (a.kind === "data") {
