@@ -1,4 +1,5 @@
 import { db, getSettings, monthSpendUsd } from "./db";
+import { ongoingCalls } from "./ai";
 import { jstToday } from "./loop";
 import { waitingItems } from "./overview";
 import { openRequests } from "./plan";
@@ -78,6 +79,16 @@ export function officeSnapshot({ guest = false } = {}) {
     const member = memberOf(c.model_id);
     return member ? [{ at: c.at, member, room: roomOf(c.purpose), doing: doingOf(c.purpose), project: c.title, projectId: c.project_id, yen: Math.round(c.cost_usd * usdJpy * 10) / 10 }] : [];
   });
+  // いま呼んでいる途中のAI（ツールを書くなど、何分もかかる呼び出しの間も、その部屋にいるようにする）
+  // 呼んだ記録は終わってから書くので、途中の分は「いま」の時刻で足す（画面は数秒ごとに読み直すので、続く間は部屋にいる）
+  const nowAt = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const titleOf = db().prepare("SELECT title FROM projects WHERE id = ?");
+  for (const c of ongoingCalls()) {
+    const member = memberOf(c.modelId);
+    if (!member) continue;
+    const title = c.projectId ? (titleOf.get(c.projectId) as { title: string } | undefined)?.title ?? null : null;
+    events.push({ at: nowAt, member, room: roomOf(c.purpose), doing: doingOf(c.purpose), project: title, projectId: c.projectId, yen: 0, talk: true });
+  }
   // 公開・撤退・続ける（会社全体の出来事）
   const happenings = (db().prepare(
     `SELECT e.at, e.kind, p.title FROM events e LEFT JOIN projects p ON p.id = e.project_id
