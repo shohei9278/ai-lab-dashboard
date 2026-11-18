@@ -34,7 +34,7 @@ type JsonOpts<T> = {
   validate: (v: unknown) => v is T;
   modelId?: string; // 指定しなければ、設定の「製品ループで使うAI」
 };
-export function callJson<T>(opts: JsonOpts<T>): Promise<T> {
+export async function callJson<T>(opts: JsonOpts<T>): Promise<T> {
   return tracked(opts.modelId ?? getSettings().loopModel, opts.purpose, opts.projectId, () => callJsonRaw(opts));
 }
 async function callJsonRaw<T>(opts: JsonOpts<T>): Promise<T> {
@@ -76,7 +76,7 @@ export type ClaudeContent = ({ type: "text"; text: string } | { type: "image"; s
 const contentText = (c: ClaudeContent) => c.map((x) => (x.type === "text" ? x.text : "（画像）")).join("\n");
 
 type ClaudeOpts = { purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number; modelId?: string; effort?: "low" | "medium" | "high" };
-export function callClaude(opts: ClaudeOpts): Promise<string> {
+export async function callClaude(opts: ClaudeOpts): Promise<string> {
   return tracked(opts.modelId ?? claudeModelId() ?? "", opts.purpose, opts.projectId, () => callClaudeRaw(opts));
 }
 async function callClaudeRaw(opts: ClaudeOpts): Promise<string> {
@@ -115,7 +115,7 @@ async function callClaudeRaw(opts: ClaudeOpts): Promise<string> {
 
 // 長い出力（ツールやページのHTMLなど）を、決めたAIで最後まで受け取る。Claude・OpenAI・Gemini に対応（文字のまま返す）
 type LongOpts = { modelId: string; purpose: string; projectId?: number; system: string; user: string; maxTokens: number; effort?: "low" | "medium" | "high" };
-export function callLong(opts: LongOpts): Promise<string> {
+export async function callLong(opts: LongOpts): Promise<string> {
   // Claude は callClaude の中で数える（二重にしない）
   return getModel(opts.modelId).provider === "anthropic" ? callLongRaw(opts) : tracked(opts.modelId, opts.purpose, opts.projectId, () => callLongRaw(opts));
 }
@@ -172,7 +172,7 @@ async function callLongRaw(opts: LongOpts): Promise<string> {
 
 // 画像を見せて短い答えをもらう（LPの画面の採点など）。Claude・OpenAI・Gemini に対応（文字のまま返す）
 type VisionOpts = { modelId: string; purpose: string; projectId?: number; system: string; content: ClaudeContent; maxTokens: number };
-export function callVision(opts: VisionOpts): Promise<string> {
+export async function callVision(opts: VisionOpts): Promise<string> {
   return getModel(opts.modelId).provider === "anthropic" ? callVisionRaw(opts) : tracked(opts.modelId, opts.purpose, opts.projectId, () => callVisionRaw(opts));
 }
 async function callVisionRaw(opts: VisionOpts): Promise<string> {

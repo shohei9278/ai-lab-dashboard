@@ -23,3 +23,10 @@ test("オフィス: ツールを書くような長いAIの呼び出しの間も�
   // 終わったら、途中の分は出ない（そのあとは呼んだ記録で開発室に3分いる）
   assert.ok(!officeSnapshot().events.some((e) => e.member === "anthropic" && e.doing === "ツール作成"));
 });
+
+test("AIを呼ぶ関数（PR #92 の ai-review の指摘）: 設定やモデルの誤りも、その場で投げずに Promise の失敗として返す", async () => {
+  const { callLong } = await import("../src/lib/ai");
+  let job: Promise<string> | undefined;
+  assert.doesNotThrow(() => { job = callLong({ modelId: "no-such-model", purpose: "試し", system: "", user: "" } as Parameters<typeof callLong>[0]); });
+  await assert.rejects(job!);
+});
