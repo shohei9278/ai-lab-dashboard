@@ -494,18 +494,53 @@ async function prepareDeepData(projectId: number, comment?: string) {
     { dataId });
 }
 
-// データの下書きの途中で止まったじっくり案件（承認したデータも判断待ちもなく、作業中でもない）を、もう一度下書きから始める
+// 作成・修正が途中で止まった案件か（アイデアか作成の段階で、判断待ちがなく、AIも作業していない）
+// AIの呼び出しの失敗のほか、作業の途中でサーバーが立ち上げ直される（本番に新しい版を出すときなど）と、失敗のあとの片付けも動かずにこうなる
+// 版がまだない（最初の作成で止まった）ものと、版がある（ツールの取り込み・紹介ページづくり・修正の途中で止まった）ものがある
+// 人の作業待ち（needs）の案件は、止まっているのではなく人を待っているので、見る側（waitingItems など）で外す
+export const STUCK_SQL = "p.stage IN ('idea', 'lp') AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.project_id = p.id AND a.status = 'pending')";
+export function isStuck(p: Pick<ProjectRow, "id" | "stage">): boolean {
+  return (p.stage === "idea" || p.stage === "lp") && !buildingNow(p.id)
+    && !db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(p.id);
+}
+
+// 途中で止まった案件を、止まる前の操作からやり直す（案件の画面の「やり直す」「作り直す」）
+// - 版がない: 最初の作成をやり直す（自動モードは、最初に作るときと同じ扱い。全自動ならチェックを通れば公開）
+// - 最後がツールのHTMLの取り込み: 入れたHTMLは残していないので、開発待ちを同じ内容で出し直す（AIは呼ばない。同じHTMLを入れ直してもらう）
+// - 最後が公開の判断待ちへの修正（指摘に沿って直させる・修正の指示）: 同じ指示で直し直す
+export async function resumeStuck(projectId: number) {
+  const p = getProject(projectId);
+  if (!p || !isStuck(p)) throw new Error("途中で止まった案件だけ、ここからやり直せます");
+  const auto = p.mode === "auto" && !p.public_slug;
+  if (!p.lp) return prepareLp(projectId, undefined, { auto });
+  const last = db().prepare("SELECT * FROM approvals WHERE project_id = ? ORDER BY id DESC LIMIT 1").get(projectId) as ApprovalRow | undefined;
+  if (last?.kind === "dev" && last.status === "approved") {
+    addApproval(projectId, "dev", last.proposal, "入れたツールの取り込み（チェック・紹介ページづくり）が途中で止まりました。同じHTMLを、もう一度ここから入れてください。", JSON.parse(last.payload ?? "{}"));
+    logEvent(projectId, "human", "resume", "途中で止まったツールの取り込みを、開発待ちに戻しました（同じHTMLを入れ直す）");
+    return;
+  }
+  if (last?.kind === "publish" && last.status === "revised" && last.comment) {
+    const review = (JSON.parse(last.payload ?? "{}") as { review?: Review }).review;
+    const keepTool = p.kind === "tool" && !!p.deep && pageOnlyIssues(review?.issues ?? []);
+    logEvent(projectId, "human", "resume", `途中で止まった修正を、同じ指示でやり直します: ${last.comment.slice(0, 120)}`);
+    return prepareLp(projectId, last.comment, { keepCore: true, byHuman: true, auto, keepTool });
+  }
+  logEvent(projectId, "human", "resume", "途中で止まった案件を、作り直します");
+  return prepareLp(projectId, undefined, { keepCore: true, auto });
+}
+
 // 作成が途中で止まった案件（まだ公開しておらず、判断待ちがなく、作業中でもない）を、人が見送る。案件と記録（費用・経過・AIの入出力）は残す
+// 公開したことのある案件は、見送ると公開中のページとずれるので、ここでは見送らない（やり直すか、公開中の判断から撤退する）
 export function abandonStuck(projectId: number, reason: string) {
   const p = getProject(projectId);
-  const stuck = !!p && !buildingNow(p.id) && (p.stage === "idea" || (p.stage === "lp" && !p.lp))
-    && !db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(p.id);
-  if (!stuck) throw new Error("作成が止まった案件だけ、ここから見送れます");
+  if (!p || !isStuck(p)) throw new Error("作成が止まった案件だけ、ここから見送れます");
+  if (p.public_slug) throw new Error("公開したことのある案件は、ここからは見送れません（やり直してください）");
   setStage(projectId, "rejected");
   const r = reason.trim().slice(0, 200);
   logEvent(projectId, "human", "abandon", `作成が止まった案件を見送りました${r ? `（${r}）` : ""}`);
 }
 
+// データの下書きの途中で止まったじっくり案件（承認したデータも判断待ちもなく、作業中でもない）を、もう一度下書きから始める
 export function deepDataStuck(p: Pick<ProjectRow, "id" | "deep" | "deep_need" | "stage">): boolean {
   return !!p.deep && !!p.deep_need && p.stage === "idea" && !buildingNow(p.id) && !approvedDeepData(p.id)
     && !db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(p.id);

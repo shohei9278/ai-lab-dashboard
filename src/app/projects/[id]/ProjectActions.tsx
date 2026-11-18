@@ -17,8 +17,8 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
   const [signups, setSignups] = useState("");
   const [adSpend, setAdSpend] = useState("");
 
-  // 承認後にAI呼び出しが失敗して止まったとき用
-  const stuck = !hasPending && !building && (stage === "idea" || (stage === "lp" && !hasLp));
+  // 作成・修正の途中で止まったとき用（AIの呼び出しの失敗や、作業中のサーバーの立ち上げ直し。サーバー側の isStuck と同じ条件）
+  const stuck = !hasPending && !building && (stage === "idea" || stage === "lp");
   const thing = isTool ? "ツール" : "LP";
 
   // 実際に公開しているLPは、訪問と登録が自動で入る。人が入れるのは広告費だけ
@@ -135,6 +135,22 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
       </div>
     );
   }
+  // 版があるとき: ツールの取り込み・紹介ページづくり・修正の途中で止まった。止まる前の操作からやり直す（取り込みなら開発待ちに戻すだけで、AIは呼ばない）
+  if (stuck && hasLp) {
+    return (
+      <div className="card space-y-2 p-4">
+        <p className="text-sm text-ink-2">{isTool ? "ツールの取り込みや紹介ページづくり、" : ""}修正が途中で止まっていて、判断待ちがありません（AIの呼び出しに失敗したか、作業中にサーバーが止まった可能性があります）。今の版はそのままです。</p>
+        <p className="text-xs text-muted">「やり直す」を押すと、止まる前の操作からやり直します。ツールのHTMLを入れたところで止まったときは開発待ちに戻るので、同じHTMLをもう一度入れてください（AIは呼びません）。修正の途中で止まったときは、同じ指示で直し直します。</p>
+        <div className="flex flex-wrap gap-2">
+          <ActionButton variant="primary" disabled={!!busy} onClick={() => run("やり直しています…", { action: "generate-lp", projectId: id })}>
+            やり直す
+          </ActionButton>
+          {!publicUrl && <Abandon id={id} />}
+        </div>
+        <BusyNote busy={busy} error={error} />
+      </div>
+    );
+  }
   if (stuck) {
     return (
       <div className="card space-y-2 p-4">
@@ -143,7 +159,7 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
           <ActionButton variant="primary" disabled={!!busy} onClick={() => run(`AIが${thing}を作っています…`, { action: "generate-lp", projectId: id })}>
             {thing}を作り直す
           </ActionButton>
-          <Abandon id={id} />
+          {!publicUrl && <Abandon id={id} />}
         </div>
         <BusyNote busy={busy} error={error} />
       </div>
