@@ -160,7 +160,9 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
     // 動かす先は、押さえた要素の大きさに対する割合で決める（ツールの中の位置を、台本から画素で書かせないため）
     const drag = async (box: { x: number; y: number; width: number; height: number }, step: PlayStep) => {
       const [fx, fy] = step.from ?? [0.5, 0.5];
-      const sx = box.x + box.width * fx, sy = box.y + box.height * fy;
+      // 枠の右端・下端は枠の内側に入らないので、押さえる位置は端から1画素だけ内側に収める（from が 0・1 でも、その要素を押さえる。PR #95 の ai-review の指摘）
+      const inside = (v: number, size: number) => Math.min(Math.max(v, 1), Math.max(1, size - 1));
+      const sx = box.x + inside(box.width * fx, box.width), sy = box.y + inside(box.height * fy, box.height);
       const ex = sx + box.width * (step.dx ?? 0), ey = sy + box.height * (step.dy ?? 0);
       const finger = (x: number, y: number) => page.evaluate(({ x, y }) => { const f = document.getElementById("finger")!; f.style.left = `${x}px`; f.style.top = `${y}px`; }, { x, y });
       await page.evaluate(({ x, y }) => { const f = document.getElementById("finger")!; f.style.opacity = "1"; f.style.left = `${x}px`; f.style.top = `${y}px`; }, { x: sx, y: sy });

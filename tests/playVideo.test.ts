@@ -158,4 +158,8 @@ document.getElementById("ok").onclick=function(){document.getElementById("out").
   assert.equal(r.failed.length, 1);
   assert.equal(r.done, 2);
   assert.equal(r.shots.length, 3);
+  // 押さえる位置が右下の端（from: [1, 1]）でも、その要素を押さえて動かせる（PR #95 の ai-review の指摘）
+  const corner = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "drag", target: "#board", dx: -0.3, dy: -0.3, from: [1, 1] }, { do: "click", target: "決める" }] }, html, {}, "置く", out.replace("d.mp4", "d2.mp4"));
+  assert.deepEqual(corner.failed, []);
+  assert.equal(corner.done, 2);
 });
