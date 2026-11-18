@@ -119,3 +119,47 @@ test("コマの確かめの答え（PR #86 の3回目の ai-review の指摘）:
     assert.match(c.issues[0], /確かめの答えを読めなかった/);
   }
 });
+
+test("遊ぶ様子の動画の台本（#62 で運営者が見つけた）: ドラッグの手順を読む。動かさないドラッグは使わず、ドラッグだけの台本も使える", () => {
+  const s = parsePlayScript({
+    hook: "h", caption: "c",
+    steps: [
+      { do: "drag", target: " #paper ", dx: 0.3, dy: -2, from: [0.2, 1.5] },
+      { do: "drag", target: "#paper", dx: 0, dy: 0 },
+      { do: "drag", target: "#paper", dx: "x", dy: 0.4, from: "真ん中" },
+      { do: "drag", target: "", dx: 0.5 },
+    ],
+  })!;
+  assert.deepEqual(s.steps, [
+    { do: "drag", target: "#paper", dx: 0.3, dy: -1, from: [0.2, 1] },
+    { do: "drag", target: "#paper", dx: 0, dy: 0.4 },
+  ]);
+  // ドラッグは1つ約2.2秒
+  assert.ok(Math.abs(playSeconds(s.steps) - (0.7 + 2.2 * 2 + 2.2)) < 1e-9);
+});
+
+test("遊ぶ様子の動画（#62 で運営者が見つけた）: ドラッグで動かすと押せるようになるボタンも、台本どおりに動かして押せる（ブラウザと ffmpeg があるときだけ）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  await browser.close();
+  if (spawnSync("ffmpeg", ["-version"]).status !== 0) return t.skip("ffmpeg がありません");
+  // 押さえた所からの相対で動く板。動かすまで「決める」は押せない
+  const html = `<div id="board" style="position:relative;width:300px;height:300px;background:#eee;touch-action:none"><div id="dot" style="position:absolute;left:20px;top:20px;width:30px;height:30px;border-radius:50%;background:#000"></div></div>
+<button id="ok" disabled>決める</button><div id="out"></div>
+<script>var b=document.getElementById("board"),d=document.getElementById("dot"),x=20,y=20,s=null;
+b.addEventListener("pointerdown",function(e){s={x:e.clientX,y:e.clientY,ox:x,oy:y};b.setPointerCapture(e.pointerId)});
+b.addEventListener("pointermove",function(e){if(!s)return;x=s.ox+e.clientX-s.x;y=s.oy+e.clientY-s.y;d.style.left=x+"px";d.style.top=y+"px";document.getElementById("ok").disabled=false});
+b.addEventListener("pointerup",function(){s=null});
+document.getElementById("ok").onclick=function(){document.getElementById("out").textContent="置いた "+Math.round(x)+","+Math.round(y)};</script>`;
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "play-")), "d.mp4");
+  const r = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "決める" }, { do: "drag", target: "#board", dx: 0.4, dy: 0.2 }, { do: "click", target: "決める" }] }, html, {}, "置く", out);
+  // 動かす前の「決める」は押せず、動かしたあとは押せる
+  assert.match(r.failed.join(" / "), /1番目の「決める」を操作できなかった/);
+  assert.equal(r.failed.length, 1);
+  assert.equal(r.done, 2);
+  assert.equal(r.shots.length, 3);
+  // 押さえる位置が右下の端（from: [1, 1]）でも、その要素を押さえて動かせる（PR #95 の ai-review の指摘）
+  const corner = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "drag", target: "#board", dx: -0.3, dy: -0.3, from: [1, 1] }, { do: "click", target: "決める" }] }, html, {}, "置く", out.replace("d.mp4", "d2.mp4"));
+  assert.deepEqual(corner.failed, []);
+  assert.equal(corner.done, 2);
+});

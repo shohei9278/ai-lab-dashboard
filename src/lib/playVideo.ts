@@ -14,7 +14,9 @@ import { wrapToolHtml } from "../../lp-site/src/lp/toolHtml";
 // AIが遊び方の台本（押すボタン・入れる値）を書き、本物のブラウザでツールを動かして録画する。録画のコマをAIが見て、伝わるかを確かめる
 // 投稿は、今は人が手で行う（動画を保存して、投稿文の案と一緒に投稿する）
 
-export type PlayStep = { do: "click" | "fill" | "wait"; target?: string; value?: string; ms?: number };
+// drag: 指やマウスで動かして遊ぶツール用。target の要素を押さえ（from: 要素の中の位置。横・縦の 0〜1、初めは真ん中）、
+// 要素の幅・高さに対する割合（dx・dy。-1〜1、右・下が正）だけ動かして離す
+export type PlayStep = { do: "click" | "fill" | "wait" | "drag"; target?: string; value?: string; ms?: number; dx?: number; dy?: number; from?: [number, number] };
 export type PlayScript = { hook: string; steps: PlayStep[]; caption: string };
 export type PlayCheck = { ok: boolean; issues: string[]; skipped?: string };
 export type PlayVideoRow = { id: number; at: string; project_id: number; version: number; file: string; hook: string; caption: string; script: string; check_json: string | null; ok: number };
@@ -24,7 +26,10 @@ export const PLAY_STEPS_MAX = 10;
 export const PLAY_SECONDS_MAX = 15;
 
 // 手順1つにかかる時間（秒）の見積もり。押す・入れる: 指を動かす（約0.6秒）＋操作＋あとの待ち（0.7秒）。入れる文字は1文字0.07秒
-const stepSeconds = (s: PlayStep) => (s.do === "wait" ? (s.ms ?? 800) / 1000 : s.do === "fill" ? 1.5 + 0.07 * (s.value ?? "").length : 1.6);
+// ドラッグ: 指を動かす（約0.6秒）＋動かす（約0.9秒）＋あとの待ち（0.7秒）
+export const DRAG_MS = 900;
+const stepSeconds = (s: PlayStep) => (s.do === "wait" ? (s.ms ?? 800) / 1000 : s.do === "fill" ? 1.5 + 0.07 * (s.value ?? "").length : s.do === "drag" ? 2.2 : 1.6);
+const clamp = (v: unknown, lo: number, hi: number, d: number) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
 // 動画全体の長さの見積もり（最初の0.7秒と、結果を読ませる最後の2.2秒を含む）
 export const playSeconds = (steps: PlayStep[]) => 0.7 + steps.reduce((t, s) => t + stepSeconds(s), 0) + 2.2;
 
@@ -38,12 +43,19 @@ export function parsePlayScript(v: unknown): PlayScript | null {
     if (s.do === "wait") step = { do: "wait", ms: Math.max(300, Math.min(3000, Number(s.ms) || 800)) };
     else if ((s.do === "click" || s.do === "fill") && isStr(s.target) && s.target.trim()) {
       step = { do: s.do, target: s.target.trim().slice(0, 80), ...(s.do === "fill" ? { value: String(s.value ?? "").slice(0, 60) } : {}) };
+    } else if (s.do === "drag" && isStr(s.target) && s.target.trim()) {
+      const dx = clamp(s.dx, -1, 1, 0), dy = clamp(s.dy, -1, 1, 0);
+      // 動かさないドラッグは、押すのと同じなので使わない（台本の誤り）
+      if (Math.abs(dx) + Math.abs(dy) < 0.02) continue;
+      const from = Array.isArray(s.from) && s.from.length === 2 ? [clamp(s.from[0], 0, 1, 0.5), clamp(s.from[1], 0, 1, 0.5)] as [number, number] : undefined;
+      step = { do: "drag", target: s.target.trim().slice(0, 80), dx, dy, ...(from ? { from } : {}) };
     }
     if (!step) continue;
     if (playSeconds([...steps, step]) > PLAY_SECONDS_MAX) break;
     steps.push(step);
   }
-  if (!steps.some((s) => s.do === "click")) return null;
+  // 押すかドラッグする手順が1つもない台本は使わない（入れて待つだけでは、遊ぶ様子にならない）
+  if (!steps.some((s) => s.do === "click" || s.do === "drag")) return null;
   // 動画の上の一言と投稿文の案は必ず要る（欠けた台本は使わず、AIに書き直させる）
   if (!isStr(v.hook) || !v.hook.trim() || !isStr(v.caption) || !v.caption.trim()) return null;
   return { hook: v.hook.trim().slice(0, 24), steps, caption: v.caption.trim().slice(0, 200) };
@@ -74,11 +86,12 @@ async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [
 ツールのHTMLを読み、押すボタン・入れる値の順番（steps）を書きます。
 - click: target に、押すボタンなどに見えている文字（そのまま）を書く。文字で見分けられないときだけ、HTMLにある CSS のセレクタ（#id や .class）を書く
 - fill: target に入力欄のセレクタ（#id など）か、入力欄のラベルの文字を書き、value に入れる値を書く（自然な例。実在の人の名前・連絡先は使わない）
+- drag: 指やマウスで動かして遊ぶツール（ドラッグで置く・動かす・canvas の上でなぞる など）で使う。target に押さえる要素（見えている文字か、#id などのセレクタ。canvas なら canvas のセレクタ）、dx・dy に動かす距離を、その要素の幅・高さに対する割合（-1〜1。右・下が正）で書く。押さえる位置を変えたいときだけ、from に要素の中の位置 [横, 縦]（0〜1。書かなければ真ん中）を書く。動かすまで押せないボタンがあるツールは、そのボタンの前に drag を入れる
 - wait: ms に待つ時間（300〜3000）。結果が出るまでに演出があるツールは、結果が見えるまで待つ
 - 最初の3秒のうちに、いちばん面白い瞬間（結果・オチ）へ向かうように、前置きの操作は最小にする。steps は${PLAY_STEPS_MAX}個まで。最後は結果が画面に出ている状態で終える
 - hook: 動画の上に大きく出す一言（20文字以内）。何をするものか・何が起きるかが一言で分かるもの。誇大な表現・実在の人物や作品の名前は使わない
 - caption: 投稿の本文の案（120文字以内。リンクは付けない（あとで付ける）。ハッシュタグは1〜2個まで）
-出力はJSONのみ: {"hook":"","steps":[{"do":"click","target":"回す"},{"do":"wait","ms":1500}],"caption":""}`,
+出力はJSONのみ: {"hook":"","steps":[{"do":"click","target":"回す"},{"do":"wait","ms":1500}],"caption":""}（ドラッグの例: {"do":"drag","target":"#board","from":[0.2,0.8],"dx":0.3,"dy":-0.3}）`,
     user: `ツール名: ${p.title}\n何ができるか: ${p.solution}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}`,
     validate: (v): v is PlayScript => parsePlayScript(v) !== null,
   }).then((v) => parsePlayScript(v)!);
@@ -143,6 +156,32 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
       await page.waitForTimeout(120);
       await page.evaluate(() => { document.getElementById("finger")!.style.transform = "scale(1)"; });
     };
+    // ドラッグ: 指の印を押さえる所へ動かし、押さえたまま動かす先まで滑らせて離す（指の印も一緒に動く）
+    // 動かす先は、押さえた要素の大きさに対する割合で決める（ツールの中の位置を、台本から画素で書かせないため）
+    const drag = async (box: { x: number; y: number; width: number; height: number }, step: PlayStep) => {
+      const [fx, fy] = step.from ?? [0.5, 0.5];
+      // 枠の右端・下端は枠の内側に入らないので、押さえる位置は端から1画素だけ内側に収める（from が 0・1 でも、その要素を押さえる。PR #95 の ai-review の指摘）
+      const inside = (v: number, size: number) => Math.min(Math.max(v, 1), Math.max(1, size - 1));
+      const sx = box.x + inside(box.width * fx, box.width), sy = box.y + inside(box.height * fy, box.height);
+      const ex = sx + box.width * (step.dx ?? 0), ey = sy + box.height * (step.dy ?? 0);
+      const finger = (x: number, y: number) => page.evaluate(({ x, y }) => { const f = document.getElementById("finger")!; f.style.left = `${x}px`; f.style.top = `${y}px`; }, { x, y });
+      await page.evaluate(({ x, y }) => { const f = document.getElementById("finger")!; f.style.opacity = "1"; f.style.left = `${x}px`; f.style.top = `${y}px`; }, { x: sx, y: sy });
+      await page.waitForTimeout(500);
+      await page.evaluate(() => { const f = document.getElementById("finger")!; f.style.transform = "scale(.8)"; f.style.transition = "opacity .2s, transform .12s"; });
+      await page.mouse.move(sx, sy);
+      await page.mouse.down();
+      const n = 18;
+      for (let k = 1; k <= n; k++) {
+        // 初めはゆっくり、途中で速く、最後はゆっくり（手で動かしたように見せる）
+        const t = (1 - Math.cos((Math.PI * k) / n)) / 2;
+        const x = sx + (ex - sx) * t, y = sy + (ey - sy) * t;
+        await page.mouse.move(x, y);
+        await finger(x, y);
+        await page.waitForTimeout(DRAG_MS / n);
+      }
+      await page.mouse.up();
+      await page.evaluate(() => { const f = document.getElementById("finger")!; f.style.transform = "scale(1)"; f.style.transition = ""; });
+    };
     shots.push(await page.screenshot({ type: "jpeg", quality: 70 }));
     // 途中のコマは、真ん中の手順のあとに、うまくいったかにかかわらず必ず撮る（コマは最初・途中・最後の3枚にそろえる）
     const mid = Math.floor((script.steps.length - 1) / 2);
@@ -176,6 +215,13 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
           try {
             await l.scrollIntoViewIfNeeded({ timeout: 1500 });
             const box = await l.boundingBox();
+            if (step.do === "drag") {
+              if (!box) throw new Error("押さえる所の位置が分からない");
+              await drag(box, step);
+              done++;
+              await page.waitForTimeout(700);
+              continue;
+            }
             if (box) await tap(box);
             // 入れられない・押せない所（止められている・ほかの要素に覆われているなど）は、短い時間で諦めて次へ進む
             if (step.do === "fill") {
@@ -217,7 +263,7 @@ async function checkPlay(p: ProjectRow, script: PlayScript, shots: Buffer[]): Pr
 問題がなければ issues は空。
 出力はJSONのみ: {"issues":["問題と、台本をどう直すか"]}`,
     content: [
-      { type: "text", text: `ツール名: ${p.title}\n上の一言: ${script.hook}\n台本: ${script.steps.map((s) => (s.do === "wait" ? `待つ${s.ms}ms` : `${s.do === "fill" ? "入力" : "押す"}「${s.target}」${s.value ? `に「${s.value}」` : ""}`)).join(" → ")}` },
+      { type: "text", text: `ツール名: ${p.title}\n上の一言: ${script.hook}\n台本: ${script.steps.map((s) => (s.do === "wait" ? `待つ${s.ms}ms` : s.do === "drag" ? `動かす「${s.target}」` : `${s.do === "fill" ? "入力" : "押す"}「${s.target}」${s.value ? `に「${s.value}」` : ""}`)).join(" → ")}` },
       ...shots.flatMap((b, i) => [{ type: "text" as const, text: ["最初", "途中", "最後"][i] ?? `${i + 1}枚目` }, { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: b.toString("base64") } }]),
     ],
     maxTokens: 2000,
