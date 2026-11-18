@@ -510,6 +510,8 @@ export async function retryDeepData(projectId: number) {
 // ブラウザで確かめながら作る。できたHTMLを運営者が入れると、いつもどおりチェック・動作の確かめ・紹介ページ・公開の判断に進む
 
 export const CLAUDE_CODE = "claude-code";
+// 設計書の長さの上限（文字数）
+export const DEV_DESIGN_MAX = 6000;
 
 // 開発待ち（Claude Code で作るのを待っている）のじっくり案件の数
 export function devWaiting(): number {
@@ -528,7 +530,7 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
     projectId: p.id,
     system: `あなたは小さなWebツールの設計担当です。じっくり案件のツールの設計書を書きます。ツールは開発担当（Claude Code）が、この設計書をもとに、ブラウザで確かめながら作ります。
 ツールは、紹介ページの中の枠に埋め込まれる1つのHTMLの断片で、外部との通信・保存の領域は使えません（作る側の決まりは別に渡します）。
-設計書には、次の見出しで書く（Markdown。全体で6,000文字以内）:
+設計書には、次の見出しで書く（Markdown。全体で${DEV_DESIGN_MAX.toLocaleString("en-US")}文字以内）:
 ## 一言で（何をするツールか。1〜2文）
 ## 画面（上から順に。スマホ幅360pxでの並び）
 ## 遊び方・使い方（操作の順番。最初の3秒で何をすればよいか分かること）
@@ -542,7 +544,8 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
     user: `ツール名: ${p.title}\n対象: ${p.target}\n${p.aim === "spread" ? "刺さる気持ち" : "困りごと"}: ${p.problem}\n何ができるか: ${p.solution}\n作り込む所（じっくり案件）: ${p.deep_plan ?? "（なし）"}${p.deep_need ? `\n使うデータ: ${p.deep_need}` : ""}${prev ? `\n\n前の設計書:\n${prev}` : ""}${comment ? `\n\n運営者の指示（この指示に沿って設計書を直す）: ${comment}` : ""}`,
     validate: (v): v is { design: string } => isObj(v) && isStr(v.design) && v.design.trim().length > 0,
   });
-  return out.design.trim().slice(0, 8000);
+  // 頼んだ長さ（6,000文字）を超えた分は切る（依頼文が長くなりすぎないように）
+  return out.design.trim().slice(0, DEV_DESIGN_MAX);
 }
 
 // 開発待ちにする。最初に作るとき・設計を直す指示のときは、AIが設計書を書く（直すときは、前の設計書と直す指示を渡す）
