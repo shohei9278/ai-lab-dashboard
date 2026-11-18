@@ -2010,7 +2010,14 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
   const pid = a.project_id;
   if (a.kind === "dev") {
     // 作り直す（設計を直す）指示なら、設計書を書き直して、また開発待ちにする。却下なら、まだ一度も作っていない案件は見送り、公開中の案件は今の版のまま
-    if (action === "revise") return requestDev(pid, (JSON.parse(a.payload ?? "{}") as { instruction?: string | null }).instruction ?? undefined, comment);
+    // 設計書の書き直しに失敗したら、元の開発待ちに戻す（消えると、HTMLを入れることも、もう一度指示することもできなくなる）
+    if (action === "revise") {
+      return requestDev(pid, (JSON.parse(a.payload ?? "{}") as { instruction?: string | null }).instruction ?? undefined, comment).catch((e) => {
+        db().prepare("UPDATE approvals SET status = 'pending', comment = NULL, decided_at = NULL WHERE id = ?").run(approvalId);
+        logEvent(pid, "system", "dev-error", "設計書の書き直しに失敗したため、元の開発待ちに戻しました（もう一度指示するか、HTMLを入れられます）");
+        throw e;
+      });
+    }
     if (action === "reject" && !getProject(pid)?.lp) return setStage(pid, "rejected");
     return;
   }

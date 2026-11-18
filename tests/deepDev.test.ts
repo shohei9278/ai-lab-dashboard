@@ -71,3 +71,14 @@ test("じっくり案件: 開発待ちを却下すると、まだ作っていな
   await decide(a.id, "reject");
   assert.equal(getProject(live)!.stage, "live");
 });
+
+test("じっくり案件（PR #90 の ai-review の指摘）: 修正の指示で設計書の書き直しに失敗したら、元の開発待ちに戻す", async () => {
+  const id = addDeep();
+  seedDesign(id);
+  await prepareLp(id);
+  const a = pendingDev(id)!;
+  // テストではAIのキーがないので、設計書の書き直しは失敗する
+  await assert.rejects(decide(a.id, "revise", "もっと派手に"));
+  assert.equal(pendingDev(id)?.id, a.id);
+  assert.ok(db().prepare("SELECT 1 FROM events WHERE project_id = ? AND kind = 'dev-error'").get(id));
+});
