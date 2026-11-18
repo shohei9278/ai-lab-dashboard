@@ -598,6 +598,8 @@ export function startDevUpload(approvalId: number, html: string): Promise<void> 
   const t = html.trim();
   if (!t) throw new Error("ツールのHTMLが空です");
   if (t.length > TOOL_HTML_MAX) throw new Error(`ツールのHTMLが長すぎます（${t.length.toLocaleString("en-US")}文字。${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）`);
+  // Google Fonts の読み込みは、どのツールでも staticToolIssues の最初で外してから見る（じっくり案件でも使える）
+  // 第2引数（deep）で変わるのは長さの上限だけ。Claude Code で作ったものは、上で TOOL_HTML_MAX（80,000文字）まで見たので、既定のままでよい
   const issues = staticToolIssues(t);
   if (issues.length) throw new Error(`決まりに合わないため入れられません: ${issues.join(" / ")}`);
   const p = getProject(a.project_id)!;
