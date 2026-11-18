@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings } from "../src/lib/db";
 import { deepAllowance } from "../src/lib/deep";
-import { getProject, markNeedsDone } from "../src/lib/loop";
+import { devRequestText, getProject, markNeedsDone } from "../src/lib/loop";
 import { needsGroups, needsOf, needsProjects, needsWaiting } from "../src/lib/needs";
 import { waitingItems } from "../src/lib/overview";
 
@@ -74,4 +74,15 @@ test("人の作業待ち: 「済み」にすると、毎回承認の設定でも
   assert.ok(needsProjects().some((p) => p.id === id));
   // 失敗の詳しい内容は、来訪者に伏せられる種類で残す
   assert.ok(db().prepare("SELECT 1 FROM events WHERE project_id = ? AND kind = 'needs-error'").get(id));
+});
+
+test("人の作業待ち（PR #91 の3回目の ai-review の指摘）: 「済み」にした要るものは、Claude Code への依頼文に入る", () => {
+  const id = add([{ kind: "asset", what: "効果音を3つ", why: "当たりの手ざわり" }], { needs_done: 1 });
+  const text = devRequestText(id, "## 一言で\n音が鳴る", null);
+  assert.match(text, /## 人が用意したもの/);
+  assert.match(text, /素材: 効果音を3つ（当たりの手ざわり）/);
+  assert.match(text, /作る前に運営者に聞く/);
+  // まだ「済み」でない・要るものがない案件には入れない
+  assert.doesNotMatch(devRequestText(add([{ kind: "asset", what: "x" }]), "d", null), /人が用意したもの/);
+  assert.doesNotMatch(devRequestText(add(null), "d", null), /人が用意したもの/);
 });

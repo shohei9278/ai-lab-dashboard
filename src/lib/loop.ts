@@ -279,11 +279,11 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 プロダクトの種類は問わない（Webサービス・スマホアプリ・ブラウザ拡張・LINEボットやSlackアプリ・AIを使うサービス・テンプレートや素材などのデジタル商品など）。Webサービスばかりに偏らないこと。
 世に出す形（kind）は2つあり、下に書くねらい（aim）から決まります（demand は lp、ほかは tool）。
 - lp: 事前登録LP。まだ作らずに、紹介ページのメール事前登録で需要を確かめる。プロダクトの種類も、作る大変さも問わない（需要が確かめられてから作る）。継続して使うもの・作るのに時間がかかるもの向け
-- tool: 動くツール。診断・シミュレーター・計算機・ジェネレーターなど、1つのWebページの中だけで完結して今すぐ使えるもの。外部のAPIやサーバー、ログイン、ブラウザの保存領域（localStorage など）は使えない。記録や保存が欲しい案は、solution に「画面を閉じると消える一時的な保持」と明記する。何度も使いたくなるもの・結果を人に見せたくなるものが向く
+- tool: 動くツール。診断・シミュレーター・計算機・ジェネレーターなど、1つのWebページの中だけで完結して今すぐ使えるもの。外部のAPIやサーバー、ログイン、ブラウザの保存領域（localStorage など）は使えない。記録や保存が欲しい案は、solution に「画面を閉じると消える一時的な保持」と明記する（ただし、保存の場所・外部のAPI・その場でAIを呼ぶ などがないと成り立たない案は、縮めずに、下の needs を書いたじっくり案件として出してよい）。何度も使いたくなるもの・結果を人に見せたくなるものが向く
 - じっくり案件（tool のみ）: ふつうの tool の制限（40,000文字まで・データは代表的なものだけ・フォントなし・AIが1回で書き上げる）を外し、時間をかけて作り込む枠（直近7日で${s.deepPerWeek}件まで）。AIが設計書を書き、開発担当（Claude Code）がブラウザで確かめながら作る。コードは${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで、Google Fonts が使える。制限のせいで小さく縮めるしかない案は、縮めずに deep に何を作り込むか（見せ方・演出・データの大きさなど）を書いて出してよい。deep は、ふつうの tool では面白さが出ない案だけに書く
 - じっくり案件で大きなデータ（数百〜${TOOL_DATA_ROWS_MAX}件ほどの一覧。例: 全国の市町村ごとの特徴・数百の職業の特徴）が要るときだけ、deep_data に要るデータ（何の一覧で、1件ごとに何を持ち、何件くらいか）を書く。AIがデータを下書きし、人が確かめてから作る。deep_data には、データがどのくらいの頻度で変わるか（変わらない・年1回・毎月など）と、変わるときに誰がどう更新するかも書く（すぐ古くなるデータ（売り場・配信作品・価格など）は、更新の手立てがなければ出さない）。データが要らないじっくり案件は deep_data を書かない
-- 外部の API・サービスは今は使えない（通信は止めている）。使えたら明らかに良くなる、または使えないと作れない API があれば、api_wish に書く（API の名前・何に使うか・鍵（APIキー）が要るか・訪問者のどんな情報を送ることになるか）。人が、その API を許すかを決める材料として記録する。api_wish を書いても、solution は通信なしで作れる形にする。思いつきで書かず、本当に効くものだけにする（なければ書かない）
-- 次のような、今はまだない仕組みが要る案も出してよい。じっくり案件にして、needs に要るものを書く（作り始める前に止めて、人が仕組みを用意してから作る。何が要る案がどれだけ溜まるかで、次に作る仕組みを決める）: ${Object.entries(NEED_KINDS).map(([k, v]) => `${k}（${v.label}: ${v.hint}）`).join(" / ")}。needs を書いた案の solution は、その仕組みがある前提で書いてよい。仕組みがなくても作れる案には needs を書かない
+- 外部の API・サービスは今は使えない（通信は止めている）。使えたら明らかに良くなる、または使えないと作れない API があれば、api_wish に書く（API の名前・何に使うか・鍵（APIキー）が要るか・訪問者のどんな情報を送ることになるか）。人が、その API を許すかを決める材料として記録する。api_wish は、通信なしでも成り立つ案で、API があればもっと良くなるときに書く（solution は通信なしで作れる形にする）。API がないと成り立たない案は、api_wish ではなく needs（api）を書いたじっくり案件にする。思いつきで書かず、本当に効くものだけにする（なければ書かない）
+- 次のような、今はまだない仕組みが要る案も出してよい。じっくり案件にして、needs に要るものを書く（作り始める前に止めて、人が仕組みを用意してから作る。何が要る案がどれだけ溜まるかで、次に作る仕組みを決める）: ${Object.entries(NEED_KINDS).map(([k, v]) => `${k}（${v.label}: ${v.hint}）`).join(" / ")}。needs を書いた案の solution は、その仕組みがある前提で書いてよい（「通信なし・保存なし」の決まりは、needs を書かない案だけのもの）。仕組みがなくても作れる案には needs を書かない
 アイデアごとに、ねらい（aim）を1つ決める。ねらいは、何をもって当たりとするかを決める。形（kind）はねらいから決まる（demand は lp、ほかは tool）。
 - spread（${AIMS.spread.label}）: tool。見た人が思わず触り、結果やオチを人に見せたくなり、作った人の次の作品も見たくなるもの。遊び・診断・ネタ・おもちゃ・なりきり・見て楽しむものなど、形は自由（役に立たなくてよい）。30秒ほどで遊べて、何をするものかが1秒で伝わるものにする
 - useful（${AIMS.useful.label}）: tool。困りごとを今すぐ解決する道具として、何度も使われるもの
@@ -556,6 +556,12 @@ function lastDevDesign(projectId: number): string | null {
   return r?.payload ? ((JSON.parse(r.payload) as { design?: string }).design ?? null) : null;
 }
 
+// 人の作業待ちで「済み」にした、要るもの（設計書を書くAIと、Claude Code への依頼文に渡す）。なければ空
+function needsNote(p: ProjectRow): string {
+  if (!p.needs || !p.needs_done) return "";
+  return needsOf(JSON.parse(p.needs)).map((n) => `- ${NEED_KINDS[n.kind].label}: ${n.what}${n.why ? `（${n.why}）` : ""}`).join("\n");
+}
+
 async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | null): Promise<string> {
   const out = await callJson<{ design: string }>({
     purpose: "じっくり案件の設計",
@@ -573,7 +579,7 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
 ## できたかの確かめ（動作の確かめの項目。5〜10個）
 実在の人物・既存の作品を使わない。人をばかにするネタにしない。誇大な約束をしない。
 出力はJSONのみ: {"design":"設計書（Markdown）"}`,
-    user: `ツール名: ${p.title}\n対象: ${p.target}\n${p.aim === "spread" ? "刺さる気持ち" : "困りごと"}: ${p.problem}\n何ができるか: ${p.solution}\n作り込む所（じっくり案件）: ${p.deep_plan ?? "（なし）"}${p.deep_need ? `\n使うデータ: ${p.deep_need}` : ""}${prev ? `\n\n前の設計書:\n${prev}` : ""}${comment ? `\n\n運営者の指示（この指示に沿って設計書を直す）: ${comment}` : ""}`,
+    user: `ツール名: ${p.title}\n対象: ${p.target}\n${p.aim === "spread" ? "刺さる気持ち" : "困りごと"}: ${p.problem}\n何ができるか: ${p.solution}\n作り込む所（じっくり案件）: ${p.deep_plan ?? "（なし）"}${p.deep_need ? `\n使うデータ: ${p.deep_need}` : ""}${needsNote(p) ? `\n人が用意したもの（人の作業待ちで「済み」にしたもの。これを使う前提で設計する）:\n${needsNote(p)}` : ""}${prev ? `\n\n前の設計書:\n${prev}` : ""}${comment ? `\n\n運営者の指示（この指示に沿って設計書を直す）: ${comment}` : ""}`,
     validate: (v): v is { design: string } => isObj(v) && isStr(v.design) && v.design.trim().length > 0,
   });
   // 頼んだ長さ（6,000文字）を超えた分は切る（依頼文が長くなりすぎないように）
@@ -617,6 +623,7 @@ export function devRequestText(projectId: number, design: string, instruction: s
     p.lp && instruction ? `直す指示: ${instruction}\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。` : "",
     `## 設計書\n${design}`,
     `## データ\n${dataNote}`,
+    needsNote(p) ? `## 人が用意したもの（人の作業待ちで「済み」にしたもの）\n${needsNote(p)}\n素材の場所・使い方など、ここに書いていないことは、作る前に運営者に聞く。` : "",
     `## 作るときの決まり（AIが書くときと同じ。ただし Claude Code で作るときは、コードの長さは${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）\n${rules}`,
     `## できたら\n1つのHTMLの断片（<html><head><body> は書かない）・${TOOL_HTML_MAX.toLocaleString("en-US")}文字以内にして、スマホ幅でブラウザで動かして確かめてから、案件の判断待ちの「ツールのHTMLを入れる」から入れる。入れると、いつもどおりチェック・動作の確かめ・紹介ページ・公開の判断に進む。`,
   ].filter(Boolean).join("\n\n");
