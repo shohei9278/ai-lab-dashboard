@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { makePlayVideoOnPublish } from "./playVideo";
 import { hitsText } from "./hits";
-import { NEED_KINDS, needsOf, needsWaiting, type Need } from "./needs";
+import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
@@ -344,7 +344,8 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
 
 // 毎回承認ならアイデアの承認待ちへ、自動ならLPまで作って公開の承認待ちへ
 // 大きなデータが要るじっくり案件は、どちらのモードでも、まずデータの下書きを作って人の確認に回す（データが要らないじっくり案件は、ふつうと同じ）
-async function startProject(id: number) {
+// decided: 人がすでに進めると決めた（人の作業待ちの「済み」など）。毎回承認の設定でも、アイデアの承認を挟まない
+async function startProject(id: number, opts: { decided?: boolean } = {}) {
   const p = getProject(id)!;
   // まだない仕組み（保存の場所・API・AIなど）が要るじっくり案件は、人が用意して「済み」にするまで、作り始めない（人の作業待ち）
   const needs = p.deep && p.needs ? needsOf(JSON.parse(p.needs)) : [];
@@ -353,7 +354,7 @@ async function startProject(id: number) {
     return;
   }
   if (p.deep && p.deep_need) return prepareDeepData(id);
-  if (p.mode === "manual") {
+  if (p.mode === "manual" && !opts.decided) {
     addApproval(id, "idea", `「${p.title}」で進める`, p.ai_reason);
     return;
   }
@@ -522,9 +523,17 @@ export async function retryDeepData(projectId: number) {
 export function markNeedsDone(projectId: number): Promise<void> {
   const p = getProject(projectId);
   if (!p || !p.needs || p.needs_done || p.stage !== "idea") throw new Error("人の作業待ちの案件ではありません");
+  // まだない仕組み（保存の場所・API・AI）が要るものは、仕組みを作る（ツールの決まりも変える）までは「済み」にできない（作ってもツールから使えないため）
+  const missing = notReady(needsOf(JSON.parse(p.needs)));
+  if (missing.length) throw new Error(`まだない仕組み（${[...new Set(missing.map((n) => NEED_KINDS[n.kind].label))].join("・")}）が要るため、まだ「済み」にできません（その仕組みを作るときに、使えるようにします）`);
   db().prepare("UPDATE projects SET needs_done = 1, updated_at = datetime('now') WHERE id = ?").run(projectId);
   logEvent(projectId, "human", "needs-done", "作るのに要るものを用意したので、作り始めます");
-  return startProject(projectId);
+  // 人が「済み」で決めたので、毎回承認の設定でもアイデアの承認は挟まない。作り始めに失敗したら、人の作業待ちに戻す（宙に浮かせない）
+  return startProject(projectId, { decided: true }).catch((e) => {
+    db().prepare("UPDATE projects SET needs_done = 0, updated_at = datetime('now') WHERE id = ?").run(projectId);
+    logEvent(projectId, "system", "needs-wait", `作り始めに失敗したため、人の作業待ちに戻しました（もう一度「済み」にできます）: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+    throw e;
+  });
 }
 
 // ---- じっくり案件の開発（ここ = Claude Code で作る） ----

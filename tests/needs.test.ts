@@ -43,13 +43,23 @@ test("人の作業待ち: 数え方・種類ごとのまとめ。止まってい
   assert.equal(deepAllowance(), Math.max(0, before - 1));
 });
 
-test("人の作業待ち: 「済み」にすると作り始める（待っていない案件では使えない）", async () => {
-  const id = add([{ kind: "ai", what: "AIが名前を付ける" }]);
+test("人の作業待ち（PR #91 の ai-review の指摘）: まだない仕組み（保存の場所・API・AI）が要る案件は、まだ「済み」にできない", () => {
+  const id = add([{ kind: "asset", what: "効果音" }, { kind: "ai", what: "AIが名前を付ける" }]);
+  assert.throws(() => markNeedsDone(id), /まだない仕組み（その場でAIを呼ぶ）が要るため/);
+  assert.equal(getProject(id)!.needs_done, 0);
+});
+
+test("人の作業待ち: 「済み」にすると、毎回承認の設定でもアイデアの承認を挟まずに作り始める。失敗したら人の作業待ちに戻す", async () => {
+  const id = add([{ kind: "asset", what: "効果音を用意する" }]);
+  db().prepare("UPDATE projects SET mode = 'manual' WHERE id = ?").run(id);
   assert.throws(() => markNeedsDone(add(null)), /人の作業待ちの案件ではありません/);
-  // 作り始めると、設計書を書くAIを呼ぶ（テストではキーがないので失敗で終わる）
-  await markNeedsDone(id).catch(() => undefined);
+  // 作り始めると、設計書を書くAIを呼ぶ（テストではキーがないので失敗で終わる）。アイデアの承認は作らない
+  const job = markNeedsDone(id);
   assert.equal(getProject(id)!.needs_done, 1);
   assert.ok(db().prepare("SELECT 1 FROM events WHERE project_id = ? AND kind = 'needs-done'").get(id));
-  assert.equal(needsProjects().some((p) => p.id === id), false);
-  assert.throws(() => markNeedsDone(id), /人の作業待ちの案件ではありません/);
+  await assert.rejects(job);
+  assert.equal(db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'idea'").get(id), undefined);
+  // 失敗したので、人の作業待ちに戻っている（もう一度「済み」にできる）
+  assert.equal(getProject(id)!.needs_done, 0);
+  assert.ok(needsProjects().some((p) => p.id === id));
 });

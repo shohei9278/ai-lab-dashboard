@@ -4,13 +4,17 @@ import { db, getSettings } from "./db";
 // アイデアに「要るもの（needs）」を書かせ、選ばれたら案件にして、作り始める前に止める。人が用意したら（仕組みを作ったら）「済み」にして作り始める
 // 何が要る案件が、どれだけ溜まっているかが、次にどの仕組みを作るかを決める材料になる
 
+// ready: その仕組みが今あるか（人が用意すれば、ツールから使えるか）。保存の場所・API・AI はまだないので、「済み」にできない
+// 仕組みを作るときに、ツールを作るときの決まり（toolRules・staticToolIssues）も一緒に変えて、ここを true にする
 export const NEED_KINDS = {
-  store: { label: "保存の場所", hint: "みんなの投票・ランキング・みんなの結果など、訪問者が入れたものを保存して、ほかの人に見せる" },
-  api: { label: "外部のAPI", hint: "天気・地図・翻訳など、外のサービスのデータや機能を呼ぶ" },
-  ai: { label: "その場でAIを呼ぶ", hint: "訪問者の入力に、AIがその場で答える・名前を付ける・絵を描く" },
-  asset: { label: "素材", hint: "画像・音・フォントなど、人が用意する素材" },
-  other: { label: "そのほか", hint: "上にない、人の作業や仕組み" },
+  store: { label: "保存の場所", hint: "みんなの投票・ランキング・みんなの結果など、訪問者が入れたものを保存して、ほかの人に見せる", ready: false },
+  api: { label: "外部のAPI", hint: "天気・地図・翻訳など、外のサービスのデータや機能を呼ぶ", ready: false },
+  ai: { label: "その場でAIを呼ぶ", hint: "訪問者の入力に、AIがその場で答える・名前を付ける・絵を描く", ready: false },
+  asset: { label: "素材", hint: "画像・音・フォントなど、人が用意する素材", ready: true },
+  other: { label: "そのほか", hint: "上にない、人の作業や仕組み", ready: true },
 } as const;
+// まだない仕組み（作るまで「済み」にできない）
+export const notReady = (needs: Need[]) => needs.filter((n) => !NEED_KINDS[n.kind].ready);
 export type NeedKind = keyof typeof NEED_KINDS;
 export type Need = { kind: NeedKind; what: string; why: string };
 export const isNeedKind = (v: unknown): v is NeedKind => typeof v === "string" && Object.hasOwn(NEED_KINDS, v);

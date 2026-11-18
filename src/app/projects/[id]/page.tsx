@@ -121,7 +121,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <AutoReviewCard id={p.id} review={p.human_review} note={p.human_review_note} at={p.human_review_at} url={publicUrl(p.id)} />
       )}
 
-      <ProjectActions needs={p.needs && !p.needs_done ? needsOf(JSON.parse(p.needs)).map((n) => ({ label: NEED_KINDS[n.kind].label, what: n.what, why: n.why })) : null} demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} deepNoData={!!p.deep && !!p.deep_need && !approvedDeepData(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
+      <ProjectActions needs={p.needs && !p.needs_done ? needsOf(JSON.parse(p.needs)).map((n) => ({ label: NEED_KINDS[n.kind].label, what: n.what, why: n.why, ready: NEED_KINDS[n.kind].ready })) : null} demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} deepNoData={!!p.deep && !!p.deep_need && !approvedDeepData(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
 
       {owner && !p.demo && ["live", "hold"].includes(p.stage) && (
         <HoldPanel id={p.id} held={p.stage === "hold"} reason={p.hold_reason} until={p.hold_until} today={jstToday()} blocked={approvals.length > 0 || !!buildingNow(p.id)} />
