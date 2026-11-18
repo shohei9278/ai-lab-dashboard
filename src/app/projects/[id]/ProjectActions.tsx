@@ -4,12 +4,13 @@ import { useState } from "react";
 import type { Stage } from "@/lib/db";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 
-export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building, demo, deepNoData = false, needs = null }: {
+export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building, demo, deepNoData = false, needs = null, resume = null }: {
   // 人の作業待ち（まだない仕組みが要るじっくり案件）。要るものの一覧
   needs?: { label: string; what: string; why: string; ready: boolean }[] | null;
   id: number; convNoun: string; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number; isTool: boolean; demo: boolean;
   deepNoData?: boolean; // じっくり案件で、まだ承認したデータがない（止まっていたら、ツールではなくデータの下書きからやり直す）
   building: { what: string; since: number } | null; // AIが今作業中なら、その内容
+  resume?: { stopped: string; then: string } | null; // 途中で止まったとき: 何が止まったかと、「やり直す」を押すと何が起きるか（サーバーの resumePlan。やり直しと同じ判定）
   publicUrl: string | null; // 実際に公開しているときだけ入る
 }) {
   const { run, busy, error } = useLoopAction();
@@ -17,8 +18,8 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
   const [signups, setSignups] = useState("");
   const [adSpend, setAdSpend] = useState("");
 
-  // 承認後にAI呼び出しが失敗して止まったとき用
-  const stuck = !hasPending && !building && (stage === "idea" || (stage === "lp" && !hasLp));
+  // 作成・修正の途中で止まったとき用（AIの呼び出しの失敗や、作業中のサーバーの立ち上げ直し。サーバー側の isStuck と同じ条件）
+  const stuck = !hasPending && !building && (stage === "idea" || stage === "lp");
   const thing = isTool ? "ツール" : "LP";
 
   // 実際に公開しているLPは、訪問と登録が自動で入る。人が入れるのは広告費だけ
@@ -135,15 +136,32 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
       </div>
     );
   }
+  // 版があるとき: ツールの取り込み・紹介ページづくり・修正の途中で止まった。止まる前の操作からやり直す（取り込みなら開発待ちに戻すだけで、AIは呼ばない）
+  if (stuck && hasLp) {
+    return (
+      <div className="card space-y-2 p-4">
+        <p className="text-sm text-ink-2">{resume?.stopped ?? "作業が途中で止まっていて、判断待ちがありません。今の版はそのままです。"}AIの呼び出しに失敗したか、作業中にサーバーが止まった可能性があります。</p>
+        {resume && <p className="text-xs text-muted">{resume.then}</p>}
+        <div className="flex flex-wrap gap-2">
+          <ActionButton variant="primary" disabled={!!busy} onClick={() => run("やり直しています…", { action: "generate-lp", projectId: id })}>
+            やり直す
+          </ActionButton>
+          {!publicUrl && <Abandon id={id} />}
+        </div>
+        <BusyNote busy={busy} error={error} />
+      </div>
+    );
+  }
   if (stuck) {
     return (
       <div className="card space-y-2 p-4">
         <p className="text-sm text-ink-2">{thing}の作成が途中で止まっています（AIの呼び出しに失敗したか、作成中にサーバーが止まった可能性があります）。</p>
+        {resume && <p className="text-xs text-muted">{resume.then}</p>}
         <div className="flex flex-wrap gap-2">
           <ActionButton variant="primary" disabled={!!busy} onClick={() => run(`AIが${thing}を作っています…`, { action: "generate-lp", projectId: id })}>
             {thing}を作り直す
           </ActionButton>
-          <Abandon id={id} />
+          {!publicUrl && <Abandon id={id} />}
         </div>
         <BusyNote busy={busy} error={error} />
       </div>

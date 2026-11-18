@@ -1,5 +1,5 @@
 import { db, getSettings, monthAdSpendJpy, monthSpendBreakdownUsd, type ApprovalKind, type EventRow, type ProjectRow, type Stage } from "./db";
-import { buildingNow, projectTotals } from "./loop";
+import { STUCK_SQL, buildingNow, projectTotals } from "./loop";
 import { maskEvents } from "./views";
 import { NEEDS_WAIT_SQL } from "./needs";
 
@@ -48,12 +48,10 @@ export function waitingItems(): WaitItem[] {
       since: a.created_at, daysWaiting: d, daysLeft: Math.max(0, Math.ceil(s.staleDays - d)),
     };
   });
-  // 承認後にAIの呼び出しが失敗して、どこにも進めなくなった案件（案件の画面に「LPを作り直す」が出るもの）
+  // 作成・修正の途中で止まって、どこにも進めなくなった案件（案件の画面に「作り直す」「やり直す」が出るもの。STUCK_SQL）
   const stuck = db()
     .prepare(
-      `SELECT * FROM projects p WHERE (p.stage = 'idea' OR (p.stage = 'lp' AND p.lp IS NULL))
-       AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.project_id = p.id AND a.status = 'pending')
-       AND NOT (${NEEDS_WAIT_SQL})`,
+      `SELECT * FROM projects p WHERE ${STUCK_SQL} AND NOT (${NEEDS_WAIT_SQL})`,
     )
     .all() as ProjectRow[];
   for (const p of stuck) {

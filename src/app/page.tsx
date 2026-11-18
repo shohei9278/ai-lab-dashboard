@@ -143,7 +143,7 @@ export default async function Home() {
           <ShowMore as="ul" initial={3} className="divide-y divide-line">
             {waiting.map((w) => {
               const label = w.kind === "stuck"
-                ? { title: "AIの作業が途中で停止", action: "作り直しを指示する" }
+                ? { title: "AIの作業が途中で停止", action: "案件の画面で、やり直す・作り直す" }
                 : w.kind === "notify"
                   ? { title: "登録者への連絡", action: "撤退を伝えて、メールアドレスを消す" }
                 : w.kind === "comment"

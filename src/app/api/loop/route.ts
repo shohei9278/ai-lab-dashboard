@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  holdProject, ideaRunning, logEvent, resumeProject, startDevUpload, markNeedsDone, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  holdProject, ideaRunning, logEvent, resumeProject, startDevUpload, markNeedsDone, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, resumeStuck, uploadDeepData, generateIdeas, getProject, judge, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -59,9 +59,8 @@ export async function POST(req: Request) {
         await finalizeDecision(Number(body.approvalId), String(body.choice), typeof body.comment === "string" ? body.comment.slice(0, 500) : undefined);
         return NextResponse.json({ ok: true });
       case "generate-lp": {
-        // 途中で止まった案件の作り直し。自動モードの案件は、最初に作るときと同じ扱いにする（全自動ならチェックを通れば公開）
-        const p = requireProject(body);
-        await prepareLp(p.id, undefined, { auto: p.mode === "auto" && !p.public_slug });
+        // 途中で止まった案件の作り直し・やり直し（止まる前の操作からやり直す。resumeStuck）
+        await resumeStuck(requireProject(body).id);
         return NextResponse.json({ ok: true });
       }
       case "revise": {
