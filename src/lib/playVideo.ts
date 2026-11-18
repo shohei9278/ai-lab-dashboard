@@ -225,12 +225,17 @@ async function checkPlay(p: ProjectRow, script: PlayScript, shots: Buffer[]): Pr
   return parsePlayCheck(out);
 }
 
-const g = globalThis as unknown as { __aiLabPlayQueue?: Promise<unknown> };
+const g = globalThis as unknown as { __aiLabPlayQueue?: Promise<unknown>; __aiLabPlayPending?: Set<number> };
+// 動画を作っている（順番待ちを含む）案件。同じ案件の動画を重ねて頼まれても受け付けない（同じ動画が何本もでき、そのぶん費用がかかるため）
+const pending = (g.__aiLabPlayPending ??= new Set());
+export const playVideoPending = (projectId: number) => pending.has(projectId);
 
 // 動くツールの案件の、今の版を遊ぶ様子の動画を作る。台本 → 録画 → コマの確かめ。問題があれば台本を1回だけ直して撮り直す
 // 同時に作るのは1本だけ（ブラウザと動画の変換でメモリを使うため）。作っている途中に頼まれたら、順番待ちにして、前のものが終わってから作る（断らない）
 export function makePlayVideo(projectId: number): Promise<number> {
-  const run = (g.__aiLabPlayQueue ?? Promise.resolve()).catch(() => undefined).then(() => makeOnce(projectId));
+  if (pending.has(projectId)) throw new Error("この案件の遊ぶ様子の動画は、いま作っています（順番待ちを含む）。できあがるまでお待ちください");
+  pending.add(projectId);
+  const run = (g.__aiLabPlayQueue ?? Promise.resolve()).catch(() => undefined).then(() => makeOnce(projectId)).finally(() => pending.delete(projectId));
   g.__aiLabPlayQueue = run.catch(() => undefined);
   return run;
 }
@@ -273,6 +278,6 @@ async function makeOnce(projectId: number): Promise<number> {
 
 // 公開したときに、ねらいが「広がる」の案件は、裏で遊ぶ様子の動画を作っておく（投稿に使う。失敗しても公開は止めない）
 export function makePlayVideoOnPublish(p: Pick<ProjectRow, "id" | "kind" | "aim">) {
-  if (p.kind !== "tool" || p.aim !== "spread" || getSettings().killSwitch) return;
+  if (p.kind !== "tool" || p.aim !== "spread" || getSettings().killSwitch || pending.has(p.id)) return;
   void makePlayVideo(p.id).catch((e) => logEvent(p.id, "system", "play-video-error", `遊ぶ様子の動画を作れませんでした: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
 }

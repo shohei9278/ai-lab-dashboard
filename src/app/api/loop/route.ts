@@ -1,12 +1,29 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  holdProject, resumeProject, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  holdProject, ideaRunning, logEvent, resumeProject, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, uploadDeepData, generateIdeas, getProject, judge, prepareLp, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
-import { isAim } from "@/lib/aims";
+import { AIMS, isAim } from "@/lib/aims";
 import { makePlayVideo } from "@/lib/playVideo";
+
+// 長くかかる操作（アイデア会議・毎日の自動実行・遊ぶ様子の動画）は、受け付けたらすぐ返し、裏で進める
+// 会議の前にXの検索も入るので、1回の通信で終わるまで待つと途中で切れ、画面に「通信に失敗しました」と出るため。進み具合はライブと経過で見る
+// 返事のあとも終わるまで動かすよう、Next.js の after に渡す（本番は1台のサーバーで動き続けるが、実行の基盤に任せず保証する）
+function background(projectId: number | null, label: string, job: Promise<unknown>) {
+  const done = job.catch((e) => logEvent(projectId, "system", "background-error", `${label}に失敗しました: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
+  try {
+    after(() => done);
+  } catch {
+    // リクエストの外（テストなど）では after を使えないので、そのまま進める
+    void done;
+  }
+}
+function ideaFree() {
+  const busy = ideaRunning();
+  if (busy) throw new Error(`いま「${busy}」が動いています。終わってからもう一度押してください`);
+}
 
 // 製品ループの操作をまとめて受け付ける
 export async function POST(req: Request) {
@@ -24,7 +41,10 @@ export async function POST(req: Request) {
         const count = Math.min(5, Math.max(1, Number(body.count) || 3));
         const deep = body.deep === true;
         const aim = isAim(body.aim) ? body.aim : undefined;
-        return NextResponse.json(await generateIdeas(theme, deep ? Math.min(count, 2) : count, deep, aim));
+        if (deep && aim && AIMS[aim].kind !== "tool") throw new Error("じっくり案件では、需要を確かめる（事前登録LP）は選べません");
+        ideaFree();
+        background(null, "アイデア出し", generateIdeas(theme, deep ? Math.min(count, 2) : count, deep, aim));
+        return NextResponse.json({ accepted: true });
       }
       case "decide": {
         const action = body.decision as ApprovalAction;
@@ -70,8 +90,12 @@ export async function POST(req: Request) {
         if (body.mode === "remove") await removePage(requireProject(body).id);
         else await redesignPage(requireProject(body).id);
         return NextResponse.json({ ok: true });
-      case "play-video":
-        return NextResponse.json({ id: await makePlayVideo(requireProject(body).id) });
+      case "play-video": {
+        const p = requireProject(body);
+        if (p.kind !== "tool") throw new Error("動くツールの案件だけ、遊ぶ様子の動画を作れます");
+        background(p.id, "遊ぶ様子の動画", makePlayVideo(p.id));
+        return NextResponse.json({ accepted: true });
+      }
       case "test-tool":
         return NextResponse.json(await retestTool(requireProject(body).id));
       case "abandon":
@@ -93,7 +117,9 @@ export async function POST(req: Request) {
       case "sync":
         return NextResponse.json(await syncAndJudge());
       case "daily":
-        return NextResponse.json(await runDaily({ force: true }));
+        ideaFree();
+        background(null, "毎日の自動実行", runDaily({ force: true }));
+        return NextResponse.json({ accepted: true });
       case "judge":
         await judge(requireProject(body).id);
         return NextResponse.json({ ok: true });

@@ -17,6 +17,8 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
   const [aim, setAim] = useState<Aim | "">("");
   const aimNow = deep && aim && AIMS[aim].kind !== "tool" ? "" : aim;
   const ideaBusy = useIdeaBusy();
+  // 受け付けたら、会議は裏で進む（ライブで見られる）
+  const [accepted, setAccepted] = useState(false);
 
   return (
     <div className="card space-y-3 p-4">
@@ -77,12 +79,21 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
           variant="primary"
           disabled={!!busy || !!ideaBusy}
           onClick={async () => {
-            if (await run(`3社のAIが${deep ? "じっくり案件の" : ""}アイデアを考えて採点しています…（1〜2分ほど。ホームのライブでも見られます${blocked ? "。今回は案件にしません" : ""}）`, { action: "ideas", theme, count: n, deep, ...(aimNow ? { aim: aimNow } : {}) })) setTheme("");
+            setAccepted(false);
+            if (await run("受け付けています…", { action: "ideas", theme, count: n, deep, ...(aimNow ? { aim: aimNow } : {}) })) {
+              setTheme("");
+              setAccepted(true);
+            }
           }}
         >
           アイデアを出す
         </ActionButton>
       </div>
+      {accepted && !busy && (
+        <p className="text-sm text-ink-2" role="status">
+          受け付けました。3社のアイデア会議は裏で進みます（その日まだなら、先にXの話題の投稿も検索するので、数分かかることがあります）。進み具合はホームのライブで見られ、{blocked ? "今回は案件にしません（会議の記録には残ります）" : "終わると案件の一覧に出ます"}。
+        </p>
+      )}
       {ideaBusy && !busy && <p className="text-xs text-muted">いま「{ideaBusy}」が動いています。終わると押せるようになります。</p>}
       <BusyNote busy={busy} error={error} />
     </div>
