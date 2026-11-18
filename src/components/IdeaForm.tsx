@@ -91,7 +91,7 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
       </div>
       {accepted && !busy && (
         <p className="text-sm text-ink-2" role="status">
-          受け付けました。3社のアイデア会議は裏で進みます（その日まだなら、先にXの話題の投稿も検索するので、数分かかることがあります）。進み具合はホームのライブで見られ、終わると案件の一覧に出ます{blocked ? "（今回は案件にしません）" : ""}。
+          受け付けました。3社のアイデア会議は裏で進みます（その日まだなら、先にXの話題の投稿も検索するので、数分かかることがあります）。進み具合はホームのライブで見られ、{blocked ? "今回は案件にしません（会議の記録には残ります）" : "終わると案件の一覧に出ます"}。
         </p>
       )}
       {ideaBusy && !busy && <p className="text-xs text-muted">いま「{ideaBusy}」が動いています。終わると押せるようになります。</p>}
