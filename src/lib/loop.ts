@@ -504,26 +504,66 @@ export function isStuck(p: Pick<ProjectRow, "id" | "stage">): boolean {
     && !db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(p.id);
 }
 
-// 途中で止まった案件を、止まる前の操作からやり直す（案件の画面の「やり直す」「作り直す」）
-// - 版がない: 最初の作成をやり直す（自動モードは、最初に作るときと同じ扱い。全自動ならチェックを通れば公開）
-// - 最後がツールのHTMLの取り込み: 入れたHTMLは残していないので、開発待ちを同じ内容で出し直す（AIは呼ばない。同じHTMLを入れ直してもらう）
-// - 最後が公開の判断待ちへの修正（指摘に沿って直させる・修正の指示）: 同じ指示で直し直す
+// 途中で止まった案件の、やり直し方（止まる前の最後の操作から決める）。やり直し（resumeStuck）と、案件の画面の説明で同じものを使う
+// - first: 版がない。最初の作成をやり直す（自動モードは、最初に作るときと同じ扱い。全自動ならチェックを通れば公開）
+// - upload: 最後がツールのHTMLの取り込み。入れたHTMLは残していないので、同じ内容の開発待ちを出し直す（AIは呼ばない）
+// - revise: 最後が公開の判断待ちへの修正（指摘に沿って直させる・修正の指示）。同じ指示で直し直す
+// - rebuild: どれでもない。今の版をもとに作り直す
+// じっくり案件のツールは、AIが書かずに開発待ち（Claude Code）になる（設計書がまだなければ、AIが設計書を書く）
+export type ResumeKind = "first" | "upload" | "revise" | "rebuild";
+export type ResumePlan = { kind: ResumeKind; stopped: string; then: string; ai: boolean; instruction?: string; keepTool?: boolean; last?: ApprovalRow };
+export function resumePlan(p: ProjectRow): ResumePlan {
+  const thing = p.kind === "tool" ? "ツール" : "LP";
+  const deepTool = p.kind === "tool" && !!p.deep;
+  const devText = (verb: string) => `押すと、開発待ち（Claude Code で${verb}）を出します（${lastDevDesign(p.id) ? "前の設計書を使うので、AIは呼びません" : "AIが設計書を書きます。費用がかかります"}）。`;
+  const devAi = !lastDevDesign(p.id);
+  if (!p.lp) {
+    return deepTool
+      ? { kind: "first", stopped: `${thing}の最初の作成が途中で止まりました。`, then: devText("作る"), ai: devAi }
+      : { kind: "first", stopped: `${thing}の最初の作成が途中で止まりました。`, then: `押すと、AIが${thing}を作り直します（費用がかかります）。`, ai: true };
+  }
+  const last = db().prepare("SELECT * FROM approvals WHERE project_id = ? ORDER BY id DESC LIMIT 1").get(p.id) as ApprovalRow | undefined;
+  if (last?.kind === "dev" && last.status === "approved") {
+    return { kind: "upload", last, stopped: "入れたツールの取り込み（チェック・紹介ページづくり）が途中で止まりました。今の版はそのままです。", then: "押すと、同じ内容の開発待ちに戻ります。同じHTMLを、もう一度入れてください（AIは呼びません）。", ai: false };
+  }
+  if (last?.kind === "publish" && last.status === "revised" && last.comment) {
+    const review = (JSON.parse(last.payload ?? "{}") as { review?: Review }).review;
+    const keepTool = deepTool && pageOnlyIssues(review?.issues ?? []);
+    // 指摘に沿って直させたときの指示は、毎回同じ前置きの1行で始まる（fixInstruction）。画面では前置きを外して中身を見せる
+    const body = last.comment.replace(/^AIのチェックで見つかった次の問題だけを直すこと。[^\n]*\n?/, "").replace(/\s+/g, " ").trim();
+    const stopped = `修正の途中で止まりました。今の版はそのままです（止まった指示: 「${body.slice(0, 80)}${body.length > 80 ? "…" : ""}」）。`;
+    if (keepTool) return { kind: "revise", last, keepTool, instruction: last.comment, stopped, then: "押すと、同じ指示で、AIが紹介ページだけを直し直します（ツールは今のまま。費用がかかります）。", ai: true };
+    if (deepTool) return { kind: "revise", last, instruction: last.comment, stopped, then: devText("直す"), ai: devAi };
+    return { kind: "revise", last, instruction: last.comment, stopped, then: `押すと、同じ指示で、AIが${thing}を直し直します（費用がかかります）。`, ai: true };
+  }
+  const stopped = `${thing}の作業が途中で止まりましたが、何の途中だったかは記録から分かりません。今の版はそのままです。`;
+  return deepTool
+    ? { kind: "rebuild", stopped, then: devText("直す"), ai: devAi }
+    : { kind: "rebuild", stopped, then: `押すと、AIが今の版をもとに${thing}を作り直します（費用がかかります）。`, ai: true };
+}
+
+// 案件の画面に出す説明だけ（承認の中身などは画面に渡さない）。止まっていなければ null
+export function resumeNote(p: ProjectRow): { stopped: string; then: string } | null {
+  if (!isStuck(p)) return null;
+  const { stopped, then } = resumePlan(p);
+  return { stopped, then };
+}
+
+// 途中で止まった案件を、止まる前の操作からやり直す（案件の画面の「やり直す」「作り直す」。やり方は resumePlan）
 export async function resumeStuck(projectId: number) {
   const p = getProject(projectId);
   if (!p || !isStuck(p)) throw new Error("途中で止まった案件だけ、ここからやり直せます");
   const auto = p.mode === "auto" && !p.public_slug;
-  if (!p.lp) return prepareLp(projectId, undefined, { auto });
-  const last = db().prepare("SELECT * FROM approvals WHERE project_id = ? ORDER BY id DESC LIMIT 1").get(projectId) as ApprovalRow | undefined;
-  if (last?.kind === "dev" && last.status === "approved") {
-    addApproval(projectId, "dev", last.proposal, "入れたツールの取り込み（チェック・紹介ページづくり）が途中で止まりました。同じHTMLを、もう一度ここから入れてください。", JSON.parse(last.payload ?? "{}"));
+  const plan = resumePlan(p);
+  if (plan.kind === "first") return prepareLp(projectId, undefined, { auto });
+  if (plan.kind === "upload" && plan.last) {
+    addApproval(projectId, "dev", plan.last.proposal, "入れたツールの取り込み（チェック・紹介ページづくり）が途中で止まりました。同じHTMLを、もう一度ここから入れてください。", JSON.parse(plan.last.payload ?? "{}"));
     logEvent(projectId, "human", "resume", "途中で止まったツールの取り込みを、開発待ちに戻しました（同じHTMLを入れ直す）");
     return;
   }
-  if (last?.kind === "publish" && last.status === "revised" && last.comment) {
-    const review = (JSON.parse(last.payload ?? "{}") as { review?: Review }).review;
-    const keepTool = p.kind === "tool" && !!p.deep && pageOnlyIssues(review?.issues ?? []);
-    logEvent(projectId, "human", "resume", `途中で止まった修正を、同じ指示でやり直します: ${last.comment.slice(0, 120)}`);
-    return prepareLp(projectId, last.comment, { keepCore: true, byHuman: true, auto, keepTool });
+  if (plan.kind === "revise" && plan.instruction) {
+    logEvent(projectId, "human", "resume", `途中で止まった修正を、同じ指示でやり直します: ${plan.instruction.slice(0, 120)}`);
+    return prepareLp(projectId, plan.instruction, { keepCore: true, byHuman: true, auto, keepTool: plan.keepTool });
   }
   logEvent(projectId, "human", "resume", "途中で止まった案件を、作り直します");
   return prepareLp(projectId, undefined, { keepCore: true, auto });

@@ -4,12 +4,13 @@ import { useState } from "react";
 import type { Stage } from "@/lib/db";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 
-export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building, demo, deepNoData = false, needs = null }: {
+export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMinVisits, publicUrl, isTool, building, demo, deepNoData = false, needs = null, resume = null }: {
   // 人の作業待ち（まだない仕組みが要るじっくり案件）。要るものの一覧
   needs?: { label: string; what: string; why: string; ready: boolean }[] | null;
   id: number; convNoun: string; stage: Stage; hasLp: boolean; hasPending: boolean; judgeMinVisits: number; isTool: boolean; demo: boolean;
   deepNoData?: boolean; // じっくり案件で、まだ承認したデータがない（止まっていたら、ツールではなくデータの下書きからやり直す）
   building: { what: string; since: number } | null; // AIが今作業中なら、その内容
+  resume?: { stopped: string; then: string } | null; // 途中で止まったとき: 何が止まったかと、「やり直す」を押すと何が起きるか（サーバーの resumePlan。やり直しと同じ判定）
   publicUrl: string | null; // 実際に公開しているときだけ入る
 }) {
   const { run, busy, error } = useLoopAction();
@@ -139,8 +140,8 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
   if (stuck && hasLp) {
     return (
       <div className="card space-y-2 p-4">
-        <p className="text-sm text-ink-2">{isTool ? "ツールの取り込みや紹介ページづくり、" : ""}修正が途中で止まっていて、判断待ちがありません（AIの呼び出しに失敗したか、作業中にサーバーが止まった可能性があります）。今の版はそのままです。</p>
-        <p className="text-xs text-muted">「やり直す」を押すと、止まる前の操作からやり直します。ツールのHTMLを入れたところで止まったときは開発待ちに戻るので、同じHTMLをもう一度入れてください（AIは呼びません）。修正の途中で止まったときは、同じ指示で直し直します。</p>
+        <p className="text-sm text-ink-2">{resume?.stopped ?? "作業が途中で止まっていて、判断待ちがありません。今の版はそのままです。"}AIの呼び出しに失敗したか、作業中にサーバーが止まった可能性があります。</p>
+        {resume && <p className="text-xs text-muted">{resume.then}</p>}
         <div className="flex flex-wrap gap-2">
           <ActionButton variant="primary" disabled={!!busy} onClick={() => run("やり直しています…", { action: "generate-lp", projectId: id })}>
             やり直す
@@ -155,6 +156,7 @@ export function ProjectActions({ id, convNoun, stage, hasLp, hasPending, judgeMi
     return (
       <div className="card space-y-2 p-4">
         <p className="text-sm text-ink-2">{thing}の作成が途中で止まっています（AIの呼び出しに失敗したか、作成中にサーバーが止まった可能性があります）。</p>
+        {resume && <p className="text-xs text-muted">{resume.then}</p>}
         <div className="flex flex-wrap gap-2">
           <ActionButton variant="primary" disabled={!!busy} onClick={() => run(`AIが${thing}を作っています…`, { action: "generate-lp", projectId: id })}>
             {thing}を作り直す

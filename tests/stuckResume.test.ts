@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db } from "../src/lib/db";
-import { abandonStuck, getProject, isStuck, resumeStuck } from "../src/lib/loop";
+import { abandonStuck, getProject, isStuck, resumeNote, resumePlan, resumeStuck } from "../src/lib/loop";
 import { waitingItems } from "../src/lib/overview";
 
 const TOOL = "<button id=b>押す</button><script>document.getElementById('b').onclick=()=>{}</script>";
@@ -56,4 +56,42 @@ test("途中で止まった案件: 公開したことのある案件は、見送
   const fresh = madeDeep();
   abandonStuck(fresh, "");
   assert.equal(getProject(fresh)!.stage, "rejected");
+});
+
+test("途中で止まった案件（PR #94 の ai-review の指摘）: 何が止まったかと、やり直すと何が起きるか（AIを呼ぶか）を、やり直しと同じ判定で出す", () => {
+  // ツールの取り込みで止まった: 開発待ちに戻すだけ（AIは呼ばない）
+  const up = madeDeep();
+  approval(up, "dev", "approved", { design: "設計" });
+  const pu = resumePlan(getProject(up)!);
+  assert.equal(pu.kind, "upload");
+  assert.equal(pu.ai, false);
+  assert.match(pu.stopped, /取り込み/);
+  assert.match(pu.then, /同じHTMLを、もう一度入れて/);
+  // 紹介ページだけの指摘の修正で止まった: 紹介ページだけをAIが直し直す（AIを呼ぶ）。止まった指示の頭を見せる
+  const page = madeDeep();
+  approval(page, "publish", "revised", { review: { ok: false, issues: ["デザイン: 重なり"] } }, "AIのチェックで見つかった次の問題だけを直すこと。\n1. 紹介ページ: 重なり");
+  const pp = resumePlan(getProject(page)!);
+  assert.equal(pp.kind, "revise");
+  assert.equal(pp.ai, true);
+  assert.equal(pp.keepTool, true);
+  assert.match(pp.stopped, /止まった指示: 「1\. 紹介ページ: 重なり」/);
+  assert.match(pp.then, /紹介ページだけを直し直します/);
+  // ツールの指摘の修正で止まった（じっくり案件）: 前の設計書があれば、開発待ちを出すだけ（AIは呼ばない）
+  const tool = madeDeep();
+  approval(tool, "dev", "approved", { design: "設計" });
+  approval(tool, "publish", "revised", { review: { ok: false, issues: ["結果が出ない"] } }, "1. 結果が出ない");
+  const pt = resumePlan(getProject(tool)!);
+  assert.equal(pt.kind, "revise");
+  assert.equal(pt.ai, false);
+  assert.match(pt.then, /開発待ち（Claude Code で直す）.*AIは呼びません/);
+  // 記録から分からない: 今の版をもとに作り直す（設計書がなければ、AIが設計書を書く）
+  const other = madeDeep();
+  const po = resumePlan(getProject(other)!);
+  assert.equal(po.kind, "rebuild");
+  assert.equal(po.ai, true);
+  assert.match(po.stopped, /何の途中だったかは記録から分かりません/);
+  // 画面には説明だけを渡す。止まっていなければ出さない
+  assert.deepEqual(Object.keys(resumeNote(getProject(page)!)!).sort(), ["stopped", "then"]);
+  approval(other, "publish", "pending", {});
+  assert.equal(resumeNote(getProject(other)!), null);
 });
