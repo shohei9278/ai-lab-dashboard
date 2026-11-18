@@ -17,7 +17,8 @@ const PARALLEL = 6;
 
 // 直近7日に作ったじっくり案件の数から、あと何件作ってよいか
 export function deepAllowance(s = getSettings()): number {
-  const n = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE deep = 1 AND demo = 0 AND created_at >= datetime('now', '-7 days')").get() as { n: number }).n;
+  // 人の作業待ち（まだない仕組みが要るもの）は、週の上限に数えない（別に、同時に何件までと数える）
+  const n = (db().prepare("SELECT COUNT(*) AS n FROM projects p WHERE p.deep = 1 AND p.demo = 0 AND p.created_at >= datetime('now', '-7 days') AND NOT (p.needs IS NOT NULL AND p.needs_done = 0 AND p.stage = 'idea')").get() as { n: number }).n;
   return Math.max(0, s.deepPerWeek - n);
 }
 

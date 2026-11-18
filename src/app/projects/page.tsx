@@ -9,6 +9,7 @@ import { IdeaForm } from "@/components/IdeaForm";
 import { ApiWishes } from "@/components/ApiWishes";
 import { DailyCard } from "@/components/DailyCard";
 import { isOwner } from "@/lib/viewer";
+import { NEEDS_STALE_DAYS, needsGroups, needsProjects } from "@/lib/needs";
 
 export const dynamic = "force-dynamic";
 
@@ -92,6 +93,7 @@ export default async function ProjectsPage() {
           />
           <IdeaForm authors={ideaAuthors().map((id) => getModel(id).label)} blocked={newProjectBlock()} />
         </div>
+        <NeedsQueue />
         <ApiWishes />
       </section>
     </div>
@@ -122,5 +124,33 @@ function ProjectCard({ p, pending, target, owner }: { p: ProjectRow; pending: bo
       {!!p.auto_published && !p.human_review && <div className="text-xs font-medium text-accent">● {owner ? "あとから確認してください" : "AIだけで公開（運営者の確認待ち）"}</div>}
       {result && <div className="text-xs font-medium" style={{ color: result.c }}>{result.i} {STAGE_LABEL[p.stage]}</div>}
     </Link>
+  );
+}
+
+// 人の作業待ち: まだない仕組み（保存の場所・API・AIなど）が要るじっくり案件を、要るものの種類ごとにまとめる（これを作れば、どの案件が動くか）
+function NeedsQueue() {
+  const list = needsProjects().filter((p) => !p.demo);
+  if (!list.length) return null;
+  const groups = needsGroups(list);
+  return (
+    <div className="card space-y-3 p-4">
+      <div>
+        <h3 className="font-bold">人の作業待ち（{list.length}件）</h3>
+        <p className="text-xs text-muted">作るのに、今はまだない仕組みや、人が用意するものが要るじっくり案件です。要るものの種類ごとに、どの案件が待っているかを出しています（多いものから作ると、たくさんの案件が動き出します）。用意できたら、案件の画面で「済み」にすると作り始めます。{NEEDS_STALE_DAYS}日以上手が付いていない案件は、見送りの候補です。</p>
+      </div>
+      {groups.map((g) => (
+        <div key={g.kind}>
+          <div className="text-sm font-medium">{g.label}（{g.projects.length}件）<span className="ml-1 text-xs font-normal text-muted">{g.hint}</span></div>
+          <ul className="mt-1 space-y-1 text-sm">
+            {g.projects.map((p) => (
+              <li key={`${g.kind}-${p.id}`}>
+                <Link href={`/projects/${p.id}`} className="text-accent underline">{p.title}</Link>
+                <span className="text-ink-2">: {p.what}{p.days >= NEEDS_STALE_DAYS ? <span style={{ color: "var(--warning)" }}>（{p.days}日手が付いていない・見送りの候補）</span> : null}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }

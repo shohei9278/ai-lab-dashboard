@@ -1,6 +1,7 @@
 import { db, getSettings, monthAdSpendJpy, monthSpendBreakdownUsd, type ApprovalKind, type EventRow, type ProjectRow, type Stage } from "./db";
 import { buildingNow, projectTotals } from "./loop";
 import { maskEvents } from "./views";
+import { NEEDS_WAIT_SQL } from "./needs";
 
 // ホームの一覧画面（全体の様子）に出す数字をまとめる
 // 上の大きな数字とグラフはデモを除いた実データだけ。案件ごとの一覧はデモも出して、印で区別する
@@ -51,7 +52,8 @@ export function waitingItems(): WaitItem[] {
   const stuck = db()
     .prepare(
       `SELECT * FROM projects p WHERE (p.stage = 'idea' OR (p.stage = 'lp' AND p.lp IS NULL))
-       AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.project_id = p.id AND a.status = 'pending')`,
+       AND NOT EXISTS (SELECT 1 FROM approvals a WHERE a.project_id = p.id AND a.status = 'pending')
+       AND NOT (${NEEDS_WAIT_SQL})`,
     )
     .all() as ProjectRow[];
   for (const p of stuck) {

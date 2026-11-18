@@ -93,6 +93,7 @@ export async function POST(req: Request) {
     ["staleDays", 1, 90],
     ["deepPerWeek", 0, 7],
     ["deepDevWaitMax", 1, 10],
+    ["needsWaitMax", 0, 20],
     ["aimSpread", 0, 10],
     ["aimUseful", 0, 10],
     ["aimReturn", 0, 10],
