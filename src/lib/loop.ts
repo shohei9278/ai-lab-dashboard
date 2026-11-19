@@ -2958,15 +2958,33 @@ export function ideaAuthorStats() {
   });
 }
 
-function expireStale(days: number) {
+// 期限で自動的に見送らない判断待ち: 開発待ち（じっくり案件のツールを Claude Code で作る・直す）は、人が作る手間がかかり、
+// 何日かかるか分からないので、期限を設けない（やめるときは人が却下する。開発待ちは件数の上限があるので溜まり続けない）
+export const NO_EXPIRE_KINDS: ApprovalRow["kind"][] = ["dev"];
+
+// 期限（staleDays）を過ぎた判断待ちを、期限切れにする
+// - 公開中の案件の「判断」: 保留して集客を続ける
+// - 公開したことのある案件の、それ以外（差し替えの公開など）: 却下したときと同じく、公開中の版のまま集客を続ける（見送りにすると、公開ページは出たままなのに、集客や判断から外れてしまう）
+// - まだ公開していない案件: 見送り
+export function expireStale(days: number) {
   const stale = db()
-    .prepare(`SELECT * FROM approvals WHERE status = 'pending' AND created_at < datetime('now', ?)`)
-    .all(`-${days} days`) as ApprovalRow[];
+    .prepare(`SELECT * FROM approvals WHERE status = 'pending' AND created_at < datetime('now', ?) AND kind NOT IN (${NO_EXPIRE_KINDS.map(() => "?").join(", ")})`)
+    .all(`-${days} days`, ...NO_EXPIRE_KINDS) as ApprovalRow[];
   for (const a of stale) {
     db().prepare("UPDATE approvals SET status = 'expired', decided_at = datetime('now') WHERE id = ?").run(a.id);
-    // 判断待ちを放置した場合は集客を続け、それ以外は見送りにする
-    setStage(a.project_id, a.kind === "decision" ? "live" : "rejected");
-    logEvent(a.project_id, "system", "expired", `${days}日間承認されなかったため「${a.proposal}」を${a.kind === "decision" ? "保留して集客を継続" : "見送り"}にしました`);
+    const p = getProject(a.project_id)!;
+    const published = !!p.public_slug && p.public_version !== null && p.stage !== "killed";
+    if (a.kind === "decision") {
+      setStage(a.project_id, "live");
+      logEvent(a.project_id, "system", "expired", `${days}日間承認されなかったため「${a.proposal}」を保留して集客を継続にしました`);
+    } else if (published) {
+      if (a.kind === "publish") rejectPublish(a.project_id);
+      else setStage(a.project_id, "live");
+      logEvent(a.project_id, "system", "expired", `${days}日間承認されなかったため「${a.proposal}」を見送り、公開中の第${p.public_version}版のまま集客を続けます`);
+    } else {
+      setStage(a.project_id, "rejected");
+      logEvent(a.project_id, "system", "expired", `${days}日間承認されなかったため「${a.proposal}」を見送りにしました`);
+    }
   }
 }
 

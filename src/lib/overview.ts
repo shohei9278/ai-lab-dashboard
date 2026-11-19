@@ -1,5 +1,5 @@
 import { db, getSettings, monthAdSpendJpy, monthSpendBreakdownUsd, type ApprovalKind, type EventRow, type ProjectRow, type Stage } from "./db";
-import { STUCK_SQL, buildingNow, projectTotals } from "./loop";
+import { NO_EXPIRE_KINDS, STUCK_SQL, buildingNow, projectTotals } from "./loop";
 import { maskEvents } from "./views";
 import { NEEDS_WAIT_SQL } from "./needs";
 
@@ -45,7 +45,8 @@ export function waitingItems(): WaitItem[] {
     const d = daysSince(a.created_at);
     return {
       key: `a${a.id}`, projectId: a.project_id, title: a.title, demo: !!a.demo, kind: a.kind, stage: a.stage,
-      since: a.created_at, daysWaiting: d, daysLeft: Math.max(0, Math.ceil(s.staleDays - d)),
+      // 期限で見送らない判断待ち（開発待ち）は、残りの日数を出さない
+      since: a.created_at, daysWaiting: d, daysLeft: NO_EXPIRE_KINDS.includes(a.kind) ? null : Math.max(0, Math.ceil(s.staleDays - d)),
     };
   });
   // 作成・修正の途中で止まって、どこにも進めなくなった案件（案件の画面に「作り直す」「やり直す」が出るもの。STUCK_SQL）
