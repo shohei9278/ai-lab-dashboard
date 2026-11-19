@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { db, getSettings, type ProjectRow } from "./db";
 import { attributePosts } from "./sns";
 import { channelStats, hostOf } from "./channels";
+import { classifySiteCategory, isSiteCategory, type SiteCategory } from "./siteCategory";
 
 // 公開用LPサイト（Vercel）とデータ（Supabase）をつなぐ部分。
 // Supabase の設定がなければ何もしない（今までどおり手入力・シミュレーションで動く）
@@ -22,6 +23,14 @@ export function publicUrl(projectId: number): string | null {
   return base ? `${base}/${slugOf(projectId)}` : null;
 }
 
+// 公開サイトの一覧のカテゴリ（動くツールだけ）。運営者が選んだものがあればそれ、なければ軽いAIの判定（まだなら、ここで選ばせる）
+// AIの判定に失敗しても公開は止めない（カテゴリなしで公開し、次に起動したときのそろえ直しで、また選ばせる）
+async function categoryFor(p: ProjectRow): Promise<SiteCategory | null> {
+  if (p.kind !== "tool") return null;
+  if (isSiteCategory(p.site_category)) return p.site_category;
+  return classifySiteCategory(p).catch(() => null);
+}
+
 // 今のLPの版を公開する（すでに公開中なら新しい版に差し替える）
 export async function publishLp(p: ProjectRow) {
   if (!publishingConfigured() || p.demo || !p.lp) return false;
@@ -30,13 +39,39 @@ export async function publishLp(p: ProjectRow) {
     project_id: p.id,
     version: p.lp_version,
     title: p.title,
-    content: JSON.parse(p.lp),
+    // 公開サイトの一覧のカテゴリも、中身に入れて渡す（表の列は増やさない）
+    content: { ...JSON.parse(p.lp), category: await categoryFor(p) },
     status: "published",
     updated_at: new Date().toISOString(),
   });
   if (error) throw new Error(`LPの公開に失敗しました: ${error.message}`);
   db().prepare("UPDATE projects SET public_slug = ?, public_version = ? WHERE id = ?").run(slugOf(p.id), p.lp_version, p.id);
   return true;
+}
+
+// 公開中のページの、一覧のカテゴリだけを今のものにそろえる（中身の版は変えない）。変えたら true
+// 運営者がカテゴリを選び直したときと、カテゴリを渡すようにする前に公開したページをそろえるときに使う
+export async function syncSiteCategory(p: ProjectRow): Promise<boolean> {
+  if (!publishingConfigured() || p.demo || !p.public_slug) return false;
+  const { data, error } = await sb().from("lps").select("content").eq("slug", p.public_slug).maybeSingle();
+  if (error) throw new Error(`公開中のページを読めませんでした: ${error.message}`);
+  if (!data) return false;
+  const content = data.content as Record<string, unknown>;
+  const category = await categoryFor(p);
+  if ((content.category ?? null) === category) return false;
+  const up = await sb().from("lps").update({ content: { ...content, category } }).eq("slug", p.public_slug);
+  if (up.error) throw new Error(`一覧のカテゴリを変えられませんでした: ${up.error.message}`);
+  return true;
+}
+
+// 公開したことのあるツールのページすべてのカテゴリをそろえる（サーバーを起動したあとに1回。件数は数十件まで）
+// まだAIの判定がないツールは、ここで選ばせる（1件 約0.1円）
+export async function syncSiteCategories(): Promise<number> {
+  if (!publishingConfigured()) return 0;
+  const rows = db().prepare("SELECT * FROM projects WHERE public_slug IS NOT NULL AND kind = 'tool' AND demo = 0").all() as ProjectRow[];
+  let n = 0;
+  for (const p of rows) if (await syncSiteCategory(p)) n++;
+  return n;
 }
 
 // 撤退などで受付を終える（ページは「受付終了」の表示になる）

@@ -688,6 +688,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "deep_plan", "TEXT"], // じっくり案件で何を作り込むか（アイデアに書かれたもの）
   ["projects", "aim", "TEXT"], // ねらい（spread 広がる / useful 役に立つ / return また来てもらう / demand 需要を確かめる。aims.ts）。前からある案件は空
   ["projects", "genre", "TEXT"], // ジャンル（自由な短い言葉。例: ガチャ・診断）
+  ["projects", "site_category", "TEXT"], // 公開サイトの一覧のカテゴリを運営者が選んだもの（lp-site の categories.ts。空ならAIの判定を使う。siteCategory.ts）
+  ["projects", "site_category_auto", "TEXT"], // 公開するときに軽いAIが選んだカテゴリ（合うものがなければ none。まだ判定していなければ空）
   // 「広がる」の判定の起点の、遊んだ人（利用）とシェアの累計（判断・再開のたびに今の累計にする。判定はこの差だけで見る）
   ["projects", "spread_base_plays", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "spread_base_shares", "INTEGER NOT NULL DEFAULT 0"],
@@ -991,6 +993,8 @@ export type ProjectRow = {
   deep_need: string | null; // 大きなデータが要るじっくり案件だけ
   deep_plan: string | null;
   aim: string | null; // ねらい（aims.ts の Aim）。前からある案件は null
+  site_category: string | null; // 公開サイトの一覧のカテゴリを運営者が選んだもの（空ならAIの判定を使う）
+  site_category_auto: string | null; // 公開するときに軽いAIが選んだカテゴリ（合うものがなければ none）
   genre: string | null;
   hold_until: string | null;
   resumed_at: string | null;

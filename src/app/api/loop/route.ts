@@ -1,7 +1,7 @@
 import { NextResponse, after } from "next/server";
 import { GuardError } from "@/lib/ai";
 import {
-  holdProject, ideaRunning, logEvent, resumeProject, startDevUpload, markNeedsDone, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, resumeStuck, uploadDeepData, generateIdeas, getProject, judge, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
+  holdProject, ideaRunning, logEvent, resumeProject, startDevUpload, markNeedsDone, addMetrics, autoFixPublish, changeIllustration, redesignPage, removePage, switchPageCandidate, reviewAutoPublished, decide, finalizeDecision, finishNotify, requestRevision, retestTool, retryDeepData, abandonStuck, resumeStuck, setSiteCategory, uploadDeepData, generateIdeas, getProject, judge, runDaily, setInitialChoice, simulatedDays, switchLpCandidate, syncAndJudge,
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
@@ -108,6 +108,9 @@ export async function POST(req: Request) {
       }
       case "test-tool":
         return NextResponse.json(await retestTool(requireProject(body).id));
+      case "site-category":
+        await setSiteCategory(requireProject(body).id, typeof body.category === "string" && body.category ? body.category : null);
+        return NextResponse.json({ ok: true });
       case "abandon":
         abandonStuck(requireProject(body).id, typeof body.reason === "string" ? body.reason : "");
         return NextResponse.json({ ok: true });

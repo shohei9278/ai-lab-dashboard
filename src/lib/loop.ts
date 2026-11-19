@@ -24,7 +24,8 @@ import { notifyEvent, notifyHuman } from "./liveNotify";
 import { researchText } from "./research";
 import { budgetState } from "./budget";
 import { deepAllowance, draftDeepData, parseUploadedData, sampleRows, type DeepRow, type DeepSpec } from "./deep";
-import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics } from "./publish";
+import { closeLp, deleteSignups, publicUrl, publishLp, slugOf, syncRealMetrics, syncSiteCategory } from "./publish";
+import { SITE_CATEGORIES, isSiteCategory, siteCategoryOf } from "./siteCategory";
 import {
   db, getSettings, saveSettings,
   type ApprovalRow, type LessonRow, type LpCandidateRow, type LpVersionRow, type MetricRow, type ProductKind, type ProjectRow, type Stage,
@@ -492,6 +493,20 @@ async function prepareDeepData(projectId: number, comment?: string) {
   addApproval(projectId, "data", `「${p.title}」のデータ（${rows.length}件）を確かめる`,
     `${spec.note}。事実の項目（${spec.fields.filter((f) => f.kind === "fact").map((f) => f.label).join("・") || "なし"}）に誤りがないか、見立ての項目（${spec.fields.filter((f) => f.kind === "view").map((f) => f.label).join("・") || "なし"}）が誰かをおとしめていないかを見てください。承認すると、このデータでツールを作ります。`,
     { dataId });
+}
+
+// 公開サイトの一覧のカテゴリを、運営者が選ぶ（null ならAIの判定に任せる）。公開中なら、公開中のページのカテゴリもすぐそろえる
+// （AIの判定がまだない公開中のツールは、そろえるときにAIが選ぶ。まだ公開していなければ、公開するときに選ぶ）
+export async function setSiteCategory(projectId: number, value: unknown) {
+  const p = getProject(projectId);
+  if (!p || p.kind !== "tool") throw new Error("動くツールの案件だけ、一覧のカテゴリを選べます");
+  if (value !== null && !isSiteCategory(value)) throw new Error("カテゴリが決めたものではありません");
+  db().prepare("UPDATE projects SET site_category = ? WHERE id = ?").run(value, projectId);
+  await syncSiteCategory(getProject(projectId)!);
+  const now = getProject(projectId)!;
+  const cat = siteCategoryOf(now);
+  const label = cat ? `「${SITE_CATEGORIES[cat].label}」` : now.site_category_auto ? "「そのほか」" : "まだ決まっていない状態（公開するときにAIが選ぶ）";
+  logEvent(projectId, "human", "site-category", `公開サイトの一覧のカテゴリを${label}にしました${value === null ? "（AIの判定に任せる）" : ""}`);
 }
 
 // 作成・修正が途中で止まった案件か（アイデアか作成の段階で、判断待ちがなく、AIも作業していない）
