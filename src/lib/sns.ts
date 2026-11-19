@@ -1,5 +1,5 @@
 import { viralHints } from "./viralPosts";
-import { tagHints, tagRule } from "./hashtags";
+import { limitTags, tagHints, tagRule } from "./hashtags";
 import { badPostsText } from "./postStats";
 import crypto from "node:crypto";
 import { callJson, isObj, isStr } from "./ai";
@@ -76,7 +76,7 @@ export async function draftPosts(projectId: number, count: number, hint?: string
     validate: (v): v is { posts: { angle: string; text: string }[] } =>
       isObj(v) && Array.isArray(v.posts) && v.posts.length > 0 && v.posts.every((x) => isObj(x) && isStr(x.text)),
   });
-  const ids = out.posts.slice(0, count).map((x) => addPost(projectId, x.text.trim().slice(0, 500), "ai", typeof x.angle === "string" ? x.angle.slice(0, 40) : null, platform));
+  const ids = out.posts.slice(0, count).map((x) => addPost(projectId, limitTags(x.text.trim(), AUTO_PLATFORMS[platform].tagMax).slice(0, 500), "ai", typeof x.angle === "string" ? x.angle.slice(0, 40) : null, platform));
   logEvent(projectId, "ai", "sns-draft", `SNS投稿の下書きを${ids.length}件作成`);
   return ids;
 }

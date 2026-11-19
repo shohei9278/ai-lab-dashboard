@@ -1,4 +1,5 @@
 import { callJson, isObj, isStr } from "./ai";
+import { limitTags } from "./hashtags";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
 import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, liveEnd, liveSay, liveStep, logEvent, planImprove, projectTotals, trafficCapacity } from "./loop";
 import { endReasons, headline } from "./experiment";
@@ -514,7 +515,7 @@ async function writePlain(platform: AutoPlatform, angle: string): Promise<string
     user: `今日の話題: ${angle}${badPostsText("plain")}\n\n実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n最近の出来事:\n${events || "（なし）"}\n\n最近の普通の投稿:\n${past || "（なし）"}`,
     validate: (v): v is { text: string } => isObj(v) && isStr(v.text),
   });
-  return out.text.trim();
+  return limitTags(out.text.trim(), def.plainTagMax);
 }
 
 async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string; url?: string }> {

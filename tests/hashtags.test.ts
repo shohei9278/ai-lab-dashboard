@@ -48,3 +48,16 @@ test("遊ぶ様子の動画の投稿文（運営者が見つけた）: 専用リ
   assert.equal((await post({ action: "posted", id, text: "ど真ん中に置ける？ #目測ゲーム" })).status, 200);
   assert.equal((db().prepare("SELECT status FROM sns_posts WHERE id = ?").get(id) as { status: string }).status, "posted");
 });
+
+test("ハッシュタグ（PR #100 の ai-review の指摘）: 長いタグは途中で切って数えない。決まりの数を超えたタグは後ろから外す", async () => {
+  const long = "あ".repeat(31);
+  assert.deepEqual(extractTags(`#${long} #ちょうど${"い".repeat(26)}`), [`#ちょうど${"い".repeat(26)}`]);
+  const { limitTags } = await import("../src/lib/hashtags");
+  assert.equal(limitTags("値付けに迷ったら。 #ハンドメイド作家 #無料ツール #値付け", 2), "値付けに迷ったら。 #ハンドメイド作家 #無料ツール");
+  assert.equal(limitTags("1行目 #a1\n2行目 #b2 #c3", 1), "1行目 #a1\n2行目");
+  assert.equal(limitTags("タグなし", 2), "タグなし");
+  assert.equal(limitTags("#だけ #二つ", 0), "");
+  // 動画の投稿文の案も、決まりの数（2つ）までにそろえる
+  const { parsePlayScript } = await import("../src/lib/playVideo");
+  assert.equal(parsePlayScript({ hook: "h", caption: "置くだけ。 #目測ゲーム #無料ツール #診断 #多すぎ", steps: [{ do: "click", target: "決める" }] })!.caption, "置くだけ。 #目測ゲーム #無料ツール");
+});

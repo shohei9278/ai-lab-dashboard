@@ -5,11 +5,24 @@ import { db } from "./db";
 // - 対象の人が実際に検索・フォローしていそうな言葉と、ツールの種類の言葉を混ぜる。作った言葉は付けない
 // - ダッシュボードが集めた「話題の投稿」で実際に使われているタグを数えて、候補としてAIに渡す
 
-// 本文からハッシュタグを取り出す（# と ＃ のどちらも。2〜30文字。同じものは1つ）
+const TAG = /(\s*)[#＃]([\p{L}\p{N}_ー・]+)/gu;
+
+// 本文からハッシュタグを取り出す（# と ＃ のどちらも。同じものは1つ）
+// タグを最後まで取り出してから、2〜30文字のものだけを使う（長いタグを途中で切って、使われていない別のタグとして数えない。PR #100 の ai-review の指摘）
 export function extractTags(text: string): string[] {
   const out = new Set<string>();
-  for (const m of text.matchAll(/[#＃]([\p{L}\p{N}_ー・]{2,30})/gu)) out.add(`#${m[1]}`);
+  for (const m of text.matchAll(TAG)) {
+    const len = [...m[2]].length;
+    if (len >= 2 && len <= 30) out.add(`#${m[2]}`);
+  }
   return [...out];
+}
+
+// 決まりの数を超えたハッシュタグを、後ろから外す（AIは指示より多く付けることがある。書き直させると費用がかかるので、外す。PR #100 の ai-review の指摘）
+export function limitTags(text: string, max: number): string {
+  let kept = 0;
+  const out = text.replace(TAG, (m) => (kept++ < max ? m : ""));
+  return out.replace(/[ \t\u3000]+$/gm, "").trim();
 }
 
 // 話題の投稿（直近90日・読めたもの）で使われているハッシュタグを、使われた投稿の数（同じなら、いいねの合計）の多い順に返す

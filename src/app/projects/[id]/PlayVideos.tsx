@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 
 export type PlayVideoView = { id: number; at: string; version: number; file: string; hook: string; caption: string; ok: boolean; issues: string[] };
@@ -19,17 +19,29 @@ export function PlayVideos({ projectId, videos }: { projectId: number; videos: P
   const [platform, setPlatform] = useState("x");
   const [drafted, setDrafted] = useState<number | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
+  // 下書きにしている途中の動画（その間はボタンを押せない。2回押して同じ下書きが2つできないように。PR #100 の ai-review の指摘）
+  // 画面の状態（sending）は描き直すまで変わらないので、ダブルクリックの2回目を止めるために、すぐ変わる印（ref）も持つ
+  const [sending, setSending] = useState<number | null>(null);
+  const sendingRef = useRef(false);
   // SNSで広めるの下書きに入れる（人の下書きとして。自動投稿には使わない）
   async function toDraft(v: PlayVideoView) {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    setSending(v.id);
     setDraftError(null);
-    const res = await fetch("/api/sns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", projectId, text: v.caption, platform, angle: "遊ぶ様子の動画" }) }).catch(() => null);
-    if (!res?.ok) {
-      const data = res ? await res.json().catch(() => ({})) : {};
-      setDraftError((data as { error?: string }).error ?? "下書きにできませんでした");
-      return;
+    try {
+      const res = await fetch("/api/sns", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "add", projectId, text: v.caption, platform, angle: "遊ぶ様子の動画" }) }).catch(() => null);
+      if (!res?.ok) {
+        const data = res ? await res.json().catch(() => ({})) : {};
+        setDraftError((data as { error?: string }).error ?? "下書きにできませんでした");
+        return;
+      }
+      setDrafted(v.id);
+      router.refresh();
+    } finally {
+      sendingRef.current = false;
+      setSending(null);
     }
-    setDrafted(v.id);
-    router.refresh();
   }
   return (
     <section className="card space-y-3 p-4">
@@ -66,8 +78,8 @@ export function PlayVideos({ projectId, videos }: { projectId: number; videos: P
                       <select value={platform} onChange={(e) => setPlatform(e.target.value)} aria-label="投稿先" className="rounded-lg border border-line bg-surface px-2 py-1 text-sm">
                         {Object.entries(VIDEO_PLATFORMS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
                       </select>
-                      <button type="button" onClick={() => toDraft(v)} className="rounded-lg border border-line px-3 py-1.5 text-sm">
-                        投稿の下書きにする
+                      <button type="button" disabled={sending !== null} onClick={() => toDraft(v)} className="rounded-lg border border-line px-3 py-1.5 text-sm disabled:opacity-50">
+                        {sending === v.id ? "下書きにしています…" : "投稿の下書きにする"}
                       </button>
                     </>
                   )}

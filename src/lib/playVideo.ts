@@ -8,7 +8,7 @@ import { external } from "./untrusted";
 import { getProject, logEvent } from "./loop";
 import { versionLp } from "./versions";
 import { recordToMp4 } from "./videoRender";
-import { tagHints, tagRule } from "./hashtags";
+import { limitTags, tagHints, tagRule } from "./hashtags";
 import { wrapToolHtml } from "../../lp-site/src/lp/toolHtml";
 
 // 動くツールを遊ぶ様子の、縦長の短い動画（SNSに投稿するため）
@@ -23,6 +23,8 @@ export type PlayCheck = { ok: boolean; issues: string[]; skipped?: string };
 export type PlayVideoRow = { id: number; at: string; project_id: number; version: number; file: string; hook: string; caption: string; script: string; check_json: string | null; ok: number };
 
 export const PLAY_STEPS_MAX = 10;
+// 投稿文の案に付けてよいハッシュタグの数（X に載せる前提）
+export const PLAY_TAG_MAX = 2;
 // 動画の長さの上限（秒）。これを超える分の手順は切る
 export const PLAY_SECONDS_MAX = 15;
 
@@ -59,7 +61,7 @@ export function parsePlayScript(v: unknown): PlayScript | null {
   if (!steps.some((s) => s.do === "click" || s.do === "drag")) return null;
   // 動画の上の一言と投稿文の案は必ず要る（欠けた台本は使わず、AIに書き直させる）
   if (!isStr(v.hook) || !v.hook.trim() || !isStr(v.caption) || !v.caption.trim()) return null;
-  return { hook: v.hook.trim().slice(0, 24), steps, caption: v.caption.trim().slice(0, 200) };
+  return { hook: v.hook.trim().slice(0, 24), steps, caption: limitTags(v.caption.trim(), PLAY_TAG_MAX).slice(0, 200) };
 }
 
 // コマの確かめの答えを読む。読めない・形が違う答えは「確かめられなかった」として問題に残す（問題なしにはしない）
@@ -91,7 +93,7 @@ async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [
 - wait: ms に待つ時間（300〜3000）。結果が出るまでに演出があるツールは、結果が見えるまで待つ
 - 最初の3秒のうちに、いちばん面白い瞬間（結果・オチ）へ向かうように、前置きの操作は最小にする。steps は${PLAY_STEPS_MAX}個まで。最後は結果が画面に出ている状態で終える
 - hook: 動画の上に大きく出す一言（20文字以内）。何をするものか・何が起きるかが一言で分かるもの。誇大な表現・実在の人物や作品の名前は使わない
-- caption: 投稿の本文の案（120文字以内。リンクは付けない（あとで付ける）。${tagRule(2)}）
+- caption: 投稿の本文の案（120文字以内。リンクは付けない（あとで付ける）。${tagRule(PLAY_TAG_MAX)}）
 出力はJSONのみ: {"hook":"","steps":[{"do":"click","target":"回す"},{"do":"wait","ms":1500}],"caption":""}（ドラッグの例: {"do":"drag","target":"#board","from":[0.2,0.8],"dx":0.3,"dy":-0.3}）`,
     user: `ツール名: ${p.title}\n対象: ${p.target}\n何ができるか: ${p.solution}${tagHints()}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}`,
     validate: (v): v is PlayScript => parsePlayScript(v) !== null,
