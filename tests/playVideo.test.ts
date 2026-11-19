@@ -248,8 +248,13 @@ p.addEventListener("pointermove",function(){if(p.dataset.on)document.getElementB
   assert.deepEqual(r2.failed, []);
   assert.equal(r2.done, 2);
   // 入力欄の形のボタン・画像だけのボタンの名前も添える。なぞる所が見つからないときは添えない（PR #106 の ai-review の指摘）
-  const forms = `<input type="button" value="はじめる"><button><img alt="もう一度" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="  width="20" height="20"></button><div id="pad" style="height:80px;background:#eee"></div>`;
+  const forms = `<input type="button" value="はじめる"><button><img alt="もう一度" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="  width="20" height="20"></button><button aria-label="閉じる">×</button><span id="lb">設定</span><button aria-labelledby="lb">⚙</button><div role="menuitem">メニューを開く</div><div id="pad" style="height:80px;background:#eee"></div>`;
   const r3 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "ないボタン" }, { do: "drag", target: "#ないなぞり面", dx: 0.5 }, { do: "click", target: "はじめる" }] }, forms, {}, "形", out.replace("k.mp4", "k3.mp4"));
-  assert.equal(r3.failed[0], "1番目の「ないボタン」が見つからなかった（見えているボタン: はじめる・もう一度）");
+  // 名前は正式な名前（aria-labelledby・aria-label）を表の文字より先に使う（PR #106 の ai-review の指摘）
+  assert.equal(r3.failed[0], "1番目の「ないボタン」が見つからなかった（見えているボタン: はじめる・もう一度・閉じる・設定）");
+  // 押せる役の印（menuitem）の要素は、指の形のカーソルでなくても、文字で押せる（PR #106 の ai-review の指摘）
+  const r4 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "メニューを開く" }] }, forms, {}, "形", out.replace("k.mp4", "k4.mp4"));
+  assert.deepEqual(r4.failed, []);
+  assert.equal(r4.done, 1);
   assert.equal(r3.failed[1], "2番目の「#ないなぞり面」が見つからなかった");
 });

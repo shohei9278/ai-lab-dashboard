@@ -133,7 +133,8 @@ export const bandTitle = (title: string) => title.split(/\s*[―—]\s*/)[0].tri
 // 見えている文字・セレクタから、押す所・入れる所を探す
 // wait: 見つからないとき、出てくるのを待つ長さ（録画の前は待たない。待つ間にもツールの時間が進み、台本とずれるため。PR #104 の ai-review の指摘）
 // 押せる所（ボタン・リンクなど。ツールが「使った」と数える所と同じ考え方）。文字で探して見つけた所は、この中か、指の形のカーソルの所だけを押す
-const CLICKABLE = "button,a,summary,label,canvas,input,select,[role=button],[role=tab],[role=option],[role=slider],[role=link],[role=checkbox],[role=radio],[onclick]";
+// 押せる役の印（role）は、メニューの項目・切り替え・木の形の一覧の項目も含める（PR #106 の ai-review の指摘）
+const CLICKABLE = "button,a,summary,label,canvas,input,select,[onclick]," + ["button", "tab", "option", "slider", "link", "checkbox", "radio", "menuitem", "menuitemcheckbox", "menuitemradio", "switch", "treeitem", "gridcell", "combobox", "spinbutton"].map((r) => `[role=${r}]`).join(",");
 async function find(frame: Frame, step: PlayStep, wait = FIND_WAIT_MS) {
   const t = step.target!;
   // clickable: 文字で探したときは、押しても何も起きない文字（手順の表示など）を押したことにしない
@@ -164,12 +165,15 @@ async function find(frame: Frame, step: PlayStep, wait = FIND_WAIT_MS) {
 }
 
 // いま見えているボタンの名前（押す所が見つからなかったとき、知らせに添える。台本を書き直すAIが、正しい名前を使えるように）
-// 入力欄の形のボタン・リンクの役の要素も数え、名前は 文字 → aria-label → value → 中の画像の alt の順に取る（PR #106 の ai-review の指摘）
-const BUTTON_LIKE = "button,[role=button],a,[role=link],input[type=button],input[type=submit],input[type=reset]";
+// 入力欄の形のボタン・リンクの役の要素も数える。名前は、正式な名前（ボタンの名前で探すときに使う名前）の決まりに近い順で取る:
+// aria-labelledby の先の文字 → aria-label → 表の文字 → value → alt（画像の形の送信ボタン）→ 中の画像の alt（PR #106 の ai-review の指摘）
+const BUTTON_LIKE = "button,[role=button],a,[role=link],input[type=button],input[type=submit],input[type=reset],input[type=image]";
 async function visibleButtons(frame: Frame): Promise<string[]> {
   return frame.evaluate((sel) => Array.from(document.querySelectorAll(sel))
     .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; })
-    .map((el) => ((el as HTMLElement).innerText || el.getAttribute("aria-label") || (el as HTMLInputElement).value || el.querySelector("img[alt]")?.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 20))
+    .map((el) => ((el.getAttribute("aria-labelledby") || "").split(/\s+/).map((id) => (id && document.getElementById(id)?.textContent) || "").join(" ").trim()
+      || el.getAttribute("aria-label") || (el as HTMLElement).innerText || (el as HTMLInputElement).value || el.getAttribute("alt")
+      || el.querySelector("img[alt]")?.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 20))
     .filter(Boolean).slice(0, 8), BUTTON_LIKE).catch(() => []);
 }
 
