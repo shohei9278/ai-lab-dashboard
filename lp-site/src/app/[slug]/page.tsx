@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getLp } from "@/lib/supabase";
+import Link from "next/link";
+import { getLp, listPages } from "@/lib/supabase";
 import { SITE_NAME } from "@/lib/site";
 import { SignupForm } from "./SignupForm";
 import { Tracker } from "./Tracker";
@@ -12,8 +13,11 @@ import { FeedbackWidget } from "./FeedbackWidget";
 import { imgOriginsOf } from "@/lp/pageHtml";
 import { splitToolPage } from "@/lp/htmlDom";
 import { ToolPageView } from "@/lp/ToolPageView";
+import { SHORT_SHARE_HEADING, ShortToolView } from "@/lp/ShortToolView";
 import { RelatedPages } from "./RelatedPages";
 import { PageSummary } from "./PageSummary";
+import { ResultSheet } from "./ResultSheet";
+import { pickOthers } from "@/lp/categories";
 
 export const dynamic = "force-dynamic";
 
@@ -79,8 +83,36 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
     );
   }
 
-  // 動くツールの案件で、AIが自由に書いたページがあれば、上の部分 → ツール → 下の部分 の順に出す（分けられなければ部品の表示）
+  // 遊び・毎日のお題のツール（short）は、開いたらすぐ画面いっぱいで遊べる形で出す（紹介ページは作らない）
+  // 結果が出たら、下から シェア と ほかの遊び（同じカテゴリを先に）の欄を出す
   const tool = lp.content.tool;
+  if (tool && lp.content.short) {
+    const others = pickOthers((await listPages().catch(() => ({ tools: [] }))).tools, lp.slug).map(({ slug, title, version }) => ({ slug, title, version }));
+    return (
+      <main>
+        <Tracker slug={lp.slug} version={lp.version} />
+        <ShortToolView
+          title={lp.title}
+          lead={lp.content.subheadline}
+          home={<Link href="/?s=related">{SITE_NAME}</Link>}
+          barEnd={<ResultSheet slug={lp.slug} version={lp.version} shareText={tool.shareText} results={tool.results} others={others} />}
+          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} fill />}
+          after={
+            <section data-section="share" className="px-6 pb-12 pt-2">
+              <div className="mx-auto max-w-md space-y-4 text-center">
+                <h2 className="text-lg font-bold">{SHORT_SHARE_HEADING}</h2>
+                <ShareButtons slug={lp.slug} version={lp.version} text={tool.shareText} results={tool.results} />
+              </div>
+            </section>
+          }
+        />
+        <RelatedPages slug={lp.slug} />
+        <FeedbackWidget slug={lp.slug} version={lp.version} kind="tool" />
+      </main>
+    );
+  }
+
+  // 動くツールの案件で、AIが自由に書いたページがあれば、上の部分 → ツール → 下の部分 の順に出す（分けられなければ部品の表示）
   const parts = tool && lp.content.page ? splitToolPage(lp.content.page.html) : null;
   if (tool && lp.content.page && parts) {
     return (

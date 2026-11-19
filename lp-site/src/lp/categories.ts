@@ -18,3 +18,12 @@ export type SiteCategory = keyof typeof SITE_CATEGORIES;
 // 一覧（絞り込みのボタン）に並べる順
 export const SITE_CATEGORY_KEYS = Object.keys(SITE_CATEGORIES) as SiteCategory[];
 export const isSiteCategory = (v: unknown): v is SiteCategory => typeof v === "string" && Object.hasOwn(SITE_CATEGORIES, v);
+
+// 遊びのツールで結果が出たあとに出す「ほかの遊び」（ResultSheet）: 同じカテゴリのツールを先に、足りなければほかのツールで埋める
+// 自分は除く。並びは一覧の順（新しい順）のまま。カテゴリがないツールは、ほかのツールだけで埋める
+export function pickOthers<T extends { slug: string; category?: string | null }>(tools: T[], slug: string, n = 3): T[] {
+  const own = tools.find((t) => t.slug === slug)?.category ?? null;
+  const rest = tools.filter((t) => t.slug !== slug);
+  const same = own ? rest.filter((t) => t.category === own) : [];
+  return [...same, ...rest.filter((t) => !same.includes(t))].slice(0, n);
+}
