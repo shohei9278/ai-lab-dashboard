@@ -39,6 +39,8 @@ import { ShadowJudgments } from "@/components/ShadowJudgments";
 import { plainIssue } from "@/lib/issueText";
 import { hasUnpublishedVersion, versionLabel } from "@/lib/versions";
 import { AIMS, isAim } from "@/lib/aims";
+import { SITE_CATEGORIES, isSiteCategory, siteCategoryOf } from "@/lib/siteCategory";
+import { SiteCategoryPicker } from "./SiteCategoryPicker";
 import { NEED_KINDS, needsOf } from "@/lib/needs";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +57,9 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const approvals = pendingApprovals(p.id, await isOwner());
   const fv = Number((await searchParams).fv);
   const owner = await isOwner();
+  // 公開サイトの一覧のカテゴリのうち、AIが選んだもの（運営者が選ばないときに使う）の説明
+  const autoCategory = siteCategoryOf({ site_category: null, site_category_auto: p.site_category_auto });
+  const autoNote = autoCategory ? SITE_CATEGORIES[autoCategory].label : p.site_category_auto ? "合うものなし" : "公開時に選ぶ";
   const events = maskEventsForGuest(maskEvents(db().prepare("SELECT * FROM events WHERE project_id = ? ORDER BY id DESC").all(p.id) as EventRow[]), owner);
   const projectVoices = listVoices({ projectId: p.id, limit: 20 });
   const outside = listExternalVoices({ projectId: p.id, limit: 20 });
@@ -104,6 +109,16 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           {p.origin === "daily" && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">毎日の自動実行で作成</span>}
           {p.demo ? <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">デモ</span> : null}
         </div>
+        {/* 公開サイトの一覧のカテゴリ（動くツールの案件で、運営者だけ） */}
+        {owner && p.kind === "tool" && !p.demo && (
+          <SiteCategoryPicker
+            id={p.id}
+            value={isSiteCategory(p.site_category) ? p.site_category : null}
+            options={Object.entries(SITE_CATEGORIES).map(([key, c]) => ({ key, label: c.label }))}
+            auto={autoNote}
+            published={!!p.public_slug}
+          />
+        )}
         <p className="text-sm text-ink-2">このページでは、AIがこの案件で何を考え、何をして、どんな結果になったかが分かります。</p>
         <ol className="flex flex-wrap gap-1 text-xs" aria-label="進み具合">
           {[...STEPS.map((st) => STAGE_LABEL[st]), "結果"].map((label, i) => (
