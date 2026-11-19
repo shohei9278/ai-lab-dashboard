@@ -346,7 +346,14 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
     };
     // 途中のコマは、真ん中の手順のあとに、うまくいったかにかかわらず必ず撮る（コマは最初・途中・最後の3枚にそろえる）
     const mid = Math.floor((script.steps.length - 1) / 2);
-    const midShot = async (hold: (fn: () => Promise<void>) => Promise<void>) => hold(async () => { shots.push(await page.screenshot({ type: "jpeg", quality: 70 })); });
+    // 確かめ用のコマ（AIに見せる。録画には入らない）は、押す所を示す赤い丸を消して撮る
+    // 丸が文字に重なると「読めない」と指摘され、その指摘を直そうとしたAIが台本の手順を壊した（#66 の動画）。動画の方には丸を残す
+    const checkShot = async () => {
+      await page.evaluate(() => { const f = document.getElementById("finger")!; f.dataset.o = f.style.opacity; f.style.transition = "none"; f.style.opacity = "0"; });
+      shots.push(await page.screenshot({ type: "jpeg", quality: 70 }));
+      await page.evaluate(() => { const f = document.getElementById("finger")!; f.style.opacity = f.dataset.o ?? ""; f.style.transition = ""; });
+    };
+    const midShot = async (hold: (fn: () => Promise<void>) => Promise<void>) => hold(checkShot);
     await recordToMp4(page, async (rawHold) => {
       // 録画に入った時間（撮らない間は除く）。15秒に収まらない手順は、やる前に打ち切る（台本の見積もりより操作が遅れても、上限を守る）
       const start = Date.now();
@@ -406,7 +413,7 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
       await page.evaluate(() => { document.getElementById("finger")!.style.opacity = "0"; });
       // 結果を読めるよう、最後に止める（残りの時間まで。動画は最後に15秒で切るので、結果を見せる場面が切れないよう短くする）
       await page.waitForTimeout(Math.max(300, Math.min(2200, (PLAY_SECONDS_MAX - recorded()) * 1000)));
-      await hold(async () => { shots.push(await page.screenshot({ type: "jpeg", quality: 70 })); });
+      await hold(checkShot);
     }, out, () => browser.close(), { maxSeconds: PLAY_SECONDS_MAX });
     return { done, failed, shots };
   } finally {
@@ -477,7 +484,11 @@ async function makeOnce(projectId: number): Promise<number> {
       if (r.done > 0 && notes.length) check = { ...check, ok: false, issues: [...notes, ...check.issues] };
       if (check.ok || round === 1) break;
       fs.rmSync(playVideoPath(file)!, { force: true });
-      script = await writePlayScript(p, tool.html, check.issues, { prev: script });
+      // 1回目の確かめの指摘も経過に残す（最後の回の指摘しか残らず、撮り直しで何が変わったかを追えなかったため。#66 の動画）
+      logEvent(p.id, "ai", "play-video", `遊ぶ様子の動画の1回目の確かめで問題があったため、撮り直します: ${check.issues.join(" / ").slice(0, 300)}`);
+      // ツールを作った人が確かめた台本があるときは、撮り直しでも手順は変えない（AIは一言と投稿文の案だけを書き直す）
+      // #66 では、見た目の指摘を直そうとしたAIが「ふたを開ける」を使えない手順に書き換え、最後まで届かなくなった
+      script = await writePlayScript(p, tool.html, check.issues, given ? { given, prev: script } : { prev: script });
     }
     const id = Number(db().prepare("INSERT INTO play_videos (project_id, version, file, hook, caption, script, check_json, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(p.id, p.lp_version, file, script.hook, script.caption, JSON.stringify(script), JSON.stringify(check), check.ok ? 1 : 0).lastInsertRowid);

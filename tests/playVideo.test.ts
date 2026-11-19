@@ -268,3 +268,29 @@ p.addEventListener("pointermove",function(){if(p.dataset.on)document.getElementB
   assert.equal(r4.done, 1);
   assert.equal(r3.failed[1], "2番目の「#ないなぞり面」が見つからなかった");
 });
+
+test("遊ぶ様子の動画（#66 の動画で運営者が見つけた）: 確かめ用のコマでは、押す所を示す赤い丸を消して撮る（ブラウザと ffmpeg があるときだけ）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  if (spawnSync("ffmpeg", ["-version"]).status !== 0) { await browser.close(); return t.skip("ffmpeg がありません"); }
+  // 枠いっぱいの青いボタン。押したあとの途中のコマで、ボタンの真ん中（赤い丸が残っている所）の色を見る
+  const html = `<style>html,body{margin:0}</style><button id="b" style="position:absolute;left:0;top:0;width:360px;height:200px;border:0;background:#0000ff">押す</button>`;
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "play-")), "f.mp4");
+  const r = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "押す" }, { do: "wait", ms: 300 }] }, html, {}, "丸", out);
+  assert.equal(r.done, 1);
+  const page = await browser.newPage();
+  const at = async (shot: Buffer, x: number, y: number) => page.evaluate(async ({ src, x, y }) => {
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    const c = document.createElement("canvas");
+    c.width = img.width; c.height = img.height;
+    const g = c.getContext("2d")!;
+    g.drawImage(img, 0, 0);
+    return Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
+  }, { src: `data:image/jpeg;base64,${shot.toString("base64")}`, x, y });
+  // ボタンの真ん中は、枠の上端（270px）＋ ボタンの高さの半分（100px）× 3倍
+  const [red, , blue] = await at(r.shots[1], 540, 270 + 300);
+  await browser.close();
+  assert.ok(red < 80 && blue > 180, `途中のコマのボタンの真ん中の色 ${red},${blue}（赤い丸が残っていない青のはず）`);
+});
