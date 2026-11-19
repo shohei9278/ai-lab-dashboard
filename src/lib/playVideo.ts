@@ -164,11 +164,13 @@ async function find(frame: Frame, step: PlayStep, wait = FIND_WAIT_MS) {
 }
 
 // いま見えているボタンの名前（押す所が見つからなかったとき、知らせに添える。台本を書き直すAIが、正しい名前を使えるように）
+// 入力欄の形のボタン・リンクの役の要素も数え、名前は 文字 → aria-label → value → 中の画像の alt の順に取る（PR #106 の ai-review の指摘）
+const BUTTON_LIKE = "button,[role=button],a,[role=link],input[type=button],input[type=submit],input[type=reset]";
 async function visibleButtons(frame: Frame): Promise<string[]> {
   return frame.evaluate((sel) => Array.from(document.querySelectorAll(sel))
     .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; })
-    .map((el) => ((el as HTMLElement).innerText || el.getAttribute("aria-label") || "").replace(/\s+/g, " ").trim().slice(0, 20))
-    .filter(Boolean).slice(0, 8), "button,[role=button],a").catch(() => []);
+    .map((el) => ((el as HTMLElement).innerText || el.getAttribute("aria-label") || (el as HTMLInputElement).value || el.querySelector("img[alt]")?.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 20))
+    .filter(Boolean).slice(0, 8), BUTTON_LIKE).catch(() => []);
 }
 
 // 押す・なぞる所を、ツールの枠の見えている所に入れる（少しでも見えていると動かない scrollIntoViewIfNeeded は使わない）
@@ -300,7 +302,8 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
           }
           const l = await find(frame, step);
           if (!l) {
-            const names = step.do === "fill" ? [] : await visibleButtons(frame);
+            // 添えるのは押す手順だけ（なぞる所が見つからないときにボタンを候補と取り違えないように。PR #106 の ai-review の指摘）
+            const names = step.do === "click" ? await visibleButtons(frame) : [];
             failed.push(`${i + 1}番目の「${step.target}」が見つからなかった${names.length ? `（見えているボタン: ${names.join("・")}）` : ""}`);
             continue;
           }
