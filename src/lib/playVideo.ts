@@ -106,9 +106,9 @@ async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [
     projectId: p.id,
     system: `あなたは短い縦長の動画（Xのタイムラインで流れる、10〜15秒ほど）の台本を書く担当です。動くツールを実際に遊ぶ様子を録画して、見た人が1秒で何をするものか分かり、遊んでみたくなる動画にします。
 ツールのHTMLを読み、押すボタン・入れる値の順番（steps）を書きます。
-- click: target に、押すボタンなどに見えている文字（そのまま）を書く。文字で見分けられないときだけ、HTMLにある CSS のセレクタ（#id や .class）を書く
+- click: target に、押すボタンなどに見えている文字（そのまま。一部でもよい）を書く。JavaScript で作るボタン（textContent に入れる文字など）も、コードにある文字をそのまま使う（言い換えない。例: コードが「焼きへ（」+ 数 +「個）」なら「焼きへ」）。手順・見出しなどの、押せない文字と取り違えない。文字で見分けられないときだけ、HTMLにある CSS のセレクタ（#id や .class）を書く
 - fill: target に入力欄のセレクタ（#id など）か、入力欄のラベルの文字を書き、value に入れる値を書く（自然な例。実在の人の名前・連絡先は使わない）
-- drag: 指やマウスで動かして遊ぶツール（ドラッグで置く・動かす・canvas の上でなぞる など）で使う。target に押さえる要素（見えている文字か、#id などのセレクタ。canvas なら canvas のセレクタ）、dx・dy に動かす距離を、その要素の幅・高さに対する割合（-1〜1。右・下が正）で書く。押さえる位置を変えたいときだけ、from に要素の中の位置 [横, 縦]（0〜1。書かなければ真ん中）を書く。動かすまで押せないボタンがあるツールは、そのボタンの前に drag を入れる
+- drag: 指やマウスで動かして遊ぶツール（ドラッグで置く・動かす・canvas の上でなぞる など）で使う。target に押さえる要素（見えている文字か、#id などのセレクタ。canvas なら canvas のセレクタ）、dx・dy に動かす距離を、その要素の幅・高さに対する割合（-1〜1。右・下が正）で書く。押さえる位置を変えたいときだけ、from に要素の中の位置 [横, 縦]（0〜1。書かなければ真ん中）を書く。動かす先は要素の中に収める（なぞる帯を端から端までなぞるなら、from を [0.05, 0.5]、dx を 0.9 にする。真ん中から 0.8 右へは、帯の右端で止まり半分しか動かない）。動かすまで押せないボタンがあるツールは、そのボタンの前に drag を入れる
 - wait: ms に待つ時間（300〜3000）。結果が出るまでに演出があるツールは、結果が見えるまで待つ
 - 焼ける・育つ・たまる など、ツールの中で時間がたつのを待つ場面が長いときは、wait に fast（2〜${FAST_MAX}。何倍の速さで見せるか）を付けて早送りにする。ツールの中では ms の時間（${FAST_WAIT_MAX}まで）が進み、動画では ms÷fast の長さで済む（画面の隅に「早送り」と出る）。15秒に収まらないゲームも、早送りを使って、最後の結果の画面まで見せる（それでも収まらなければ、いちばん見せたい場面（できあがっていく様子など）で終える）。ボタンを押したあとの短い待ちには付けない
 - 最初の3秒のうちに、いちばん面白い瞬間（結果・オチ）へ向かうように、前置きの操作は最小にする。steps は${PLAY_STEPS_MAX}個まで。最後は結果が画面に出ている状態で終える
@@ -120,36 +120,67 @@ async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [
   }).then((v) => parsePlayScript(v)!);
 }
 
-const TOP = 300;
+// 上の帯の高さ（一言は2行まで入る）。ツールの枠の高さは (1920 - TOP - BOTTOM) / SCALE = 510px（#66 の動画で、一番下の一言が欠けたので 500px から少し高くした）
+const TOP = 270;
 const BOTTOM = 120;
 // ツールの枠を 360px 幅で開き（ツールから見た画面の幅もスマホと同じ。幅で並びを変えるツールもスマホの並びになる）、枠ごと3倍にして映す
 const SCALE = 3;
 const PHONE_W = 1080 / SCALE;
 
+// 下の帯に出すツール名。「ひだ包み職人 ― 餃子を包んで…」のような長い名前は、「―」より前だけにする（帯からはみ出して切れていた。#66 の動画）
+export const bandTitle = (title: string) => title.split(/\s*[―—]\s*/)[0].trim() || title;
+
 // 見えている文字・セレクタから、押す所・入れる所を探す
 // wait: 見つからないとき、出てくるのを待つ長さ（録画の前は待たない。待つ間にもツールの時間が進み、台本とずれるため。PR #104 の ai-review の指摘）
+// 押せる所（ボタン・リンクなど。ツールが「使った」と数える所と同じ考え方）。文字で探して見つけた所は、この中か、指の形のカーソルの所だけを押す
+// 押せる役の印（role）は、メニューの項目・切り替え・木の形の一覧の項目も含める（PR #106 の ai-review の指摘）
+const CLICKABLE = "button,a,summary,label,canvas,input,select,[onclick]," + ["button", "tab", "option", "slider", "link", "checkbox", "radio", "menuitem", "menuitemcheckbox", "menuitemradio", "switch", "treeitem", "gridcell", "combobox", "spinbutton"].map((r) => `[role=${r}]`).join(",");
 async function find(frame: Frame, step: PlayStep, wait = FIND_WAIT_MS) {
   const t = step.target!;
-  const tries = step.do === "fill"
-    ? [() => frame.getByLabel(t, { exact: false }), () => frame.getByPlaceholder(t, { exact: false }), () => frame.locator(t)]
-    : [() => frame.getByRole("button", { name: t, exact: false }), () => frame.getByText(t, { exact: false }), () => frame.locator(t)];
+  // clickable: 文字で探したときは、押しても何も起きない文字（手順の表示など）を押したことにしない
+  // #66 で、台本の「焼く」が、ボタン「焼きへ（1個）」ではなく、上の手順の表示「包む → 焼く → 返す」の文字に当たり、押せたことになって先へ進めなかった
+  const tries: { make: () => Locator; clickable?: boolean }[] = step.do === "fill"
+    ? [{ make: () => frame.getByLabel(t, { exact: false }) }, { make: () => frame.getByPlaceholder(t, { exact: false }) }, { make: () => frame.locator(t) }]
+    // 押せる所だけに絞るのは押す手順だけ（なぞる帯は、ボタンでも指の形のカーソルでもないことが多い。PR #106 の ai-review の指摘）
+    : [{ make: () => frame.getByRole("button", { name: t, exact: false }) }, { make: () => frame.getByText(t, { exact: false }), clickable: step.do === "click" }, { make: () => frame.locator(t) }];
   // 同じ文字の候補が複数あるとき（PC用とスマホ用など）は、見えている最初のものを使う
   // 前の操作の演出（閉じる・切り替わるなど）のあとに出るボタンもあるので、少しのあいだ出てくるのを待つ（#66 の「焼きへ」）
   const until = Date.now() + wait;
   for (;;) {
-    for (const make of tries) {
+    for (const { make, clickable } of tries) {
       try {
         const all = make();
-        const n = Math.min(await all.count(), 10);
+        // 押せる所だけに絞るときは、同じ文字の押せない見出しが多くても見落とさないよう、先まで探す（PR #106 の ai-review の指摘）
+        const n = Math.min(await all.count(), clickable ? 50 : 10);
         for (let i = 0; i < n; i++) {
           const l = all.nth(i);
-          if (await l.isVisible()) return l;
+          if (!(await l.isVisible())) continue;
+          // JS で onclick を付けた要素（属性に出ない）も、その要素か親の要素にあれば押せる所とする（PR #106 の ai-review の指摘）
+          if (clickable && !(await l.evaluate((el, sel) => {
+            if (el.closest(sel) || getComputedStyle(el).cursor === "pointer") return true;
+            for (let e: Element | null = el; e; e = e.parentElement) if ((e as HTMLElement).onclick) return true;
+            return false;
+          }, CLICKABLE))) continue;
+          return l;
         }
       } catch {}
     }
     if (Date.now() >= until) return null;
     await frame.waitForTimeout(150);
   }
+}
+
+// いま見えているボタンの名前（押す所が見つからなかったとき、知らせに添える。台本を書き直すAIが、正しい名前を使えるように）
+// 入力欄の形のボタン・リンクの役の要素も数える。名前は、正式な名前（ボタンの名前で探すときに使う名前）の決まりに近い順で取る:
+// aria-labelledby の先の文字 → aria-label → 表の文字 → value → alt（画像の形の送信ボタン）→ 中の画像の alt（PR #106 の ai-review の指摘）
+const BUTTON_LIKE = "button,[role=button],a,[role=link],input[type=button],input[type=submit],input[type=reset],input[type=image]";
+async function visibleButtons(frame: Frame): Promise<string[]> {
+  return frame.evaluate((sel) => Array.from(document.querySelectorAll(sel))
+    .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden"; })
+    .map((el) => ((el.getAttribute("aria-labelledby") || "").split(/\s+/).map((id) => (id && document.getElementById(id)?.textContent) || "").join(" ").trim()
+      || el.getAttribute("aria-label") || (el as HTMLElement).innerText || (el as HTMLInputElement).value || el.getAttribute("alt")
+      || el.querySelector("img[alt]")?.getAttribute("alt") || "").replace(/\s+/g, " ").trim().slice(0, 20))
+    .filter(Boolean).slice(0, 8), BUTTON_LIKE).catch(() => []);
 }
 
 // 押す・なぞる所を、ツールの枠の見えている所に入れる（少しでも見えていると動かない scrollIntoViewIfNeeded は使わない）
@@ -174,11 +205,12 @@ export async function renderPlay(script: PlayScript, toolHtml: string, opts: { d
     await page.setContent(`<!doctype html><meta charset="utf-8"><style>
 *{margin:0;box-sizing:border-box}html,body{width:1080px;height:1920px;overflow:hidden;background:#fff;font-family:"Hiragino Sans","Noto Sans CJK JP",sans-serif}
 #top{position:absolute;top:0;left:0;width:1080px;height:${TOP}px;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 56px;background:#111;color:#fff;font-size:76px;font-weight:800;line-height:1.3}
-#bottom{position:absolute;bottom:0;left:0;width:1080px;height:${BOTTOM}px;display:flex;align-items:center;justify-content:center;background:#111;color:#bbb;font-size:40px;font-weight:700}
+#bottom{position:absolute;bottom:0;left:0;width:1080px;height:${BOTTOM}px;display:flex;align-items:center;justify-content:center;padding:0 48px;background:#111;color:#bbb;font-size:40px;font-weight:700}
+#bottom span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 - TOP - BOTTOM) / SCALE}px;border:0;background:#fff;transform:scale(${SCALE});transform-origin:0 0}
 #ff{position:absolute;top:${TOP + 28}px;right:28px;padding:10px 26px;border-radius:999px;background:rgba(17,17,17,.78);color:#fff;font-size:44px;font-weight:800;display:none;z-index:6}
 #finger{position:absolute;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;background:rgba(255,80,80,.45);border:6px solid rgba(255,255,255,.9);box-shadow:0 4px 18px rgba(0,0,0,.35);opacity:0;transition:left .3s ease,top .3s ease,opacity .2s,transform .12s;z-index:5;pointer-events:none}
-</style><div id="top">${esc(script.hook || title)}</div><iframe id="f"></iframe><div id="bottom">${esc(title)}｜登録なしで遊べる</div><div id="ff">▶▶ 早送り</div><div id="finger"></div>`);
+</style><div id="top">${esc(script.hook || title)}</div><iframe id="f"></iframe><div id="bottom"><span>${esc(bandTitle(title))}｜登録なしで遊べる</span></div><div id="ff">▶▶ 早送り</div><div id="finger"></div>`);
     const frameEl = page.locator("#f");
     await frameEl.evaluate((el, html) => { (el as HTMLIFrameElement).srcdoc = html; }, wrapToolHtml(toolHtml, opts));
     await page.waitForTimeout(400);
@@ -280,7 +312,9 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
           }
           const l = await find(frame, step);
           if (!l) {
-            failed.push(`${i + 1}番目の「${step.target}」が見つからなかった`);
+            // 添えるのは押す手順だけ（なぞる所が見つからないときにボタンを候補と取り違えないように。PR #106 の ai-review の指摘）
+            const names = step.do === "click" ? await visibleButtons(frame) : [];
+            failed.push(`${i + 1}番目の「${step.target}」が見つからなかった${names.length ? `（見えているボタン: ${names.join("・")}）` : ""}`);
             continue;
           }
           try {

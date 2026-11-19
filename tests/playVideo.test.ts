@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { launch } from "../src/lib/freePage";
-import { FAST_MAX, FAST_WAIT_MAX, PLAY_SECONDS_MAX, fastSlack, PLAY_STEPS_MAX, makePlayVideo, parsePlayCheck, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
+import { FAST_MAX, FAST_WAIT_MAX, PLAY_SECONDS_MAX, bandTitle, fastSlack, PLAY_STEPS_MAX, makePlayVideo, parsePlayCheck, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
 
 test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がない台本は使わない", () => {
   const s = parsePlayScript({
@@ -58,7 +58,8 @@ test("遊ぶ様子の動画: 台本どおりに入れて押し、縦長の動画
   const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "play-")), "v.mp4");
   const r = await renderPlay({ hook: "名前を入れると改名される", caption: "", steps: [{ do: "fill", target: "#name", value: "やまだ" }, { do: "click", target: "回す" }, { do: "click", target: "ないボタン" }] }, html, {}, "改名スロット", out);
   assert.equal(r.done, 2);
-  assert.deepEqual(r.failed, ["3番目の「ないボタン」が見つからなかった"]);
+  // 見つからなかったときは、見えているボタンの名前を添える（#66 の動画）
+  assert.deepEqual(r.failed, ["3番目の「ないボタン」が見つからなかった（見えているボタン: 回す）"]);
   assert.equal(r.shots.length, 3);
   assert.ok(fs.statSync(out).size > 10_000);
   // 真ん中の手順が見つからなくても、途中のコマは撮り、コマは最初・途中・最後の3枚にそろう（PR #86 の ai-review の指摘）
@@ -215,4 +216,55 @@ p.addEventListener("pointermove",function(){if(p.dataset.on)document.getElementB
   const r2 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "drag", target: "#pad", dx: 0.6 }, { do: "click", target: "とじる" }] }, pad, {}, "なぞる", path.join(dir, "p.mp4"));
   assert.deepEqual(r2.failed, []);
   assert.equal(r2.done, 2);
+});
+
+test("遊ぶ様子の動画（#66 の動画で運営者が見つけた）: 下の帯のツール名は「―」より前だけにする", () => {
+  assert.equal(bandTitle("ひだ包み職人 ― 餃子を包んで、焼いて、羽根を咲かせる"), "ひだ包み職人");
+  assert.equal(bandTitle("余白の重心検査"), "余白の重心検査");
+  assert.equal(bandTitle("―"), "―");
+});
+
+test("遊ぶ様子の動画（#66 の動画で運営者が見つけた）: 文字で探すときは押せる所だけを押し、見つからなければ見えているボタンの名前を添える（ブラウザと ffmpeg があるときだけ）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  await browser.close();
+  if (spawnSync("ffmpeg", ["-version"]).status !== 0) return t.skip("ffmpeg がありません");
+  // 上に手順の表示（押せない文字「焼く」）、下にボタン「焼きへ（1個）」。ボタンは JS で作る
+  const html = `<div id="steps">包む → <span>焼く</span> → 返す</div><div id="ops"></div><div id="out"></div><div style="cursor:pointer" id="card">カードを引く</div>
+<script>var b=document.createElement("button");b.type="button";b.textContent="焼きへ（1個）";b.onclick=function(){document.getElementById("out").textContent="焼いた"};document.getElementById("ops").appendChild(b);
+document.getElementById("card").onclick=function(){document.getElementById("out").textContent="引いた"};</script>`;
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "play-")), "k.mp4");
+  const r = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "click", target: "焼きへ" }, { do: "click", target: "カードを引く" }] }, html, {}, "焼く", out);
+  // 押せない文字「焼く」は押したことにせず、見えているボタンの名前を添えて知らせる
+  assert.equal(r.failed.length, 1);
+  assert.match(r.failed[0], /1番目の「焼く」が見つからなかった（見えているボタン: 焼きへ（1個））/);
+  // ボタンの文字の一部・指の形のカーソルの所は、今までどおり押せる
+  assert.equal(r.done, 2);
+  // なぞる手順は、押せる所でない帯の中の文字からでも、今までどおり探せる（PR #106 の ai-review の指摘）
+  const strip = `<div id="pad" style="height:120px;background:#eee;touch-action:none;cursor:ew-resize"><p>右へなぞる</p></div><button id="ok" disabled>とじる</button>
+<script>var p=document.getElementById("pad");p.addEventListener("pointerdown",function(e){p.setPointerCapture(e.pointerId);p.dataset.on="1"});
+p.addEventListener("pointermove",function(){if(p.dataset.on)document.getElementById("ok").disabled=false});p.addEventListener("pointerup",function(){p.dataset.on=""});</script>`;
+  const r2 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "drag", target: "右へなぞる", dx: 0.5 }, { do: "click", target: "とじる" }] }, strip, {}, "なぞる", out.replace("k.mp4", "k2.mp4"));
+  assert.deepEqual(r2.failed, []);
+  assert.equal(r2.done, 2);
+  // 入力欄の形のボタン・画像だけのボタンの名前も添える。なぞる所が見つからないときは添えない（PR #106 の ai-review の指摘）
+  const forms = `<input type="button" value="はじめる"><button><img alt="もう一度" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="  width="20" height="20"></button><button aria-label="閉じる">×</button><span id="lb">設定</span><button aria-labelledby="lb">⚙</button><div role="menuitem">メニューを開く</div><div id="pad" style="height:80px;background:#eee"></div>`;
+  const r3 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "ないボタン" }, { do: "drag", target: "#ないなぞり面", dx: 0.5 }, { do: "click", target: "はじめる" }] }, forms, {}, "形", out.replace("k.mp4", "k3.mp4"));
+  // 名前は正式な名前（aria-labelledby・aria-label）を表の文字より先に使う（PR #106 の ai-review の指摘）
+  assert.equal(r3.failed[0], "1番目の「ないボタン」が見つからなかった（見えているボタン: はじめる・もう一度・閉じる・設定）");
+  // 同じ文字の押せない見出しが10個より多くても、そのあとの押せる所を見落とさない（PR #106 の ai-review の指摘）
+  const many = `${"<p>次へ進む</p>".repeat(12)}<div id="n" style="cursor:pointer">次へ進む</div><div id="o"></div><script>document.getElementById("n").onclick=function(){document.getElementById("o").textContent="進んだ"};</script>`;
+  const r6 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "次へ進む" }] }, many, {}, "多い", out.replace("k.mp4", "k6.mp4"));
+  assert.deepEqual(r6.failed, []);
+  assert.equal(r6.done, 1);
+  // JS で onclick を付けた div（指の形のカーソルなし）の中の文字も押せる（PR #106 の ai-review の指摘）
+  const jsClick = `<div id="c"><span>カードを開く</span></div><div id="o"></div><script>document.getElementById("c").onclick=function(){document.getElementById("o").textContent="開いた"};</script>`;
+  const r5 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "カードを開く" }] }, jsClick, {}, "JS", out.replace("k.mp4", "k5.mp4"));
+  assert.deepEqual(r5.failed, []);
+  assert.equal(r5.done, 1);
+  // 押せる役の印（menuitem）の要素は、指の形のカーソルでなくても、文字で押せる（PR #106 の ai-review の指摘）
+  const r4 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "メニューを開く" }] }, forms, {}, "形", out.replace("k.mp4", "k4.mp4"));
+  assert.deepEqual(r4.failed, []);
+  assert.equal(r4.done, 1);
+  assert.equal(r3.failed[1], "2番目の「#ないなぞり面」が見つからなかった");
 });
