@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { launch } from "../src/lib/freePage";
-import { PLAY_SECONDS_MAX, PLAY_STEPS_MAX, makePlayVideo, parsePlayCheck, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
+import { FAST_MAX, FAST_WAIT_MAX, PLAY_SECONDS_MAX, fastSlack, PLAY_STEPS_MAX, makePlayVideo, parsePlayCheck, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
 
 test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がない台本は使わない", () => {
   const s = parsePlayScript({
@@ -28,7 +28,7 @@ test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がな
   assert.equal(parsePlayScript({ steps: [{ do: "wait", ms: 500 }] }), null);
   assert.equal(parsePlayScript({ hook: "x" }), null);
   // 手順は決めた数まで
-  assert.equal(parsePlayScript({ hook: "h", caption: "c", steps: Array.from({ length: 20 }, () => ({ do: "click", target: "回す" })) })!.steps.length, Math.min(PLAY_STEPS_MAX, 7)); // 押す手順は1つ約1.6秒なので、15秒に入るのは7つまで
+  assert.equal(parsePlayScript({ hook: "h", caption: "c", steps: Array.from({ length: 20 }, () => ({ do: "click", target: "回す" })) })!.steps.length, Math.min(PLAY_STEPS_MAX, 10)); // 押す手順は1つ約1.2秒なので、15秒に入るのは10まで（#66 の動画で短くした。前は1.6秒・7つまで）
   // 動画の長さは上限（15秒）まで。超える分の手順は切る（PR #86 の ai-review の指摘）
   const long = parsePlayScript({ hook: "h", caption: "c", steps: [{ do: "click", target: "回す" }, ...Array.from({ length: 9 }, () => ({ do: "wait", ms: 3000 }))] })!;
   assert.deepEqual(long.steps.map((x) => x.do), ["click", "wait", "wait", "wait"]);
@@ -134,8 +134,8 @@ test("遊ぶ様子の動画の台本（#62 で運営者が見つけた）: ド�
     { do: "drag", target: "#paper", dx: 0.3, dy: -1, from: [0.2, 1] },
     { do: "drag", target: "#paper", dx: 0, dy: 0.4 },
   ]);
-  // ドラッグは1つ約2.2秒
-  assert.ok(Math.abs(playSeconds(s.steps) - (0.7 + 2.2 * 2 + 2.2)) < 1e-9);
+  // ドラッグは1つ約1.9秒
+  assert.ok(Math.abs(playSeconds(s.steps) - (0.7 + 1.9 * 2 + 2.2)) < 1e-9);
 });
 
 test("遊ぶ様子の動画（#62 で運営者が見つけた）: ドラッグで動かすと押せるようになるボタンも、台本どおりに動かして押せる（ブラウザと ffmpeg があるときだけ）", async (t) => {
@@ -162,4 +162,52 @@ document.getElementById("ok").onclick=function(){document.getElementById("out").
   const corner = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "drag", target: "#board", dx: -0.3, dy: -0.3, from: [1, 1] }, { do: "click", target: "決める" }] }, html, {}, "置く", out.replace("d.mp4", "d2.mp4"));
   assert.deepEqual(corner.failed, []);
   assert.equal(corner.done, 2);
+});
+
+test("遊ぶ様子の動画の早送り（#66 の動画で、運営者が早送りで直すと決めた）: 待つ手順に倍速を付けられ、動画の長さは ms÷倍速で見積もる", () => {
+  const s = parsePlayScript({
+    hook: "h", caption: "c",
+    steps: [
+      { do: "click", target: "焼く" },
+      { do: "wait", ms: 8000, fast: 4 },
+      { do: "wait", ms: 99_999, fast: FAST_MAX },
+    ],
+  })!;
+  assert.deepEqual(s.steps, [
+    { do: "click", target: "焼く" },
+    { do: "wait", ms: 8000, fast: 4 },
+    { do: "wait", ms: FAST_WAIT_MAX, fast: FAST_MAX },
+  ]);
+  // 決めた倍速でないものは、ふつうの待ち（3秒まで）にする
+  const odd = parsePlayScript({ hook: "h", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", ms: 8000, fast: 1.5 }, { do: "wait", ms: 8000, fast: 99 }] })!;
+  assert.deepEqual(odd.steps.slice(1), [{ do: "wait", ms: 3000 }, { do: "wait", ms: 3000 }]);
+  // 早送りの待ちは、動画では ms÷倍速の長さ（重いツールでは描き直しの分だけ長くなるので、速いほど大きな余裕を見る）
+  assert.equal(fastSlack(4), 1.24);
+  assert.ok(Math.abs(playSeconds(s.steps.slice(0, 3)) - (0.7 + 1.2 + 2 * fastSlack(4) + (FAST_WAIT_MAX / FAST_MAX / 1000) * fastSlack(FAST_MAX) + 2.2)) < 1e-9);
+  // 早送りなら、ふつうでは15秒に入らない長い待ちも入る
+  assert.equal(parsePlayScript({ hook: "h", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", ms: 12_000, fast: 6 }, { do: "click", target: "返す" }] })!.steps.length, 3);
+});
+
+test("遊ぶ様子の動画の早送り: ツールの中では ms の時間が進み、15秒に入らない待ちのあとの操作まで届く。枠の下の端に半分出ている所も、見える所へ動かしてからなぞる（ブラウザと ffmpeg があるときだけ）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  await browser.close();
+  if (spawnSync("ffmpeg", ["-version"]).status !== 0) return t.skip("ffmpeg がありません");
+  // 「焼く」から12秒たつと「返す」が押せるようになる（ツールのタイマーとアニメーションの合図で数える）
+  const html = `<button id="go">焼く</button><button id="flip" disabled>返す</button><div id="out"></div>
+<script>document.getElementById("go").onclick=function(){var t0=performance.now();setTimeout(function(){document.getElementById("flip").disabled=false},12000);
+(function f(){document.getElementById("out").textContent=Math.floor((performance.now()-t0)/1000)+"秒";requestAnimationFrame(f)})()};
+document.getElementById("flip").onclick=function(){document.getElementById("out").textContent="焼けた"};</script>`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "play-"));
+  const r = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", ms: 12_000, fast: 6 }, { do: "wait", ms: 300 }, { do: "click", target: "返す" }] }, html, {}, "焼く", path.join(dir, "f.mp4"));
+  // 録画は15秒を超える手順を切る（failed に残る）ので、切られずに「返す」まで押せたことが、12秒の待ちが早送りで済んだしるし
+  assert.deepEqual(r.failed, []);
+  assert.equal(r.done, 2);
+  // 枠（高さ500）の下の端に、上の少しだけ出ているなぞり面。真ん中を押さえると枠の外になるので、見える所へ動かしてからなぞる
+  const pad = `<div style="height:470px">上の部分</div><div id="pad" style="height:200px;background:#eee;touch-action:none"></div><button id="ok" disabled>とじる</button>
+<script>var p=document.getElementById("pad");p.addEventListener("pointerdown",function(e){p.setPointerCapture(e.pointerId);p.dataset.on="1"});
+p.addEventListener("pointermove",function(){if(p.dataset.on)document.getElementById("ok").disabled=false});p.addEventListener("pointerup",function(){p.dataset.on=""});</script>`;
+  const r2 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "drag", target: "#pad", dx: 0.6 }, { do: "click", target: "とじる" }] }, pad, {}, "なぞる", path.join(dir, "p.mp4"));
+  assert.deepEqual(r2.failed, []);
+  assert.equal(r2.done, 2);
 });
