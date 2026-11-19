@@ -193,11 +193,17 @@ async function find(frame: Frame, step: PlayStep, wait = FIND_WAIT_MS) {
     for (const { make, clickable } of tries) {
       try {
         const all = make();
-        const n = Math.min(await all.count(), 10);
+        // 押せる所だけに絞るときは、同じ文字の押せない見出しが多くても見落とさないよう、先まで探す（PR #106 の ai-review の指摘）
+        const n = Math.min(await all.count(), clickable ? 50 : 10);
         for (let i = 0; i < n; i++) {
           const l = all.nth(i);
           if (!(await l.isVisible())) continue;
-          if (clickable && !(await l.evaluate((el, sel) => !!el.closest(sel) || getComputedStyle(el).cursor === "pointer", CLICKABLE))) continue;
+          // JS で onclick を付けた要素（属性に出ない）も、その要素か親の要素にあれば押せる所とする（PR #106 の ai-review の指摘）
+          if (clickable && !(await l.evaluate((el, sel) => {
+            if (el.closest(sel) || getComputedStyle(el).cursor === "pointer") return true;
+            for (let e: Element | null = el; e; e = e.parentElement) if ((e as HTMLElement).onclick) return true;
+            return false;
+          }, CLICKABLE))) continue;
           return l;
         }
       } catch {}
