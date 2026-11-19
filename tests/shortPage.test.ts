@@ -1,7 +1,8 @@
 import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SHORT_PAGE_AIMS, shortToolPage } from "../src/lib/loop";
+import { FIT_SCREEN_RULE, SHORT_PAGE_AIMS, devRequestText, shortToolPage } from "../src/lib/loop";
+import { db } from "../src/lib/db";
 import { normalizeLp } from "../lp-site/src/lp/content";
 import { pickOthers } from "../lp-site/src/lp/categories";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
@@ -41,4 +42,18 @@ test("遊びのツールの結果のあとの「ほかの遊び」: 同じカテ
   assert.deepEqual(pickOthers(list, "c").map((x) => x.slug), ["a", "me", "b"]);
   assert.deepEqual(pickOthers(list, "zz", 2).map((x) => x.slug), ["a", "me"]);
   assert.deepEqual(pickOthers([t("me", "game")], "me"), []);
+});
+
+test("遊びのツールを1画面に収める（#66 で運営者が見つけた）: 短いページで出すツールの作る決まりにだけ、画面の高さに収める決まりを足す", () => {
+  const add = (aim: string | null) => Number(db().prepare(
+    "INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim) VALUES ('t', 't', 'p', 's', 'h', 'r', 'lp', 'claude', 'tool', ?)",
+  ).run(aim).lastInsertRowid);
+  assert.match(FIT_SCREEN_RULE, /画面の高さいっぱいの枠/);
+  assert.match(FIT_SCREEN_RULE, /100dvh/);
+  // 広がる・また来てもらうのツール（短いページ）には入れる
+  assert.ok(devRequestText(add("spread"), "設計", null).includes(FIT_SCREEN_RULE));
+  assert.ok(devRequestText(add("return"), "設計", null).includes(FIT_SCREEN_RULE));
+  // 紹介ページのあるツール（枠がツールの高さに合わせて伸びる）には入れない
+  assert.ok(!devRequestText(add("useful"), "設計", null).includes(FIT_SCREEN_RULE));
+  assert.ok(!devRequestText(add(null), "設計", null).includes(FIT_SCREEN_RULE));
 });

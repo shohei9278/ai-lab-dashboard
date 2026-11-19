@@ -705,7 +705,7 @@ export function devRequestText(projectId: number, design: string, instruction: s
   let dataNote = "なし（コードの中に書く）";
   try {
     const deep = deepContext(p);
-    rules = toolRules(deep);
+    rules = toolRules(deep, shortToolPage(p.aim));
     if (deep?.data) dataNote = `window.labData（${deep.data.rows.length}件）。${deep.data.spec.note}。案件の画面の「データを保存」から JSON を取れます`;
   } catch (e) {
     rules = `（作るときの決まりを出せませんでした: ${e instanceof Error ? e.message : String(e)}）`;
@@ -983,9 +983,16 @@ ${data ? `- データは、人が確かめた一覧が window.labData（配列�
 }
 type DeepData = { spec: DeepSpec; rows: DeepRow[] };
 
+// 短いページ（遊び・毎日のお題のツール）は、公開ページでツールを画面の高さいっぱいの枠に出す（ShortToolView）
+// 枠の高さはスマホで600px前後しかなく、幅だけに合わせて大きな絵を描くと、ボタンやその下の一言が枠の下に隠れる（#66 で運営者が見つけた）
+export const FIT_SCREEN_RULE = `- このツールは、公開ページで画面の高さいっぱいの枠に出る（上に細い帯があり、スマホで見える高さは600px前後、小さいスマホでは500px前後）。遊ぶのに要るもの（操作する所・押すボタン・その下に出す一言や合図）は、枠の中をスクロールしなくても1画面に入れる
+- 絵・盤面・canvas など大きな部分は、幅だけでなく画面の高さにも合わせて縮める（例: width: min(100%, calc(100dvh - ほかの部分の高さの合計))。古いブラウザのために、同じ指定を 100vh でも先に書く）。低い画面（@media (max-height: 600px) など）では、余白や説明の文を減らす
+- 結果の画面も、主な結果と、保存・もう一度などのボタンが1画面に入るようにする`;
+
 // ツールを書くときの決まり（作るときと、じっくり案件の見た目を磨くときで共通）
 // deep: じっくり案件か（data は、大きなデータが要るときだけ）
-function toolRules(deep: { data: DeepData | null } | null): string {
+// short: 短いページで出すツールか（shortToolPage）。画面の高さに収める決まりを足す
+function toolRules(deep: { data: DeepData | null } | null, short = false): string {
   return `守ること:
 - 1つのHTMLの断片だけを書く（<style> と <script> を含めてよい。<html><head><body> は書かない）
 ${deep ? deepToolNote(deep.data) : `${FONT_RULE}。必要なデータはコードの中に書く`}
@@ -995,7 +1002,7 @@ ${ASSET_RULE}
 - フォームは送信しない（ボタンは type="button"）。入力は端末の中だけで処理する
 - 名前・メールアドレスなど個人を特定できる情報は入力させない
 - スマホ幅（360px）でも崩れない。prefers-color-scheme でライト・ダークの両方で読めるようにする
-- 日本語。開いた瞬間に使い方が分かるようにする。入力欄は空にし、入力例は placeholder で見せる（入力例の値で、結果を最初から出しておかない。結果は利用者が入力・選択・ボタンを押したときにすぐ表示する）。すぐ試したい人のために「例で試す」ボタンを置いてもよい
+${short ? `${FIT_SCREEN_RULE}\n` : ""}- 日本語。開いた瞬間に使い方が分かるようにする。入力欄は空にし、入力例は placeholder で見せる（入力例の値で、結果を最初から出しておかない。結果は利用者が入力・選択・ボタンを押したときにすぐ表示する）。すぐ試したい人のために「例で試す」ボタンを置いてもよい
 - 結果は、シェアしたくなる見せ方を工夫する。結果が出るたびに、その結果を伝える短い一文（60文字くらい。個人を特定できる内容は入れない）を作り、window.labShare && window.labShare("その一文") を呼ぶ（ページのシェアのボタンの文に使われる）
 - 結果の種類が決まっているツール（診断・タイプ分け・くじなど）は、<script type="application/json" id="lab-results">["結果の名前", …]</script> に結果の名前をすべて書き（${TOOL_RESULTS_MAX}個まで・1つ${TOOL_RESULT_LEN}文字まで・短く印象に残る名前）、結果を出すたびに window.labResult && window.labResult(その結果の番号。0から) を呼ぶ（シェアされたリンクに、その結果の名前を大きく出した画像が付く）。数の計算など、結果が決まった種類でないツールは書かない
 - 架空の統計を事実のように書かない。診断・占いのような遊びのツールは、そうと分かる一言を入れる。医療・法律・お金の助言はしない
@@ -1028,7 +1035,7 @@ const deepText = (p: ProjectRow, deep: { data: DeepData | null }) =>
 export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string, modelId?: string, effort?: "medium"): Promise<string> {
   const deep = deepContext(p);
   const system = `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
-${toolRules(deep)}`;
+${toolRules(deep, shortToolPage(p.aim))}`;
   const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${deep ? deepText(p, deep) : ""}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : viralHints("tool")}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`;
   // ツールのHTMLは長く、JSONに包むと出力の上限で途中で切れやすい。HTMLをそのまま最後まで受け取る
   const author = modelId ?? claudeModelId();
@@ -1113,7 +1120,7 @@ async function polishTool(p: ProjectRow, html: string, deep: { data: DeepData | 
 - 機能・計算・${deep.data ? "window.labData の読み方・" : ""}ボタンの動き・window.labShare の呼び出しは変えない
 - 色・余白・文字の大きさと太さ・並び・結果の画面の見せ方・動き（CSS のアニメーション）を整え、結果を人に見せたくなる仕上がりにする
 - 画面で読みにくい所・詰まって見える所・はみ出しそうな所を直す
-${toolRules(deep)}
+${toolRules(deep, shortToolPage(p.aim))}
 出力は、磨いたあとのHTMLの断片だけ。説明やコードブロックは付けない。`,
     content: [
       { type: "image", source: { type: "base64", media_type: "image/png", data: fs.readFileSync(file).toString("base64") } },
