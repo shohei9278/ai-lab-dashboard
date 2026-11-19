@@ -10,14 +10,18 @@ import type { Lp } from "../../../../lp-site/src/lp/content";
 // LP・ツールの本体を、公開サイトと同じ部品で表示する（プレビューと見比べで共通）
 export function PreviewBody({ lp, title, pc = false, freePage = true }: { lp: Lp; title: string; pc?: boolean; freePage?: boolean }) {
   const button = <button type="button" aria-disabled title="プレビューでは押せません" className={`${lpButtonClass} cursor-default`} style={lpButtonStyle}>{lp.cta}</button>;
-  // 遊び・毎日のお題のツール（short）は、公開サイトと同じく 名前と一行 → ツール の短い形で出す
+  // 遊び・毎日のお題のツール（short）は、公開サイトと同じく 上の細い帯 → 画面いっぱいのツール → 一行とシェア の形で出す
+  // 公開サイトでは枠の高さを画面に合わせるが、プレビューは画面の中の箱なので、よくある画面の高さ（帯の分を引いたもの）に決める
+  // 結果が出たあとに下から出す欄（シェア・ほかの遊び）は、公開したページでだけ出る
   if (lp.tool && lp.short) {
     return (
       <div className={`mx-auto overflow-hidden rounded-2xl border border-line bg-[color:var(--bg)] ${pc ? "max-w-[1280px]" : "max-w-[390px]"}`}>
         <ShortToolView
           title={title}
           lead={lp.subheadline}
-          tool={<ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} />}
+          home={<span title="プレビューでは押せません">（公開サイトの屋号）</span>}
+          frameHeight={pc ? "676px" : "800px"}
+          tool={<ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} fill />}
           after={
             // シェアの欄も、公開サイトと同じ見た目で出す（プレビューでは押せない。押せる形にすると、未公開のページを広めてしまうため）
             <section data-section="share" className="px-6 pb-12 pt-2">

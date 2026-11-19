@@ -6,7 +6,8 @@ import { wrapToolHtml } from "./toolHtml";
 // AIが作ったツールを、隔離された枠（sandbox）の中で動かす（枠の中身の組み立ては toolHtml.ts）
 // - allow-same-origin を付けないので、ツールからはこのサイトの Cookie・保存領域・ページに触れない
 // - 結果の画像の保存（ダウンロード）とコピーだけは許す。別のページを開く・移動することはできない
-export function ToolFrame({ html, title, onUse, data, fonts, illustration }: { html: string; title: string; onUse?: () => void; data?: unknown[]; fonts?: boolean; illustration?: string }) {
+// fill: 枠の高さを中身に合わせず、親の高さいっぱいにする（遊びのツールの全画面。中身が長ければ枠の中でスクロールする）
+export function ToolFrame({ html, title, onUse, data, fonts, illustration, fill = false }: { html: string; title: string; onUse?: () => void; data?: unknown[]; fonts?: boolean; illustration?: string; fill?: boolean }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(480);
   const used = useRef(false);
@@ -40,8 +41,8 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration }: { h
       title={title}
       sandbox="allow-scripts allow-downloads"
       allow="clipboard-write"
-      srcDoc={wrapToolHtml(html, { data, fonts, illustration })}
-      style={{ width: "100%", height, border: 0, display: "block" }}
+      srcDoc={wrapToolHtml(html, { data, fonts, illustration, fill })}
+      style={{ width: "100%", height: fill ? "100%" : height, border: 0, display: "block" }}
     />
   );
 }

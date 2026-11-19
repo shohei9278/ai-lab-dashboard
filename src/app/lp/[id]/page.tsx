@@ -33,7 +33,7 @@ export default async function LpPreview({ params, searchParams }: { params: Prom
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span>
             {cand ? <b className="mr-1">候補{cand.label}（平均 {cand.avg_score?.toFixed(1) ?? "—"}点）</b> : <b className="mr-1 text-ink">{versionLabel(p, version)}</b>}
-            {lp.tool && lp.short ? "公開したときと同じ短いページです（遊び・毎日のお題のツールは、紹介ページを作らず、名前と一行のあとにツールを出します）。ツールはここで実際に動きます。" : lp.page ? "公開したときと同じページです（AIが自由にデザイン）。登録フォームはここでは送信されません。" : lp.tool ? "公開したときと同じ見た目です。ツールはここで実際に動きます（シェアのボタンは動きません）。" : "公開したときと同じ見た目です。登録ボタンはここでは動きません。"}
+            {lp.tool && lp.short ? "公開したときと同じ短いページです（遊び・毎日のお題のツールは、紹介ページを作らず、細い帯の下にツールを画面いっぱいに出します。ここでは画面の代わりに決まった高さで出します）。ツールはここで実際に動きます。結果が出たあとに下から出るシェアとほかの遊びの欄は、公開したページでだけ出ます。" : lp.page ? "公開したときと同じページです（AIが自由にデザイン）。登録フォームはここでは送信されません。" : lp.tool ? "公開したときと同じ見た目です。ツールはここで実際に動きます（シェアのボタンは動きません）。" : "公開したときと同じ見た目です。登録ボタンはここでは動きません。"}
           </span>
           <span className="flex flex-wrap gap-3">
             {lp.page && <Link href={query({ w: pc ? undefined : "pc" })} className="text-accent underline">{pc ? "スマホの幅で見る" : "PCの幅で見る"}</Link>}
