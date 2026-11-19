@@ -78,3 +78,16 @@ test("公開サイトの一覧のカテゴリ（PR #99 の ai-review の指摘�
   assert.equal(ok.status, 200);
   assert.equal(getProject(id)!.site_category, null);
 });
+
+test("公開サイトの一覧のカテゴリ（PR #99 の ai-review の指摘）: 同じ案件の判定が同時に頼まれたら、走っている判定を待つ（AIを2回呼ばない）。終わったらまた頼める", async () => {
+  const p = getProject(add("tool"))!;
+  const a = classifySiteCategory(p);
+  const b = classifySiteCategory(p);
+  assert.equal(a, b);
+  // テストではAIのキーがないので、どちらも同じ失敗で終わる
+  await assert.rejects(a);
+  await assert.rejects(b);
+  const c = classifySiteCategory(p);
+  assert.notEqual(c, a);
+  await assert.rejects(c);
+});

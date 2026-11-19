@@ -24,13 +24,13 @@ export function publicUrl(projectId: number): string | null {
 }
 
 // 公開サイトの一覧のカテゴリ（動くツールだけ）。運営者が選んだものがあればそれ、なければ軽いAIの判定（まだなら、ここで選ばせる）
-// AIの判定に失敗しても公開は止めない（カテゴリなしで公開し、次に起動したときのそろえ直しで、また選ばせる）
 // 運営者が選んだ直後の値を使うよう、案件はデータベースから読み直す（呼んだ側が持っている行は、古いことがある）
+// AIの判定に失敗したときは、そのまま投げる（公開するときは呼ぶ側で受け流し、そろえ直しでは失敗として数える。PR #99 の ai-review の指摘）
 async function categoryFor(p: ProjectRow): Promise<SiteCategory | null> {
   const now = (db().prepare("SELECT * FROM projects WHERE id = ?").get(p.id) as ProjectRow | undefined) ?? p;
   if (now.kind !== "tool") return null;
   if (isSiteCategory(now.site_category)) return now.site_category;
-  return classifySiteCategory(now).catch(() => null);
+  return classifySiteCategory(now);
 }
 
 // 今のLPの版を公開する（すでに公開中なら新しい版に差し替える）
@@ -42,7 +42,8 @@ export async function publishLp(p: ProjectRow) {
     version: p.lp_version,
     title: p.title,
     // 公開サイトの一覧のカテゴリも、中身に入れて渡す（表の列は増やさない）
-    content: { ...JSON.parse(p.lp), category: await categoryFor(p) },
+    // AIの判定に失敗しても公開は止めない（カテゴリなしで公開し、次に起動したときのそろえ直しで、また選ばせる）
+    content: { ...JSON.parse(p.lp), category: await categoryFor(p).catch(() => null) },
     status: "published",
     updated_at: new Date().toISOString(),
   });
@@ -57,8 +58,9 @@ export async function publishLp(p: ProjectRow) {
 // そこで、読んだときの updated_at のままのときだけ書き換え（書き換えたら updated_at も進める）、変わっていたら読み直してもう1回だけやる（PR #99 の ai-review の指摘）
 export async function syncSiteCategory(p: ProjectRow): Promise<boolean> {
   if (!publishingConfigured() || p.demo || !p.public_slug) return false;
-  const category = await categoryFor(p);
   for (let attempt = 0; attempt < 2; attempt++) {
+    // やり直すたびに、案件を読み直してカテゴリを決め直す（その間に運営者が選び直していたら、新しいほうを書く。PR #99 の ai-review の指摘）
+    const category = await categoryFor(p);
     const { data, error } = await sb().from("lps").select("content, updated_at").eq("slug", p.public_slug).maybeSingle();
     if (error) throw new Error(`公開中のページを読めませんでした: ${error.message}`);
     if (!data) return false;

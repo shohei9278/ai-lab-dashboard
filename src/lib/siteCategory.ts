@@ -19,10 +19,22 @@ export function parseCategoryAnswer(v: unknown): SiteCategory | null {
   return isObj(v) && isSiteCategory(v.category) ? v.category : null;
 }
 
+// 判定している途中の案件（同じ案件の判定が同時に頼まれたら、走っている判定の結果を待つ。AIを2回呼ばない。サーバーは1台なので、このプロセスの中だけで足りる）
+const g = globalThis as unknown as { __aiLabCategoryJobs?: Map<number, Promise<SiteCategory | null>> };
+const jobs = (g.__aiLabCategoryJobs ??= new Map());
+
 // 動くツールの案件に、まだAIの判定がなければ、軽いAIに選ばせて残す（1回 約0.1円）。選んだもの（なければ null）を返す
-// 失敗しても公開は止めない（呼ぶ側で受け止める）
-export async function classifySiteCategory(p: ProjectRow): Promise<SiteCategory | null> {
-  if (p.kind !== "tool" || p.site_category_auto) return isSiteCategory(p.site_category_auto) ? p.site_category_auto : null;
+// 失敗したら投げる（公開するときは呼ぶ側で受け流す）
+export function classifySiteCategory(p: ProjectRow): Promise<SiteCategory | null> {
+  if (p.kind !== "tool" || p.site_category_auto) return Promise.resolve(isSiteCategory(p.site_category_auto) ? p.site_category_auto : null);
+  const running = jobs.get(p.id);
+  if (running) return running;
+  const job = classifyNow(p).finally(() => jobs.delete(p.id));
+  jobs.set(p.id, job);
+  return job;
+}
+
+async function classifyNow(p: ProjectRow): Promise<SiteCategory | null> {
   const list = SITE_CATEGORY_KEYS.map((k) => `- ${k}: ${SITE_CATEGORIES[k].label}（${SITE_CATEGORIES[k].hint}）`).join("\n");
   const answer = await callJson<{ category: string | null }>({
     purpose: "公開サイトのカテゴリ分け",
