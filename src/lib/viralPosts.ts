@@ -2,7 +2,7 @@ import { callClaude, callJson, isObj, isStr, type ClaudeContent } from "./ai";
 import { hasKey } from "./models";
 import { db, getSettings, saveSettings } from "./db";
 import { jstToday, logEvent } from "./loop";
-import { X_READ_COST_USD, searchEach, searchSince, xConfigured } from "./xPost";
+import { X_READ_COST_USD, lagWindow, searchEach, searchSince, xConfigured, type XSearchPost } from "./xPost";
 import { WANT_QUERIES, searchWants } from "./userWants";
 import { external } from "./untrusted";
 
@@ -131,6 +131,7 @@ async function analyze(r: ViralPost) {
     purpose: "話題の投稿の分析",
     system: `あなたはSNSマーケティングとプロダクトの編集者です。Xでよく伸びた、個人が作ったもの（アプリ・Webサービス・ツールのほか、ブラウザゲーム・診断・ネタ・おもちゃなど、遊べる・使えるもの）に関する投稿を読み、ほかの作品の投稿やLP・ツールの作りに活かせる形で「なぜ伸びたか」をまとめます。
 役に立つものだけでなく、遊び・ネタとして伸びたものも同じように参考にする。
+英語など日本語以外の投稿も、まとめは日本語で書く（日本で作るときに活かせる形にする）。
 投稿は次のどちらかです。
 - launch: 作った人が、自分の作ったものを紹介した投稿
 - share: 使った人・遊んだ人が、診断・ジェネレーター・計算ツール・ゲームなどの結果をシェアした投稿（自動で作られたシェア文やOGP画像を含む）。シェアされる仕組みとして参考にする
@@ -170,39 +171,66 @@ share のときは、hook に「シェア文の型」、visual に「シェア�
 // 作った人の投稿だけだと開発者どうしの話に偏るので、使った人のシェアと、便利なものの紹介も読む
 // 役に立つものだけでなく、遊び・ネタ（広がる）、毎日遊ぶもの（また来てもらう）、収益化（稼ぐ）の投稿も読む
 // 伸びる投稿は「作りました」と書かないことも多いので、個人が作ったものを置く場所へのリンクでも探す
+// 公開サイトのカテゴリ（診断・クイズ・メーカー など）に合わせた検索と、AIで作ったものの検索も読む
+// 画像・動画の付いた投稿だけに絞らない（リンクのカード（OGP）だけで伸びる投稿も多いため）
 export const VIRAL_QUERIES = [
-  "(個人開発 OR アプリ作った OR アプリを作りました OR リリースしました OR 作ってみた) has:media -is:retweet -is:reply lang:ja",
-  "(診断 OR メーカー OR ジェネレーター OR シミュレーター) (やってみた OR 結果 OR 作れる OR できた) has:media -is:retweet -is:reply lang:ja",
+  "(個人開発 OR アプリ作った OR アプリを作りました OR リリースしました OR 作ってみた) -is:retweet -is:reply lang:ja",
+  "(診断 OR メーカー OR ジェネレーター OR シミュレーター) (やってみた OR 結果 OR 作れる OR できた) -is:retweet -is:reply lang:ja",
   "(神ツール OR 神アプリ OR これ便利 OR 便利すぎ OR 無料で使える) (アプリ OR ツール OR サイト) -is:retweet -is:reply lang:ja",
-  "(ゲーム作りました OR ゲームを作りました OR ゲーム作った OR ブラウザゲーム OR ブラウザで遊べ OR 遊べます OR #ゲーム制作 OR #個人開発ゲーム OR #gamedev) -is:retweet -is:reply lang:ja",
+  "(ゲーム作りました OR ゲームを作りました OR ゲーム作った OR ブラウザゲーム OR ブラウザで遊べ OR #ゲーム制作 OR #個人開発ゲーム OR #unity1week OR #インディーゲーム OR url:unityroom.com OR url:freem.ne.jp OR url:plicy.net) -is:retweet -is:reply lang:ja",
   "(日替わり OR 毎日更新 OR 今日のお題 OR デイリー OR 毎日遊べる OR 連続正解) (ゲーム OR クイズ OR パズル OR 診断 OR 占い) -is:retweet -is:reply lang:ja",
   "(個人開発 OR 自作アプリ OR 自作ツール OR 自作サービス) (収益 OR 売上 OR 万円 OR 課金 OR 広告収入 OR 黒字) -is:retweet -is:reply lang:ja",
   "(url:github.io OR url:vercel.app OR url:netlify.app OR url:pages.dev OR url:unityroom.com OR url:itch.io) -is:retweet -is:reply lang:ja",
+  "(占い OR 心理テスト OR 性格診断 OR タイプ診断 OR 年齢がわかる OR 年齢診断) (やってみた OR 結果 OR だった OR でした) -is:retweet -is:reply lang:ja",
+  "(クイズ OR 検定 OR 全問正解 OR 正答率 OR 何問わかる OR 何問正解) (やってみた OR 結果 OR 点 OR 問) -is:retweet -is:reply lang:ja",
+  "(Claudeで作った OR ChatGPTで作った OR Codexで作った OR 生成AIで作った OR AIで作った OR バイブコーディング OR \"Claude Code\") (アプリ OR ツール OR ゲーム OR サイト) -is:retweet -is:reply lang:ja",
+  "(メーカー OR ジェネレーター OR 作れるサイト OR 画像が作れる OR カードが作れる) (作ってみた OR 作りました OR 作れる OR できた) -is:retweet -is:reply lang:ja",
 ];
+
+// 海外で伸びた、個人が作ったもの（アイデアの参考にする）。日本語の投稿が埋もれないよう、日本語の検索とは分けて読み、取り込む件数も分ける
+export const VIRAL_QUERIES_EN = [
+  "(\"I built\" OR \"I made\" OR \"just launched\" OR \"I created\") (app OR tool OR website OR \"web app\") (free OR browser OR \"no signup\") -is:retweet -is:reply lang:en",
+  "(#gamedev OR #indiedev OR #indiegame) (browser OR \"play it\" OR \"play for free\" OR url:itch.io) -is:retweet -is:reply lang:en",
+  "(quiz OR \"personality test\" OR generator OR \"what's your\" OR \"which one are you\") (\"I made\" OR \"I built\" OR \"try it\" OR \"my result\") -is:retweet -is:reply lang:en",
+];
+
+// 取り込む下限（いいね）と、言葉ごとに取り込む最大の件数（反応の大きい順）
+// 前は「いいね50以上」の固い線だったが、生まれたばかりの投稿ではほとんど超えず、0件の日が続いた
+export const VIRAL_MIN_LIKES = 20;
+export const VIRAL_PICKS = { ja: 7, en: 3 } as const;
 
 // 1回の検索（話題の投稿と「欲しい」の声）で読む投稿の数。X の API は、読んだ投稿1件ごとに費用がかかる
 export function searchReads(s: { viralPerQuery: number; wantsPerQuery: number }): number {
-  return VIRAL_QUERIES.length * s.viralPerQuery + (s.wantsPerQuery > 0 ? WANT_QUERIES.length * s.wantsPerQuery : 0);
+  return (VIRAL_QUERIES.length + VIRAL_QUERIES_EN.length) * s.viralPerQuery + (s.wantsPerQuery > 0 ? WANT_QUERIES.length * s.wantsPerQuery : 0);
 }
 
-// 前回の検索のあとの投稿を読み、反応の大きいものを上から取り込む（いいね50以上・最大10件）
-export async function searchViral(since: string): Promise<{ read: number; added: number; error?: string }> {
+type Found = { id: string; score: number; likes: number };
+// 見つけた投稿から、まだ取り込んでいない・下限を超えたものを、反応の大きい順に max 件まで選ぶ
+export function pickViral(found: Found[], known: Set<string>, max: number): Found[] {
+  return found.filter((x) => x.likes >= VIRAL_MIN_LIKES && !known.has(x.id)).sort((a, b) => b.score - a.score).slice(0, max);
+}
+
+// 決めた範囲（since〜until。遅らせて読む）の投稿を、日本語と英語に分けて読み、言葉ごとに反応の大きいものを取り込む
+export async function searchViral(since: string, until?: string): Promise<{ read: number; added: number; error?: string }> {
   const s = getSettings();
   let read = 0;
   try {
-    const all: { id: string; score: number; likes: number }[] = [];
-    const found = await searchEach(VIRAL_QUERIES, s.viralPerQuery, since, (n) => { read += n; });
-    for (const p of found.posts) {
-      const m = p.public_metrics;
-      if (m) all.push({ id: p.id, likes: m.like_count, score: m.like_count + (m.bookmark_count ?? 0) * 2 + m.retweet_count * 3 });
-    }
     const known = new Set((db().prepare("SELECT tweet_id FROM viral_posts").all() as { tweet_id: string }[]).map((x) => x.tweet_id));
-    const picks = all.filter((x) => x.likes >= 50 && !known.has(x.id)).sort((a, b) => b.score - a.score).slice(0, 10);
-    const added = queueViral(picks.map((x) => `https://x.com/i/web/status/${x.id}`), "search");
+    const score = (posts: XSearchPost[]): Found[] => posts.flatMap((p) => {
+      const m = p.public_metrics;
+      return m ? [{ id: p.id, likes: m.like_count, score: m.like_count + (m.bookmark_count ?? 0) * 2 + m.retweet_count * 3 }] : [];
+    });
+    const ja = await searchEach(VIRAL_QUERIES, s.viralPerQuery, since, (n) => { read += n; }, until);
+    // 日本語の検索が途中で失敗したら、英語は読まない（回数の上限などで続けて失敗するため）
+    const en = ja.error ? { posts: [] as XSearchPost[], error: undefined } : await searchEach(VIRAL_QUERIES_EN, s.viralPerQuery, since, (n) => { read += n; }, until);
+    const jaPicks = pickViral(score(ja.posts), known, VIRAL_PICKS.ja);
+    const enPicks = pickViral(score(en.posts), new Set([...known, ...jaPicks.map((x) => x.id)]), VIRAL_PICKS.en);
+    const added = queueViral([...jaPicks, ...enPicks].map((x) => `https://x.com/i/web/status/${x.id}`), "search");
+    const error = ja.error ?? en.error;
     // 途中で失敗しても、それまでに読めた分は取り込む（前回の日時は進むので、ここで捨てると二度と読まない）
-    if (found.error) logEvent(null, "system", "viral-error", `Xで話題の投稿の検索が途中で失敗（読めた${read}件から${added}件を取り込みました）: ${found.error}`);
-    else logEvent(null, "system", "viral-search", `Xで話題の投稿を検索: ${read}件を読み、${added}件を取り込みました`);
-    return { read, added, error: found.error };
+    if (error) logEvent(null, "system", "viral-error", `Xで話題の投稿の検索が途中で失敗（読めた${read}件から${added}件を取り込みました）: ${error}`);
+    else logEvent(null, "system", "viral-search", `Xで話題の投稿を検索: ${read}件を読み、${added}件を取り込みました（日本語${jaPicks.length}件・英語${enPicks.length}件）`);
+    return { read, added, error };
   } finally {
     // 読んだ分だけ費用がかかる（失敗しても、それまでに読んだ分は記録する）
     if (read) db().prepare("INSERT INTO ai_calls (project_id, purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES (NULL, ?, 'x-api', 0, 0, ?, NULL)").run("Xで話題の投稿を検索", read * X_READ_COST_USD);
@@ -223,11 +251,14 @@ export function searchAll(): Promise<SearchResult> {
 }
 
 async function searchAllOnce(): Promise<SearchResult> {
-  const since = searchSince(getSettings().lastViralSearch || undefined);
+  const s = getSettings();
+  // 「欲しい」の声は、前回の検索のあとの投稿を読む。話題の投稿は、設定の日数だけ遅らせて、伸びたあとの投稿を読む（lagWindow）
+  const since = searchSince(s.lastViralSearch || undefined);
+  const window = lagWindow(s.lastViralSearch || undefined, s.viralLagDays);
   // 次の検索は、この検索を始めた時刻のあとから読む（終わった時刻にすると、検索している間に出た投稿を二度と読まない）
   const startedAt = new Date().toISOString();
   try {
-    const v = await searchViral(since);
+    const v = window ? await searchViral(window.start, window.end) : { read: 0, added: 0, error: undefined };
     if (v.error) return { read: v.read, added: v.added, wants: 0, wantsError: `話題の投稿の検索が途中で失敗したため、読みませんでした（${v.error}）` };
     try {
       const w = await searchWants(since);

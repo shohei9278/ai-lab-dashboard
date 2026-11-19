@@ -88,6 +88,7 @@ export async function POST(req: Request) {
     ["autoPostPerDay", 1, 10],
     ["postSafetyPerDay", 1, 50],
     ["viralPerQuery", 10, 100],
+    ["viralLagDays", 0, 5],
     ["wantsPerQuery", 0, 100],
     ["judgeAfterDays", 1, 60],
     ["staleDays", 1, 90],

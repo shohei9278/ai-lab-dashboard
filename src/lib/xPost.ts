@@ -60,12 +60,13 @@ export type XSearchPost = {
   id: string; text: string; created_at?: string; attachments?: { media_keys?: string[] };
   public_metrics?: { like_count: number; retweet_count: number; reply_count: number; quote_count: number; bookmark_count?: number; impression_count?: number };
 };
-export async function searchRecent(query: string, nextToken?: string, maxResults = 100, startTime?: string): Promise<{ posts: XSearchPost[]; next?: string }> {
+export async function searchRecent(query: string, nextToken?: string, maxResults = 100, startTime?: string, endTime?: string): Promise<{ posts: XSearchPost[]; next?: string }> {
   if (!xConfigured()) throw new Error("X のAPIキーが設定されていません");
   const url = "https://api.x.com/2/tweets/search/recent";
   const params: Record<string, string> = { query, max_results: String(maxResults), sort_order: "relevancy", "tweet.fields": "public_metrics,created_at,attachments" };
   if (nextToken) params.next_token = nextToken;
   if (startTime) params.start_time = startTime;
+  if (endTime) params.end_time = endTime;
   const qs = Object.entries(params).map(([k, v]) => `${enc(k)}=${enc(v)}`).join("&");
   const res = await fetch(`${url}?${qs}`, { headers: { Authorization: authHeader("GET", url, params) } });
   const data = (await res.json().catch(() => ({}))) as { data?: XSearchPost[]; meta?: { next_token?: string }; detail?: string; title?: string };
@@ -109,17 +110,30 @@ export function searchSince(last: string | undefined, now = Date.now()): string 
   const t = last ? Date.parse(last) : NaN;
   return new Date(Number.isFinite(t) && t > oldest && t < now ? t : oldest).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
+// 遅らせて読む範囲: 前回の検索で読んだ範囲のすぐあとから、今から lagDays 日前まで（生まれてから lagDays 日以上たった投稿を読む）
+// 話題になる投稿は2〜3日かけて伸びるので、生まれたばかりで読むと、まだ伸びておらず拾えない（読んだ範囲には戻らないので、あとで伸びても拾えない）
+// 前回の範囲の終わり = 前回の検索の時刻 − lagDays 日、なので、毎回同じ日数だけずらせば、範囲は重ならず、すき間もできない
+// 読める一番古いところ（直近7日）より前にはさかのぼらない。範囲が1分に満たないときは読まない（null）
+export function lagWindow(last: string | undefined, lagDays: number, now = Date.now()): { start: string; end: string } | null {
+  const lag = Math.max(0, lagDays) * 86_400_000;
+  const iso = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
+  // X の検索は、終わりを今から10秒以上前にする決まりがあるので、30秒の余裕をとる
+  const end = now - lag - 30_000;
+  const t = last ? Date.parse(last) : NaN;
+  const start = Math.max(Number.isFinite(t) && t < now ? t - lag : -Infinity, now - SEARCH_WINDOW_MS);
+  return end - start < 60_000 ? null : { start: iso(start), end: iso(end) };
+}
 // 1回の検索で読む件数（X の API は1回10〜100件）
 export const clampPerQuery = (n: number) => Math.max(10, Math.min(100, Math.round(n)));
 
 // 複数の検索を、それぞれ1回（perQuery 件まで）ずつ、since のあとの投稿から話題の順に読む
 // 読んだ分だけ費用がかかるので、途中で失敗しても数えられるよう onRead で件数を知らせる
 // 途中で失敗したら残りの検索はやめ（回数の上限などで続けて失敗するため）、それまでに読めた投稿と、失敗の理由を返す
-export async function searchEach(queries: string[], perQuery: number, since: string, onRead: (n: number) => void): Promise<{ posts: XSearchPost[]; error?: string }> {
+export async function searchEach(queries: string[], perQuery: number, since: string, onRead: (n: number) => void, until?: string): Promise<{ posts: XSearchPost[]; error?: string }> {
   const seen = new Map<string, XSearchPost>();
   for (const [i, q] of queries.entries()) {
     try {
-      const r = await searchRecent(q, undefined, clampPerQuery(perQuery), since);
+      const r = await searchRecent(q, undefined, clampPerQuery(perQuery), since, until);
       onRead(r.posts.length);
       for (const p of r.posts) seen.set(p.id, p);
     } catch (e) {

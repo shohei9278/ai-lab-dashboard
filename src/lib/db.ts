@@ -822,6 +822,7 @@ export type Settings = {
   notifyOff: string; // その場の通知で送らない種類（カンマ区切り。liveNotify.ts の NOTIFY_KINDS）
   viralSearch: boolean; // アイデアを出す日に、その日まだ検索していなければ、Xで話題の投稿と「欲しい」の声を検索して取り込む（X のAPIキーが必要。読んだ投稿1件ごとに費用がかかる）
   viralPerQuery: number; // 話題の投稿の検索1つあたりに読む投稿の数（10〜100）
+  viralLagDays: number; // 話題の投稿を、生まれてから何日たったものから読むか（0〜5。伸びる前に読むと拾えないので遅らせる。xPost.ts の lagWindow）
   lastViralSearch: string; // 最後に検索した日時（ISO）。次の検索は、このあとの投稿だけを読む
   lastFollowersTry: string; // 最後にフォロワー数を読もうとした日（日本時間。失敗しても、その日はもう読まない）
   wantsPerQuery: number; // 「欲しい」の声の検索1つあたりに読む投稿の数（0 なら探さない）
@@ -866,6 +867,7 @@ const DEFAULTS: Settings = {
   notifyOff: "",
   viralSearch: true,
   viralPerQuery: 20,
+  viralLagDays: 2,
   lastViralSearch: "",
   lastFollowersTry: "",
   wantsPerQuery: 10,
