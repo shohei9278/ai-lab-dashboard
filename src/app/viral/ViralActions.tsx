@@ -68,13 +68,14 @@ export function AddViral() {
 }
 
 // アイデアを出す日の検索の設定と、今すぐ検索するボタン（件数は検索1つあたり。1回の費用は 検索の数 × 件数 で決まる）
-export function SearchControls({ enabled, perQuery, wantsPerQuery, viralQueries, wantQueries, ready }: {
-  enabled: boolean; perQuery: number; wantsPerQuery: number; viralQueries: number; wantQueries: number; ready: boolean;
+export function SearchControls({ enabled, perQuery, lagDays, wantsPerQuery, viralQueries, wantQueries, ready }: {
+  enabled: boolean; perQuery: number; lagDays: number; wantsPerQuery: number; viralQueries: number; wantQueries: number; ready: boolean;
 }) {
   const router = useRouter();
   const [on, setOn] = useState(enabled);
   const [n, setN] = useState(perQuery);
   const [w, setW] = useState(wantsPerQuery);
+  const [lag, setLag] = useState(lagDays);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const save = async (patch: Record<string, unknown>) => {
@@ -94,6 +95,13 @@ export function SearchControls({ enabled, perQuery, wantsPerQuery, viralQueries,
         <select value={n} disabled={!ready} onChange={(e) => { const v = Number(e.target.value); setN(v); void save({ viralPerQuery: v }); }} className="rounded-lg border border-line bg-surface px-2 py-1">
           {[10, 20, 30, 50, 100].map((x) => <option key={x} value={x}>{x}件（{viralQueries * x}件・約{yenOf(viralQueries * x)}円）</option>)}
         </select>
+      </label>
+      <label className="flex items-center gap-2 text-xs text-ink-2">
+        話題の投稿は、生まれてから
+        <select value={lag} disabled={!ready} onChange={(e) => { const v = Number(e.target.value); setLag(v); void save({ viralLagDays: v }); }} className="rounded-lg border border-line bg-surface px-2 py-1">
+          {[0, 1, 2, 3, 4, 5].map((x) => <option key={x} value={x}>{x ? `${x}日以上` : "すぐ（遅らせない）"}</option>)}
+        </select>
+        たったものを読む（費用は変わりません）
       </label>
       <label className="flex items-center gap-2 text-xs text-ink-2">
         「欲しい」の声を、検索1つ（{wantQueries}種類）あたり

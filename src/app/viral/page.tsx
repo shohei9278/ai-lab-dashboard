@@ -4,7 +4,7 @@ import { PageIntro } from "@/components/PageIntro";
 import { GrowthTabs } from "@/components/LabTabs";
 import { getSettings } from "@/lib/db";
 import { jstDateTime } from "@/lib/format";
-import { VIRAL_QUERIES, listViral } from "@/lib/viralPosts";
+import { VIRAL_MIN_LIKES, VIRAL_PICKS, VIRAL_QUERIES, VIRAL_QUERIES_EN, listViral } from "@/lib/viralPosts";
 import { xConfigured } from "@/lib/xPost";
 import { WANT_QUERIES, listWants } from "@/lib/userWants";
 import Link from "next/link";
@@ -42,13 +42,16 @@ export default async function ViralPage() {
         <section className="card space-y-3 p-4">
           <h2 className="font-bold">アイデアを出す日の自動検索</h2>
           <p className="text-xs text-muted">
-            アイデアを出すとき、その日（日本時間）まだ検索していなければ、先に検索してからアイデアを出します。読むのは前回の検索のあとの投稿だけです（同じ投稿を読み直さない）。
-            作った人の投稿（「個人開発」「リリースしました」など）・使った人のシェア（診断・メーカーなど）・便利なものの紹介（「神ツール」など）・遊び（「ゲーム作りました」「ブラウザゲーム」など）・毎日遊ぶもの（「日替わり」など）・収益化の話・個人が作ったものを置く場所（github.io・vercel.app など）へのリンクの {VIRAL_QUERIES.length}種類を読み、いいね50以上で反応の大きいものを最大10件取り込みます。
+            アイデアを出すとき、その日（日本時間）まだ検索していなければ、先に検索してからアイデアを出します。
+            話題の投稿は、伸びたあとに読めるよう、生まれてから{s.viralLagDays}日以上たった投稿を読みます。前回読み終えた所から読むので、同じ投稿を読み直さず、読み落としもしません（日数を増やしたときは、増やした日数ぶん、話題の投稿を読まない日が続きます）。
+            日本語は、作った人の投稿（「個人開発」「リリースしました」など）・使った人のシェア（診断・メーカーなど）・便利なものの紹介（「神ツール」など）・遊び（「ゲーム作りました」「#unity1week」など）・毎日遊ぶもの（「日替わり」など）・収益化の話・個人が作ったものを置く場所（github.io・vercel.app など）へのリンク・占いや心理テスト・クイズ・AIで作ったもの・メーカーの {VIRAL_QUERIES.length}種類を読みます。
+            アイデアの参考に、海外で伸びた英語の投稿（作って公開したツール・ブラウザゲーム・結果を見せ合う遊び）も {VIRAL_QUERIES_EN.length}種類読みます。
+            いいね{VIRAL_MIN_LIKES}以上のものから、反応の大きい順に、日本語は最大{VIRAL_PICKS.ja}件・英語は最大{VIRAL_PICKS.en}件を取り込みます（日本語の投稿が埋もれないよう、分けて選びます）。
             続けて「〇〇できるアプリ欲しい」などの声と、「〇〇の管理が面倒」のような困りごと（{WANT_QUERIES.length}種類）を読み、いいね5以上のものからAIがプロダクトの需要だけを残します。X の API は、読んだ投稿1件ごとに $0.005 かかります。
             {s.lastViralSearch ? ` 前回: ${jstDateTime(s.lastViralSearch)}` : " まだ検索していません。"}
           </p>
           {!ready && <p className="text-xs" style={{ color: "var(--critical)" }}>X の APIキーが設定されていないため、検索できません。</p>}
-          <SearchControls enabled={s.viralSearch} perQuery={s.viralPerQuery} wantsPerQuery={s.wantsPerQuery} viralQueries={VIRAL_QUERIES.length} wantQueries={WANT_QUERIES.length} ready={ready} />
+          <SearchControls enabled={s.viralSearch} perQuery={s.viralPerQuery} lagDays={s.viralLagDays} wantsPerQuery={s.wantsPerQuery} viralQueries={VIRAL_QUERIES.length + VIRAL_QUERIES_EN.length} wantQueries={WANT_QUERIES.length} ready={ready} />
         </section>
       </div>
 

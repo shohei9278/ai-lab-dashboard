@@ -2,8 +2,8 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
-import { clampPerQuery, searchSince } from "../src/lib/xPost";
-import { VIRAL_QUERIES, drainQueue, searchAll, searchBeforeIdeas, searchReads, searchedToday } from "../src/lib/viralPosts";
+import { clampPerQuery, lagWindow, searchSince } from "../src/lib/xPost";
+import { VIRAL_MIN_LIKES, VIRAL_PICKS, VIRAL_QUERIES, VIRAL_QUERIES_EN, drainQueue, pickViral, searchAll, searchBeforeIdeas, searchReads, searchedToday } from "../src/lib/viralPosts";
 import { WANT_QUERIES } from "../src/lib/userWants";
 
 test("話題の投稿の検索: 読み始めは前回の検索のあと（7日より前・未来・なしなら、読める一番古いところ）", () => {
@@ -32,20 +32,57 @@ test("話題の投稿の検索: 今日（日本時間）すでに検索したか
   assert.equal(searchedToday("2026-11-17T20:00:00Z", "2026-11-18", now), false);
 });
 
-test("話題の投稿の検索: 遊び・毎日・収益化・リンク先も読み、1回に読む数は 検索の数 × 件数", () => {
-  assert.equal(VIRAL_QUERIES.length, 7);
-  assert.ok(VIRAL_QUERIES.some((q) => q.includes("ブラウザゲーム")));
-  assert.ok(VIRAL_QUERIES.some((q) => q.includes("日替わり")));
-  assert.ok(VIRAL_QUERIES.some((q) => q.includes("収益")));
-  assert.ok(VIRAL_QUERIES.some((q) => q.includes("url:github.io")));
+test("話題の投稿の検索（運営者の依頼で広げた）: 日本語11種類・英語3種類。1回に読む数は 検索の数 × 件数", () => {
+  assert.equal(VIRAL_QUERIES.length, 11);
+  assert.equal(VIRAL_QUERIES_EN.length, 3);
+  for (const word of ["ブラウザゲーム", "日替わり", "収益", "url:github.io", "心理テスト", "全問正解", "Claudeで作った", "画像が作れる", "#unity1week", "url:freem.ne.jp"]) assert.ok(VIRAL_QUERIES.some((q) => q.includes(word)), word);
+  assert.ok(VIRAL_QUERIES_EN.some((q) => q.includes("#gamedev")));
+  assert.ok(VIRAL_QUERIES_EN.some((q) => q.includes("I built")));
+  // 日本語の検索は日本語の投稿だけ、英語の検索は英語の投稿だけを読む。画像付きだけに絞らない
+  assert.ok(VIRAL_QUERIES.every((q) => q.includes("lang:ja") && !q.includes("has:media")));
+  assert.ok(VIRAL_QUERIES_EN.every((q) => q.includes("lang:en")));
   // X の検索の言葉の長さの上限（512文字）に収まり、リポスト・返信は読まない
-  for (const q of [...VIRAL_QUERIES, ...WANT_QUERIES]) assert.ok(q.length <= 512 && q.includes("-is:retweet") && q.includes("-is:reply"), q);
-  assert.equal(searchReads({ viralPerQuery: 20, wantsPerQuery: 10 }), 7 * 20 + 3 * 10);
-  assert.equal(searchReads({ viralPerQuery: 20, wantsPerQuery: 0 }), 140);
-  // 初めの値: 話題の投稿は検索1つあたり20件、「欲しい」の声は10件
+  for (const q of [...VIRAL_QUERIES, ...VIRAL_QUERIES_EN, ...WANT_QUERIES]) assert.ok(q.length <= 512 && q.includes("-is:retweet") && q.includes("-is:reply"), q);
+  assert.equal(searchReads({ viralPerQuery: 20, wantsPerQuery: 10 }), 14 * 20 + 3 * 10);
+  assert.equal(searchReads({ viralPerQuery: 20, wantsPerQuery: 0 }), 280);
+  // 初めの値: 話題の投稿は検索1つあたり20件・2日遅らせて読む、「欲しい」の声は10件
   const s = getSettings();
   assert.equal(s.viralPerQuery, 20);
+  assert.equal(s.viralLagDays, 2);
   assert.equal(s.wantsPerQuery, 10);
+});
+
+test("話題の投稿の検索（運営者の依頼で広げた）: 遅らせて読む範囲は、前回読み終えた所から今の lagDays 日前まで。日数を変えても、すき間も重なりもできない（PR #101 の ai-review の指摘）", () => {
+  const now = Date.parse("2026-11-19T12:00:00Z");
+  // 前回は 11/17 11:59:30 まで読んだ。2日遅らせると、そこから 11/17 11:59:30 の1日後（今の2日前）まで
+  const cursor = "2026-11-16T11:59:30Z";
+  assert.deepEqual(lagWindow(cursor, 2, now), { start: "2026-11-16T11:59:30Z", end: "2026-11-17T11:59:30Z" });
+  // 次の日は、前の範囲の終わりそのものから（30秒のすき間もない）
+  const w1 = lagWindow(cursor, 2, now)!;
+  assert.equal(lagWindow(w1.end, 2, now + 86_400_000)!.start, w1.end);
+  // 日数を減らしても（2日 → 0日）、前回の終わりから読む（読み飛ばさない）
+  assert.deepEqual(lagWindow(w1.end, 0, now + 86_400_000), { start: w1.end, end: "2026-11-20T11:59:30Z" });
+  // 日数を増やしたら（2日 → 5日）、終わりが前回の終わりに追いつくまで読まない（読み直さない）
+  assert.equal(lagWindow(w1.end, 5, now + 86_400_000), null);
+  assert.equal(lagWindow(w1.end, 5, now + 4 * 86_400_000)!.start, w1.end);
+  // 初めて・壊れた値・未来の値は、読める一番古いところ（直近7日）から
+  for (const c of [undefined, "", "こわれた値", "2026-11-20T00:00:00Z"]) assert.equal(lagWindow(c, 2, now)!.start, "2026-11-12T13:00:00Z", String(c));
+  // 長く検索していなくても、7日より前にはさかのぼらない
+  assert.equal(lagWindow("2026-11-01T00:00:00Z", 2, now)!.start, "2026-11-12T13:00:00Z");
+});
+
+test("話題の投稿の検索（運営者の依頼で広げた）: いいね20以上から、反応の大きい順に、取り込み済みを除いて選ぶ", () => {
+  assert.equal(VIRAL_MIN_LIKES, 20);
+  assert.deepEqual(VIRAL_PICKS, { ja: 7, en: 3 });
+  const found = [
+    { id: "a", likes: 19, score: 999 },
+    { id: "b", likes: 20, score: 30 },
+    { id: "c", likes: 500, score: 900 },
+    { id: "d", likes: 80, score: 200 },
+    { id: "e", likes: 300, score: 600 },
+  ];
+  assert.deepEqual(pickViral(found, new Set(["e"]), 2).map((x) => x.id), ["c", "d"]);
+  assert.deepEqual(pickViral(found, new Set(), 10).map((x) => x.id), ["c", "e", "d", "b"]);
 });
 
 test("アイデア出しの前の検索: 今日まだなら検索1つにつき1回だけ、前回のあとの投稿を読む。同じ日の2回目は読まない", async () => {
@@ -62,21 +99,30 @@ test("アイデア出しの前の検索: 今日まだなら検索1つにつき1�
   Object.assign(process.env, { X_API_KEY: "k", X_API_SECRET: "s", X_ACCESS_TOKEN: "t", X_ACCESS_SECRET: "ts" });
   try {
     const last = new Date(Date.now() - 2 * 86_400_000).toISOString();
+    // 話題の投稿で前回読み終えた所（前回の検索の2日前）
+    const cursor = new Date(Date.parse(last) - 2 * 86_400_000).toISOString().replace(/\.\d{3}Z$/, "Z");
     // 検索しない設定のときは、何もしない
-    saveSettings({ viralSearch: false, lastViralSearch: last });
+    saveSettings({ viralSearch: false, lastViralSearch: last, viralCursor: cursor });
     await searchBeforeIdeas();
     assert.equal(calls.length, 0);
     saveSettings({ viralSearch: true });
     await searchBeforeIdeas();
-    // 話題の投稿 7種類 × 20件 と、「欲しい」の声 3種類 × 10件。どれも前回の検索のあとから
-    assert.equal(calls.length, VIRAL_QUERIES.length + WANT_QUERIES.length);
-    assert.deepEqual(calls.map((u) => u.searchParams.get("max_results")), [...VIRAL_QUERIES.map(() => "20"), ...WANT_QUERIES.map(() => "10")]);
-    assert.ok(calls.every((u) => u.searchParams.get("start_time") === last.replace(/\.\d{3}Z$/, "Z")));
-    assert.deepEqual(calls.map((u) => u.searchParams.get("query")), [...VIRAL_QUERIES, ...WANT_QUERIES]);
+    // 話題の投稿 日本語11種類＋英語3種類 × 20件 と、「欲しい」の声 3種類 × 10件
+    const viral = [...VIRAL_QUERIES, ...VIRAL_QUERIES_EN];
+    assert.equal(calls.length, viral.length + WANT_QUERIES.length);
+    assert.deepEqual(calls.map((u) => u.searchParams.get("max_results")), [...viral.map(() => "20"), ...WANT_QUERIES.map(() => "10")]);
+    assert.deepEqual(calls.map((u) => u.searchParams.get("query")), [...viral, ...WANT_QUERIES]);
+    // 話題の投稿は、前回読み終えた所から、今の2日前まで読む。「欲しい」の声は前回の検索のあとから
+    const viralCalls = calls.slice(0, viral.length);
+    assert.ok(viralCalls.every((u) => u.searchParams.get("start_time") === cursor));
+    assert.ok(viralCalls.every((u) => Date.parse(u.searchParams.get("end_time")!) <= Date.now() - 2 * 86_400_000));
+    // 次に読み始める所は、今回の範囲の終わり
+    assert.equal(getSettings().viralCursor, viralCalls[0].searchParams.get("end_time"));
+    assert.ok(calls.slice(viral.length).every((u) => u.searchParams.get("start_time") === last.replace(/\.\d{3}Z$/, "Z") && !u.searchParams.get("end_time")));
     assert.ok(searchedToday(getSettings().lastViralSearch));
     // 同じ日の2回目は検索しない
     await searchBeforeIdeas();
-    assert.equal(calls.length, VIRAL_QUERIES.length + WANT_QUERIES.length);
+    assert.equal(calls.length, VIRAL_QUERIES.length + VIRAL_QUERIES_EN.length + WANT_QUERIES.length);
   } finally {
     globalThis.fetch = realFetch;
     for (const k of ["X_API_KEY", "X_API_SECRET", "X_ACCESS_TOKEN", "X_ACCESS_SECRET"]) delete process.env[k];
@@ -92,7 +138,7 @@ test("アイデア出しの前の検索: X の検索が失敗しても止めず�
   }) as typeof fetch;
   Object.assign(process.env, { X_API_KEY: "k", X_API_SECRET: "s", X_ACCESS_TOKEN: "t", X_ACCESS_SECRET: "ts" });
   try {
-    saveSettings({ viralSearch: true, lastViralSearch: new Date(Date.now() - 3 * 86_400_000).toISOString() });
+    saveSettings({ viralSearch: true, lastViralSearch: new Date(Date.now() - 3 * 86_400_000).toISOString(), viralCursor: "" });
     await searchBeforeIdeas();
     assert.equal(n, 1);
     assert.ok(searchedToday(getSettings().lastViralSearch));
@@ -124,7 +170,7 @@ test("話題の投稿の検索（PR #83 の ai-review の指摘）: 途中で失
   }) as typeof fetch;
   Object.assign(process.env, X_ENV);
   try {
-    saveSettings({ viralSearch: true, lastViralSearch: new Date(Date.now() - 2 * 86_400_000).toISOString() });
+    saveSettings({ viralSearch: true, lastViralSearch: new Date(Date.now() - 2 * 86_400_000).toISOString(), viralCursor: "" });
     await searchBeforeIdeas();
     // 2種類目で止め、「欲しい」の声は読まない
     assert.equal(searches.length, 2);
@@ -163,17 +209,20 @@ test("話題の投稿の検索（PR #83 の ai-review の指摘）: 検索の一
   }) as typeof fetch;
   Object.assign(process.env, X_ENV);
   try {
-    saveSettings({ lastViralSearch: new Date(Date.now() - 2 * 86_400_000).toISOString() });
+    // 話題の投稿で読み終えた所は空にする（前のテストで覚えた所が残っていると、読む範囲がなくなる）
+    saveSettings({ lastViralSearch: new Date(Date.now() - 2 * 86_400_000).toISOString(), viralCursor: "" });
     // 1つ目が「欲しい」の声を検索している途中で、2つ目を呼ぶ
     const first = searchAll();
-    while (n <= VIRAL_QUERIES.length) await new Promise((ok) => setTimeout(ok, 5));
+    const all = VIRAL_QUERIES.length + VIRAL_QUERIES_EN.length + WANT_QUERIES.length;
+    // 待ちすぎない（作りが変わって話題の投稿を読まなくなったとき、テストが終わらなくならないように）
+    for (let i = 0; i < 2000 && n <= VIRAL_QUERIES.length + VIRAL_QUERIES_EN.length; i++) await new Promise((ok) => setTimeout(ok, 5));
     const second = searchAll();
     const [a, b] = await Promise.all([first, second]);
     assert.equal(a, b);
-    assert.equal(n, VIRAL_QUERIES.length + WANT_QUERIES.length);
-    // 終わったあとは、また検索できる
+    assert.equal(n, all);
+    // 終わったあとは、また検索できる（話題の投稿は遅らせて読むので、すぐあとの2回目は読む範囲がなく、「欲しい」の声だけを読む）
     await searchAll();
-    assert.equal(n, 2 * (VIRAL_QUERIES.length + WANT_QUERIES.length));
+    assert.equal(n, all + WANT_QUERIES.length);
   } finally {
     globalThis.fetch = realFetch;
     for (const k of Object.keys(X_ENV)) delete process.env[k];

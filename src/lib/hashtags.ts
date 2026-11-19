@@ -25,11 +25,16 @@ export function limitTags(text: string, max: number): string {
   return out.replace(/[ \t\u3000]+$/gm, "").trim();
 }
 
+// 日本語の投稿か（ひらがな・カタカナ・漢字を含むか）
+const isJapanese = (text: string) => /[\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Han}]/u.test(text);
+
 // 話題の投稿（直近90日・読めたもの）で使われているハッシュタグを、使われた投稿の数（同じなら、いいねの合計）の多い順に返す
+// 下書きは日本語なので、日本語の投稿のタグだけを数える（海外の投稿の #gamedev などを候補にしない）
 export function popularTags(limit = 15): string[] {
   const rows = db().prepare("SELECT text, COALESCE(likes, 0) AS likes FROM viral_posts WHERE status = 'ok' AND text IS NOT NULL AND at >= datetime('now', '-90 days')").all() as { text: string; likes: number }[];
   const count = new Map<string, { n: number; likes: number }>();
   for (const r of rows) {
+    if (!isJapanese(r.text)) continue;
     for (const t of extractTags(r.text)) {
       const c = count.get(t) ?? { n: 0, likes: 0 };
       count.set(t, { n: c.n + 1, likes: c.likes + r.likes });
