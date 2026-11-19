@@ -60,7 +60,7 @@ export function parsePlayScript(v: unknown): PlayScript | null {
       // 早送り（fast が 2〜FAST_MAX の整数）のときは、ツールの中で進める時間を FAST_WAIT_MAX まで認める。それ以外の fast は付けない
       const fast = Number.isInteger(s.fast) && (s.fast as number) >= 2 && (s.fast as number) <= FAST_MAX ? (s.fast as number) : undefined;
       step = fast
-        ? { do: "wait", ms: Math.max(600, Math.min(FAST_WAIT_MAX, Number(s.ms) || 3000)), fast }
+        ? { do: "wait", ms: Math.max(300, Math.min(FAST_WAIT_MAX, Number(s.ms) || 3000)), fast }
         : { do: "wait", ms: Math.max(300, Math.min(3000, Number(s.ms) || 800)) };
     }
     else if ((s.do === "click" || s.do === "fill") && isStr(s.target) && s.target.trim()) {
@@ -127,14 +127,15 @@ const SCALE = 3;
 const PHONE_W = 1080 / SCALE;
 
 // 見えている文字・セレクタから、押す所・入れる所を探す
-async function find(frame: Frame, step: PlayStep) {
+// wait: 見つからないとき、出てくるのを待つ長さ（録画の前は待たない。待つ間にもツールの時間が進み、台本とずれるため。PR #104 の ai-review の指摘）
+async function find(frame: Frame, step: PlayStep, wait = FIND_WAIT_MS) {
   const t = step.target!;
   const tries = step.do === "fill"
     ? [() => frame.getByLabel(t, { exact: false }), () => frame.getByPlaceholder(t, { exact: false }), () => frame.locator(t)]
     : [() => frame.getByRole("button", { name: t, exact: false }), () => frame.getByText(t, { exact: false }), () => frame.locator(t)];
   // 同じ文字の候補が複数あるとき（PC用とスマホ用など）は、見えている最初のものを使う
   // 前の操作の演出（閉じる・切り替わるなど）のあとに出るボタンもあるので、少しのあいだ出てくるのを待つ（#66 の「焼きへ」）
-  const until = Date.now() + FIND_WAIT_MS;
+  const until = Date.now() + wait;
   for (;;) {
     for (const make of tries) {
       try {
@@ -231,7 +232,8 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
     };
     // 最初に操作する所が、初めから見えているようにする（枠の下の端で帯に隠れたまま始まらないように。#66 の動画）
     const first = script.steps.find((s) => s.do !== "wait");
-    const firstEl = first ? await find(frame, first) : null;
+    // 今見えているときだけ動かす（出てくるのを待たない）
+    const firstEl = first ? await find(frame, first, 0) : null;
     if (firstEl) await bringIntoView(firstEl).catch(() => undefined);
     await page.waitForTimeout(200);
     shots.push(await page.screenshot({ type: "jpeg", quality: 70 }));

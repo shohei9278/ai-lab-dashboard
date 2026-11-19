@@ -179,6 +179,9 @@ test("遊ぶ様子の動画の早送り（#66 の動画で、運営者が早送�
     { do: "wait", ms: FAST_WAIT_MAX, fast: FAST_MAX },
   ]);
   // 決めた倍速でないものは、ふつうの待ち（3秒まで）にする
+  // 早送りの短い方の下限は、ふつうの待ちと同じ0.3秒（PR #104 の ai-review の指摘）
+  const short = parsePlayScript({ hook: "h", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", ms: 300, fast: 2 }, { do: "wait", ms: 100, fast: 2 }] })!;
+  assert.deepEqual(short.steps.slice(1), [{ do: "wait", ms: 300, fast: 2 }, { do: "wait", ms: 300, fast: 2 }]);
   const odd = parsePlayScript({ hook: "h", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", ms: 8000, fast: 1.5 }, { do: "wait", ms: 8000, fast: 99 }] })!;
   assert.deepEqual(odd.steps.slice(1), [{ do: "wait", ms: 3000 }, { do: "wait", ms: 3000 }]);
   // 早送りの待ちは、動画では ms÷倍速の長さ（重いツールでは描き直しの分だけ長くなるので、速いほど大きな余裕を見る）
