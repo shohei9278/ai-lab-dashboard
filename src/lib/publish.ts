@@ -25,10 +25,12 @@ export function publicUrl(projectId: number): string | null {
 
 // 公開サイトの一覧のカテゴリ（動くツールだけ）。運営者が選んだものがあればそれ、なければ軽いAIの判定（まだなら、ここで選ばせる）
 // AIの判定に失敗しても公開は止めない（カテゴリなしで公開し、次に起動したときのそろえ直しで、また選ばせる）
+// 運営者が選んだ直後の値を使うよう、案件はデータベースから読み直す（呼んだ側が持っている行は、古いことがある）
 async function categoryFor(p: ProjectRow): Promise<SiteCategory | null> {
-  if (p.kind !== "tool") return null;
-  if (isSiteCategory(p.site_category)) return p.site_category;
-  return classifySiteCategory(p).catch(() => null);
+  const now = (db().prepare("SELECT * FROM projects WHERE id = ?").get(p.id) as ProjectRow | undefined) ?? p;
+  if (now.kind !== "tool") return null;
+  if (isSiteCategory(now.site_category)) return now.site_category;
+  return classifySiteCategory(now).catch(() => null);
 }
 
 // 今のLPの版を公開する（すでに公開中なら新しい版に差し替える）
@@ -51,27 +53,47 @@ export async function publishLp(p: ProjectRow) {
 
 // 公開中のページの、一覧のカテゴリだけを今のものにそろえる（中身の版は変えない）。変えたら true
 // 運営者がカテゴリを選び直したときと、カテゴリを渡すようにする前に公開したページをそろえるときに使う
+// 中身は丸ごと読んで書き戻すので、読んでから書くまでに新しい版が公開されると、古い中身で上書きしてしまう。
+// そこで、読んだときの updated_at のままのときだけ書き換え（書き換えたら updated_at も進める）、変わっていたら読み直してもう1回だけやる（PR #99 の ai-review の指摘）
 export async function syncSiteCategory(p: ProjectRow): Promise<boolean> {
   if (!publishingConfigured() || p.demo || !p.public_slug) return false;
-  const { data, error } = await sb().from("lps").select("content").eq("slug", p.public_slug).maybeSingle();
-  if (error) throw new Error(`公開中のページを読めませんでした: ${error.message}`);
-  if (!data) return false;
-  const content = data.content as Record<string, unknown>;
   const category = await categoryFor(p);
-  if ((content.category ?? null) === category) return false;
-  const up = await sb().from("lps").update({ content: { ...content, category } }).eq("slug", p.public_slug);
-  if (up.error) throw new Error(`一覧のカテゴリを変えられませんでした: ${up.error.message}`);
-  return true;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await sb().from("lps").select("content, updated_at").eq("slug", p.public_slug).maybeSingle();
+    if (error) throw new Error(`公開中のページを読めませんでした: ${error.message}`);
+    if (!data) return false;
+    const content = data.content as Record<string, unknown>;
+    if ((content.category ?? null) === category) return false;
+    const base = sb().from("lps").update({ content: { ...content, category }, updated_at: new Date().toISOString() }).eq("slug", p.public_slug);
+    const up = await (data.updated_at === null ? base.is("updated_at", null) : base.eq("updated_at", data.updated_at)).select("slug");
+    if (up.error) throw new Error(`一覧のカテゴリを変えられませんでした: ${up.error.message}`);
+    if (up.data?.length) return true;
+  }
+  throw new Error("公開中のページが続けて書き換わったため、一覧のカテゴリを変えられませんでした（次に起動したときに、またそろえます）");
+}
+
+// 1件ずつ処理し、失敗しても残りを続ける（成功した件数と、失敗の件数・最初の理由を返す）
+export async function eachSettled<T>(items: T[], fn: (item: T) => Promise<boolean>): Promise<{ changed: number; failed: number; firstError: string | null }> {
+  let changed = 0, failed = 0;
+  let firstError: string | null = null;
+  for (const item of items) {
+    try {
+      if (await fn(item)) changed++;
+    } catch (e) {
+      failed++;
+      firstError ??= e instanceof Error ? e.message : String(e);
+    }
+  }
+  return { changed, failed, firstError };
 }
 
 // 公開したことのあるツールのページすべてのカテゴリをそろえる（サーバーを起動したあとに1回。件数は数十件まで）
 // まだAIの判定がないツールは、ここで選ばせる（1件 約0.1円）
-export async function syncSiteCategories(): Promise<number> {
-  if (!publishingConfigured()) return 0;
+// 1件のAIの判定や書き換えに失敗しても、残りは続ける（PR #99 の ai-review の指摘）
+export async function syncSiteCategories(): Promise<{ changed: number; failed: number; firstError: string | null }> {
+  if (!publishingConfigured()) return { changed: 0, failed: 0, firstError: null };
   const rows = db().prepare("SELECT * FROM projects WHERE public_slug IS NOT NULL AND kind = 'tool' AND demo = 0").all() as ProjectRow[];
-  let n = 0;
-  for (const p of rows) if (await syncSiteCategory(p)) n++;
-  return n;
+  return eachSettled(rows, syncSiteCategory);
 }
 
 // 撤退などで受付を終える（ページは「受付終了」の表示になる）

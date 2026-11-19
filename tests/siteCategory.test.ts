@@ -50,3 +50,31 @@ test("公開サイトの一覧のカテゴリ: 運営者が案件の画面で選
   await assert.rejects(setSiteCategory(id, "play"), /カテゴリが決めたものではありません/);
   await assert.rejects(setSiteCategory(add("lp"), "calc"), /動くツールの案件だけ/);
 });
+
+test("公開サイトの一覧のカテゴリ（PR #99 の ai-review の指摘）: そろえ直しは1件失敗しても残りを続け、件数と最初の理由を返す", async () => {
+  const { eachSettled } = await import("../src/lib/publish");
+  const seen: number[] = [];
+  const r = await eachSettled([1, 2, 3, 4], async (n) => {
+    seen.push(n);
+    if (n === 2) throw new Error("2件目で失敗");
+    if (n === 4) throw new Error("4件目で失敗");
+    return n === 1;
+  });
+  assert.deepEqual(seen, [1, 2, 3, 4]);
+  assert.deepEqual(r, { changed: 1, failed: 2, firstError: "2件目で失敗" });
+});
+
+test("公開サイトの一覧のカテゴリ（PR #99 の ai-review の指摘）: APIは空の文字だけを「AIに任せる」にし、ない・おかしな値は断る", async () => {
+  const { POST } = await import("../src/app/api/loop/route");
+  const post = (body: Record<string, unknown>) => POST(new Request("http://localhost/api/loop", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }));
+  const id = add("tool", "calc");
+  await setSiteCategory(id, "game");
+  for (const category of [undefined, null, 3, { k: "game" }, "play"]) {
+    const res = await post({ action: "site-category", projectId: id, ...(category === undefined ? {} : { category }) });
+    assert.equal(res.status, 400, JSON.stringify(category));
+    assert.equal(getProject(id)!.site_category, "game", JSON.stringify(category));
+  }
+  const ok = await post({ action: "site-category", projectId: id, category: "" });
+  assert.equal(ok.status, 200);
+  assert.equal(getProject(id)!.site_category, null);
+});

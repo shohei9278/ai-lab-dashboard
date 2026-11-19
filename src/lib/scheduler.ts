@@ -49,8 +49,10 @@ async function tickNow() {
   if (!g.__aiLabCategorySynced && publishingConfigured()) {
     g.__aiLabCategorySynced = true;
     try {
-      const n = await syncSiteCategories();
-      if (n) logEvent(null, "system", "site-category", `公開サイトの一覧のカテゴリを${n}件そろえました`);
+      const r = await syncSiteCategories();
+      if (r.changed) logEvent(null, "system", "site-category", `公開サイトの一覧のカテゴリを${r.changed}件そろえました`);
+      // 失敗は1回だけまとめて残す（来訪者には伏せる種類）
+      if (r.failed) logEvent(null, "system", "site-category-error", `公開サイトの一覧のカテゴリを${r.failed}件そろえられませんでした（次に起動したときに、またそろえます）: ${r.firstError ?? ""}`.slice(0, 300));
     } catch (e) {
       logEvent(null, "system", "site-category-error", `公開サイトの一覧のカテゴリをそろえられませんでした: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
     }

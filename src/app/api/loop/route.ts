@@ -109,7 +109,9 @@ export async function POST(req: Request) {
       case "test-tool":
         return NextResponse.json(await retestTool(requireProject(body).id));
       case "site-category":
-        await setSiteCategory(requireProject(body).id, typeof body.category === "string" && body.category ? body.category : null);
+        // 空の文字だけを「AIに任せる」にする。ない・null は断り、それ以外は決めた形かを setSiteCategory で確かめる（PR #99 の ai-review の指摘）
+        if (body.category === undefined || body.category === null) throw new Error("カテゴリを指定してください（AIに任せるときは空の文字）");
+        await setSiteCategory(requireProject(body).id, body.category === "" ? null : body.category);
         return NextResponse.json({ ok: true });
       case "abandon":
         abandonStuck(requireProject(body).id, typeof body.reason === "string" ? body.reason : "");
