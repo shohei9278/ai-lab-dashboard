@@ -13,11 +13,13 @@ type Def = {
   configured: () => boolean;
   fits: (text: string, link: string) => boolean; // 本文＋リンクが文字数の上限に収まるか
   bodyHint: string; // 下書きを書くAIに伝える長さの目安
+  tagMax: number; // 宣伝の投稿に付けてよいハッシュタグの数（hashtags.ts）
   post: (text: string, link: string) => Promise<{ url: string }>;
   // リンクのない普通の投稿（宣伝ではない投稿）
   plainCostUsd: number;
   plainFits: (text: string) => boolean;
   plainHint: string;
+  plainTagMax: number; // 普通の投稿に付けてよいハッシュタグの数（宣伝ではないので、話題のタグを少しだけ）
   postPlain: (text: string) => Promise<{ url: string }>;
 };
 
@@ -137,25 +139,26 @@ export const AUTO_PLATFORMS: Record<AutoPlatform, Def> = {
   x: {
     label: "X", costUsd: X_POST_COST_USD, configured: xConfigured,
     fits: (text) => xWeightedLength(text) <= 280,
-    bodyHint: "日本語で110文字以内",
+    bodyHint: "日本語で110文字以内", tagMax: 2,
     post: (text, link) => postToX(`${text}\n${link}`),
-    plainCostUsd: X_PLAIN_POST_COST_USD, plainFits: (text) => xWeightedLength(text, false) <= 280, plainHint: "日本語で130文字以内",
+    plainCostUsd: X_PLAIN_POST_COST_USD, plainFits: (text) => xWeightedLength(text, false) <= 280, plainHint: "日本語で130文字以内", plainTagMax: 1,
     postPlain: postToX,
   },
   threads: {
     label: "Threads", costUsd: 0, configured: () => !!process.env.THREADS_ACCESS_TOKEN,
     fits: (text, link) => [...`${text}\n${link}`].length <= 500,
-    bodyHint: "日本語で250文字以内（会話のような、問いかけや体験談の書き方が向く）",
+    // Threads は、1投稿にトピック（ハッシュタグ）を1つだけ付けられる
+    bodyHint: "日本語で250文字以内（会話のような、問いかけや体験談の書き方が向く）", tagMax: 1,
     post: postToThreads,
-    plainCostUsd: 0, plainFits: (text) => [...text].length <= 500, plainHint: "日本語で250文字以内（会話のような書き方が向く）",
+    plainCostUsd: 0, plainFits: (text) => [...text].length <= 500, plainHint: "日本語で250文字以内（会話のような書き方が向く）", plainTagMax: 1,
     postPlain: (text) => threadsPost({ text }),
   },
   bluesky: {
     label: "Bluesky", costUsd: 0, configured: () => !!(process.env.BLUESKY_HANDLE && process.env.BLUESKY_APP_PASSWORD),
     fits: (text, link) => graphemes(`${text}\n${link}`) <= 300,
-    bodyHint: "日本語で140文字以内",
+    bodyHint: "日本語で140文字以内", tagMax: 3,
     post: postToBluesky,
-    plainCostUsd: 0, plainFits: (text) => graphemes(text) <= 300, plainHint: "日本語で140文字以内",
+    plainCostUsd: 0, plainFits: (text) => graphemes(text) <= 300, plainHint: "日本語で140文字以内", plainTagMax: 2,
     postPlain: (text) => blueskyRecord({ $type: "app.bsky.feed.post", text, createdAt: new Date().toISOString(), langs: ["ja"] }),
   },
 };

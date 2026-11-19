@@ -363,7 +363,6 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
       {owner && isTool && !p.demo && lp?.tool && (
         <PlayVideos
           projectId={p.id}
-          link={publicUrl(p.id)}
           videos={listPlayVideos(p.id).map((v) => {
             const check = v.check_json ? (JSON.parse(v.check_json) as { issues?: string[] }) : {};
             return { id: v.id, at: jstFull(v.at), version: v.version, file: v.file, hook: v.hook, caption: v.caption, ok: !!v.ok, issues: check.issues ?? [] };

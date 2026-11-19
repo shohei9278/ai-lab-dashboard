@@ -20,7 +20,8 @@ export async function POST(req: Request) {
       case "add":
         if (!text.trim()) throw new Error("本文を書いてください");
         return NextResponse.json({
-          id: addPost(Number(body.projectId), text.trim().slice(0, 1000), "human", null, typeof body.platform === "string" && body.platform in SNS_PLATFORMS ? body.platform : "x"),
+          // angle: 切り口（遊ぶ様子の動画の投稿文から作るときなど。40文字まで）。人の下書きとして入れる（AIの下書きにすると、自動投稿が動画なしで使ってしまう）
+          id: addPost(Number(body.projectId), text.trim().slice(0, 1000), "human", typeof body.angle === "string" && body.angle.trim() ? body.angle.trim().slice(0, 40) : null, typeof body.platform === "string" && body.platform in SNS_PLATFORMS ? body.platform : "x"),
         });
       case "update":
         updatePostText(Number(body.id), text);

@@ -8,6 +8,7 @@ import { external } from "./untrusted";
 import { getProject, logEvent } from "./loop";
 import { versionLp } from "./versions";
 import { recordToMp4 } from "./videoRender";
+import { tagHints, tagRule } from "./hashtags";
 import { wrapToolHtml } from "../../lp-site/src/lp/toolHtml";
 
 // 動くツールを遊ぶ様子の、縦長の短い動画（SNSに投稿するため）
@@ -90,9 +91,9 @@ async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [
 - wait: ms に待つ時間（300〜3000）。結果が出るまでに演出があるツールは、結果が見えるまで待つ
 - 最初の3秒のうちに、いちばん面白い瞬間（結果・オチ）へ向かうように、前置きの操作は最小にする。steps は${PLAY_STEPS_MAX}個まで。最後は結果が画面に出ている状態で終える
 - hook: 動画の上に大きく出す一言（20文字以内）。何をするものか・何が起きるかが一言で分かるもの。誇大な表現・実在の人物や作品の名前は使わない
-- caption: 投稿の本文の案（120文字以内。リンクは付けない（あとで付ける）。ハッシュタグは1〜2個まで）
+- caption: 投稿の本文の案（120文字以内。リンクは付けない（あとで付ける）。${tagRule(2)}）
 出力はJSONのみ: {"hook":"","steps":[{"do":"click","target":"回す"},{"do":"wait","ms":1500}],"caption":""}（ドラッグの例: {"do":"drag","target":"#board","from":[0.2,0.8],"dx":0.3,"dy":-0.3}）`,
-    user: `ツール名: ${p.title}\n何ができるか: ${p.solution}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}`,
+    user: `ツール名: ${p.title}\n対象: ${p.target}\n何ができるか: ${p.solution}${tagHints()}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}`,
     validate: (v): v is PlayScript => parsePlayScript(v) !== null,
   }).then((v) => parsePlayScript(v)!);
 }
