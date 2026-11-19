@@ -25,6 +25,8 @@ export type PlayCheck = { ok: boolean; issues: string[]; skipped?: string };
 export type PlayVideoRow = { id: number; at: string; project_id: number; version: number; file: string; hook: string; caption: string; script: string; check_json: string | null; ok: number };
 
 export const PLAY_STEPS_MAX = 10;
+// 動画の上の一言の長さの上限（AIが書く台本も、Claude Code が書く台本も同じ）
+export const PLAY_HOOK_MAX = 24;
 // 投稿文の案に付けてよいハッシュタグの数（X に載せる前提）
 export const PLAY_TAG_MAX = 2;
 // 動画の長さの上限（秒）。これを超える分の手順は切る
@@ -81,7 +83,7 @@ export function parsePlayScript(v: unknown): PlayScript | null {
   if (!steps.some((s) => s.do === "click" || s.do === "drag")) return null;
   // 動画の上の一言と投稿文の案は必ず要る（欠けた台本は使わず、AIに書き直させる）
   if (!isStr(v.hook) || !v.hook.trim() || !isStr(v.caption) || !v.caption.trim()) return null;
-  return { hook: v.hook.trim().slice(0, 24), steps, caption: limitTags(v.caption.trim(), PLAY_TAG_MAX).slice(0, 200) };
+  return { hook: v.hook.trim().slice(0, PLAY_HOOK_MAX), steps, caption: limitTags(v.caption.trim(), PLAY_TAG_MAX).slice(0, 200) };
 }
 
 // コマの確かめの答えを読む。読めない・形が違う答えは「確かめられなかった」として問題に残す（問題なしにはしない）
@@ -115,7 +117,9 @@ export type GivenPlay = { steps: PlayStep[]; hook?: string };
 // 読めて、すべての手順がそのまま使えるときだけ台本にする。そうでなければ、何がだめかの文を返す（入れるときに断る）
 export function parseGivenPlay(v: unknown): GivenPlay | string {
   if (!isObj(v) || !Array.isArray(v.steps)) return "steps（手順の配列）がありません";
-  const hook = isStr(v.hook) && v.hook.trim() ? v.hook.trim().slice(0, 24) : undefined;
+  // 一言も、書いた値をそのまま使えるときだけ受け付ける（文字でない・前後に空白がある・長すぎるときは断る。PR #107 の ai-review の指摘）
+  if (v.hook !== undefined && (typeof v.hook !== "string" || !v.hook.trim() || v.hook !== v.hook.trim() || v.hook.length > PLAY_HOOK_MAX)) return `hook（動画の上の一言）は、前後に空白のない${PLAY_HOOK_MAX}文字以内の文字にしてください`;
+  const hook = typeof v.hook === "string" ? v.hook : undefined;
   const parsed = parsePlayScript({ hook: hook ?? "x", caption: "x", steps: v.steps });
   if (!parsed) return "押す・なぞる手順が1つもないか、手順の形が違います";
   if (v.steps.length > PLAY_STEPS_MAX) return `手順は${PLAY_STEPS_MAX}個までです（${v.steps.length}個あります）`;
@@ -133,6 +137,18 @@ const htmlHash = (html: string) => crypto.createHash("sha256").update(html).dige
 export function savePlayScript(projectId: number, html: string, given: GivenPlay) {
   db().prepare("INSERT INTO play_scripts (project_id, html_hash, script) VALUES (?, ?, ?) ON CONFLICT(project_id, html_hash) DO UPDATE SET script = excluded.script, at = datetime('now')")
     .run(projectId, htmlHash(html), JSON.stringify(given));
+}
+// ツールを入れるときに、その HTML の台本を入れ替える（台本なしで入れ直したら消す）。戻す関数を返す（取り込みが失敗したときに、前の台本に戻すため。PR #107 の ai-review の指摘）
+// 取り込みが終わってから残すのではなく先に入れ替えるのは、自動で公開する案件では、取り込みの途中で動画づくりが始まることがあるため
+export function replacePlayScript(projectId: number, html: string, given: GivenPlay | null): () => void {
+  const hash = htmlHash(html);
+  const before = db().prepare("SELECT script, at FROM play_scripts WHERE project_id = ? AND html_hash = ?").get(projectId, hash) as { script: string; at: string } | undefined;
+  if (given) savePlayScript(projectId, html, given);
+  else db().prepare("DELETE FROM play_scripts WHERE project_id = ? AND html_hash = ?").run(projectId, hash);
+  return () => {
+    if (before) db().prepare("INSERT INTO play_scripts (project_id, html_hash, script, at) VALUES (?, ?, ?, ?) ON CONFLICT(project_id, html_hash) DO UPDATE SET script = excluded.script, at = excluded.at").run(projectId, hash, before.script, before.at);
+    else db().prepare("DELETE FROM play_scripts WHERE project_id = ? AND html_hash = ?").run(projectId, hash);
+  };
 }
 // 今のツールの HTML に結び付いた台本（なければ null。AIが台本を書く）
 export function givenPlayScript(projectId: number, html: string): GivenPlay | null {

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db } from "../src/lib/db";
 import { devRequestText, prepareLp, startDevUpload } from "../src/lib/loop";
-import { PLAY_STEPS_MAX, givenPlayScript, parseGivenPlay, savePlayScript } from "../src/lib/playVideo";
+import { PLAY_STEPS_MAX, givenPlayScript, parseGivenPlay, savePlayScript, type GivenPlay } from "../src/lib/playVideo";
 import { takePlayScript } from "../lp-site/src/lp/htmlDom";
 
 // 運営者の依頼（#66 の動画）: Claude Code で作るツールは、作った人が確かめた台本をツールと一緒に入れ、本番の動画はその手順で録画する
@@ -13,7 +13,8 @@ const steps = [{ do: "drag", target: "#pad", from: [0.05, 0.5], dx: 0.9 }, { do:
 test("動画の台本（lab-play）: ツールの HTML から取り出し、公開するツールからは除く（ほかの部分は変えない）", () => {
   const tool = `<div id="g">遊ぶ</div>\n<script>var a = "<b>";</script>`;
   const r = takePlayScript(`${tool}\n${tag({ steps })}`);
-  assert.equal(r.html, tool);
+  // 切り取るのは台本の要素だけ（前後の空白も残す。PR #107 の ai-review の指摘）
+  assert.equal(r.html, `${tool}\n`);
   assert.deepEqual(JSON.parse(r.json!), { steps });
   // 台本がなければ、そのまま
   assert.deepEqual(takePlayScript(tool), { html: tool, json: null });
@@ -25,7 +26,7 @@ test("動画の台本（lab-play）: ツールの HTML から取り出し、公�
 });
 
 test("動画の台本（lab-play）: 書いた手順がそのまま使えるときだけ受け付ける", () => {
-  assert.deepEqual(parseGivenPlay({ hook: " なぞってひだ ", steps }), { hook: "なぞってひだ", steps: [{ do: "drag", target: "#pad", from: [0.05, 0.5], dx: 0.9, dy: 0 }, ...steps.slice(1)] });
+  assert.deepEqual(parseGivenPlay({ hook: "なぞってひだ", steps }), { hook: "なぞってひだ", steps: [{ do: "drag", target: "#pad", from: [0.05, 0.5], dx: 0.9, dy: 0 }, ...steps.slice(1)] });
   // 書かなかった値（dy など）は既定の値でよい。一言はなくてもよい
   assert.equal(typeof parseGivenPlay({ steps }), "object");
   // 範囲の外の値・使えない倍速は、変えずに断る（作った人が確かめた手順と、録画する手順を同じにするため）
@@ -35,6 +36,9 @@ test("動画の台本（lab-play）: 書いた手順がそのまま使えると�
   assert.match(parseGivenPlay({ steps: [...Array.from({ length: PLAY_STEPS_MAX + 1 }, () => ({ do: "wait", ms: 300 })), { do: "click", target: "a" }] }) as string, /押す・なぞる手順|手順は/);
   assert.match(parseGivenPlay({ steps: [{ do: "wait", ms: 500 }] }) as string, /押す・なぞる手順が1つもない/);
   assert.match(parseGivenPlay({ hook: "x" }) as string, /steps/);
+  // 一言も、書いた値をそのまま使えるときだけ（文字でない・前後に空白がある・長すぎる一言は断る。PR #107 の ai-review の指摘）
+  for (const hook of [3, " なぞってひだ ", "", "あ".repeat(25)]) assert.match(parseGivenPlay({ hook, steps }) as string, /hook/, JSON.stringify(hook));
+  assert.equal(typeof parseGivenPlay({ hook: "あ".repeat(24), steps }), "object");
 });
 
 test("動画の台本（lab-play）: 入れたツールの HTML と結び付けて残し、同じ HTML のときだけ使う", () => {
@@ -74,4 +78,13 @@ test("動画の台本（lab-play）: Claude Code への依頼文に書き方を�
   assert.equal(givenPlayScript(id, tool)!.hook, "なぞってひだ");
   assert.match((db().prepare("SELECT message FROM events WHERE project_id = ? AND kind = 'dev-upload'").get(id) as { message: string }).message, /遊ぶ様子の動画の台本（手順4つ）も入れました/);
   await assert.rejects(job);
+  // 取り込みが失敗したら（ここではAIのキーがない）、前の台本に戻す（前はなかったので、なし。PR #107 の ai-review の指摘）
+  assert.equal(givenPlayScript(id, tool), null);
+  // 前の台本がある HTML を、台本なしで入れ直したら消す。取り込みが失敗したら、前の台本に戻す
+  savePlayScript(id, tool, { ...(parseGivenPlay({ steps }) as GivenPlay), hook: "前の一言" });
+  const b = pendingDev(id)!;
+  const job2 = startDevUpload(b.id, tool);
+  assert.equal(givenPlayScript(id, tool), null);
+  await assert.rejects(job2);
+  assert.equal(givenPlayScript(id, tool)!.hook, "前の一言");
 });

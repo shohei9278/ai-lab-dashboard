@@ -13,7 +13,7 @@ if (!file) {
   console.error("使い方: npx tsx scripts/play-check.mts <ツールのHTML> [ツール名]");
   process.exit(1);
 }
-const play = takePlayScript(fs.readFileSync(file, "utf8").trim());
+const play = takePlayScript(fs.readFileSync(file, "utf8"));
 if (play.error) throw new Error(play.error);
 if (play.json === null) throw new Error('台本（<script type="application/json" id="lab-play">）がありません');
 const given = parseGivenPlay(JSON.parse(play.json));
@@ -22,7 +22,7 @@ if (typeof given === "string") throw new Error(`台本が使えません: ${give
 const out = path.resolve("data/play-check");
 fs.mkdirSync(out, { recursive: true });
 console.log(`手順 ${given.steps.length}つ・見積もり ${playSeconds(given.steps).toFixed(1)}秒で録画します…`);
-const r = await renderPlay({ hook: given.hook ?? "（一言はAIが書きます）", caption: "", steps: given.steps }, play.html, { fonts: true }, title, path.join(out, "play.mp4"));
+const r = await renderPlay({ hook: given.hook ?? "（一言はAIが書きます）", caption: "", steps: given.steps }, play.html.trim(), { fonts: true }, title, path.join(out, "play.mp4"));
 r.shots.forEach((b, i) => fs.writeFileSync(path.join(out, `shot-${i + 1}.jpg`), b));
 console.log(`できた手順: ${r.done}つ`);
 for (const f of r.failed) console.log(`できなかった: ${f}`);

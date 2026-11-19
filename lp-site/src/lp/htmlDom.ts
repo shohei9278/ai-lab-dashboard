@@ -96,5 +96,6 @@ export function takePlayScript(html: string): { html: string; json: string | nul
   const loc = tag.sourceCodeLocation;
   if (!loc) return { html, json: null, error: "動画の台本の位置を読めませんでした" };
   const json = tag.childNodes.map((n) => ("value" in n ? n.value : "")).join("");
-  return { html: (html.slice(0, loc.startOffset) + html.slice(loc.endOffset)).trim(), json };
+  // 切り取るのは台本の要素だけ（前後の空白も残す。入れるときの前後の空白の扱いは、呼ぶ側で決める。PR #107 の ai-review の指摘）
+  return { html: html.slice(0, loc.startOffset) + html.slice(loc.endOffset), json };
 }
