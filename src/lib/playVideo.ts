@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { Frame } from "playwright-core";
+import type { Frame, Locator } from "playwright-core";
 import { callClaude, callJson, claudeModelId, isObj, isStr } from "./ai";
 import { dataDir, db, getSettings, type ProjectRow } from "./db";
 import { launch } from "./freePage";
@@ -17,7 +17,8 @@ import { wrapToolHtml } from "../../lp-site/src/lp/toolHtml";
 
 // drag: 指やマウスで動かして遊ぶツール用。target の要素を押さえ（from: 要素の中の位置。横・縦の 0〜1、初めは真ん中）、
 // 要素の幅・高さに対する割合（dx・dy。-1〜1、右・下が正）だけ動かして離す
-export type PlayStep = { do: "click" | "fill" | "wait" | "drag"; target?: string; value?: string; ms?: number; dx?: number; dy?: number; from?: [number, number] };
+// wait の fast: 早送りで待つ（2〜FAST_MAX 倍）。ツールの中では ms の時間が進み、動画では ms÷fast の長さで済む（焼ける・育つなど、待つ場面が長いゲーム用）
+export type PlayStep = { do: "click" | "fill" | "wait" | "drag"; target?: string; value?: string; ms?: number; fast?: number; dx?: number; dy?: number; from?: [number, number] };
 export type PlayScript = { hook: string; steps: PlayStep[]; caption: string };
 export type PlayCheck = { ok: boolean; issues: string[]; skipped?: string };
 export type PlayVideoRow = { id: number; at: string; project_id: number; version: number; file: string; hook: string; caption: string; script: string; check_json: string | null; ok: number };
@@ -27,11 +28,23 @@ export const PLAY_STEPS_MAX = 10;
 export const PLAY_TAG_MAX = 2;
 // 動画の長さの上限（秒）。これを超える分の手順は切る
 export const PLAY_SECONDS_MAX = 15;
+// 早送りの速さの上限（倍）と、早送りで待つときにツールの中で進める時間の上限（ミリ秒）
+export const FAST_MAX = 8;
+export const FAST_WAIT_MAX = 15_000;
 
-// 手順1つにかかる時間（秒）の見積もり。押す・入れる: 指を動かす（約0.6秒）＋操作＋あとの待ち（0.7秒）。入れる文字は1文字0.07秒
-// ドラッグ: 指を動かす（約0.6秒）＋動かす（約0.9秒）＋あとの待ち（0.7秒）
+// 手順1つにかかる時間（秒）の見積もり。押す・入れる: 指を動かす（約0.4秒）＋操作＋あとの待ち（0.45秒）。入れる文字は1文字0.07秒
+// ドラッグ: 指を動かす（約0.4秒）＋動かす（約0.9秒）＋あとの待ち（0.45秒）
+// 指の動きとあとの待ちは、15秒の中で遊びの最後（結果）まで見せられるよう短めにしている（#66 の動画。前は 0.6秒・0.7秒）
 export const DRAG_MS = 900;
-const stepSeconds = (s: PlayStep) => (s.do === "wait" ? (s.ms ?? 800) / 1000 : s.do === "fill" ? 1.5 + 0.07 * (s.value ?? "").length : s.do === "drag" ? 2.2 : 1.6);
+const FINGER_MS = 350;
+// 押す所が見つからないとき、出てくるのを待つ長さ
+const FIND_WAIT_MS = 1200;
+const STEP_PAUSE_MS = 450;
+// 早送りの見積もりの余裕。早送りの間もツールは1コマずつ描き直すので、重いツールでは ms÷fast より長くかかる
+// 速くするほど1秒あたりに描き直すコマが増えて遅れも増える（#66 で測ると、6倍で2〜3割、8倍で5割ほど長かった）
+export const fastSlack = (fast: number) => 1 + 0.06 * fast;
+// 早送りで待つ手順は、動画では ms÷fast（に余裕を足した）長さになる
+const stepSeconds = (s: PlayStep) => (s.do === "wait" ? ((s.ms ?? 800) / (s.fast ?? 1) / 1000) * (s.fast ? fastSlack(s.fast) : 1) : s.do === "fill" ? 1.1 + 0.07 * (s.value ?? "").length : s.do === "drag" ? 1.9 : 1.2);
 const clamp = (v: unknown, lo: number, hi: number, d: number) => { const n = Number(v); return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : d; };
 // 動画全体の長さの見積もり（最初の0.7秒と、結果を読ませる最後の2.2秒を含む）
 export const playSeconds = (steps: PlayStep[]) => 0.7 + steps.reduce((t, s) => t + stepSeconds(s), 0) + 2.2;
@@ -43,7 +56,13 @@ export function parsePlayScript(v: unknown): PlayScript | null {
   for (const s of v.steps.slice(0, PLAY_STEPS_MAX)) {
     if (!isObj(s)) continue;
     let step: PlayStep | null = null;
-    if (s.do === "wait") step = { do: "wait", ms: Math.max(300, Math.min(3000, Number(s.ms) || 800)) };
+    if (s.do === "wait") {
+      // 早送り（fast が 2〜FAST_MAX の整数）のときは、ツールの中で進める時間を FAST_WAIT_MAX まで認める。それ以外の fast は付けない
+      const fast = Number.isInteger(s.fast) && (s.fast as number) >= 2 && (s.fast as number) <= FAST_MAX ? (s.fast as number) : undefined;
+      step = fast
+        ? { do: "wait", ms: Math.max(300, Math.min(FAST_WAIT_MAX, Number(s.ms) || 800)), fast }
+        : { do: "wait", ms: Math.max(300, Math.min(3000, Number(s.ms) || 800)) };
+    }
     else if ((s.do === "click" || s.do === "fill") && isStr(s.target) && s.target.trim()) {
       step = { do: s.do, target: s.target.trim().slice(0, 80), ...(s.do === "fill" ? { value: String(s.value ?? "").slice(0, 60) } : {}) };
     } else if (s.do === "drag" && isStr(s.target) && s.target.trim()) {
@@ -91,10 +110,11 @@ async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [
 - fill: target に入力欄のセレクタ（#id など）か、入力欄のラベルの文字を書き、value に入れる値を書く（自然な例。実在の人の名前・連絡先は使わない）
 - drag: 指やマウスで動かして遊ぶツール（ドラッグで置く・動かす・canvas の上でなぞる など）で使う。target に押さえる要素（見えている文字か、#id などのセレクタ。canvas なら canvas のセレクタ）、dx・dy に動かす距離を、その要素の幅・高さに対する割合（-1〜1。右・下が正）で書く。押さえる位置を変えたいときだけ、from に要素の中の位置 [横, 縦]（0〜1。書かなければ真ん中）を書く。動かすまで押せないボタンがあるツールは、そのボタンの前に drag を入れる
 - wait: ms に待つ時間（300〜3000）。結果が出るまでに演出があるツールは、結果が見えるまで待つ
+- 焼ける・育つ・たまる など、ツールの中で時間がたつのを待つ場面が長いときは、wait に fast（2〜${FAST_MAX}。何倍の速さで見せるか）を付けて早送りにする。ツールの中では ms の時間（${FAST_WAIT_MAX}まで）が進み、動画では ms÷fast の長さで済む（画面の隅に「早送り」と出る）。15秒に収まらないゲームも、早送りを使って、最後の結果の画面まで見せる（それでも収まらなければ、いちばん見せたい場面（できあがっていく様子など）で終える）。ボタンを押したあとの短い待ちには付けない
 - 最初の3秒のうちに、いちばん面白い瞬間（結果・オチ）へ向かうように、前置きの操作は最小にする。steps は${PLAY_STEPS_MAX}個まで。最後は結果が画面に出ている状態で終える
 - hook: 動画の上に大きく出す一言（20文字以内）。何をするものか・何が起きるかが一言で分かるもの。誇大な表現・実在の人物や作品の名前は使わない
 - caption: 投稿の本文の案（120文字以内。リンクは付けない（あとで付ける）。${tagRule(PLAY_TAG_MAX)}）
-出力はJSONのみ: {"hook":"","steps":[{"do":"click","target":"回す"},{"do":"wait","ms":1500}],"caption":""}（ドラッグの例: {"do":"drag","target":"#board","from":[0.2,0.8],"dx":0.3,"dy":-0.3}）`,
+出力はJSONのみ: {"hook":"","steps":[{"do":"click","target":"回す"},{"do":"wait","ms":1500}],"caption":""}（ドラッグの例: {"do":"drag","target":"#board","from":[0.2,0.8],"dx":0.3,"dy":-0.3}。早送りの例: {"do":"wait","ms":8000,"fast":4}）`,
     user: `ツール名: ${p.title}\n対象: ${p.target}\n何ができるか: ${p.solution}${tagHints()}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}`,
     validate: (v): v is PlayScript => parsePlayScript(v) !== null,
   }).then((v) => parsePlayScript(v)!);
@@ -107,23 +127,35 @@ const SCALE = 3;
 const PHONE_W = 1080 / SCALE;
 
 // 見えている文字・セレクタから、押す所・入れる所を探す
-async function find(frame: Frame, step: PlayStep) {
+// wait: 見つからないとき、出てくるのを待つ長さ（録画の前は待たない。待つ間にもツールの時間が進み、台本とずれるため。PR #104 の ai-review の指摘）
+async function find(frame: Frame, step: PlayStep, wait = FIND_WAIT_MS) {
   const t = step.target!;
   const tries = step.do === "fill"
     ? [() => frame.getByLabel(t, { exact: false }), () => frame.getByPlaceholder(t, { exact: false }), () => frame.locator(t)]
     : [() => frame.getByRole("button", { name: t, exact: false }), () => frame.getByText(t, { exact: false }), () => frame.locator(t)];
   // 同じ文字の候補が複数あるとき（PC用とスマホ用など）は、見えている最初のものを使う
-  for (const make of tries) {
-    try {
-      const all = make();
-      const n = Math.min(await all.count(), 10);
-      for (let i = 0; i < n; i++) {
-        const l = all.nth(i);
-        if (await l.isVisible()) return l;
-      }
-    } catch {}
+  // 前の操作の演出（閉じる・切り替わるなど）のあとに出るボタンもあるので、少しのあいだ出てくるのを待つ（#66 の「焼きへ」）
+  const until = Date.now() + wait;
+  for (;;) {
+    for (const make of tries) {
+      try {
+        const all = make();
+        const n = Math.min(await all.count(), 10);
+        for (let i = 0; i < n; i++) {
+          const l = all.nth(i);
+          if (await l.isVisible()) return l;
+        }
+      } catch {}
+    }
+    if (Date.now() >= until) return null;
+    await frame.waitForTimeout(150);
   }
-  return null;
+}
+
+// 押す・なぞる所を、ツールの枠の見えている所に入れる（少しでも見えていると動かない scrollIntoViewIfNeeded は使わない）
+// 枠の下の端に半分だけ出ている要素は、真ん中を押さえると枠の外（下の帯）を押してしまい、ツールに届かなかった（#66 の動画）
+async function bringIntoView(l: Locator) {
+  await l.evaluate((el) => el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" }), undefined, { timeout: 1500 });
 }
 
 // 台本どおりに遊ぶ様子を録画する。押す前に、指の印をその場所へ動かす（何を押したか分かるように）
@@ -134,14 +166,19 @@ export async function renderPlay(script: PlayScript, toolHtml: string, opts: { d
   try {
     const ctx = await browser.newContext({ viewport: { width: 1080, height: 1920 }, deviceScaleFactor: 1, locale: "ja-JP" });
     const page = await ctx.newPage();
+    // 早送りで待つ台本のときだけ、ページの時計（時刻・タイマー・アニメーションの合図）を、こちらで進められるものに替える
+    // 替えても時間はふつうに流れ、早送りの間だけ、こちらで先へ進める（ツールの枠の中にも効く）
+    const fastForward = script.steps.some((s) => s.fast);
+    if (fastForward) await page.clock.install();
     const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
     await page.setContent(`<!doctype html><meta charset="utf-8"><style>
 *{margin:0;box-sizing:border-box}html,body{width:1080px;height:1920px;overflow:hidden;background:#fff;font-family:"Hiragino Sans","Noto Sans CJK JP",sans-serif}
 #top{position:absolute;top:0;left:0;width:1080px;height:${TOP}px;display:flex;align-items:center;justify-content:center;text-align:center;padding:0 56px;background:#111;color:#fff;font-size:76px;font-weight:800;line-height:1.3}
 #bottom{position:absolute;bottom:0;left:0;width:1080px;height:${BOTTOM}px;display:flex;align-items:center;justify-content:center;background:#111;color:#bbb;font-size:40px;font-weight:700}
 iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 - TOP - BOTTOM) / SCALE}px;border:0;background:#fff;transform:scale(${SCALE});transform-origin:0 0}
-#finger{position:absolute;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;background:rgba(255,80,80,.45);border:6px solid rgba(255,255,255,.9);box-shadow:0 4px 18px rgba(0,0,0,.35);opacity:0;transition:left .45s ease,top .45s ease,opacity .2s,transform .12s;z-index:5;pointer-events:none}
-</style><div id="top">${esc(script.hook || title)}</div><iframe id="f"></iframe><div id="bottom">${esc(title)}｜登録なしで遊べる</div><div id="finger"></div>`);
+#ff{position:absolute;top:${TOP + 28}px;right:28px;padding:10px 26px;border-radius:999px;background:rgba(17,17,17,.78);color:#fff;font-size:44px;font-weight:800;display:none;z-index:6}
+#finger{position:absolute;width:96px;height:96px;margin:-48px 0 0 -48px;border-radius:50%;background:rgba(255,80,80,.45);border:6px solid rgba(255,255,255,.9);box-shadow:0 4px 18px rgba(0,0,0,.35);opacity:0;transition:left .3s ease,top .3s ease,opacity .2s,transform .12s;z-index:5;pointer-events:none}
+</style><div id="top">${esc(script.hook || title)}</div><iframe id="f"></iframe><div id="bottom">${esc(title)}｜登録なしで遊べる</div><div id="ff">▶▶ 早送り</div><div id="finger"></div>`);
     const frameEl = page.locator("#f");
     await frameEl.evaluate((el, html) => { (el as HTMLIFrameElement).srcdoc = html; }, wrapToolHtml(toolHtml, opts));
     await page.waitForTimeout(400);
@@ -154,22 +191,30 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
     let done = 0;
     const tap = async (box: { x: number; y: number; width: number; height: number }) => {
       await page.evaluate(({ x, y }) => { const f = document.getElementById("finger")!; f.style.opacity = "1"; f.style.left = `${x}px`; f.style.top = `${y}px`; }, { x: box.x + box.width / 2, y: box.y + box.height / 2 });
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(FINGER_MS);
       await page.evaluate(() => { document.getElementById("finger")!.style.transform = "scale(.8)"; });
       await page.waitForTimeout(120);
       await page.evaluate(() => { document.getElementById("finger")!.style.transform = "scale(1)"; });
     };
     // ドラッグ: 指の印を押さえる所へ動かし、押さえたまま動かす先まで滑らせて離す（指の印も一緒に動く）
     // 動かす先は、押さえた要素の大きさに対する割合で決める（ツールの中の位置を、台本から画素で書かせないため）
+    // ツールの枠の、画面に映っている所（押さえる・動かす先は、この中に収める。外は上下の帯で、ツールに届かない）
+    const view = await frameEl.boundingBox();
+    if (!view) throw new Error("ツールの枠の位置が分かりませんでした");
     const drag = async (box: { x: number; y: number; width: number; height: number }, step: PlayStep) => {
       const [fx, fy] = step.from ?? [0.5, 0.5];
       // 枠の右端・下端は枠の内側に入らないので、押さえる位置は端から1画素だけ内側に収める（from が 0・1 でも、その要素を押さえる。PR #95 の ai-review の指摘）
       const inside = (v: number, size: number) => Math.min(Math.max(v, 1), Math.max(1, size - 1));
-      const sx = box.x + inside(box.width * fx, box.width), sy = box.y + inside(box.height * fy, box.height);
-      const ex = sx + box.width * (step.dx ?? 0), ey = sy + box.height * (step.dy ?? 0);
+      const within = (v: number, lo: number, size: number) => Math.min(Math.max(v, lo + 1), lo + size - 1);
+      // 要素が枠より大きく、押さえる位置が映っていないときは、要素の映っている所に寄せる。要素がまったく映っていなければ、押さえない
+      const top = Math.max(box.y, view.y), bottom = Math.min(box.y + box.height, view.y + view.height);
+      const left = Math.max(box.x, view.x), right = Math.min(box.x + box.width, view.x + view.width);
+      if (bottom - top < 2 || right - left < 2) throw new Error("押さえる所が画面に映っていない");
+      const sx = within(box.x + inside(box.width * fx, box.width), left, right - left), sy = within(box.y + inside(box.height * fy, box.height), top, bottom - top);
+      const ex = within(sx + box.width * (step.dx ?? 0), view.x, view.width), ey = within(sy + box.height * (step.dy ?? 0), view.y, view.height);
       const finger = (x: number, y: number) => page.evaluate(({ x, y }) => { const f = document.getElementById("finger")!; f.style.left = `${x}px`; f.style.top = `${y}px`; }, { x, y });
       await page.evaluate(({ x, y }) => { const f = document.getElementById("finger")!; f.style.opacity = "1"; f.style.left = `${x}px`; f.style.top = `${y}px`; }, { x: sx, y: sy });
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(FINGER_MS);
       await page.evaluate(() => { const f = document.getElementById("finger")!; f.style.transform = "scale(.8)"; f.style.transition = "opacity .2s, transform .12s"; });
       await page.mouse.move(sx, sy);
       await page.mouse.down();
@@ -185,7 +230,29 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
       await page.mouse.up();
       await page.evaluate(() => { const f = document.getElementById("finger")!; f.style.transform = "scale(1)"; f.style.transition = ""; });
     };
+    // 最初に操作する所が、初めから見えているようにする（枠の下の端で帯に隠れたまま始まらないように。#66 の動画）
+    const first = script.steps.find((s) => s.do !== "wait");
+    // 今見えているときだけ動かす（出てくるのを待たない）
+    const firstEl = first ? await find(frame, first, 0) : null;
+    if (firstEl) await bringIntoView(firstEl).catch(() => undefined);
+    await page.waitForTimeout(200);
     shots.push(await page.screenshot({ type: "jpeg", quality: 70 }));
+    // 早送りで待つ: 時間はふつうに流しつつ、0.1秒ごとに残りを先へ進めて、ツールの中で ms の時間を進める（動画では ms÷fast の長さ）
+    // 先へ進める間に重い描き直しがあると、動画の方が少し長くなるが、ツールの中の時間は ms ちょうどにする（結果の出る時刻を台本どおりにするため）
+    const fastWait = async (ms: number, fast: number) => {
+      await page.evaluate((x) => { const b = document.getElementById("ff")!; b.textContent = `▶▶ 早送り ×${x}`; b.style.display = "block"; }, fast);
+      // 1回に待つ実時間は、0.1秒か「残り÷倍速」の短い方（短い早送りでも、実時間が ms÷fast を超えないように。PR #104 の ai-review の指摘）
+      let passed = 0;
+      while (passed < ms) {
+        const tick = Math.max(1, Math.min(100, (ms - passed) / fast));
+        await page.waitForTimeout(tick);
+        passed += tick;
+        const jump = Math.min(tick * (fast - 1), ms - passed);
+        if (jump > 0) await page.clock.runFor(jump);
+        passed += jump;
+      }
+      await page.evaluate(() => { document.getElementById("ff")!.style.display = "none"; });
+    };
     // 途中のコマは、真ん中の手順のあとに、うまくいったかにかかわらず必ず撮る（コマは最初・途中・最後の3枚にそろえる）
     const mid = Math.floor((script.steps.length - 1) / 2);
     const midShot = async (hold: (fn: () => Promise<void>) => Promise<void>) => hold(async () => { shots.push(await page.screenshot({ type: "jpeg", quality: 70 })); });
@@ -207,7 +274,8 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
         }
         try {
           if (step.do === "wait") {
-            await page.waitForTimeout(step.ms ?? 800);
+            if (step.fast && fastForward) await fastWait(step.ms ?? 800, step.fast);
+            else await page.waitForTimeout(step.ms ?? 800);
             continue;
           }
           const l = await find(frame, step);
@@ -216,13 +284,13 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
             continue;
           }
           try {
-            await l.scrollIntoViewIfNeeded({ timeout: 1500 });
+            await bringIntoView(l);
             const box = await l.boundingBox();
             if (step.do === "drag") {
               if (!box) throw new Error("押さえる所の位置が分からない");
               await drag(box, step);
               done++;
-              await page.waitForTimeout(700);
+              await page.waitForTimeout(STEP_PAUSE_MS);
               continue;
             }
             if (box) await tap(box);
@@ -232,7 +300,7 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
               await l.pressSequentially(step.value ?? "", { delay: 70, timeout: 1500 + 100 * (step.value ?? "").length });
             } else await l.click({ timeout: 1500 });
             done++;
-            await page.waitForTimeout(700);
+            await page.waitForTimeout(STEP_PAUSE_MS);
           } catch (e) {
             failed.push(`${i + 1}番目の「${step.target}」を操作できなかった（${(e instanceof Error ? e.message : String(e)).split("\n")[0].slice(0, 80)}）`);
           }
@@ -266,7 +334,7 @@ async function checkPlay(p: ProjectRow, script: PlayScript, shots: Buffer[]): Pr
 問題がなければ issues は空。
 出力はJSONのみ: {"issues":["問題と、台本をどう直すか"]}`,
     content: [
-      { type: "text", text: `ツール名: ${p.title}\n上の一言: ${script.hook}\n台本: ${script.steps.map((s) => (s.do === "wait" ? `待つ${s.ms}ms` : s.do === "drag" ? `動かす「${s.target}」` : `${s.do === "fill" ? "入力" : "押す"}「${s.target}」${s.value ? `に「${s.value}」` : ""}`)).join(" → ")}` },
+      { type: "text", text: `ツール名: ${p.title}\n上の一言: ${script.hook}\n台本: ${script.steps.map((s) => (s.do === "wait" ? `待つ${s.ms}ms${s.fast ? `（${s.fast}倍の早送り）` : ""}` : s.do === "drag" ? `動かす「${s.target}」` : `${s.do === "fill" ? "入力" : "押す"}「${s.target}」${s.value ? `に「${s.value}」` : ""}`)).join(" → ")}` },
       ...shots.flatMap((b, i) => [{ type: "text" as const, text: ["最初", "途中", "最後"][i] ?? `${i + 1}枚目` }, { type: "image" as const, source: { type: "base64" as const, media_type: "image/jpeg" as const, data: b.toString("base64") } }]),
     ],
     maxTokens: 2000,
