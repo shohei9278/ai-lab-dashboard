@@ -824,6 +824,7 @@ export type Settings = {
   viralPerQuery: number; // 話題の投稿の検索1つあたりに読む投稿の数（10〜100）
   viralLagDays: number; // 話題の投稿を、生まれてから何日たったものから読むか（0〜5。伸びる前に読むと拾えないので遅らせる。xPost.ts の lagWindow）
   lastViralSearch: string; // 最後に検索した日時（ISO）。次の検索は、このあとの投稿だけを読む
+  viralCursor: string; // 話題の投稿で、前回読み終えた所（読んだ範囲の終わり。ISO）。次はここから読む（遅らせて読むので、検索の日時とは別に覚える）
   lastFollowersTry: string; // 最後にフォロワー数を読もうとした日（日本時間。失敗しても、その日はもう読まない）
   wantsPerQuery: number; // 「欲しい」の声の検索1つあたりに読む投稿の数（0 なら探さない）
   dailyReport: boolean; // 毎晩、AIが1日の日報と note の下書きを書く
@@ -869,6 +870,7 @@ const DEFAULTS: Settings = {
   viralPerQuery: 20,
   viralLagDays: 2,
   lastViralSearch: "",
+  viralCursor: "",
   lastFollowersTry: "",
   wantsPerQuery: 10,
   dailyReport: true,
@@ -904,7 +906,7 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
+const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
 const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive"]);
 
 export function getSettings(): Settings {

@@ -252,13 +252,21 @@ export function searchAll(): Promise<SearchResult> {
 
 async function searchAllOnce(): Promise<SearchResult> {
   const s = getSettings();
-  // 「欲しい」の声は、前回の検索のあとの投稿を読む。話題の投稿は、設定の日数だけ遅らせて、伸びたあとの投稿を読む（lagWindow）
+  // 「欲しい」の声は、前回の検索のあとの投稿を読む。話題の投稿は、前回読み終えた所（viralCursor）から、設定の日数だけ遅らせた所までを読む（lagWindow）
   const since = searchSince(s.lastViralSearch || undefined);
-  const window = lagWindow(s.lastViralSearch || undefined, s.viralLagDays);
+  const window = lagWindow(s.viralCursor || undefined, s.viralLagDays);
   // 次の検索は、この検索を始めた時刻のあとから読む（終わった時刻にすると、検索している間に出た投稿を二度と読まない）
   const startedAt = new Date().toISOString();
   try {
-    const v = window ? await searchViral(window.start, window.end) : { read: 0, added: 0, error: undefined };
+    let v: { read: number; added: number; error?: string } = { read: 0, added: 0 };
+    if (window) {
+      try {
+        v = await searchViral(window.start, window.end);
+      } finally {
+        // 次の話題の投稿は、この範囲の終わりから読む（途中で失敗しても進める。前回の検索の時刻と同じく、同じ失敗で費用をかけ続けないため）
+        saveSettings({ viralCursor: window.end });
+      }
+    }
     if (v.error) return { read: v.read, added: v.added, wants: 0, wantsError: `話題の投稿の検索が途中で失敗したため、読みませんでした（${v.error}）` };
     try {
       const w = await searchWants(since);

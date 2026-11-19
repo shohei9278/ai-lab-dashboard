@@ -110,17 +110,18 @@ export function searchSince(last: string | undefined, now = Date.now()): string 
   const t = last ? Date.parse(last) : NaN;
   return new Date(Number.isFinite(t) && t > oldest && t < now ? t : oldest).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
-// 遅らせて読む範囲: 前回の検索で読んだ範囲のすぐあとから、今から lagDays 日前まで（生まれてから lagDays 日以上たった投稿を読む）
+// 遅らせて読む範囲: 前回読み終えた所（cursor）から、今から lagDays 日前まで（生まれてから lagDays 日以上たった投稿を読む）
 // 話題になる投稿は2〜3日かけて伸びるので、生まれたばかりで読むと、まだ伸びておらず拾えない（読んだ範囲には戻らないので、あとで伸びても拾えない）
-// 前回の範囲の終わり = 前回の検索の時刻 − lagDays 日、なので、毎回同じ日数だけずらせば、範囲は重ならず、すき間もできない
-// 読める一番古いところ（直近7日）より前にはさかのぼらない。範囲が1分に満たないときは読まない（null）
-export function lagWindow(last: string | undefined, lagDays: number, now = Date.now()): { start: string; end: string } | null {
+// 始まりは、前回の範囲の終わりそのもの（呼ぶ側が覚えておく）。日数を変えても、すき間も重なりもできない（PR #101 の ai-review の指摘）
+// - 日数を増やしたときは、終わりが前回の終わりに追いつくまで読まない（同じ範囲を読み直さない）
+// - 読める一番古いところ（直近7日）より前にはさかのぼらない。前回の終わりがない・壊れている・未来のときも、そこから
+// - X の検索は、終わりを今から10秒以上前にする決まりがあるので、30秒の余裕をとる。範囲が1分に満たないときは読まない（null）
+export function lagWindow(cursor: string | undefined, lagDays: number, now = Date.now()): { start: string; end: string } | null {
   const lag = Math.max(0, lagDays) * 86_400_000;
   const iso = (t: number) => new Date(t).toISOString().replace(/\.\d{3}Z$/, "Z");
-  // X の検索は、終わりを今から10秒以上前にする決まりがあるので、30秒の余裕をとる
   const end = now - lag - 30_000;
-  const t = last ? Date.parse(last) : NaN;
-  const start = Math.max(Number.isFinite(t) && t < now ? t - lag : -Infinity, now - SEARCH_WINDOW_MS);
+  const t = cursor ? Date.parse(cursor) : NaN;
+  const start = Math.max(Number.isFinite(t) && t < now ? t : -Infinity, now - SEARCH_WINDOW_MS);
   return end - start < 60_000 ? null : { start: iso(start), end: iso(end) };
 }
 // 1回の検索で読む件数（X の API は1回10〜100件）
