@@ -60,7 +60,7 @@ export function parsePlayScript(v: unknown): PlayScript | null {
       // 早送り（fast が 2〜FAST_MAX の整数）のときは、ツールの中で進める時間を FAST_WAIT_MAX まで認める。それ以外の fast は付けない
       const fast = Number.isInteger(s.fast) && (s.fast as number) >= 2 && (s.fast as number) <= FAST_MAX ? (s.fast as number) : undefined;
       step = fast
-        ? { do: "wait", ms: Math.max(300, Math.min(FAST_WAIT_MAX, Number(s.ms) || 3000)), fast }
+        ? { do: "wait", ms: Math.max(300, Math.min(FAST_WAIT_MAX, Number(s.ms) || 800)), fast }
         : { do: "wait", ms: Math.max(300, Math.min(3000, Number(s.ms) || 800)) };
     }
     else if ((s.do === "click" || s.do === "fill") && isStr(s.target) && s.target.trim()) {
@@ -241,9 +241,10 @@ iframe{position:absolute;top:${TOP}px;left:0;width:${PHONE_W}px;height:${(1920 -
     // 先へ進める間に重い描き直しがあると、動画の方が少し長くなるが、ツールの中の時間は ms ちょうどにする（結果の出る時刻を台本どおりにするため）
     const fastWait = async (ms: number, fast: number) => {
       await page.evaluate((x) => { const b = document.getElementById("ff")!; b.textContent = `▶▶ 早送り ×${x}`; b.style.display = "block"; }, fast);
+      // 1回に待つ実時間は、0.1秒か「残り÷倍速」の短い方（短い早送りでも、実時間が ms÷fast を超えないように。PR #104 の ai-review の指摘）
       let passed = 0;
       while (passed < ms) {
-        const tick = Math.min(100, ms - passed);
+        const tick = Math.max(1, Math.min(100, (ms - passed) / fast));
         await page.waitForTimeout(tick);
         passed += tick;
         const jump = Math.min(tick * (fast - 1), ms - passed);

@@ -182,6 +182,8 @@ test("遊ぶ様子の動画の早送り（#66 の動画で、運営者が早送�
   // 早送りの短い方の下限は、ふつうの待ちと同じ0.3秒（PR #104 の ai-review の指摘）
   const short = parsePlayScript({ hook: "h", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", ms: 300, fast: 2 }, { do: "wait", ms: 100, fast: 2 }] })!;
   assert.deepEqual(short.steps.slice(1), [{ do: "wait", ms: 300, fast: 2 }, { do: "wait", ms: 300, fast: 2 }]);
+  // 時間を書き忘れた早送りは、ふつうの待ちと同じ0.8秒（倍速を付けただけで待つ時間が変わらないように。PR #104 の ai-review の指摘）
+  assert.deepEqual(parsePlayScript({ hook: "h", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", fast: 4 }] })!.steps[1], { do: "wait", ms: 800, fast: 4 });
   const odd = parsePlayScript({ hook: "h", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", ms: 8000, fast: 1.5 }, { do: "wait", ms: 8000, fast: 99 }] })!;
   assert.deepEqual(odd.steps.slice(1), [{ do: "wait", ms: 3000 }, { do: "wait", ms: 3000 }]);
   // 早送りの待ちは、動画では ms÷倍速の長さ（重いツールでは描き直しの分だけ長くなるので、速いほど大きな余裕を見る）
@@ -202,7 +204,7 @@ test("遊ぶ様子の動画の早送り: ツールの中では ms の時間が�
 (function f(){document.getElementById("out").textContent=Math.floor((performance.now()-t0)/1000)+"秒";requestAnimationFrame(f)})()};
 document.getElementById("flip").onclick=function(){document.getElementById("out").textContent="焼けた"};</script>`;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "play-"));
-  const r = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", ms: 12_000, fast: 6 }, { do: "wait", ms: 300 }, { do: "click", target: "返す" }] }, html, {}, "焼く", path.join(dir, "f.mp4"));
+  const r = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "焼く" }, { do: "wait", ms: 12_000, fast: 6 }, { do: "wait", ms: 300, fast: 8 }, { do: "click", target: "返す" }] }, html, {}, "焼く", path.join(dir, "f.mp4"));
   // 録画は15秒を超える手順を切る（failed に残る）ので、切られずに「返す」まで押せたことが、12秒の待ちが早送りで済んだしるし
   assert.deepEqual(r.failed, []);
   assert.equal(r.done, 2);
