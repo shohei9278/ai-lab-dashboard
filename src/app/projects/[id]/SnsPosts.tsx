@@ -166,6 +166,7 @@ function Draft({ p, busy, act }: { p: PostView; busy: boolean; act: (label: stri
         aria-label="投稿の本文"
       />
       {p.link && <div className="truncate text-xs text-muted">付くリンク: {p.link}</div>}
+      {isX && p.link && <p className="text-xs text-muted">動画を付けるときなどは「コピー」して、Xアプリから本文とリンクを投稿し、「自分で投稿した」を押してください（このリンクから来た人を、この投稿の分として数えます）。</p>}
       <div className="flex flex-wrap gap-2">
         {!isX && (
           <button type="button" disabled={busy || !p.link} onClick={() => act("投稿済みにしています…", { action: "posted", id: p.id, text })} className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-accent-ink disabled:opacity-50">
@@ -185,6 +186,12 @@ function Draft({ p, busy, act }: { p: PostView; busy: boolean; act: (label: stri
         >
           Xで投稿する ↗
         </a>}
+        {/* 動画を付けるときなど、Xアプリなどから自分で投稿したときの記録（下の「付くリンク」を本文と一緒に投稿したあとに押す） */}
+        {isX && (
+          <button type="button" disabled={busy || !p.link || over} onClick={() => act("投稿済みにしています…", { action: "posted", id: p.id, text })} className="rounded-lg border border-line px-3 py-1.5 text-sm">
+            自分で投稿した
+          </button>
+        )}
         <button type="button" disabled={!p.link} onClick={() => navigator.clipboard.writeText(full).catch(() => {})} className="rounded-lg border border-line px-3 py-1.5 text-sm">
           {isX ? "コピー（ほかのSNS用）" : "文とリンクをコピー"}
         </button>

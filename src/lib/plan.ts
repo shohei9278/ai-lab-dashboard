@@ -1,4 +1,5 @@
 import { callJson, isObj, isStr } from "./ai";
+import { limitTags } from "./hashtags";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
 import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, liveEnd, liveSay, liveStep, logEvent, planImprove, projectTotals, trafficCapacity } from "./loop";
 import { endReasons, headline } from "./experiment";
@@ -504,7 +505,7 @@ async function writePlain(platform: AutoPlatform, angle: string): Promise<string
     purpose: "普通の投稿",
     system: `あなたは、AIにプロダクト作りを任せる実験をしている運営アカウント「Hitoride」として、${def.label}に宣伝ではない普通の投稿を1件書きます。
 守ること:
-- ${def.plainHint}。URL・@で始まる他人のアカウント名は書かない。ハッシュタグは使っても1つまで。絵文字は控えめに
+- ${def.plainHint}。URL・@で始まる他人のアカウント名は書かない。${def.plainTagMax > 0 ? `ハッシュタグは${def.plainTagMax}つまで（付けなくてもよい）。付けるなら、投稿の話題のタグ（例: #個人開発 #AI）にし、宣伝のタグや作った言葉は付けない` : "ハッシュタグは付けない"}。絵文字は控えめに
 - 数字や出来事は、材料にある本物のものだけを使う。運営者の体験談・感想、架空の数字・実績・利用者の声を作らない
 - 小ネタは断言しすぎず、医療・法律・お金の助言はしない
 - 時事・政治・事件、他人や他社のサービスへの言及はしない
@@ -514,7 +515,7 @@ async function writePlain(platform: AutoPlatform, angle: string): Promise<string
     user: `今日の話題: ${angle}${badPostsText("plain")}\n\n実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n最近の出来事:\n${events || "（なし）"}\n\n最近の普通の投稿:\n${past || "（なし）"}`,
     validate: (v): v is { text: string } => isObj(v) && isStr(v.text),
   });
-  return out.text.trim();
+  return limitTags(out.text.trim(), def.plainTagMax);
 }
 
 async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string; url?: string }> {
