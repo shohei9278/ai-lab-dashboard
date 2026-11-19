@@ -61,6 +61,9 @@ export type Lp = {
   tool?: { html: string; shareText: string; data?: unknown[]; fonts?: boolean; results?: string[] };
   // AIが丸ごと自由に書いたページ（1つのHTML）。あれば部品の表示の代わりにこれを出す。上の文言はシェア画像・検索結果・予備に使う
   page?: { html: string };
+  // 動くツールの案件だけ: 紹介ページを作らず、名前と一行 → ツール → シェア の短い形で出す（ねらいが「広がる」「また来てもらう」のツール。ShortToolView）
+  // 上の文言（見出し・特徴など）は、シェア画像・SNSの下書き・予備に使う
+  short?: boolean;
 };
 
 // ツール本体の大きさの上限（文字数）
@@ -161,5 +164,6 @@ export function normalizeLp(raw: unknown): Lp {
     if (isToolResults(v.tool.results)) lp.tool.results = v.tool.results;
   }
   if (isObj(v.page) && isStr(v.page.html) && v.page.html.length <= PAGE_HTML_MAX) lp.page = { html: v.page.html };
+  if (v.short === true && lp.tool) lp.short = true;
   return lp;
 }

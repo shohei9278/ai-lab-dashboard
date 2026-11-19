@@ -4,11 +4,20 @@ import { PageFrame } from "../../../../lp-site/src/lp/PageFrame";
 import { imgOriginsOf } from "../../../../lp-site/src/lp/pageHtml";
 import { splitToolPage } from "../../../../lp-site/src/lp/htmlDom";
 import { ToolPageView } from "../../../../lp-site/src/lp/ToolPageView";
+import { ShortToolView } from "../../../../lp-site/src/lp/ShortToolView";
 import type { Lp } from "../../../../lp-site/src/lp/content";
 
 // LP・ツールの本体を、公開サイトと同じ部品で表示する（プレビューと見比べで共通）
 export function PreviewBody({ lp, title, pc = false, freePage = true }: { lp: Lp; title: string; pc?: boolean; freePage?: boolean }) {
   const button = <button type="button" aria-disabled title="プレビューでは押せません" className={`${lpButtonClass} cursor-default`} style={lpButtonStyle}>{lp.cta}</button>;
+  // 遊び・毎日のお題のツール（short）は、公開サイトと同じく 名前と一行 → ツール の短い形で出す
+  if (lp.tool && lp.short) {
+    return (
+      <div className={`mx-auto overflow-hidden rounded-2xl border border-line bg-[color:var(--bg)] ${pc ? "max-w-[1280px]" : "max-w-[390px]"}`}>
+        <ShortToolView title={title} lead={lp.subheadline} tool={<ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} />} />
+      </div>
+    );
+  }
   // 動くツールの案件で、自由に書いたページを上下に分けられるときは、公開サイトと同じく 上 → ツール → 下 で出す
   const parts = lp.page && freePage && lp.tool ? splitToolPage(lp.page.html) : null;
   if (lp.page && lp.tool && parts) {

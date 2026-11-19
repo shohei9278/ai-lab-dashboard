@@ -12,6 +12,7 @@ import { FeedbackWidget } from "./FeedbackWidget";
 import { imgOriginsOf } from "@/lp/pageHtml";
 import { splitToolPage } from "@/lp/htmlDom";
 import { ToolPageView } from "@/lp/ToolPageView";
+import { ShortToolView } from "@/lp/ShortToolView";
 import { RelatedPages } from "./RelatedPages";
 import { PageSummary } from "./PageSummary";
 
@@ -79,8 +80,32 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
     );
   }
 
-  // 動くツールの案件で、AIが自由に書いたページがあれば、上の部分 → ツール → 下の部分 の順に出す（分けられなければ部品の表示）
+  // 遊び・毎日のお題のツール（short）は、名前と一行 → ツール → シェア の短い形で出す（紹介ページは作らない）
   const tool = lp.content.tool;
+  if (tool && lp.content.short) {
+    return (
+      <main>
+        <Tracker slug={lp.slug} version={lp.version} />
+        <ShortToolView
+          title={lp.title}
+          lead={lp.content.subheadline}
+          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} />}
+          after={
+            <section data-section="share" className="px-6 pb-12 pt-2">
+              <div className="mx-auto max-w-md space-y-4 text-center">
+                <h2 className="text-lg font-bold">楽しかったら、シェアしてもらえるとうれしいです</h2>
+                <ShareButtons slug={lp.slug} version={lp.version} text={tool.shareText} results={tool.results} />
+              </div>
+            </section>
+          }
+        />
+        <RelatedPages slug={lp.slug} />
+        <FeedbackWidget slug={lp.slug} version={lp.version} kind="tool" />
+      </main>
+    );
+  }
+
+  // 動くツールの案件で、AIが自由に書いたページがあれば、上の部分 → ツール → 下の部分 の順に出す（分けられなければ部品の表示）
   const parts = tool && lp.content.page ? splitToolPage(lp.content.page.html) : null;
   if (tool && lp.content.page && parts) {
     return (

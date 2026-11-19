@@ -1384,6 +1384,12 @@ function pageRivalFor(): string | null {
 // 新しく作るツール（前の版にツールがない）と、すでに自由なページを持つツールだけ。部品のページで公開中のツールは部品のまま
 export const shouldDesignToolPage = (freePage: boolean, before: Lp | null | undefined) => freePage && (!before?.tool || !!before.page);
 
+// 紹介ページを作らず、短い形（名前と一行 → ツール → シェア）で出すねらい（ShortToolView）
+// 遊び（広がる）は触れば分かり、説明はネタばらしになりやすい。毎日のお題（また来てもらう）は、ツールだけを触りに来る。どちらも説明は読まれない
+// 役に立つ道具は、入力の意味・前提・注意書きの説明と、検索に載るための文章が要るので、今までどおり紹介ページを作る
+export const SHORT_PAGE_AIMS = ["spread", "return"];
+export const shortToolPage = (aim: string | null | undefined) => !!aim && SHORT_PAGE_AIMS.includes(aim);
+
 // AIにページ全体を自由にデザインさせる。失敗したら、部品で作ったLPのまま返す
 async function withPage(p: ProjectRow, lp: Lp, version: number, opts: { prevHtml?: string; instruction?: string; keepCore?: boolean } = {}): Promise<{ lp: Lp; check: PageCheck | null }> {
   const done = (html: string, check: PageCheck, note: string) => {
@@ -1499,7 +1505,10 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   // 部品のページで公開中のツールは、作り直しても部品のまま（見た目を急に変えない）
   // 今のページを直すのは、前の版が自由なページのツールのときだけ（事前登録のページは登録フォームがあり、ツールのページとして直せないので、新しく作る）
   const toolPage = before?.tool ? before.page : undefined;
-  if (shouldDesignToolPage(getSettings().freePage, before)) {
+  if (shortToolPage(p.aim)) {
+    // 短い形: AIにページをデザインさせない（前の版に自由なページがあっても、この版からは外す。公開中の版は、差し替えるまでそのまま）
+    lp = { ...lp, page: undefined, short: true };
+  } else if (shouldDesignToolPage(getSettings().freePage, before)) {
     const made = await withPage(p, lp, version, { prevHtml: toolPage?.html, instruction: opts.instruction, keepCore: opts.keepCore });
     lp = made.lp;
     if (made.check && !made.check.ok) review = { ok: false, issues: [...review.issues, ...made.check.issues.map((x) => `デザイン: ${x}`)] };
