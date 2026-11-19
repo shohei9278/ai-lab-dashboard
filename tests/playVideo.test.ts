@@ -252,6 +252,11 @@ p.addEventListener("pointermove",function(){if(p.dataset.on)document.getElementB
   const r3 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "ないボタン" }, { do: "drag", target: "#ないなぞり面", dx: 0.5 }, { do: "click", target: "はじめる" }] }, forms, {}, "形", out.replace("k.mp4", "k3.mp4"));
   // 名前は正式な名前（aria-labelledby・aria-label）を表の文字より先に使う（PR #106 の ai-review の指摘）
   assert.equal(r3.failed[0], "1番目の「ないボタン」が見つからなかった（見えているボタン: はじめる・もう一度・閉じる・設定）");
+  // JS で onclick を付けた div（指の形のカーソルなし）の中の文字も押せる（PR #106 の ai-review の指摘）
+  const jsClick = `<div id="c"><span>カードを開く</span></div><div id="o"></div><script>document.getElementById("c").onclick=function(){document.getElementById("o").textContent="開いた"};</script>`;
+  const r5 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "カードを開く" }] }, jsClick, {}, "JS", out.replace("k.mp4", "k5.mp4"));
+  assert.deepEqual(r5.failed, []);
+  assert.equal(r5.done, 1);
   // 押せる役の印（menuitem）の要素は、指の形のカーソルでなくても、文字で押せる（PR #106 の ai-review の指摘）
   const r4 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "click", target: "メニューを開く" }] }, forms, {}, "形", out.replace("k.mp4", "k4.mp4"));
   assert.deepEqual(r4.failed, []);
