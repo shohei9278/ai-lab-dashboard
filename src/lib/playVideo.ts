@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { Frame, Locator } from "playwright-core";
@@ -24,6 +25,8 @@ export type PlayCheck = { ok: boolean; issues: string[]; skipped?: string };
 export type PlayVideoRow = { id: number; at: string; project_id: number; version: number; file: string; hook: string; caption: string; script: string; check_json: string | null; ok: number };
 
 export const PLAY_STEPS_MAX = 10;
+// 動画の上の一言の長さの上限（AIが書く台本も、Claude Code が書く台本も同じ）
+export const PLAY_HOOK_MAX = 24;
 // 投稿文の案に付けてよいハッシュタグの数（X に載せる前提）
 export const PLAY_TAG_MAX = 2;
 // 動画の長さの上限（秒）。これを超える分の手順は切る
@@ -80,7 +83,7 @@ export function parsePlayScript(v: unknown): PlayScript | null {
   if (!steps.some((s) => s.do === "click" || s.do === "drag")) return null;
   // 動画の上の一言と投稿文の案は必ず要る（欠けた台本は使わず、AIに書き直させる）
   if (!isStr(v.hook) || !v.hook.trim() || !isStr(v.caption) || !v.caption.trim()) return null;
-  return { hook: v.hook.trim().slice(0, 24), steps, caption: limitTags(v.caption.trim(), PLAY_TAG_MAX).slice(0, 200) };
+  return { hook: v.hook.trim().slice(0, PLAY_HOOK_MAX), steps, caption: limitTags(v.caption.trim(), PLAY_TAG_MAX).slice(0, 200) };
 }
 
 // コマの確かめの答えを読む。読めない・形が違う答えは「確かめられなかった」として問題に残す（問題なしにはしない）
@@ -100,24 +103,80 @@ export function parsePlayCheck(text: string): PlayCheck {
 export const playVideoPath = (file: string): string | null => (/^play-\d+-\d+\.mp4$/.test(file) ? path.join(dataDir("videos"), file) : null);
 export const listPlayVideos = (projectId: number) => db().prepare("SELECT * FROM play_videos WHERE project_id = ? ORDER BY id DESC LIMIT 5").all(projectId) as PlayVideoRow[];
 
-async function writePlayScript(p: ProjectRow, html: string, issues: string[] = []): Promise<PlayScript> {
-  return callJson<PlayScript>({
-    purpose: "遊ぶ様子の動画の台本",
-    projectId: p.id,
-    system: `あなたは短い縦長の動画（Xのタイムラインで流れる、10〜15秒ほど）の台本を書く担当です。動くツールを実際に遊ぶ様子を録画して、見た人が1秒で何をするものか分かり、遊んでみたくなる動画にします。
-ツールのHTMLを読み、押すボタン・入れる値の順番（steps）を書きます。
-- click: target に、押すボタンなどに見えている文字（そのまま。一部でもよい）を書く。JavaScript で作るボタン（textContent に入れる文字など）も、コードにある文字をそのまま使う（言い換えない。例: コードが「焼きへ（」+ 数 +「個）」なら「焼きへ」）。手順・見出しなどの、押せない文字と取り違えない。文字で見分けられないときだけ、HTMLにある CSS のセレクタ（#id や .class）を書く
+// 台本の手順の書き方（AIが台本を書くときと、Claude Code に貼る依頼文で同じものを使う）
+export const PLAY_STEP_RULES = `- click: target に、押すボタンなどに見えている文字（そのまま。一部でもよい）を書く。JavaScript で作るボタン（textContent に入れる文字など）も、コードにある文字をそのまま使う（言い換えない。例: コードが「焼きへ（」+ 数 +「個）」なら「焼きへ」）。手順・見出しなどの、押せない文字と取り違えない。文字で見分けられないときだけ、HTMLにある CSS のセレクタ（#id や .class）を書く
 - fill: target に入力欄のセレクタ（#id など）か、入力欄のラベルの文字を書き、value に入れる値を書く（自然な例。実在の人の名前・連絡先は使わない）
 - drag: 指やマウスで動かして遊ぶツール（ドラッグで置く・動かす・canvas の上でなぞる など）で使う。target に押さえる要素（見えている文字か、#id などのセレクタ。canvas なら canvas のセレクタ）、dx・dy に動かす距離を、その要素の幅・高さに対する割合（-1〜1。右・下が正）で書く。押さえる位置を変えたいときだけ、from に要素の中の位置 [横, 縦]（0〜1。書かなければ真ん中）を書く。動かす先は要素の中に収める（なぞる帯を端から端までなぞるなら、from を [0.05, 0.5]、dx を 0.9 にする。真ん中から 0.8 右へは、帯の右端で止まり半分しか動かない）。動かすまで押せないボタンがあるツールは、そのボタンの前に drag を入れる
 - wait: ms に待つ時間（300〜3000）。結果が出るまでに演出があるツールは、結果が見えるまで待つ
 - 焼ける・育つ・たまる など、ツールの中で時間がたつのを待つ場面が長いときは、wait に fast（2〜${FAST_MAX}。何倍の速さで見せるか）を付けて早送りにする。ツールの中では ms の時間（${FAST_WAIT_MAX}まで）が進み、動画では ms÷fast の長さで済む（画面の隅に「早送り」と出る）。15秒に収まらないゲームも、早送りを使って、最後の結果の画面まで見せる（それでも収まらなければ、いちばん見せたい場面（できあがっていく様子など）で終える）。ボタンを押したあとの短い待ちには付けない
-- 最初の3秒のうちに、いちばん面白い瞬間（結果・オチ）へ向かうように、前置きの操作は最小にする。steps は${PLAY_STEPS_MAX}個まで。最後は結果が画面に出ている状態で終える
+- 最初の3秒のうちに、いちばん面白い瞬間（結果・オチ）へ向かうように、前置きの操作は最小にする。steps は${PLAY_STEPS_MAX}個まで。最後は結果が画面に出ている状態で終える`;
+
+// Claude Code がツールと一緒に書いた台本（ツールの HTML の <script type="application/json" id="lab-play">）
+// 手順（steps）と、あれば動画の上の一言（hook）だけを持つ。投稿文の案はAIが書く（話題のハッシュタグの手がかりを使うため）
+export type GivenPlay = { steps: PlayStep[]; hook?: string };
+// 読めて、すべての手順がそのまま使えるときだけ台本にする。そうでなければ、何がだめかの文を返す（入れるときに断る）
+export function parseGivenPlay(v: unknown): GivenPlay | string {
+  if (!isObj(v) || !Array.isArray(v.steps)) return "steps（手順の配列）がありません";
+  // 一言も、書いた値をそのまま使えるときだけ受け付ける（文字でない・前後に空白がある・長すぎるときは断る。PR #107 の ai-review の指摘）
+  if (v.hook !== undefined && (typeof v.hook !== "string" || !v.hook.trim() || v.hook !== v.hook.trim() || v.hook.length > PLAY_HOOK_MAX)) return `hook（動画の上の一言）は、前後に空白のない${PLAY_HOOK_MAX}文字以内の文字にしてください`;
+  const hook = typeof v.hook === "string" ? v.hook : undefined;
+  const parsed = parsePlayScript({ hook: hook ?? "x", caption: "x", steps: v.steps });
+  if (!parsed) return "押す・なぞる手順が1つもないか、手順の形が違います";
+  if (v.steps.length > PLAY_STEPS_MAX) return `手順は${PLAY_STEPS_MAX}個までです（${v.steps.length}個あります）`;
+  if (parsed.steps.length !== v.steps.length) return `${v.steps.length}個の手順のうち、${parsed.steps.length}個しか使えません（形が違う手順があるか、${PLAY_SECONDS_MAX}秒に収まりません）`;
+  // 数の範囲などをそろえた手順が、書いたものと違うときも断る（書いた人が確かめた台本と、録画する台本を同じにするため）
+  // 書いた値は、そろえたあとも同じでなければならない（範囲の外の値・使えない値は、変えられたり落とされたりする）。書かなかった値（dy など）は既定の値でよい
+  const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+  const changed = (v.steps as unknown[]).some((raw, i) => !isObj(raw) || Object.keys(raw).some((k) => !same(raw[k], (parsed.steps[i] as Record<string, unknown>)[k])));
+  if (changed) return "手順の値が決まりの範囲の外です（待つ時間・倍速・動かす割合などを確かめてください）";
+  return { steps: parsed.steps, ...(hook ? { hook } : {}) };
+}
+
+const htmlHash = (html: string) => crypto.createHash("sha256").update(html).digest("hex");
+// 入れたツールの HTML（台本の要素を除いたもの）と結び付けて残す。ツールを入れ直すと、新しい HTML の台本になる
+export function savePlayScript(projectId: number, html: string, given: GivenPlay) {
+  db().prepare("INSERT INTO play_scripts (project_id, html_hash, script) VALUES (?, ?, ?) ON CONFLICT(project_id, html_hash) DO UPDATE SET script = excluded.script, at = datetime('now')")
+    .run(projectId, htmlHash(html), JSON.stringify(given));
+}
+// ツールを入れるときに、その HTML の台本を入れ替える（台本なしで入れ直したら消す）。戻す関数を返す（取り込みが失敗したときに、前の台本に戻すため。PR #107 の ai-review の指摘）
+// 取り込みが終わってから残すのではなく先に入れ替えるのは、自動で公開する案件では、取り込みの途中で動画づくりが始まることがあるため
+export function replacePlayScript(projectId: number, html: string, given: GivenPlay | null): () => void {
+  const hash = htmlHash(html);
+  const before = db().prepare("SELECT script, at FROM play_scripts WHERE project_id = ? AND html_hash = ?").get(projectId, hash) as { script: string; at: string } | undefined;
+  if (given) savePlayScript(projectId, html, given);
+  else db().prepare("DELETE FROM play_scripts WHERE project_id = ? AND html_hash = ?").run(projectId, hash);
+  return () => {
+    if (before) db().prepare("INSERT INTO play_scripts (project_id, html_hash, script, at) VALUES (?, ?, ?, ?) ON CONFLICT(project_id, html_hash) DO UPDATE SET script = excluded.script, at = excluded.at").run(projectId, hash, before.script, before.at);
+    else db().prepare("DELETE FROM play_scripts WHERE project_id = ? AND html_hash = ?").run(projectId, hash);
+  };
+}
+// 今のツールの HTML に結び付いた台本（なければ null。AIが台本を書く）
+export function givenPlayScript(projectId: number, html: string): GivenPlay | null {
+  const r = db().prepare("SELECT script FROM play_scripts WHERE project_id = ? AND html_hash = ?").get(projectId, htmlHash(html)) as { script: string } | undefined;
+  if (!r) return null;
+  const g = parseGivenPlay(JSON.parse(r.script));
+  return typeof g === "string" ? null : g;
+}
+
+// given: Claude Code が書いた台本。手順はそのまま使い、AIは一言（なければ）と投稿文の案だけを書く
+// prev: 前の台本（録画して問題があったとき、どこを直すかが分かるように渡す）
+async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [], opts: { given?: GivenPlay; prev?: PlayScript } = {}): Promise<PlayScript> {
+  const { given, prev } = opts;
+  const fixed = given ? `\n\nこのツールを作った人が、手元で録画して確かめた台本の手順がある。steps はこのまま返し、${given.hook ? "hook もこのまま返して、" : "hook と "}caption を書く:\n${JSON.stringify(given)}` : "";
+  const before = prev ? `\n\n前の台本: ${JSON.stringify({ hook: prev.hook, steps: prev.steps })}` : "";
+  const script = await callJson<PlayScript>({
+    purpose: "遊ぶ様子の動画の台本",
+    projectId: p.id,
+    system: `あなたは短い縦長の動画（Xのタイムラインで流れる、10〜15秒ほど）の台本を書く担当です。動くツールを実際に遊ぶ様子を録画して、見た人が1秒で何をするものか分かり、遊んでみたくなる動画にします。
+ツールのHTMLを読み、押すボタン・入れる値の順番（steps）を書きます。
+${PLAY_STEP_RULES}
 - hook: 動画の上に大きく出す一言（20文字以内）。何をするものか・何が起きるかが一言で分かるもの。誇大な表現・実在の人物や作品の名前は使わない
 - caption: 投稿の本文の案（120文字以内。リンクは付けない（あとで付ける）。${tagRule(PLAY_TAG_MAX)}）
 出力はJSONのみ: {"hook":"","steps":[{"do":"click","target":"回す"},{"do":"wait","ms":1500}],"caption":""}（ドラッグの例: {"do":"drag","target":"#board","from":[0.2,0.8],"dx":0.3,"dy":-0.3}。早送りの例: {"do":"wait","ms":8000,"fast":4}）`,
-    user: `ツール名: ${p.title}\n対象: ${p.target}\n何ができるか: ${p.solution}${tagHints()}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}`,
+    user: `ツール名: ${p.title}\n対象: ${p.target}\n何ができるか: ${p.solution}${tagHints()}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${fixed}${before}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}`,
     validate: (v): v is PlayScript => parsePlayScript(v) !== null,
   }).then((v) => parsePlayScript(v)!);
+  return given ? { ...script, steps: given.steps, hook: given.hook ?? script.hook } : script;
 }
 
 // 上の帯の高さ（一言は2行まで入る）。ツールの枠の高さは (1920 - TOP - BOTTOM) / SCALE = 510px（#66 の動画で、一番下の一言が欠けたので 500px から少し高くした）
@@ -402,7 +461,10 @@ async function makeOnce(projectId: number): Promise<number> {
   try {
     const tool = lp.tool;
     const opts = { data: tool.data, fonts: tool.fonts, illustration: lp.design?.illustration?.url };
-    let script = await writePlayScript(p, tool.html);
+    // Claude Code がツールと一緒に書いた台本があれば、その手順で録画する（AIは一言と投稿文の案だけを書く）
+    const given = givenPlayScript(p.id, tool.html);
+    if (given) logEvent(p.id, "system", "play-video", "ツールを作った人（Claude Code）が書いた台本の手順で録画します");
+    let script = await writePlayScript(p, tool.html, [], given ? { given } : {});
     let file = "";
     let check: PlayCheck = { ok: false, issues: [] };
     for (let round = 0; round < 2; round++) {
@@ -415,7 +477,7 @@ async function makeOnce(projectId: number): Promise<number> {
       if (r.done > 0 && notes.length) check = { ...check, ok: false, issues: [...notes, ...check.issues] };
       if (check.ok || round === 1) break;
       fs.rmSync(playVideoPath(file)!, { force: true });
-      script = await writePlayScript(p, tool.html, check.issues);
+      script = await writePlayScript(p, tool.html, check.issues, { prev: script });
     }
     const id = Number(db().prepare("INSERT INTO play_videos (project_id, version, file, hook, caption, script, check_json, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(p.id, p.lp_version, file, script.hook, script.caption, JSON.stringify(script), JSON.stringify(check), check.ok ? 1 : 0).lastInsertRowid);

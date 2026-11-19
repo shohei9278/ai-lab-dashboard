@@ -366,6 +366,15 @@ CREATE TABLE IF NOT EXISTS play_videos (
   ok INTEGER NOT NULL DEFAULT 0
 );
 
+-- Claude Code がツールと一緒に書いた、遊ぶ様子の動画の台本（手順と一言）。入れたツールの HTML のハッシュと結び付ける
+CREATE TABLE IF NOT EXISTS play_scripts (
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  html_hash TEXT NOT NULL,
+  script TEXT NOT NULL,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (project_id, html_hash)
+);
+
 CREATE TABLE IF NOT EXISTS record_videos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
