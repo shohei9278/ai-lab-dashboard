@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
-import { makePlayVideoOnPublish } from "./playVideo";
+import { PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublish, parseGivenPlay, savePlayScript } from "./playVideo";
 import { hitsText } from "./hits";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
@@ -8,7 +8,7 @@ import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocat
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
-import { hasResultsTag, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
+import { hasResultsTag, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
 import { MODELS, hasKey, modelInfo } from "./models";
 import { screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
@@ -717,6 +717,7 @@ export function devRequestText(projectId: number, design: string, instruction: s
     `## データ\n${dataNote}`,
     needsNote(p) ? `## 人が用意したもの（人の作業待ちで「済み」にしたもの）\n${needsNote(p)}\n素材の場所・使い方など、ここに書いていないことは、作る前に運営者に聞く。` : "",
     `## 作るときの決まり（AIが書くときと同じ。ただし Claude Code で作るときは、コードの長さは${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）\n${rules}`,
+    `## 遊ぶ様子の動画の台本（任意。ねらいが「広がる」のツールは付ける）\nSNS に載せる縦長の動画（${PLAY_SECONDS_MAX}秒まで・スマホ幅360px・高さ510pxの枠で本物のツールを操作して録画する）の台本を、ツールの HTML の中に <script type="application/json" id="lab-play">{"hook":"動画の上の一言（20文字以内・なくてもよい）","steps":[...]}</script> として入れる。入れると、本番の動画づくりで、AIが台本を書く代わりにこの手順で録画する（投稿文の案はAIが書く。この要素は公開するツールからは除く）。手順の書き方:\n${PLAY_STEP_RULES}\n手順の値は決まりの範囲の中で書く（範囲の外・形の違う手順があると、ツールを入れるときに断られる）。ai-lab のリポジトリで \`npx tsx scripts/play-check.mts <ツールのHTML>\` を実行すると、本番と同じ仕組みで録画して、どの手順ができたか・最初・途中・最後のコマを出すので、最後の結果まで映ることを確かめてから入れる`,
     `## できたら\n1つのHTMLの断片（<html><head><body> は書かない）・${TOOL_HTML_MAX.toLocaleString("en-US")}文字以内にして、スマホ幅でブラウザで動かして確かめてから、案件の判断待ちの「ツールのHTMLを入れる」から入れる。入れると、いつもどおりチェック・動作の確かめ・紹介ページ・公開の判断に進む。`,
   ].filter(Boolean).join("\n\n");
 }
@@ -726,7 +727,18 @@ export function devRequestText(projectId: number, design: string, instruction: s
 export function startDevUpload(approvalId: number, html: string): Promise<void> {
   const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
   if (!a || a.kind !== "dev" || a.status !== "pending") throw new Error("ツールを入れられる開発待ちが見つかりません");
-  const t = html.trim();
+  // 遊ぶ様子の動画の台本（あれば）を取り出し、公開するツールからは除く。形が違う台本は、理由を返して入れない
+  const play = takePlayScript(html.trim());
+  if (play.error) throw new Error(play.error);
+  let given: Exclude<ReturnType<typeof parseGivenPlay>, string> | null = null;
+  if (play.json !== null) {
+    let v: unknown;
+    try { v = JSON.parse(play.json); } catch { throw new Error("動画の台本（lab-play）が JSON として読めません"); }
+    const g = parseGivenPlay(v);
+    if (typeof g === "string") throw new Error(`動画の台本（lab-play）が使えません: ${g}`);
+    given = g;
+  }
+  const t = play.html;
   if (!t) throw new Error("ツールのHTMLが空です");
   if (t.length > TOOL_HTML_MAX) throw new Error(`ツールのHTMLが長すぎます（${t.length.toLocaleString("en-US")}文字。${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）`);
   // Google Fonts の読み込みは、どのツールでも staticToolIssues の最初で外してから見る（じっくり案件でも使える）
@@ -735,7 +747,8 @@ export function startDevUpload(approvalId: number, html: string): Promise<void> 
   if (issues.length) throw new Error(`決まりに合わないため入れられません: ${issues.join(" / ")}`);
   const p = getProject(a.project_id)!;
   db().prepare("UPDATE approvals SET status = 'approved', comment = ?, decided_at = datetime('now') WHERE id = ?").run("Claude Code で作ったツールを入れた", approvalId);
-  logEvent(p.id, "human", "dev-upload", `Claude Code で作ったツール（${(t.length / 1000).toFixed(1)}千文字）を入れました`);
+  if (given) savePlayScript(p.id, t, given);
+  logEvent(p.id, "human", "dev-upload", `Claude Code で作ったツール（${(t.length / 1000).toFixed(1)}千文字）を入れました${given ? `。遊ぶ様子の動画の台本（手順${given.steps.length}つ）も入れました` : ""}`);
   const payload = JSON.parse(a.payload ?? "{}") as { design?: string; instruction?: string | null };
   const instruction = payload.instruction ?? undefined;
   // 取り込みの途中（紹介ページづくり・チェックなど）で失敗したら、開発待ちに戻す（同じHTMLをもう一度入れられるように。作り直しにはしない）

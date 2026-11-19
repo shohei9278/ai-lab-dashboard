@@ -1,7 +1,7 @@
 // AIが書いたHTMLを、ブラウザと同じ規則（HTMLの標準の読み方。parse5）で読む
 // 自前の正規表現では、script の中の文字列・閉じタグの食い違い・<div/>・文字参照（&#45; など）で、ブラウザと違う形に読んでしまうため
 // サーバーでだけ使う（画面のコードに入れると、パーサーの分だけ読み込みが重くなる）
-import { parse, serialize, serializeOuter, type DefaultTreeAdapterTypes as T } from "parse5";
+import { parse, parseFragment, serialize, serializeOuter, type DefaultTreeAdapterTypes as T } from "parse5";
 import { isToolResults } from "./content";
 
 const isEl = (n: T.Node): n is T.Element => "tagName" in n;
@@ -82,4 +82,19 @@ export function toolResultsOf(html: string): string[] | undefined {
   } catch {
     return undefined;
   }
+}
+
+// Claude Code で作ったツールに付けた、遊ぶ様子の動画の台本（<script type="application/json" id="lab-play">{...}</script>）を取り出す
+// 公開するツールには入れないので、その要素を除いたツールの HTML（ほかの部分は1文字も変えない）も返す
+// 台本の要素がなければ json は null。2つ以上ある・type が application/json でないときは error（どれが本物か分からない・スクリプトとして動いてしまう）
+export function takePlayScript(html: string): { html: string; json: string | null; error?: string } {
+  const tags = elementsOf(parseFragment(html, { sourceCodeLocationInfo: true })).filter((el) => el.tagName === "script" && attrOf(el, "id") === "lab-play");
+  if (tags.length === 0) return { html, json: null };
+  if (tags.length > 1) return { html, json: null, error: "動画の台本（id が lab-play の script）が2つ以上あります" };
+  const tag = tags[0];
+  if ((attrOf(tag, "type") ?? "").trim().toLowerCase() !== "application/json") return { html, json: null, error: "動画の台本の script には type=\"application/json\" を付けてください" };
+  const loc = tag.sourceCodeLocation;
+  if (!loc) return { html, json: null, error: "動画の台本の位置を読めませんでした" };
+  const json = tag.childNodes.map((n) => ("value" in n ? n.value : "")).join("");
+  return { html: (html.slice(0, loc.startOffset) + html.slice(loc.endOffset)).trim(), json };
 }
