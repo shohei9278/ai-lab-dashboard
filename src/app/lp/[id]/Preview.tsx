@@ -4,7 +4,7 @@ import { PageFrame } from "../../../../lp-site/src/lp/PageFrame";
 import { imgOriginsOf } from "../../../../lp-site/src/lp/pageHtml";
 import { splitToolPage } from "../../../../lp-site/src/lp/htmlDom";
 import { ToolPageView } from "../../../../lp-site/src/lp/ToolPageView";
-import { ShortToolView } from "../../../../lp-site/src/lp/ShortToolView";
+import { SHORT_SHARE_HEADING, ShortToolView } from "../../../../lp-site/src/lp/ShortToolView";
 import type { Lp } from "../../../../lp-site/src/lp/content";
 
 // LP・ツールの本体を、公開サイトと同じ部品で表示する（プレビューと見比べで共通）
@@ -14,7 +14,24 @@ export function PreviewBody({ lp, title, pc = false, freePage = true }: { lp: Lp
   if (lp.tool && lp.short) {
     return (
       <div className={`mx-auto overflow-hidden rounded-2xl border border-line bg-[color:var(--bg)] ${pc ? "max-w-[1280px]" : "max-w-[390px]"}`}>
-        <ShortToolView title={title} lead={lp.subheadline} tool={<ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} />} />
+        <ShortToolView
+          title={title}
+          lead={lp.subheadline}
+          tool={<ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} />}
+          after={
+            // シェアの欄も、公開サイトと同じ見た目で出す（プレビューでは押せない。押せる形にすると、未公開のページを広めてしまうため）
+            <section data-section="share" className="px-6 pb-12 pt-2">
+              <div className="mx-auto max-w-md space-y-4 text-center">
+                <h2 className="text-lg font-bold">{SHORT_SHARE_HEADING}</h2>
+                <div className="flex flex-wrap justify-center gap-3">
+                  <button type="button" aria-disabled title="プレビューでは押せません" className={`${lpButtonClass} cursor-default`} style={lpButtonStyle}>X でシェア</button>
+                  <button type="button" aria-disabled title="プレビューでは押せません" className="cursor-default rounded-full border border-[color:var(--border)] px-6 py-3 font-bold">リンクをコピー</button>
+                </div>
+                <p className="text-xs text-ink-2">シェアのボタンは、公開したページで動きます</p>
+              </div>
+            </section>
+          }
+        />
       </div>
     );
   }

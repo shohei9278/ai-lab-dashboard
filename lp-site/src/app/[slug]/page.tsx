@@ -12,7 +12,7 @@ import { FeedbackWidget } from "./FeedbackWidget";
 import { imgOriginsOf } from "@/lp/pageHtml";
 import { splitToolPage } from "@/lp/htmlDom";
 import { ToolPageView } from "@/lp/ToolPageView";
-import { ShortToolView } from "@/lp/ShortToolView";
+import { SHORT_SHARE_HEADING, ShortToolView } from "@/lp/ShortToolView";
 import { RelatedPages } from "./RelatedPages";
 import { PageSummary } from "./PageSummary";
 
@@ -93,7 +93,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
           after={
             <section data-section="share" className="px-6 pb-12 pt-2">
               <div className="mx-auto max-w-md space-y-4 text-center">
-                <h2 className="text-lg font-bold">楽しかったら、シェアしてもらえるとうれしいです</h2>
+                <h2 className="text-lg font-bold">{SHORT_SHARE_HEADING}</h2>
                 <ShareButtons slug={lp.slug} version={lp.version} text={tool.shareText} results={tool.results} />
               </div>
             </section>
