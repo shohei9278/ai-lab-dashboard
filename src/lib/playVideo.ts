@@ -140,7 +140,8 @@ async function find(frame: Frame, step: PlayStep, wait = FIND_WAIT_MS) {
   // #66 で、台本の「焼く」が、ボタン「焼きへ（1個）」ではなく、上の手順の表示「包む → 焼く → 返す」の文字に当たり、押せたことになって先へ進めなかった
   const tries: { make: () => Locator; clickable?: boolean }[] = step.do === "fill"
     ? [{ make: () => frame.getByLabel(t, { exact: false }) }, { make: () => frame.getByPlaceholder(t, { exact: false }) }, { make: () => frame.locator(t) }]
-    : [{ make: () => frame.getByRole("button", { name: t, exact: false }) }, { make: () => frame.getByText(t, { exact: false }), clickable: true }, { make: () => frame.locator(t) }];
+    // 押せる所だけに絞るのは押す手順だけ（なぞる帯は、ボタンでも指の形のカーソルでもないことが多い。PR #106 の ai-review の指摘）
+    : [{ make: () => frame.getByRole("button", { name: t, exact: false }) }, { make: () => frame.getByText(t, { exact: false }), clickable: step.do === "click" }, { make: () => frame.locator(t) }];
   // 同じ文字の候補が複数あるとき（PC用とスマホ用など）は、見えている最初のものを使う
   // 前の操作の演出（閉じる・切り替わるなど）のあとに出るボタンもあるので、少しのあいだ出てくるのを待つ（#66 の「焼きへ」）
   const until = Date.now() + wait;

@@ -240,4 +240,11 @@ document.getElementById("card").onclick=function(){document.getElementById("out"
   assert.match(r.failed[0], /1番目の「焼く」が見つからなかった（見えているボタン: 焼きへ（1個））/);
   // ボタンの文字の一部・指の形のカーソルの所は、今までどおり押せる
   assert.equal(r.done, 2);
+  // なぞる手順は、押せる所でない帯の中の文字からでも、今までどおり探せる（PR #106 の ai-review の指摘）
+  const strip = `<div id="pad" style="height:120px;background:#eee;touch-action:none;cursor:ew-resize"><p>右へなぞる</p></div><button id="ok" disabled>とじる</button>
+<script>var p=document.getElementById("pad");p.addEventListener("pointerdown",function(e){p.setPointerCapture(e.pointerId);p.dataset.on="1"});
+p.addEventListener("pointermove",function(){if(p.dataset.on)document.getElementById("ok").disabled=false});p.addEventListener("pointerup",function(){p.dataset.on=""});</script>`;
+  const r2 = await renderPlay({ hook: "x", caption: "c", steps: [{ do: "drag", target: "右へなぞる", dx: 0.5 }, { do: "click", target: "とじる" }] }, strip, {}, "なぞる", out.replace("k.mp4", "k2.mp4"));
+  assert.deepEqual(r2.failed, []);
+  assert.equal(r2.done, 2);
 });
