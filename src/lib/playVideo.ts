@@ -11,6 +11,7 @@ import { versionLp } from "./versions";
 import { recordToMp4 } from "./videoRender";
 import { limitTags, tagHints, tagRule } from "./hashtags";
 import { wrapToolHtml } from "../../lp-site/src/lp/toolHtml";
+import type { ToolImages } from "../../lp-site/src/lp/content";
 
 // 動くツールを遊ぶ様子の、縦長の短い動画（SNSに投稿するため）
 // AIが遊び方の台本（押すボタン・入れる値）を書き、本物のブラウザでツールを動かして録画する。録画のコマをAIが見て、伝わるかを確かめる
@@ -250,7 +251,7 @@ async function bringIntoView(l: Locator) {
 
 // 台本どおりに遊ぶ様子を録画する。押す前に、指の印をその場所へ動かす（何を押したか分かるように）
 // 返す shots は、最初・途中・最後の画面（AIの確かめに使う。録画には入らない）
-export async function renderPlay(script: PlayScript, toolHtml: string, opts: { data?: unknown[]; fonts?: boolean; illustration?: string }, title: string, out: string): Promise<{ done: number; failed: string[]; shots: Buffer[] }> {
+export async function renderPlay(script: PlayScript, toolHtml: string, opts: { data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages }, title: string, out: string): Promise<{ done: number; failed: string[]; shots: Buffer[] }> {
   const browser = await launch();
   if (typeof browser === "string") throw new Error(browser);
   try {
@@ -467,7 +468,7 @@ async function makeOnce(projectId: number): Promise<number> {
   let saved = false;
   try {
     const tool = lp.tool;
-    const opts = { data: tool.data, fonts: tool.fonts, illustration: lp.design?.illustration?.url };
+    const opts = { data: tool.data, fonts: tool.fonts, illustration: lp.design?.illustration?.url, images: tool.images };
     // Claude Code がツールと一緒に書いた台本があれば、その手順で録画する（AIは一言と投稿文の案だけを書く）
     const given = givenPlayScript(p.id, tool.html);
     if (given) logEvent(p.id, "system", "play-video", "ツールを作った人（Claude Code）が書いた台本の手順で録画します");

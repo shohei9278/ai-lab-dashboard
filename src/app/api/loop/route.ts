@@ -7,6 +7,7 @@ import {
 import { signupEmails } from "@/lib/publish";
 import { AIMS, isAim } from "@/lib/aims";
 import { makePlayVideo } from "@/lib/playVideo";
+import { addToolAsset, removeToolAsset } from "@/lib/toolAssets";
 
 // 長くかかる操作（アイデア会議・毎日の自動実行・遊ぶ様子の動画）は、受け付けたらすぐ返し、裏で進める
 // 会議の前にXの検索も入るので、1回の通信で終わるまで待つと途中で切れ、画面に「通信に失敗しました」と出るため。進み具合はライブと経過で見る
@@ -100,6 +101,15 @@ export async function POST(req: Request) {
         background(null, "Claude Code で作ったツールの取り込み", job);
         return NextResponse.json({ accepted: true });
       }
+      case "tool-asset": {
+        // じっくり案件のツールに付ける画像（素材）。data は画像の中身（base64）
+        const p = requireProject(body);
+        const asset = await addToolAsset(p.id, typeof body.name === "string" ? body.name : "", typeof body.data === "string" ? body.data : "");
+        return NextResponse.json({ ok: true, asset });
+      }
+      case "tool-asset-remove":
+        removeToolAsset(requireProject(body).id, typeof body.name === "string" ? body.name : "");
+        return NextResponse.json({ ok: true });
       case "play-video": {
         const p = requireProject(body);
         if (p.kind !== "tool") throw new Error("動くツールの案件だけ、遊ぶ様子の動画を作れます");

@@ -367,6 +367,18 @@ CREATE TABLE IF NOT EXISTS play_videos (
 );
 
 -- Claude Code がツールと一緒に書いた、遊ぶ様子の動画の台本（手順と一言）。入れたツールの HTML のハッシュと結び付ける
+-- じっくり案件のツールに付ける画像（素材）。人が開発のカードから入れる。画像は公開用の保存領域に置き、ここには名前と URL を残す
+-- 同じ名前で入れ直すと差し替える（公開済みの版は、前の URL の画像を使い続ける）
+CREATE TABLE IF NOT EXISTS tool_assets (
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  name TEXT NOT NULL,
+  url TEXT NOT NULL,
+  type TEXT NOT NULL,
+  bytes INTEGER NOT NULL,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (project_id, name)
+);
+
 CREATE TABLE IF NOT EXISTS play_scripts (
   project_id INTEGER NOT NULL REFERENCES projects(id),
   html_hash TEXT NOT NULL,

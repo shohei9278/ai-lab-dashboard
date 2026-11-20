@@ -8,6 +8,7 @@ import { jstDateTime } from "@/lib/format";
 import { plainIssue } from "@/lib/issueText";
 import { fixInstruction, pageOnlyIssues } from "@/lib/fixText";
 import { hasUnpublishedVersion, versionLabel } from "@/lib/versionLabel";
+import { TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_IMAGE_NAME } from "../../lp-site/src/lp/content";
 
 export type ApprovalView = {
   id: number;
@@ -20,7 +21,7 @@ export type ApprovalView = {
   // error: 下書きに失敗したとき（id は null）。owner: 運営者が見ているか（データを自分で入れられる）
   data?: { id: number | null; count: number; groups: number; note: string; fields: { key: string; label: string; kind: "fact" | "view" }[]; sample?: Record<string, unknown>[]; error?: string; owner: boolean };
   // じっくり案件の開発待ち（Claude Code で作る）。設計書と依頼文は運営者にだけ入る
-  dev?: { owner: boolean; design: string; request: string; instruction: string | null; hasData: boolean; hasTool: boolean };
+  dev?: { owner: boolean; design: string; request: string; instruction: string | null; hasData: boolean; hasTool: boolean; assets: { name: string; url: string; bytes: number }[] };
   conv: { noun: string; rate: string }; // 成果の呼び方（事前登録LPは登録、動くツールは利用）
   decision?: { confidence: number; nextAction: string };
   review?: { ok: boolean; issues: string[] };
@@ -343,6 +344,81 @@ function DevBox({ d, approvalId, projectId }: { d: NonNullable<ApprovalView["dev
         </label>
       </div>
       {done && !busy && <p className="text-ink-2" role="status">入れました。裏でチェック・動作の確かめ・紹介ページづくりをして、終わると公開の判断待ちに出します（数分かかります）。</p>}
+      <BusyNote busy={busy} error={error} />
+      <DevAssets projectId={projectId} assets={d.assets} />
+    </div>
+  );
+}
+
+// じっくり案件のツールに付ける画像（素材）。名前を付けて入れ、ツールでは window.labAssets.images.名前 で読む
+// 入れた画像は、このあとツールを入れた版から使われる（公開済みの版は変わらない）
+function DevAssets({ projectId, assets }: { projectId: number; assets: { name: string; url: string; bytes: number }[] }) {
+  const { run, busy, error } = useLoopAction();
+  const [name, setName] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const valid = TOOL_IMAGE_NAME.test(name);
+  const full = assets.length >= TOOL_IMAGES_MAX && !assets.some((a) => a.name === name);
+  const maxMb = TOOL_IMAGE_BYTES_MAX / 1024 / 1024;
+  return (
+    <div className="rounded-lg border border-line p-3">
+      <p className="font-medium">画像（素材）</p>
+      <p className="mt-1 text-xs text-ink-2">
+        ツールで使う画像を、名前を付けて入れます（{TOOL_IMAGES_MAX}枚まで・1枚{maxMb}MBまで・PNG・JPEG・WebP）。ツールでは window.labAssets.images.名前 で読めます。
+        入れた画像は、このあとツールを入れた版から使われます。同じ名前で入れると差し替えます。
+      </p>
+      {assets.length > 0 && (
+        <ul className="mt-2 flex flex-wrap gap-2">
+          {assets.map((a) => (
+            <li key={a.name} className="flex items-center gap-2 rounded-lg border border-line p-1.5 pr-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={a.url} alt="" className="h-12 w-12 rounded object-cover" />
+              <span className="leading-tight">
+                <code className="text-xs">{a.name}</code>
+                <br />
+                <span className="text-xs text-muted">{Math.round(a.bytes / 1024)}KB</span>
+              </span>
+              <button type="button" disabled={!!busy} onClick={() => run("外しています…", { action: "tool-asset-remove", projectId, name: a.name })} className="ml-1 rounded border border-line px-2 py-0.5 text-xs">
+                外す
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <input
+          value={name}
+          onChange={(e) => { setName(e.target.value.trim()); setNote(null); }}
+          placeholder="名前（例: night）"
+          aria-label="画像の名前"
+          className="w-44 rounded-lg border border-line bg-surface px-2 py-1.5"
+        />
+        <label className={`rounded-lg border border-line px-3 py-1.5 ${valid && !full && !busy ? "cursor-pointer" : "cursor-not-allowed opacity-50"}`}>
+          {assets.some((a) => a.name === name) ? "画像を差し替える" : "画像を入れる"}
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            disabled={!valid || full || !!busy}
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (!f) return;
+              if (f.size > TOOL_IMAGE_BYTES_MAX) { setNote(`画像が大きすぎます（${(f.size / 1024 / 1024).toFixed(1)}MB。${maxMb}MB まで）`); return; }
+              const data = await new Promise<string>((ok, ng) => {
+                const r = new FileReader();
+                r.onload = () => ok(String(r.result).replace(/^data:[^,]*,/, ""));
+                r.onerror = () => ng(r.error);
+                r.readAsDataURL(f);
+              }).catch(() => "");
+              if (!data) { setNote("画像を読めませんでした"); return; }
+              if (await run("入れています…", { action: "tool-asset", projectId, name, data })) { setName(""); setNote(null); }
+            }}
+          />
+        </label>
+      </div>
+      {name && !valid && <p className="mt-1 text-xs text-ink-2">名前は、英小文字で始まる英小文字・数字・_ の24文字までにしてください（例: night, depth）</p>}
+      {full && <p className="mt-1 text-xs text-ink-2">画像は{TOOL_IMAGES_MAX}枚までです。いらないものを外してから入れてください。</p>}
+      {note && <p className="mt-1 text-xs text-ink-2" role="status">{note}</p>}
       <BusyNote busy={busy} error={error} />
     </div>
   );

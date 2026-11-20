@@ -1,3 +1,5 @@
+import { toolImagesOf, type ToolImages } from "./content";
+
 // ツール本体を、隔離された枠に入れるページの形にする。公開サイト・プレビュー・公開前の自動テストで同じものを使う
 // - CSP で外部への通信や外部ファイルの読み込みを止める
 // - 枠の高さと「使われたか」は、こちらで差し込む小さなスクリプトが知らせる（ツールの中身に頼らない）
@@ -8,13 +10,13 @@
 // - ツールは結果が出たら window.labShare("…") で、シェアの文に使う結果の一文を知らせられる
 // - 結果の種類が決まっているツールは window.labResult(番号) で、どの結果かを知らせられる（シェアのリンクと、結果ごとのシェア画像に使う）
 // fonts: Google Fonts を使ってよいとき、読み込めるのはその2か所の CSS と文字の形だけ
-// imgOrigin: このツールの紹介イラストを置いている場所（https のときだけ。画像の読み込みだけを許す）。ほかへの通信は止めたまま
-function csp(fonts: boolean, imgOrigin: string | null): string {
+// imgOrigins: このツールの紹介イラストと、人が入れた画像（素材）を置いている場所（https のときだけ。画像の読み込みだけを許す）。ほかへの通信は止めたまま
+function csp(fonts: boolean, imgOrigins: string[]): string {
   return [
     "default-src 'none'",
     "script-src 'unsafe-inline'",
     `style-src 'unsafe-inline'${fonts ? " https://fonts.googleapis.com" : ""}`,
-    `img-src data: blob:${imgOrigin ? ` ${imgOrigin}` : ""}`,
+    `img-src data: blob:${imgOrigins.map((o) => ` ${o}`).join("")}`,
     `font-src data:${fonts ? " https://fonts.gstatic.com" : ""}`,
     "media-src data: blob:",
   ].join("; ");
@@ -37,14 +39,18 @@ addEventListener("input",use,true);addEventListener("change",use,true);})();</sc
 // data: じっくり案件の、人が確かめたデータ。ツールより先に window.labData として置く（通信せずに読める）
 // fonts: Google Fonts を使ってよいか
 // illustration: このツールの紹介イラストの URL。window.labAssets.illustration として置き、その場所の画像だけ読み込めるようにする
+// images: じっくり案件で人が入れた画像（素材）。window.labAssets.images（名前 → URL）として置き、その場所の画像だけ読み込めるようにする
+//   画像の保存領域は、ほかのページからの読み込みを許しているので、crossOrigin="anonymous" で読めば canvas・WebGL にも描ける（描いたあとも画像を保存できる）
 // fill: 枠を画面の高さに決めて出すとき（遊びのツールの全画面。ShortToolView）。枠の中で引っぱりきっても、外のページが動いたり読み込み直されたりしないようにする
-export function wrapToolHtml(html: string, opts: { data?: unknown[]; fonts?: boolean; illustration?: string; fill?: boolean } = {}): string {
+export function wrapToolHtml(html: string, opts: { data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean } = {}): string {
   const imgOrigin = originOf(opts.illustration);
+  const images = toolImagesOf(opts.images, true);
+  const imgOrigins = [...new Set([imgOrigin, ...Object.values(images ?? {}).map(originOf)].filter((o): o is string => !!o))];
   // [hidden] は、クラスで display を決めた要素にも効くようにする（付けても消えず、切り替えの入力欄が出たままになっていた）
-  const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${csp(!!opts.fonts, imgOrigin)}"><style>[hidden]{display:none!important}${opts.fill ? "html,body{overscroll-behavior:none}" : ""}</style>`;
+  const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${csp(!!opts.fonts, imgOrigins)}"><style>[hidden]{display:none!important}${opts.fill ? "html,body{overscroll-behavior:none}" : ""}</style>`;
   // データの中の文字で </script> を閉じられないように、< と行区切りの文字を書き換える
   const data = opts.data ? `<script>window.labData=${JSON.stringify(opts.data).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029")};</script>` : "";
-  const assets = `<script>window.labAssets=${JSON.stringify(imgOrigin ? { illustration: opts.illustration } : {}).replace(/</g, "\\u003c")};</script>`;
+  const assets = `<script>window.labAssets=${JSON.stringify({ ...(imgOrigin ? { illustration: opts.illustration } : {}), ...(images ? { images } : {}) }).replace(/</g, "\\u003c")};</script>`;
   return `<!doctype html><html lang="ja"><head>${head}${data}${assets}</head><body>${html}${BRIDGE}</body></html>`;
 }
 

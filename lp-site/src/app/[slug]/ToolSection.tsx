@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { gaEvent } from "@/lib/ga";
 import { ToolFrame } from "@/lp/ToolFrame";
+import type { ToolImages } from "@/lp/content";
 import { lpButtonClass, lpButtonStyle } from "@/lp/LpView";
 import { isExcluded, visitorId } from "./visitor";
 
@@ -17,12 +18,12 @@ function record(slug: string, version: number, kind: "use" | "share") {
 }
 
 // ツール本体。最初に操作されたときに「使った」と記録する
-export function ToolSection({ slug, version, html, title, data, fonts, illustration, fill }: { slug: string; version: number; html: string; title: string; data?: unknown[]; fonts?: boolean; illustration?: string; fill?: boolean }) {
+export function ToolSection({ slug, version, html, title, data, fonts, illustration, images, fill }: { slug: string; version: number; html: string; title: string; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean }) {
   const onUse = useCallback(() => {
     record(slug, version, "use");
     gaEvent("tool_use", { lp_slug: slug, lp_version: version });
   }, [slug, version]);
-  return <ToolFrame html={html} title={title} onUse={onUse} data={data} fonts={fonts} illustration={illustration} fill={fill} />;
+  return <ToolFrame html={html} title={title} onUse={onUse} data={data} fonts={fonts} illustration={illustration} images={images} fill={fill} />;
 }
 
 // シェアのボタン（X とリンクのコピー）

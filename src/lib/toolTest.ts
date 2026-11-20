@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, type Browser } from "playwright-core";
 import { wrapToolHtml } from "../../lp-site/src/lp/toolHtml";
+import type { ToolImages } from "../../lp-site/src/lp/content";
 import { dataDir } from "./db";
 
 // 動くツールを、公開する前に本物のブラウザ（スマホの画面幅）で動かして確かめる
@@ -37,8 +38,8 @@ async function launch(): Promise<Browser | string> {
   return "テスト用のブラウザ（Chrome）が見つからないため、自動テストを飛ばしました";
 }
 
-// opts: じっくり案件のデータと、Google Fonts を使ってよいか（公開サイトの枠と同じ形で入れて動かす）
-export async function testTool(html: string, name: string, opts: { data?: unknown[]; fonts?: boolean } = {}): Promise<ToolTest> {
+// opts: じっくり案件のデータ・人が入れた画像と、Google Fonts を使ってよいか（公開サイトの枠と同じ形で入れて動かす）
+export async function testTool(html: string, name: string, opts: { data?: unknown[]; fonts?: boolean; images?: ToolImages } = {}): Promise<ToolTest> {
   const at = new Date().toISOString();
   const browser = await launch();
   if (typeof browser === "string") return { ok: true, skipped: browser, errors: [], clicked: 0, changed: false, overflow: false, at };

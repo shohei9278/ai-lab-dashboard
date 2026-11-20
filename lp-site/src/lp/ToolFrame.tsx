@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { ToolImages } from "./content";
 import { wrapToolHtml } from "./toolHtml";
 
 // AIが作ったツールを、隔離された枠（sandbox）の中で動かす（枠の中身の組み立ては toolHtml.ts）
 // - allow-same-origin を付けないので、ツールからはこのサイトの Cookie・保存領域・ページに触れない
 // - 結果の画像の保存（ダウンロード）とコピーだけは許す。別のページを開く・移動することはできない
 // fill: 枠の高さを中身に合わせず、親の高さいっぱいにする（遊びのツールの全画面。中身が長ければ枠の中でスクロールする）
-export function ToolFrame({ html, title, onUse, data, fonts, illustration, fill = false }: { html: string; title: string; onUse?: () => void; data?: unknown[]; fonts?: boolean; illustration?: string; fill?: boolean }) {
+// images: じっくり案件で人が入れた画像（素材）。枠の中で window.labAssets.images として読める
+export function ToolFrame({ html, title, onUse, data, fonts, illustration, images, fill = false }: { html: string; title: string; onUse?: () => void; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(480);
   const used = useRef(false);
@@ -41,7 +43,7 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, fill 
       title={title}
       sandbox="allow-scripts allow-downloads"
       allow="clipboard-write"
-      srcDoc={wrapToolHtml(html, { data, fonts, illustration, fill })}
+      srcDoc={wrapToolHtml(html, { data, fonts, illustration, images, fill })}
       style={{ width: "100%", height: fill ? "100%" : height, border: 0, display: "block" }}
     />
   );

@@ -96,7 +96,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
           lead={lp.content.subheadline}
           home={<Link href="/?s=related">{SITE_NAME}</Link>}
           barEnd={<ResultSheet slug={lp.slug} version={lp.version} shareText={tool.shareText} results={tool.results} others={others} />}
-          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} fill />}
+          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} fill />}
           after={
             <section data-section="share" className="px-6 pb-12 pt-2">
               <div className="mx-auto max-w-md space-y-4 text-center">
@@ -124,7 +124,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
           title={lp.title}
           imgOrigins={imgOriginsOf(lp.content.design?.illustration?.url, lp.content.page.html)}
           operator={`運営: ${SITE_NAME}`}
-          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} />}
+          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} />}
           after={
             <section data-section="share" className="px-6 py-12">
               <div className="mx-auto max-w-md space-y-4 text-center">
@@ -153,7 +153,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
             ? <ShareButtons slug={lp.slug} version={lp.version} text={lp.content.tool.shareText} results={lp.content.tool.results} />
             : <SignupForm slug={lp.slug} version={lp.version} cta={lp.content.cta} />
         }
-        tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} data={lp.content.tool.data} fonts={lp.content.tool.fonts} illustration={lp.content.design?.illustration?.url} /> : undefined}
+        tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} data={lp.content.tool.data} fonts={lp.content.tool.fonts} illustration={lp.content.design?.illustration?.url} images={lp.content.tool.images} /> : undefined}
       />
       <RelatedPages slug={lp.slug} />
       <FeedbackWidget slug={lp.slug} version={lp.version} kind={lp.content.tool ? "tool" : "lp"} />
