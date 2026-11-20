@@ -10,17 +10,18 @@
 export const TOOL_STORE_MAX = 8000;
 export const storeKey = (slug: string) => `lab-store:${slug}`;
 
-export type StoreBackend = { get(key: string): string | null; set(key: string, value: string): void };
+// set は残せたら true（保存領域が使えない・いっぱいのときは false。PR #111 の ai-review の指摘）
+export type StoreBackend = { get(key: string): string | null; set(key: string, value: string): boolean };
 
 export function memoryBackend(): StoreBackend {
   const m = new Map<string, string>();
-  return { get: (k) => m.get(k) ?? null, set: (k, v) => { m.set(k, v); } };
+  return { get: (k) => m.get(k) ?? null, set: (k, v) => { m.set(k, v); return true; } };
 }
 // ブラウザの保存領域。使えない（プライベートモード・容量いっぱいなど）ときは、何もせず null を返す
 export function localBackend(): StoreBackend {
   return {
     get: (k) => { try { return window.localStorage.getItem(k); } catch { return null; } },
-    set: (k, v) => { try { window.localStorage.setItem(k, v); } catch { /* 残せなくても遊べる */ } },
+    set: (k, v) => { try { window.localStorage.setItem(k, v); return true; } catch { return false; } },
   };
 }
 
@@ -28,7 +29,7 @@ export type StoreAnswer = { __lab: "store"; id: number; ok: boolean; value?: str
 
 // 枠からの知らせに答える。関係ない知らせなら null
 // - store-get: 残した値（JSON の文字列。なければ null）を返す
-// - store-set: JSON として読めて TOOL_STORE_MAX 文字までの文字列だけを残す
+// - store-set: JSON として読めて TOOL_STORE_MAX 文字までの文字列だけを残す。残せなかったら ok: false
 export function answerStore(data: unknown, key: string, backend: StoreBackend): StoreAnswer | null {
   if (!data || typeof data !== "object") return null;
   const d = data as { __lab?: unknown; id?: unknown; value?: unknown };
@@ -37,6 +38,5 @@ export function answerStore(data: unknown, key: string, backend: StoreBackend): 
   if (d.__lab === "store-get") return { __lab: "store", id, ok: true, value: backend.get(key) };
   if (typeof d.value !== "string" || d.value.length > TOOL_STORE_MAX) return { __lab: "store", id, ok: false };
   try { JSON.parse(d.value); } catch { return { __lab: "store", id, ok: false }; }
-  backend.set(key, d.value);
-  return { __lab: "store", id, ok: true };
+  return { __lab: "store", id, ok: backend.set(key, d.value) };
 }

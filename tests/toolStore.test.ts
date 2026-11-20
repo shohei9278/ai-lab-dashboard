@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { launch } from "../src/lib/freePage";
-import { TOOL_STORE_MAX, answerStore, memoryBackend, storeKey } from "../lp-site/src/lp/toolStore";
+import { TOOL_STORE_MAX, answerStore, localBackend, memoryBackend, storeKey } from "../lp-site/src/lp/toolStore";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 
 // 運営者の依頼（#72）: ツールの記録を、ページの側に預ける窓口（window.labStore）。localStorage を枠に許すのではなく、ページがツールごとの場所に残す
@@ -18,8 +18,24 @@ test("記録の窓口: ページの側は、読み・残すの知らせだけに
   // JSON でない・大きすぎる・文字でない値は残さない（前の値のまま）
   for (const value of ["{", "x".repeat(TOOL_STORE_MAX + 1), 3]) assert.equal(answerStore({ __lab: "store-set", id: 4, value }, k, b)!.ok, false);
   assert.equal(b.get(k), '{"seen":[1,0]}');
+  // 保存領域が使えない・いっぱいで残せなかったときは、残せたと答えない（PR #111 の ai-review の指摘）
+  const full = { get: () => null, set: () => false };
+  assert.deepEqual(answerStore({ __lab: "store-set", id: 6, value: "{}" }, k, full), { __lab: "store", id: 6, ok: false });
   // 場所はページが決める（ほかのツールの記録は読めない）
   assert.equal(answerStore({ __lab: "store-get", id: 5 }, storeKey("p73"), b)!.value, null);
+});
+
+test("記録の窓口: ブラウザの保存領域に書けないときは、false を返す（例外を外に出さない）", () => {
+  const g = globalThis as { window?: unknown };
+  const before = g.window;
+  g.window = { localStorage: { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("QuotaExceededError"); } } };
+  try {
+    const b = localBackend();
+    assert.equal(b.set("lab-store:p72", "{}"), false);
+    assert.equal(b.get("lab-store:p72"), null);
+  } finally {
+    g.window = before;
+  }
 });
 
 test("記録の窓口: 枠の中の window.labStore が、ページとやりとりして値を残し、読み戻せる。ページが答えないときは null・false", async (t) => {
