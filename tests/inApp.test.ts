@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import vm from "node:vm";
 import { launch } from "../src/lib/freePage";
-import { IN_APP_SCRIPT, PLAY_MIN_HEIGHT, fitScale, inAppOf, toolFluid } from "../lp-site/src/lp/inApp";
+import { IN_APP_SCRIPT, PLAY_MIN_HEIGHT, fitScale, inAppOf, rememberedInApp, toolFluid } from "../lp-site/src/lp/inApp";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 
 // 運営者が #72 を X から開いたら、いちばん下の「ふる」がアプリの帯に隠れ、結果のあとの欄も遊びの途中で開いて操作を隠した。
@@ -47,6 +47,7 @@ test("アプリの中のブラウザ: 先頭で動かす文が <html data-inapp=
     };
     ctx.window = ctx;
     vm.runInNewContext(IN_APP_SCRIPT, ctx);
+    if (attrs.has("data-inapp")) assert.equal(attrs.get("data-inapp-src"), "script"); // どこで付いたかを、確かめ用ページに出す
     return attrs.get("data-inapp") ?? null;
   };
   const store = new Map<string, string>();
@@ -57,6 +58,10 @@ test("アプリの中のブラウザ: 先頭で動かす文が <html data-inapp=
   // 保存領域が使えないブラウザでも、名乗りで見分けて印を付ける（PR #113 の ai-review の指摘）
   assert.equal(run(LINE_IPHONE, "", "broken"), "line");
   assert.equal(run(SAFARI, "", "broken"), null);
+  // 読み込んだあとに付け直すとき（InAppMark）も、覚えた値は決まった種類のときだけ使う
+  assert.equal(rememberedInApp("x"), "x");
+  assert.equal(rememberedInApp("1"), null); // 前の作りが覚えていた値
+  assert.equal(rememberedInApp(null), null);
 });
 
 test("遊ぶ画面（運営者が決めた）: 見えている高さが決まった高さより低いときだけ、ツールをその高さで作らせて縮める。自分で合わせるツールは印で分かる", () => {
