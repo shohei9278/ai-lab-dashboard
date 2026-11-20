@@ -14,7 +14,14 @@ test("アプリの中のブラウザ: SNS のアプリの名乗りか、スマ�
   assert.equal(inAppOf(SAFARI.replace("Safari/604.1", "[FBAN/FBIOS;FBAV/450.0]"), "", true), true);
   assert.equal(inAppOf(SAFARI + " Line/14.0.0", "", true), true);
   assert.equal(inAppOf("Mozilla/5.0 (Linux; Android 14) Chrome/120.0 Mobile Safari/537.36 TwitterAndroid", "", true), true);
-  assert.equal(inAppOf(SAFARI, "https://t.co/abc", true), true); // X の iPhone のアプリ（名乗りに印がない）
+  // アプリの中のブラウザの作りで見分ける（X の iPhone のアプリは、名乗りにアプリの印がない）
+  assert.equal(inAppOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22A3354", "", true), true);
+  assert.equal(inAppOf("Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0 Mobile Safari/537.36", "", true), true);
+  // 普通のブラウザ（iPhone の Chrome・Firefox、Android の Chrome）は、アプリの中ではない
+  assert.equal(inAppOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0 Mobile/15E148 Safari/604.1", "", true), false);
+  assert.equal(inAppOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/120.0 Mobile/15E148 Safari/605.1.15", "", true), false);
+  assert.equal(inAppOf("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36", "", true), false);
+  assert.equal(inAppOf(SAFARI, "https://t.co/abc", true), true); // 念のための見分け方（X の短縮リンクから来たスマホ）
   assert.equal(inAppOf(SAFARI, "https://t.co/abc", false), false); // PC で X から来た人は、普通のブラウザ
   assert.equal(inAppOf(SAFARI, "https://www.google.com/", true), false);
   assert.equal(inAppOf(SAFARI, "", true), false);

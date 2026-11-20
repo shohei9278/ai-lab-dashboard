@@ -1,0 +1,76 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
+// アプリの中のブラウザの確かめ用ページで、画面の上に出す情報と、画面の下の端からの目盛り
+// 運営者が X などのアプリから開いてスクリーンショットを撮り、見分け（data-inapp）が効いたか・帯がどこまで重なるかを読むためのもの
+export function InAppPanel() {
+  const [info, setInfo] = useState<[string, string][]>([]);
+  const [open, setOpen] = useState(true);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    const probe = document.createElement("div");
+    probe.style.cssText = "position:fixed;left:0;top:0;width:1px;height:100dvh;visibility:hidden;pointer-events:none";
+    document.body.appendChild(probe);
+    const read = () => {
+      const html = document.documentElement;
+      const pad = getComputedStyle(html).getPropertyValue("--lab-inapp-pad").trim() || "なし";
+      const frame = document.getElementById("tool")?.getBoundingClientRect().height ?? 0;
+      setInfo([
+        ["アプリの中と見分けた", html.hasAttribute("data-inapp") ? "はい" : "いいえ"],
+        ["下に空けた余白", pad],
+        ["画面の高さ（innerHeight）", `${window.innerHeight}px`],
+        ["見えている高さ（visualViewport）", `${Math.round(window.visualViewport?.height ?? 0)}px`],
+        ["100dvh", `${Math.round(probe.getBoundingClientRect().height)}px`],
+        ["ツールの枠の高さ", `${Math.round(frame)}px`],
+        ["画面の幅", `${window.innerWidth}px（${window.devicePixelRatio}倍）`],
+        ["ブラウザの名乗り（UA）", navigator.userAgent],
+        ["来た元（referrer）", document.referrer || "なし"],
+        ["URL のパラメーター", location.search || "なし"],
+      ]);
+    };
+    read();
+    const t = setInterval(read, 1000);
+    window.addEventListener("resize", read);
+    window.visualViewport?.addEventListener("resize", read);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("resize", read);
+      window.visualViewport?.removeEventListener("resize", read);
+      probe.remove();
+    };
+  }, []);
+  const text = info.map(([k, v]) => `${k}: ${v}`).join("\n");
+  return (
+    <>
+      {/* 画面（表示している範囲）の下の端からの目盛り。右の端に出す（枠の中の目盛りは左） */}
+      <div aria-hidden className="pointer-events-none fixed bottom-0 right-0 z-30 h-[200px] w-16">
+        {Array.from({ length: 21 }, (_, i) => i * 10).map((y) => (
+          <div key={y} className="absolute right-0 border-t" style={{ bottom: y, width: y % 50 === 0 ? 40 : 22, borderColor: y % 50 === 0 ? "#ff6b6b" : "rgba(255,120,120,.7)" }}>
+            {y % 20 === 0 && <span className="absolute -top-2 right-[42px] rounded bg-black/70 px-1 text-[10px] font-bold leading-4 text-[#ff9b9b]">{y}</span>}
+          </div>
+        ))}
+      </div>
+      <div className="fixed left-2 top-12 z-40 max-w-[78vw] rounded-lg bg-black/80 p-2 text-[10px] leading-snug text-white">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => setOpen((v) => !v)} className="rounded bg-white/20 px-2 py-1 font-bold">{open ? "たたむ" : "情報を出す"}</button>
+          {open && (
+            <button type="button" onClick={() => navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }, () => {})} className="rounded bg-white/20 px-2 py-1 font-bold">
+              {copied ? "コピーしました" : "コピー"}
+            </button>
+          )}
+        </div>
+        {open && (
+          <dl className="mt-1 space-y-0.5">
+            {info.map(([k, v]) => (
+              <div key={k}>
+                <dt className="inline text-white/60">{k}: </dt>
+                <dd className="inline break-all">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </div>
+    </>
+  );
+}
