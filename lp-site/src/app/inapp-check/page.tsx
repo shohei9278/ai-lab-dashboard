@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import { CHECK_TOOL_HTML } from "@/lp/inAppCheck";
 import { ShortToolView } from "@/lp/ShortToolView";
@@ -14,6 +14,10 @@ export const metadata: Metadata = {
   title: `アプリの中のブラウザの確かめ｜${SITE_NAME}`,
   robots: { index: false, follow: false },
 };
+
+// このページだけ、画面の端までを使う設定（viewport-fit=cover）にする。iPhone が安全な余白を env(safe-area-inset-*) で知らせるので、
+// X がページを上の帯の分だけ下にずらしている量（JavaScript の値にはどれも出なかった）を、そこで測れるかを確かめる
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
 
 export default function InAppCheck() {
   return (
