@@ -4,6 +4,7 @@ import { M_PLUS_Rounded_1c, Noto_Sans_JP, Noto_Serif_JP } from "next/font/google
 import Script from "next/script";
 import { GA_MEASUREMENT_ID, SITE_NAME, SITE_URL } from "@/lib/site";
 import { ExcludedNotice } from "./ExcludedNotice";
+import { IN_APP_SCRIPT } from "@/lp/inApp";
 import "./globals.css";
 
 const noto = Noto_Sans_JP({ variable: "--font-noto", subsets: ["latin"], weight: ["400", "500", "700"] });
@@ -22,8 +23,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="ja">
+    <html lang="ja" suppressHydrationWarning>
       <body className={`${noto.variable} ${rounded.variable} ${mincho.variable} antialiased`}>
+        {/* SNS のアプリの中のブラウザなら、描く前に <html data-inapp> を付ける（全画面のツールの下に、アプリの帯の分の余白を空ける。inApp.ts） */}
+        <Script id="inapp" strategy="beforeInteractive">{IN_APP_SCRIPT}</Script>
         {GA_MEASUREMENT_ID && (
           <>
             <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`} strategy="afterInteractive" />

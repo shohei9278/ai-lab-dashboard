@@ -14,6 +14,11 @@
   --critical: #c23434;
 }
 
+/* SNS のアプリの中のブラウザ（inApp.ts が <html data-inapp> を付ける）: 下に重なるアプリの帯の目安。全画面のツールの枠をこの分だけ短くする */
+html[data-inapp] {
+  --lab-inapp-pad: 3.5rem;
+}
+
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;

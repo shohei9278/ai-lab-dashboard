@@ -56,6 +56,8 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
       if (e.data.__lab === "share-text" && typeof e.data.text === "string") {
         window.dispatchEvent(new CustomEvent("lab-share-text", { detail: e.data.text.slice(0, 200) }));
       }
+      // 結果が出たことを、結果のあとの欄（ResultSheet）に知らせる。quiet（遊びが続くツールの途中の結果）のときは知らせない
+      if ((e.data.__lab === "share-text" || e.data.__lab === "result") && !e.data.quiet) window.dispatchEvent(new Event("lab-result-shown"));
       // ツールが知らせた結果の番号を、ページのシェアのボタンに渡す（結果ごとのシェア画像のリンクにする）
       if (e.data.__lab === "result" && typeof e.data.i === "number") {
         window.dispatchEvent(new CustomEvent("lab-share-result", { detail: e.data.i }));
