@@ -11,4 +11,5 @@ export function inAppOf(ua: string, referrer: string, coarse: boolean): boolean 
 }
 
 // 描く前に <html> に印を付ける、ページの先頭で動かす文（inAppOf をそのまま使う）
-export const IN_APP_SCRIPT = `try{var k="lab-inapp",on=sessionStorage.getItem(k)==="1"||(${inAppOf.toString()})(navigator.userAgent,document.referrer,matchMedia("(pointer:coarse)").matches);if(on){sessionStorage.setItem(k,"1");document.documentElement.setAttribute("data-inapp","")}}catch(e){}`;
+// 保存領域（sessionStorage）の読み書きは個別にエラーから守る（プライベートモードなどで使えなくても、名乗りでの見分けと印付けは続ける。PR #113 の ai-review の指摘）
+export const IN_APP_SCRIPT = `try{var k="lab-inapp",was=false;try{was=sessionStorage.getItem(k)==="1"}catch(e){}var on=was||(${inAppOf.toString()})(navigator.userAgent,document.referrer,!!(window.matchMedia&&matchMedia("(pointer:coarse)").matches));if(on){document.documentElement.setAttribute("data-inapp","");try{sessionStorage.setItem(k,"1")}catch(e){}}}catch(e){}`;

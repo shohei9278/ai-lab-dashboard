@@ -22,19 +22,25 @@ test("アプリの中のブラウザ: SNS のアプリの名乗りか、スマ�
 });
 
 test("アプリの中のブラウザ: 先頭で動かす文が <html data-inapp> を付け、同じタブの別のページでも続ける", () => {
-  const run = (ua: string, referrer: string, store: Map<string, string>) => {
+  const run = (ua: string, referrer: string, store: Map<string, string> | "broken") => {
     const attrs = new Map<string, string>();
-    vm.runInNewContext(IN_APP_SCRIPT, {
+    const fail = () => { throw new Error("SecurityError"); };
+    const ctx: Record<string, unknown> = {
       navigator: { userAgent: ua },
       document: { referrer, documentElement: { setAttribute: (k: string, v: string) => attrs.set(k, v) } },
       matchMedia: () => ({ matches: true }),
-      sessionStorage: { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) },
+      sessionStorage: store === "broken" ? { getItem: fail, setItem: fail } : { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) },
       URL,
-    });
+    };
+    ctx.window = ctx;
+    vm.runInNewContext(IN_APP_SCRIPT, ctx);
     return attrs.has("data-inapp");
   };
   const store = new Map<string, string>();
   assert.equal(run(SAFARI, "https://t.co/abc", store), true);
+  // 保存領域が使えないブラウザでも、名乗りで見分けて印を付ける（PR #113 の ai-review の指摘）
+  assert.equal(run(SAFARI + " Instagram 300.0", "", "broken"), true);
+  assert.equal(run(SAFARI, "", "broken"), false);
   assert.equal(run(SAFARI, "", store), true); // サイトの中で移ったあと
   assert.equal(run(SAFARI, "", new Map()), false);
 });
