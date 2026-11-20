@@ -14,6 +14,10 @@ export function InAppPanel() {
     const probe = document.createElement("div");
     probe.style.cssText = "position:fixed;left:0;top:0;width:1px;height:100dvh;visibility:hidden;pointer-events:none";
     document.body.appendChild(probe);
+    // iPhone が知らせる安全な余白（viewport-fit=cover のときに入る）を、padding に入れて読む
+    const safe = document.createElement("div");
+    safe.style.cssText = "position:fixed;left:0;top:0;width:1px;height:1px;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px)";
+    document.body.appendChild(safe);
     const read = () => {
       const html = document.documentElement;
       const pad = getComputedStyle(html).getPropertyValue("--lab-inapp-pad").trim() || "なし";
@@ -21,6 +25,7 @@ export function InAppPanel() {
       const frame = tool?.height ?? 0;
       const top = (el: Element | null) => (el ? Math.round(el.getBoundingClientRect().top) : NaN);
       const vv = window.visualViewport;
+      const sp = getComputedStyle(safe);
       setInfo([
         ["アプリの中と見分けた", html.hasAttribute("data-inapp") ? "はい" : "いいえ"],
         ["下に空けた余白", pad],
@@ -35,6 +40,7 @@ export function InAppPanel() {
         ["スクロールの位置（scrollY）", `${Math.round(window.scrollY)}px`],
         ["見えている範囲のずれ（visualViewport の offsetTop / pageTop）", `${Math.round(vv?.offsetTop ?? NaN)}px / ${Math.round(vv?.pageTop ?? NaN)}px`],
         ["端末の画面（screen の height / availHeight）", `${window.screen.height}px / ${window.screen.availHeight}px`],
+        ["安全な余白（env safe-area-inset の 上 / 下 / 左 / 右）", `${sp.paddingTop} / ${sp.paddingBottom} / ${sp.paddingLeft} / ${sp.paddingRight}`],
         ["画面の幅", `${window.innerWidth}px（${window.devicePixelRatio}倍）`],
         ["ブラウザの名乗り（UA）", navigator.userAgent],
         ["来た元（referrer）", document.referrer || "なし"],
@@ -50,6 +56,7 @@ export function InAppPanel() {
       window.removeEventListener("resize", read);
       window.visualViewport?.removeEventListener("resize", read);
       probe.remove();
+      safe.remove();
     };
   }, []);
   const text = info.map(([k, v]) => `${k}: ${v}`).join("\n");
