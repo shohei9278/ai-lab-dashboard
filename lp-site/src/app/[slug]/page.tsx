@@ -13,7 +13,8 @@ import { FeedbackWidget } from "./FeedbackWidget";
 import { imgOriginsOf } from "@/lp/pageHtml";
 import { splitToolPage } from "@/lp/htmlDom";
 import { ToolPageView } from "@/lp/ToolPageView";
-import { SHORT_SHARE_HEADING, ShortToolView } from "@/lp/ShortToolView";
+import { ShortToolView } from "@/lp/ShortToolView";
+import { toolFluid } from "@/lp/inApp";
 import { RelatedPages } from "./RelatedPages";
 import { PageSummary } from "./PageSummary";
 import { ResultSheet } from "./ResultSheet";
@@ -85,6 +86,8 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
 
   // 遊び・毎日のお題のツール（short）は、開いたらすぐ画面いっぱいで遊べる形で出す（紹介ページは作らない）
   // 結果が出たら、下から シェア と ほかの遊び（同じカテゴリを先に）の欄を出す
+  // 遊ぶ画面は、上の帯をなくしてツールの枠を画面に固定し、見えている範囲いっぱいに出す（運営者が決めた。inApp.ts・ShortToolView の play）。
+  // サイト名・シェア・ほかの遊び・ひとことは、上の真ん中のメニューのボタンから開く欄にまとめる。低い画面ではツールを縮めて収める（自分で合わせるツールは除く）
   const tool = lp.content.tool;
   if (tool && lp.content.short) {
     const others = pickOthers((await listPages().catch(() => ({ tools: [] }))).tools, lp.slug).map(({ slug, title, version }) => ({ slug, title, version }));
@@ -92,22 +95,32 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
       <main>
         <Tracker slug={lp.slug} version={lp.version} />
         <ShortToolView
+          play
           title={lp.title}
           lead={lp.content.subheadline}
-          home={<Link href="/?s=related">{SITE_NAME}</Link>}
-          barEnd={<ResultSheet slug={lp.slug} version={lp.version} shareText={tool.shareText} results={tool.results} others={others} />}
-          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} fill />}
-          after={
-            <section data-section="share" className="px-6 pb-12 pt-2">
-              <div className="mx-auto max-w-md space-y-4 text-center">
-                <h2 className="text-lg font-bold">{SHORT_SHARE_HEADING}</h2>
-                <ShareButtons slug={lp.slug} version={lp.version} text={tool.shareText} results={tool.results} />
-              </div>
-            </section>
+          menu={
+            <ResultSheet
+              slug={lp.slug}
+              version={lp.version}
+              shareText={tool.shareText}
+              results={tool.results}
+              others={others}
+              menu={{
+                label: `${SITE_NAME} ･･･`,
+                // サイト全体の下の欄（運営者名・プライバシーポリシー）は遊ぶ画面の下に隠れるので、ここにも出す
+                home: (
+                  <>
+                    <Link href="/?s=related" className="underline">{SITE_NAME} のほかのツールを見る</Link>
+                    {" ・ "}
+                    <Link href="/privacy" className="underline">プライバシーポリシー</Link>
+                  </>
+                ),
+                feedback: <FeedbackWidget slug={lp.slug} version={lp.version} kind="tool" inline />,
+              }}
+            />
           }
+          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} fill fit={!toolFluid(tool.html)} />}
         />
-        <RelatedPages slug={lp.slug} />
-        <FeedbackWidget slug={lp.slug} version={lp.version} kind="tool" />
       </main>
     );
   }

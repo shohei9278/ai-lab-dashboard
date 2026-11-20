@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { SHORT_SHARE_HEADING } from "@/lp/ShortToolView";
 import { ShareButtons } from "./ToolSection";
 
@@ -16,7 +16,8 @@ export const RESULT_SHEET_DELAY = 1500;
 // - 自動で開くのは最初の1回だけ。閉じたあとは、上の帯の「シェア・ほかの遊び」で開き直せる
 //   （入れるたびに結果の一文を知らせるツールもあるので、毎回開くと遊ぶ邪魔になる）
 // - シェアのボタンは、閉じている間も置いておく（結果の一文と番号の知らせを取りこぼさないように）
-export function ResultSheet({ slug, version, shareText, results, others }: { slug: string; version: number; shareText: string; results?: string[]; others: OtherTool[] }) {
+// menu: 遊ぶ画面（ShortToolView の play）で、上の帯の代わりに使う形。ボタンを最初から出し（label）、欄にサイトの入口（home）と、ひとこと（feedback）も入れる（運営者が決めた）
+export function ResultSheet({ slug, version, shareText, results, others, menu }: { slug: string; version: number; shareText: string; results?: string[]; others: OtherTool[]; menu?: { label: string; home: ReactNode; feedback?: ReactNode } }) {
   const [open, setOpen] = useState(false);
   const [seen, setSeen] = useState(false);
   useEffect(() => {
@@ -46,10 +47,17 @@ export function ResultSheet({ slug, version, shareText, results, others }: { slu
   }, [open]);
   return (
     <>
-      {seen && (
-        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-xs font-bold">
-          シェア・ほかの遊び
+      {menu ? (
+        // ツールの上に浮かせるので、明るいツールでも暗いツールでも読める色にする
+        <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="rounded-full bg-black/55 px-3 py-1 text-xs font-bold text-white shadow backdrop-blur">
+          {menu.label}
         </button>
+      ) : (
+        seen && (
+          <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="rounded-full border border-[color:var(--border)] px-3 py-1 text-xs font-bold">
+            シェア・ほかの遊び
+          </button>
+        )
       )}
       <div
         role="dialog"
@@ -58,7 +66,7 @@ export function ResultSheet({ slug, version, shareText, results, others }: { slu
         inert={!open}
         className={`fixed inset-x-0 bottom-0 z-40 transition-transform duration-300 ${open ? "translate-y-0" : "pointer-events-none translate-y-full"}`}
       >
-        <div className="mx-auto max-w-3xl rounded-t-2xl border border-b-0 border-[color:var(--border)] bg-[color:var(--bg)] px-4 pb-[max(1rem,env(safe-area-inset-bottom),var(--lab-inapp-pad,0px))] pt-3 shadow-[0_-8px_30px_rgba(0,0,0,0.18)]">
+        <div className="mx-auto max-h-[85dvh] max-w-3xl overflow-y-auto rounded-t-2xl border border-b-0 border-[color:var(--border)] bg-[color:var(--bg)] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_30px_rgba(0,0,0,0.18)]">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-bold">{SHORT_SHARE_HEADING}</p>
             <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="-mr-2 grid size-9 shrink-0 place-items-center rounded-full text-xl leading-none text-ink-2">×</button>
@@ -83,6 +91,8 @@ export function ResultSheet({ slug, version, shareText, results, others }: { slu
               </ul>
             </>
           )}
+          {menu?.feedback && <div className="mt-4">{menu.feedback}</div>}
+          {menu && <p className="mt-4 text-center text-xs text-ink-2">{menu.home}</p>}
         </div>
       </div>
     </>

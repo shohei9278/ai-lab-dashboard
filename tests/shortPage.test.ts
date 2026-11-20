@@ -48,7 +48,9 @@ test("遊びのツールを1画面に収める（#66 で運営者が見つけた
   const add = (aim: string | null) => Number(db().prepare(
     "INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim) VALUES ('t', 't', 'p', 's', 'h', 'r', 'lp', 'claude', 'tool', ?)",
   ).run(aim).lastInsertRowid);
-  assert.match(FIT_SCREEN_RULE, /画面の高さいっぱいの枠/);
+  assert.match(FIT_SCREEN_RULE, /画面いっぱいの枠/);
+  assert.match(FIT_SCREEN_RULE, /メニューのボタン/); // 遊ぶ画面の上の真ん中には、ページのメニューが重なる（運営者が決めた遊ぶ画面の作り）
+  assert.match(FIT_SCREEN_RULE, /640px/);
   assert.match(FIT_SCREEN_RULE, /100dvh/);
   // 広がる・また来てもらうのツール（短いページ）には入れる
   assert.ok(devRequestText(add("spread"), "設計", null).includes(FIT_SCREEN_RULE));

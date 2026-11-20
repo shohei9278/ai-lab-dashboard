@@ -3,32 +3,38 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import vm from "node:vm";
 import { launch } from "../src/lib/freePage";
-import { IN_APP_SCRIPT, inAppOf } from "../lp-site/src/lp/inApp";
+import { IN_APP_SCRIPT, PLAY_MIN_HEIGHT, fitScale, inAppOf, toolFluid } from "../lp-site/src/lp/inApp";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 
-// 運営者が #72 を X から開いたら、いちばん下の「ふる」がアプリの帯に隠れ、結果のあとの欄も遊びの途中で開いて操作を隠した
+// 運営者が #72 を X から開いたら、いちばん下の「ふる」がアプリの帯に隠れ、結果のあとの欄も遊びの途中で開いて操作を隠した。
+// 確かめ用ページで測って、遊ぶ画面は画面に固定し、X のときだけ上を空け、低い画面では縮めて収める作りにした（運営者が決めた）
 
 const SAFARI = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1";
-test("アプリの中のブラウザ: SNS のアプリの名乗りか、スマホで X の短縮リンクから来たときだけ見分ける", () => {
-  assert.equal(inAppOf(SAFARI + " Instagram 300.0", "", true), true);
-  assert.equal(inAppOf(SAFARI.replace("Safari/604.1", "[FBAN/FBIOS;FBAV/450.0]"), "", true), true);
-  assert.equal(inAppOf(SAFARI + " Line/14.0.0", "", true), true);
-  assert.equal(inAppOf("Mozilla/5.0 (Linux; Android 14) Chrome/120.0 Mobile Safari/537.36 TwitterAndroid", "", true), true);
-  // アプリの中のブラウザの作りで見分ける（X の iPhone のアプリは、名乗りにアプリの印がない）
-  assert.equal(inAppOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22A3354", "", true), true);
-  assert.equal(inAppOf("Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0 Mobile Safari/537.36", "", true), true);
-  // 普通のブラウザ（iPhone の Chrome・Firefox、Android の Chrome）は、アプリの中ではない
-  assert.equal(inAppOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0 Mobile/15E148 Safari/604.1", "", true), false);
-  assert.equal(inAppOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/120.0 Mobile/15E148 Safari/605.1.15", "", true), false);
-  assert.equal(inAppOf("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36", "", true), false);
-  assert.equal(inAppOf(SAFARI, "https://t.co/abc", true), true); // 念のための見分け方（X の短縮リンクから来たスマホ）
-  assert.equal(inAppOf(SAFARI, "https://t.co/abc", false), false); // PC で X から来た人は、普通のブラウザ
-  assert.equal(inAppOf(SAFARI, "https://www.google.com/", true), false);
-  assert.equal(inAppOf(SAFARI, "", true), false);
-  assert.equal(inAppOf(SAFARI, "not a url", true), false);
+// 運営者が /inapp-check を開いた実機の名乗り
+const X_IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7_8 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22H352 Twitter for iPhone/12.17";
+const LINE_IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Safari Line/26.16.0";
+const IG_IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22H352 Instagram 455.0.0.35.67 (iPhone15,3; iOS 18_7_8; ja_JP; ja; scale=3.00; 1290x2796; IABMV/1; 1109782713) Safari/604.1";
+test("アプリの中のブラウザ: どのアプリかを見分ける（X・Instagram・LINE と、そのほかのアプリの中）。普通のブラウザは見分けない", () => {
+  assert.equal(inAppOf(X_IPHONE, "https://t.co/", true), "x");
+  assert.equal(inAppOf(LINE_IPHONE, "", true), "line");
+  assert.equal(inAppOf(IG_IPHONE, "https://l.instagram.com/", true), "instagram");
+  assert.equal(inAppOf("Mozilla/5.0 (Linux; Android 14) Chrome/120.0 Mobile Safari/537.36 TwitterAndroid", "", true), "x");
+  assert.equal(inAppOf(SAFARI.replace("Safari/604.1", "[FBAN/FBIOS;FBAV/450.0]"), "", true), "other");
+  assert.equal(inAppOf(SAFARI, "https://t.co/abc", true), "x"); // 念のための見分け方（X の短縮リンクから来たスマホ）
+  // アプリの中のブラウザの作りで見分ける（名乗りにアプリの印がないもの）
+  assert.equal(inAppOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/22A3354", "", true), "other");
+  assert.equal(inAppOf("Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/AP1A; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0 Mobile Safari/537.36", "", true), "other");
+  // 普通のブラウザ（iPhone の Safari・Chrome・Firefox、Android の Chrome）は、アプリの中ではない
+  assert.equal(inAppOf(SAFARI, "", true), null);
+  assert.equal(inAppOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/120.0 Mobile/15E148 Safari/604.1", "", true), null);
+  assert.equal(inAppOf("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/120.0 Mobile/15E148 Safari/605.1.15", "", true), null);
+  assert.equal(inAppOf("Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36", "", true), null);
+  assert.equal(inAppOf(SAFARI, "https://t.co/abc", false), null); // PC で X から来た人は、普通のブラウザ
+  assert.equal(inAppOf(SAFARI, "https://www.google.com/", true), null);
+  assert.equal(inAppOf(SAFARI, "not a url", true), null);
 });
 
-test("アプリの中のブラウザ: 先頭で動かす文が <html data-inapp> を付け、同じタブの別のページでも続ける", () => {
+test("アプリの中のブラウザ: 先頭で動かす文が <html data-inapp=\"アプリ\"> を付け、同じタブの別のページでも続ける", () => {
   const run = (ua: string, referrer: string, store: Map<string, string> | "broken") => {
     const attrs = new Map<string, string>();
     const fail = () => { throw new Error("SecurityError"); };
@@ -41,15 +47,27 @@ test("アプリの中のブラウザ: 先頭で動かす文が <html data-inapp>
     };
     ctx.window = ctx;
     vm.runInNewContext(IN_APP_SCRIPT, ctx);
-    return attrs.has("data-inapp");
+    return attrs.get("data-inapp") ?? null;
   };
   const store = new Map<string, string>();
-  assert.equal(run(SAFARI, "https://t.co/abc", store), true);
+  assert.equal(run(SAFARI, "https://t.co/abc", store), "x");
+  assert.equal(run(SAFARI, "", store), "x"); // サイトの中で移ったあと
+  assert.equal(run(SAFARI, "", new Map()), null);
+  assert.equal(run(SAFARI, "", new Map([["lab-inapp", "bogus"]])), null); // 覚えた値が決まった種類でなければ使わない
   // 保存領域が使えないブラウザでも、名乗りで見分けて印を付ける（PR #113 の ai-review の指摘）
-  assert.equal(run(SAFARI + " Instagram 300.0", "", "broken"), true);
-  assert.equal(run(SAFARI, "", "broken"), false);
-  assert.equal(run(SAFARI, "", store), true); // サイトの中で移ったあと
-  assert.equal(run(SAFARI, "", new Map()), false);
+  assert.equal(run(LINE_IPHONE, "", "broken"), "line");
+  assert.equal(run(SAFARI, "", "broken"), null);
+});
+
+test("遊ぶ画面（運営者が決めた）: 見えている高さが決まった高さより低いときだけ、ツールをその高さで作らせて縮める。自分で合わせるツールは印で分かる", () => {
+  assert.deepEqual(fitScale(430, 734), { scale: 1, width: 430, height: 734 }); // X で投稿を閉じたとき（798 − 上の 64）
+  const low = fitScale(430, 320, 640);
+  assert.equal(low.scale, 0.5);
+  assert.deepEqual([low.width, low.height], [860, 640]); // 幅も同じ割合で広げて作らせ、横は枠いっぱいのまま
+  assert.deepEqual(fitScale(0, 0), { scale: 1, width: 0, height: 0 }); // 測る前は縮めない
+  assert.equal(PLAY_MIN_HEIGHT, 640);
+  assert.equal(toolFluid('<meta name="lab-fluid" content="1"><div></div>'), true);
+  assert.equal(toolFluid("<div>lab-fluid</div>"), false);
 });
 
 test("結果の知らせ: quiet を付けると、ページへの知らせに quiet が付く（結果のあとの欄を開かせない）", async (t) => {

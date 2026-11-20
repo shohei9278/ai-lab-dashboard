@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fitScale } from "@/lp/inApp";
 
 // アプリの中のブラウザの確かめ用ページで、画面の上に出す情報と、画面の下の端からの目盛り
 // 運営者が X などのアプリから開いてスクリーンショットを撮り、見分け（data-inapp）が効いたか・帯がどこまで重なるかを読むためのもの
@@ -20,15 +21,16 @@ export function InAppPanel() {
     document.body.appendChild(safe);
     const read = () => {
       const html = document.documentElement;
-      const pad = getComputedStyle(html).getPropertyValue("--lab-inapp-pad").trim() || "なし";
+      const topGap = getComputedStyle(html).getPropertyValue("--lab-inapp-top").trim() || "なし";
       const tool = document.getElementById("tool")?.getBoundingClientRect();
       const frame = tool?.height ?? 0;
       const top = (el: Element | null) => (el ? Math.round(el.getBoundingClientRect().top) : NaN);
       const vv = window.visualViewport;
       const sp = getComputedStyle(safe);
       setInfo([
-        ["アプリの中と見分けた", html.hasAttribute("data-inapp") ? "はい" : "いいえ"],
-        ["下に空けた余白", pad],
+        ["アプリの中と見分けた", html.hasAttribute("data-inapp") ? `はい（${html.getAttribute("data-inapp") || "?"}）` : "いいえ"],
+        ["上に空けた高さ（--lab-inapp-top）", topGap],
+        ["ツールを縮める割合", tool ? `${Math.round(fitScale(tool.width, tool.height).scale * 100)}%` : "-"],
         ["画面の高さ（innerHeight）", `${window.innerHeight}px`],
         ["見えている高さ（visualViewport）", `${Math.round(window.visualViewport?.height ?? 0)}px`],
         ["100dvh", `${Math.round(probe.getBoundingClientRect().height)}px`],
