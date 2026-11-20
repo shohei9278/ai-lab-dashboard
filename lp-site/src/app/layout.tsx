@@ -5,6 +5,7 @@ import Script from "next/script";
 import { GA_MEASUREMENT_ID, SITE_NAME, SITE_URL } from "@/lib/site";
 import { ExcludedNotice } from "./ExcludedNotice";
 import { IN_APP_SCRIPT } from "@/lp/inApp";
+import { InAppMark } from "./InAppMark";
 import "./globals.css";
 
 const noto = Noto_Sans_JP({ variable: "--font-noto", subsets: ["latin"], weight: ["400", "500", "700"] });
@@ -27,6 +28,8 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
       <body className={`${noto.variable} ${rounded.variable} ${mincho.variable} antialiased`}>
         {/* SNS のアプリの中のブラウザなら、描く前に <html data-inapp> を付ける（全画面のツールの下に、アプリの帯の分の余白を空ける。inApp.ts） */}
         <Script id="inapp" strategy="beforeInteractive">{IN_APP_SCRIPT}</Script>
+        {/* 読み込んだあとにも印を付け直す（iPhone の X の中で、描く前の文の印が付いていなかったため） */}
+        <InAppMark />
         {GA_MEASUREMENT_ID && (
           <>
             <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`} strategy="afterInteractive" />

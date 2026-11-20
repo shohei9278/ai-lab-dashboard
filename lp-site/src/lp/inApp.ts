@@ -26,10 +26,13 @@ export function inAppOf(ua: string, referrer: string, coarse: boolean): InApp | 
   return null;
 }
 export const IN_APP_KINDS: readonly InApp[] = ["x", "instagram", "line", "other"];
+// 同じタブで前に見分けて覚えた値（決まった種類のときだけ使う）
+export const rememberedInApp = (v: string | null): InApp | null => (v && (IN_APP_KINDS as readonly string[]).includes(v) ? (v as InApp) : null);
 
 // 描く前に <html data-inapp="アプリ"> を付ける、ページの先頭で動かす文（inAppOf をそのまま使う）
 // 保存領域（sessionStorage）の読み書きは個別にエラーから守る（プライベートモードなどで使えなくても、名乗りでの見分けと印付けは続ける。PR #113 の ai-review の指摘）
-export const IN_APP_SCRIPT = `try{var k="lab-inapp",was=null;try{was=sessionStorage.getItem(k)}catch(e){}if(${JSON.stringify(IN_APP_KINDS)}.indexOf(was)<0)was=null;var on=was||(${inAppOf.toString()})(navigator.userAgent,document.referrer,!!(window.matchMedia&&matchMedia("(pointer:coarse)").matches));if(on){document.documentElement.setAttribute("data-inapp",on);try{sessionStorage.setItem(k,on)}catch(e){}}}catch(e){}`;
+export const IN_APP_SCRIPT = `try{var k="lab-inapp",was=null;try{was=sessionStorage.getItem(k)}catch(e){}if(${JSON.stringify(IN_APP_KINDS)}.indexOf(was)<0)was=null;var on=was||(${inAppOf.toString()})(navigator.userAgent,document.referrer,!!(window.matchMedia&&matchMedia("(pointer:coarse)").matches));if(on){document.documentElement.setAttribute("data-inapp",on);document.documentElement.setAttribute("data-inapp-src","script");try{sessionStorage.setItem(k,on)}catch(e){}}}catch(e){}`;
+// 読み込んだあとの付け直しは、InAppMark（app/InAppMark.tsx）がする
 
 // 遊ぶ画面のツールを縮めて収める（運営者が決めた）。見えている高さが PLAY_MIN_HEIGHT より低いときは、ツールをその高さで作らせて、
 // 枠ごと transform: scale で縮める（幅も同じ割合で広げて作らせるので、横は枠いっぱいのまま）。高ければ縮めずにそのまま出す
