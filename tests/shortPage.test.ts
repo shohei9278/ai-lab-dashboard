@@ -67,7 +67,7 @@ test("振りの強さの測り方（#72 で運営者が見つけた）: 作る�
   assert.match(MOTION_RULE, /window\.labMotion/);
   assert.match(MOTION_RULE, /1つ前に届いた値との差で測らない/);
   assert.match(MOTION_RULE, /ならす/);
-  for (const aim of ["spread", "useful", null]) {
+  for (const aim of ["spread", "return", "useful", null]) { // 遊びの短いページ（spread・return）と、紹介ページのあるツール
     const text = devRequestText(add(aim), "設計", null);
     assert.ok(text.includes(MOTION_RULE));
     // 見つける・集めるツールで、見つけたものを二度目から「見つけた」と知らせない（#72 で運営者が決めた）
