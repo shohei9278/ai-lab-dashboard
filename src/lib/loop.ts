@@ -729,6 +729,27 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
   return { design: out.design.trim().slice(0, DEV_DESIGN_MAX), idea: comment ? parseIdeaRevision(out.idea) ?? null : null };
 }
 
+// 開発待ちを残す。指示でツールの中身が変わったなら、案件の中身も合わせる（設計書と、解決策・名前などが食い違わないように）
+// 案件の書き換え・経過・開発待ちの保存は、1つのトランザクションにする。途中で失敗すると、案件の中身だけ変わって、
+// 設計書は前のまま（失敗したら元の開発待ちに戻す）という食い違いが残るため（PR #109 の ai-review の指摘）
+export function saveDevRequest(projectId: number, design: string, idea: IdeaRevision | null, instruction?: string, comment?: string) {
+  db().transaction(() => {
+    applyIdeaRevision(projectId, idea);
+    // 名前を直したときは、カードにも新しい名前を出す
+    const p = getProject(projectId)!;
+    const first = !p.lp;
+    addApproval(
+      projectId, "dev",
+      first ? `「${p.title}」のツールを Claude Code で作る` : `「${p.title}」のツールを Claude Code で直す`,
+      first
+        ? "AIが設計書を書きました。依頼文を Claude Code に貼って作り、できたツールのHTMLをここから入れてください。入れると、いつもどおりチェック・動作の確かめ・紹介ページづくりをして、公開の判断待ちに出します。"
+        : `次の指示で直します: ${instruction ?? comment ?? "（指示なし）"}。依頼文を Claude Code に貼って直し、できたHTMLをここから入れてください。入れるまでは、今の版のままです。`,
+      { design, instruction: instruction ?? null },
+    );
+    logEvent(projectId, "ai", "dev-design", first || comment ? `じっくり案件のツールの設計書を書き、開発待ちにしました（Claude Code で作ります）${comment ? "・指示を反映" : ""}` : `じっくり案件のツールを直すため、開発待ちにしました（Claude Code で直します）: ${(instruction ?? "").slice(0, 120)}`);
+  })();
+}
+
 // 開発待ちにする。最初に作るとき・設計を直す指示のときは、AIが設計書を書く（直すときは、前の設計書と直す指示を渡す）
 // instruction: 公開した版を直すときの指示（改善・修正の指示）。comment: 運営者が設計書を直すよう指示したとき
 async function requestDev(projectId: number, instruction?: string, comment?: string) {
@@ -737,19 +758,7 @@ async function requestDev(projectId: number, instruction?: string, comment?: str
   const out = !prev || comment
     ? await whileBuilding(projectId, "ツールの設計書を書いています", () => writeDevDesign(p, comment, prev))
     : { design: prev, idea: null };
-  const design = out.design;
-  // 指示でツールの中身が変わったなら、案件の中身も合わせる（設計書と、解決策・名前などが食い違わないように）
-  applyIdeaRevision(projectId, out.idea);
-  const first = !p.lp;
-  addApproval(
-    projectId, "dev",
-    first ? `「${p.title}」のツールを Claude Code で作る` : `「${p.title}」のツールを Claude Code で直す`,
-    first
-      ? "AIが設計書を書きました。依頼文を Claude Code に貼って作り、できたツールのHTMLをここから入れてください。入れると、いつもどおりチェック・動作の確かめ・紹介ページづくりをして、公開の判断待ちに出します。"
-      : `次の指示で直します: ${instruction ?? comment ?? "（指示なし）"}。依頼文を Claude Code に貼って直し、できたHTMLをここから入れてください。入れるまでは、今の版のままです。`,
-    { design, instruction: instruction ?? null },
-  );
-  logEvent(projectId, "ai", "dev-design", first || comment ? `じっくり案件のツールの設計書を書き、開発待ちにしました（Claude Code で作ります）${comment ? "・指示を反映" : ""}` : `じっくり案件のツールを直すため、開発待ちにしました（Claude Code で直します）: ${(instruction ?? "").slice(0, 120)}`);
+  saveDevRequest(projectId, out.design, out.idea, instruction, comment);
 }
 
 // Claude Code に貼る依頼文（設計書・作るときの決まり・データ・入れ方）

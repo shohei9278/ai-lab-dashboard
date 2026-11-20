@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db } from "../src/lib/db";
-import { applyIdeaRevision, getProject, parseIdeaRevision } from "../src/lib/loop";
+import { applyIdeaRevision, getProject, parseIdeaRevision, saveDevRequest } from "../src/lib/loop";
 
 // 運営者の依頼（#72）: 設計を直す指示でツールの中身が変わったら、案件の解決策・名前なども合わせて直す（設計書だけ変わって食い違わないように）
 const addDeep = (publicSlug: string | null = null) => Number(db().prepare(
@@ -50,4 +50,23 @@ test("設計を直す指示: 公開中の案件は、名前を変えない（公
   const id = addDeep("p999");
   assert.deepEqual(applyIdeaRevision(id, { title: "新しい名前", solution: "景色を振る" }), ["solution"]);
   assert.equal(getProject(id)!.title, "自分だけのスノードーム");
+});
+
+test("設計を直す指示: 案件の書き換えと開発待ちの保存は、両方できるか、どちらもしないか（PR #109 の ai-review の指摘）", () => {
+  const id = addDeep();
+  const n = (kind: string) => (db().prepare("SELECT COUNT(*) AS n FROM events WHERE project_id = ? AND kind = ?").get(id, kind) as { n: number }).n;
+  // 開発待ちの保存が失敗したら、案件の中身も経過も変えない（案件だけ変わって、設計書が前のままにならないように）
+  db().exec(`CREATE TRIGGER fail_dev BEFORE INSERT ON approvals WHEN NEW.project_id = ${id} BEGIN SELECT RAISE(ABORT, 'テストでの失敗'); END`);
+  assert.throws(() => saveDevRequest(id, "## 一言で\n景色を振る", { title: "ふって、しずめる", solution: "景色を振る" }, undefined, "小物をやめる"), /テストでの失敗/);
+  assert.equal(getProject(id)!.solution, "手描き風の小物40種を置いて振る");
+  assert.equal(n("idea-revise"), 0);
+  assert.equal(n("dev-design"), 0);
+  db().exec("DROP TRIGGER fail_dev");
+  // 保存できれば、案件の中身・経過・開発待ちがそろう。カードには新しい名前を出す
+  saveDevRequest(id, "## 一言で\n景色を振る", { title: "ふって、しずめる", solution: "景色を振る" }, undefined, "小物をやめる");
+  assert.equal(getProject(id)!.solution, "景色を振る");
+  assert.equal(n("idea-revise"), 1);
+  const a = db().prepare("SELECT proposal, payload FROM approvals WHERE project_id = ? AND kind = 'dev'").get(id) as { proposal: string; payload: string };
+  assert.match(a.proposal, /「ふって、しずめる」のツールを Claude Code で作る/);
+  assert.equal((JSON.parse(a.payload) as { design: string }).design, "## 一言で\n景色を振る");
 });
