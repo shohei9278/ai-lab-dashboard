@@ -30,7 +30,7 @@ export function InAppPanel() {
       const sp = getComputedStyle(safe);
       setInfo([
         ["アプリの中と見分けた", html.hasAttribute("data-inapp") ? `はい（${html.getAttribute("data-inapp") || "?"}・${html.getAttribute("data-inapp-src") === "effect" ? "読み込み後に付け直した" : "描く前に付いた"}）` : "いいえ"],
-        ["上に空けた高さ（--lab-inapp-top）", topGap],
+        ["高さから引いた分（--lab-inapp-top）", topGap],
         ["ツールを縮める割合", tool ? `${Math.round(fitScale(tool.width, tool.height).scale * 100)}%` : "-"],
         ["画面の高さ（innerHeight）", `${window.innerHeight}px`],
         ["見えている高さ（visualViewport）", `${Math.round(window.visualViewport?.height ?? 0)}px`],

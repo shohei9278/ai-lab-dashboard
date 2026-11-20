@@ -14,21 +14,26 @@
   --critical: #c23434;
 }
 
-/* SNS のアプリの中のブラウザ（inApp.ts が <html data-inapp="アプリ"> を付ける）。遊ぶ画面は画面に固定するので、下の端はどのアプリでも合う。
-   X だけは上の帯の分ページをずらしていて、固定すると上が帯の下に隠れるので、上を空ける（運営者が /inapp-check で測った。約64px） */
+/* SNS のアプリの中のブラウザ（inApp.ts が <html data-inapp="アプリ"> を付ける）。遊ぶ画面（ShortToolView の play）の高さから引く分。
+   X の iPhone のアプリは、上の帯の分（約64px）ページを下にずらして表示し、その分は 100dvh に入らないので、その分を高さから引く
+   （運営者が /inapp-check で測った）。LINE・Instagram は帯がページの外にあるので引かない */
 html[data-inapp="x"] {
   --lab-inapp-top: 4rem;
 }
 
-/* 遊ぶ画面の枠の高さ（ShortToolView の play）。下の端 0 で固定し、高さを画面の高さから上の空きを引いたものにする（上と下の両方で決めると、
-   X の iPhone のアプリの中で下がはみ出すため）。dvh の使えない古いブラウザのために、同じ指定を vh でも先に書く */
+/* 遊ぶ画面の高さ（帯と枠の全体）。dvh の使えない古いブラウザのために、同じ指定を vh でも先に書く */
 .lab-play-h {
   height: calc(100vh - var(--lab-inapp-top, 0px));
   height: calc(100dvh - var(--lab-inapp-top, 0px));
 }
 
-/* 遊ぶ画面（ShortToolView の play。data-play の付いた枠）のときは、サイト共通の下の欄を外す。遊ぶ画面の後ろに隠れたまま、
-   キーボードで見えないリンクに移ったり、読み上げでメニューの欄と二度案内されたりしないように（PR #118 の ai-review の指摘） */
+/* 遊ぶ画面（data-play の付いた枠）のときは、ページ全体をスクロールさせず、サイト共通の下の欄を外す（隠れたまま、
+   キーボードで見えないリンクに移ったり、読み上げでメニューの欄と二度案内されたりしないように。PR #118 の ai-review の指摘） */
+html:has([data-play]),
+body:has([data-play]) {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 body:has([data-play]) > footer {
   display: none;
 }
