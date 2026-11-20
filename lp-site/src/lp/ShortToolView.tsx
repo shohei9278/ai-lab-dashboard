@@ -14,13 +14,14 @@ export const SHORT_FRAME_HEIGHT = "calc(100dvh - 2.75rem)";
 // home: 上の帯の左に出す、サイトの入口へのリンク（プレビューでは押せないもの）
 // barEnd: 上の帯の右に出すもの（結果が出たあとの「シェア・ほかの遊び」のボタン）
 // frameHeight: ツールの枠の高さ（プレビューでは、画面の高さの代わりに決まった高さにする）
-// play: 公開サイトの遊ぶ画面。ツールの枠を画面に固定して、見えている範囲いっぱいに出す（運営者が決めた。inApp.ts）
-//   - 上には細い帯（28px）だけを置き、左にサイトの入口（home）、真ん中にツール名、右にメニューのボタン（menu）を出す。
+// play: 公開サイトの遊ぶ画面。細い帯とツールの枠だけで、見えている範囲いっぱいを使う（運営者が決めた。inApp.ts）
+//   - 上には細い帯（28px）だけを置き、左にサイトの入口（home）とツール名、右にメニューのボタン（menu）を出す。
 //     帯をなくしてボタンをツールの上に浮かせると、公開中のツールの題名や右上のボタンに重なったため、細い帯に戻した（運営者が決めた）
-//   - 枠は「下の端 0・高さ（画面の高さ − 上の空き）」で固定する。X の iPhone のアプリの中では、上と下の両方で決めた固定の要素だけが、
-//     上は X の上の帯の下に出るのに高さは画面全体のままで、下が帯の分（約60px）はみ出した。下の端だけで決めた固定の要素は、
-//     見えている範囲の下の端に正しく出る（運営者が /inapp-check で確かめた）
-//   - X のアプリの中では、上を --lab-inapp-top だけ空ける（高さから引く。X の上の帯の下に隠れないように）
+//   - 帯と枠は、画面に固定せず、ふつうに並べる。X の iPhone のアプリの中では、画面に固定した帯と枠が、上も下もそろって約60px 下にずれて
+//     描かれ（ページからはずれが測れない）、上に隙間が空き、下が X の帯の下に潜った。ふつうに並べたものは X が上の帯の下から出すので、
+//     全体の高さを「画面の高さ − X のときは --lab-inapp-top」にすれば、下も X の帯の上に収まる（運営者が /inapp-check で確かめた）
+//   - ページ全体はスクロールさせない（globals.css）。メニューの欄は下の端だけで固定する（X の中でも正しく出る形）
+//   - 枠の高さは 100% の計算に頼らず、位置（上下左右 0）で決める（ブラウザによって 100% の計算が違うことがあるため）
 //   - シェア・ほかの遊び・ひとこと・プライバシーポリシーは、メニューのボタンから開く欄にまとめる
 //   - 一行の説明は、読み上げと検索のためにだけ残す（画面には出さない）
 export function ShortToolView({ title, lead, tool, after, home, barEnd, frameHeight = SHORT_FRAME_HEIGHT, play = false, menu }: { title: string; lead: string; tool: ReactNode; after?: ReactNode; home?: ReactNode; barEnd?: ReactNode; frameHeight?: string; play?: boolean; menu?: ReactNode }) {
@@ -28,15 +29,15 @@ export function ShortToolView({ title, lead, tool, after, home, barEnd, frameHei
     return (
       <div>
         {lead && <p className="sr-only">{lead}</p>}
-        {/* 遊ぶ画面の後ろを塞ぐ（X のときに上を空けた所や、PC の左右に、ページの下の欄が透けて見えないように） */}
-        <div aria-hidden className="fixed inset-0 z-20 bg-[color:var(--bg)]" />
-        <section id="tool" data-section="tool" data-play="" className="fixed inset-x-0 bottom-0 z-30 mx-auto flex max-w-3xl flex-col bg-[color:var(--bg)] sm:border-x sm:border-[color:var(--border)] lab-play-h">
+        <section id="tool" data-section="tool" data-play="" className="lab-play-h mx-auto flex max-w-3xl flex-col bg-[color:var(--bg)] sm:border-x sm:border-[color:var(--border)]">
           <header className="flex h-7 shrink-0 items-center gap-2 border-b border-[color:var(--border)] px-3 text-xs">
             {home && <div className="shrink-0 font-bold">{home}</div>}
             <h1 className="min-w-0 flex-1 truncate text-ink-2">{title}</h1>
             {menu && <div className="shrink-0">{menu}</div>}
           </header>
-          <div className="relative min-h-0 flex-1 overflow-hidden">{tool}</div>
+          <div className="relative min-h-0 flex-1">
+            <div className="absolute inset-0 overflow-hidden">{tool}</div>
+          </div>
         </section>
       </div>
     );
