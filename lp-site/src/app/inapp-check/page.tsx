@@ -25,6 +25,7 @@ export default function InAppCheck() {
     <main>
       <ShortToolView
         play
+        home={<Link href="/">{SITE_NAME}</Link>}
         title="アプリの中のブラウザの確かめ"
         lead="X・Instagram・LINE などのアプリから開いて、下の「ふる」がアプリの帯に隠れないか、右と左の目盛りでどこまで重なるかを見るためのページです。"
         menu={
@@ -35,7 +36,7 @@ export default function InAppCheck() {
             shareText="アプリの中のブラウザの確かめ"
             others={[]}
             menu={{
-              label: `${SITE_NAME} ･･･`,
+              label: "メニュー",
               home: (
                 <>
                   <Link href="/" className="underline">{SITE_NAME} のほかのツールを見る</Link>

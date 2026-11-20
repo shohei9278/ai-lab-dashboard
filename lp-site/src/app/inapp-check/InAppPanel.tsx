@@ -22,7 +22,8 @@ export function InAppPanel() {
     const read = () => {
       const html = document.documentElement;
       const topGap = getComputedStyle(html).getPropertyValue("--lab-inapp-top").trim() || "なし";
-      const tool = document.getElementById("tool")?.getBoundingClientRect();
+      // ツールの枠（遊ぶ画面では、上の細い帯の下の部分）
+      const tool = (document.querySelector("#tool > div") ?? document.getElementById("tool"))?.getBoundingClientRect();
       const frame = tool?.height ?? 0;
       const top = (el: Element | null) => (el ? Math.round(el.getBoundingClientRect().top) : NaN);
       const vv = window.visualViewport;
@@ -72,7 +73,7 @@ export function InAppPanel() {
           </div>
         ))}
       </div>
-      <div className="fixed left-2 top-12 z-40 max-w-[78vw] rounded-lg bg-black/80 p-2 text-[10px] leading-snug text-white">
+      <div className="fixed left-2 top-28 z-40 max-w-[78vw] rounded-lg bg-black/80 p-2 text-[10px] leading-snug text-white">
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => setOpen((v) => !v)} className="rounded bg-white/20 px-2 py-1 font-bold">{open ? "たたむ" : "情報を出す"}</button>
           {open && (

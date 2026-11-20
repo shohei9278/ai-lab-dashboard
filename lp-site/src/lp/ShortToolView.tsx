@@ -14,27 +14,26 @@ export const SHORT_FRAME_HEIGHT = "calc(100dvh - 2.75rem)";
 // home: 上の帯の左に出す、サイトの入口へのリンク（プレビューでは押せないもの）
 // barEnd: 上の帯の右に出すもの（結果が出たあとの「シェア・ほかの遊び」のボタン）
 // frameHeight: ツールの枠の高さ（プレビューでは、画面の高さの代わりに決まった高さにする）
-// play: 公開サイトの遊ぶ画面。上の帯をなくし、ツールの枠を画面に固定して、見えている範囲いっぱいに出す（運営者が決めた。inApp.ts）
-//   - X のアプリの中では、上を --lab-inapp-top だけ空ける（X の上の帯の下に隠れないように）
-//   - サイト名・シェア・ほかの遊び・ひとことは、上の真ん中に浮かせたボタン（menu）から開く欄にまとめる
-//   - 題名と一行の説明は、読み上げと検索のためにだけ残す（画面には出さない）
+// play: 公開サイトの遊ぶ画面。ツールの枠を画面に固定して、見えている範囲いっぱいに出す（運営者が決めた。inApp.ts）
+//   - 上には細い帯（28px）だけを置き、左にサイトの入口（home）、真ん中にツール名、右にメニューのボタン（menu）を出す。
+//     帯をなくしてボタンをツールの上に浮かせると、公開中のツールの題名や右上のボタンに重なったため、細い帯に戻した（運営者が決めた）
+//   - X のアプリの中では、帯ごと上を --lab-inapp-top だけ空ける（X の上の帯の下に隠れないように）
+//   - シェア・ほかの遊び・ひとこと・プライバシーポリシーは、メニューのボタンから開く欄にまとめる
+//   - 一行の説明は、読み上げと検索のためにだけ残す（画面には出さない）
 export function ShortToolView({ title, lead, tool, after, home, barEnd, frameHeight = SHORT_FRAME_HEIGHT, play = false, menu }: { title: string; lead: string; tool: ReactNode; after?: ReactNode; home?: ReactNode; barEnd?: ReactNode; frameHeight?: string; play?: boolean; menu?: ReactNode }) {
   if (play) {
     return (
       <div>
-        <h1 className="sr-only">{title}</h1>
         {lead && <p className="sr-only">{lead}</p>}
         {/* 遊ぶ画面の後ろを塞ぐ（X のときに上を空けた所や、PC の左右に、ページの下の欄が透けて見えないように） */}
         <div aria-hidden className="fixed inset-0 z-20 bg-[color:var(--bg)]" />
-        <section id="tool" data-section="tool" data-play="" className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-3xl overflow-hidden bg-[color:var(--bg)] sm:border-x sm:border-[color:var(--border)]" style={{ top: "var(--lab-inapp-top, 0px)" }}>
-          {tool}
-          {/* 真ん中に寄せるのに transform を使わない。transform のある要素は、中の position: fixed（メニューの欄）の基準になり、
-              欄が画面の下ではなくボタンの所に細く出てしまうため（PR #118 の ai-review の指摘）。ボタンの外はツールを押せるようにする */}
-          {menu && (
-            <div className="pointer-events-none absolute inset-x-0 top-1.5 z-10 flex justify-center">
-              <div className="pointer-events-auto">{menu}</div>
-            </div>
-          )}
+        <section id="tool" data-section="tool" data-play="" className="fixed inset-x-0 bottom-0 z-30 mx-auto flex max-w-3xl flex-col bg-[color:var(--bg)] sm:border-x sm:border-[color:var(--border)]" style={{ top: "var(--lab-inapp-top, 0px)" }}>
+          <header className="flex h-7 shrink-0 items-center gap-2 border-b border-[color:var(--border)] px-3 text-xs">
+            {home && <div className="shrink-0 font-bold">{home}</div>}
+            <h1 className="min-w-0 flex-1 truncate text-ink-2">{title}</h1>
+            {menu && <div className="shrink-0">{menu}</div>}
+          </header>
+          <div className="relative min-h-0 flex-1 overflow-hidden">{tool}</div>
         </section>
       </div>
     );
