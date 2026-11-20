@@ -13,6 +13,7 @@ import { TOOL_STORE_MAX } from "./toolStore";
 // - 次に開いたときにも残したいものは window.labStore.get()・set(値) で、ページの側に預けられる（toolStore.ts）
 //   ページが答えないとき（公開前の自動テスト・動画の録画など）は、1.5秒で get は null、set は false になる
 // - スマホの動きは window.labMotion.request() で許可を頼み、"labmotion" イベント（detail: x・y・z）で受け取る（toolMotion.ts）
+//   答えを待っている間に続けて頼まれたら、同じ答えを待たせる（ページの側に頼みをためない）
 //   ページの側で許可を求めるので、iPhone でも使える。ページが答えないときは 20秒で "unavailable"
 // fonts: Google Fonts を使ってよいとき、読み込めるのはその2か所の CSS と文字の形だけ
 // imgOrigins: このツールの紹介イラストと、人が入れた画像（素材）を置いている場所（https のときだけ。画像の読み込みだけを許す）。ほかへの通信は止めたまま
@@ -42,7 +43,7 @@ addEventListener("click",function(e){var t=e.target;if(!t||!t.closest||t.closest
 addEventListener("input",use,true);addEventListener("change",use,true);
 var sq=0,sw={};addEventListener("message",function(e){var d=e.data;if(e.source!==parent||parent===window||!d)return;if((d.__lab==="store"||d.__lab==="motion-state")&&sw[d.id]){var f=sw[d.id];delete sw[d.id];f(d)}
 if(d.__lab==="motion"&&typeof d.x==="number")dispatchEvent(new CustomEvent("labmotion",{detail:{x:d.x,y:d.y,z:d.z}}))});
-window.labMotion={request:function(){return new Promise(function(ok){if(parent===window){ok("unavailable");return}var id=++sq,t=setTimeout(function(){delete sw[id];ok("unavailable")},20000);sw[id]=function(d){clearTimeout(t);ok(d.state==="granted"||d.state==="denied"?d.state:"unavailable")};parent.postMessage({__lab:"motion-request",id:id},"*")})}};
+var mp=null;window.labMotion={request:function(){if(mp)return mp;mp=new Promise(function(ok){if(parent===window){ok("unavailable");return}var id=++sq,t=setTimeout(function(){delete sw[id];ok("unavailable")},20000);sw[id]=function(d){clearTimeout(t);ok(d.state==="granted"||d.state==="denied"?d.state:"unavailable")};parent.postMessage({__lab:"motion-request",id:id},"*")});mp.then(function(){mp=null});return mp}};
 function sreq(m){return new Promise(function(ok){if(parent===window){ok(null);return}var id=++sq,t=setTimeout(function(){delete sw[id];ok(null)},1500);sw[id]=function(d){clearTimeout(t);ok(d)};m.id=id;parent.postMessage(m,"*")})}
 window.labStore={get:function(){return sreq({__lab:"store-get"}).then(function(d){if(!d||!d.ok||typeof d.value!=="string")return null;try{return JSON.parse(d.value)}catch(x){return null}})},
 set:function(v){var s;try{s=JSON.stringify(v)}catch(x){return Promise.resolve(false)}if(typeof s!=="string"||s.length>${TOOL_STORE_MAX})return Promise.resolve(false);return sreq({__lab:"store-set",value:s}).then(function(d){return !!(d&&d.ok)})}};})();</script>`;

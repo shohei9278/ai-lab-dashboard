@@ -35,38 +35,56 @@ export type MotionGateDeps = {
   reply: (id: number, state: MotionState) => void; // 枠へ許可の結果を返す
   showButton: (show: boolean) => void; // 「センサーを使う」ボタンを出す・消す
   wait?: number; // 最初の動きの知らせを待つ時間（ms）
+  askFor?: number; // ボタンを出しておく時間（ms）。枠の中の頼み（20秒で unavailable）より先に閉じる
 };
+// 待っている頼みの上限（枠の中からいくら頼まれても、ページの側にためない）
+export const MOTION_PENDING_MAX = 8;
 
 // ページの側の、動きのセンサーの窓口。request（枠からの頼み）・tap（ボタン）・decline（使わない）・dispose（片付け）
-// 決まった答え（granted・unavailable）は覚えておき、次の頼みにはすぐ返す。denied は覚えない（ツールが頼み直せば、またボタンを出す）
+// - 決まった答え（granted・unavailable）は覚えておき、次の頼みにはすぐ返す。denied は覚えない（ツールが頼み直せば、またボタンを出す）
+// - ボタンを押されないまま askFor が過ぎたら、ボタンを閉じて unavailable を返す（覚えない）。ツールはもう別の遊び方に移っているため
+// - dispose のあとは、何も始めず、何も返さない（タイマー・受け取り・許可の返事を待つ処理を止める）
 export function motionGate(d: MotionGateDeps) {
   let decided: "granted" | "unavailable" | null = null;
-  let busy = false;
+  let busy = false, disposed = false;
   let pending: number[] = [];
   let stop: (() => void) | null = null;
-  const finish = (s: MotionState) => {
+  let timer: ReturnType<typeof setTimeout> | undefined = undefined;
+  const clear = () => { clearTimeout(timer); timer = undefined; };
+  const finish = (s: MotionState, remember = s !== "denied") => {
+    if (disposed) return;
+    clear();
     busy = false;
     d.showButton(false);
-    if (s !== "denied") decided = s;
+    if (remember && s !== "denied") decided = s;
     const ids = pending;
     pending = [];
     ids.forEach((id) => d.reply(id, s));
   };
+  const askTap = () => {
+    if (disposed) return;
+    d.showButton(true);
+    clear();
+    timer = setTimeout(() => finish("unavailable", false), d.askFor ?? 18000);
+  };
   // 動きの知らせを聞き始め、値のある知らせが届いたら granted。待っても届かなければ、聞くのをやめて unavailable
   const probe = () => {
+    if (disposed) return;
     let got = false;
-    let timer: ReturnType<typeof setTimeout> | undefined = undefined;
+    clear();
     stop = d.listen((a) => {
       const m = motionMessage(a);
-      if (!m) return;
+      if (!m || disposed) return;
       d.send(m);
-      if (!got) { got = true; clearTimeout(timer); finish("granted"); }
+      if (!got) { got = true; finish("granted"); }
     });
     timer = setTimeout(() => { if (got) return; stop?.(); stop = null; finish("unavailable"); }, d.wait ?? 1500);
   };
   return {
     request(id: number) {
+      if (disposed) return;
       if (decided) { d.reply(id, decided); return; }
+      if (pending.length >= MOTION_PENDING_MAX) { d.reply(id, "unavailable"); return; }
       pending.push(id);
       if (busy) return;
       busy = true;
@@ -74,15 +92,17 @@ export function motionGate(d: MotionGateDeps) {
       if (path === "none") { finish("unavailable"); return; }
       if (path === "direct") { probe(); return; }
       // iPhone など: まず求めてみて、断られたら（タップがないと断られる）ボタンを出して待つ
-      api!.requestPermission!().then((r) => (motionStateOf(r) === "granted" ? probe() : d.showButton(true)), () => d.showButton(true));
+      api!.requestPermission!().then((r) => (motionStateOf(r) === "granted" ? probe() : askTap()), askTap);
     },
     async tap() {
+      if (disposed) return;
+      clear();
       d.showButton(false);
       let s: MotionState = "denied";
       try { s = motionStateOf(await d.api()?.requestPermission?.()); } catch { s = "denied"; }
       if (s === "granted") probe(); else finish("denied");
     },
     decline() { finish("denied"); },
-    dispose() { stop?.(); stop = null; },
+    dispose() { disposed = true; clear(); stop?.(); stop = null; pending = []; },
   };
 }
