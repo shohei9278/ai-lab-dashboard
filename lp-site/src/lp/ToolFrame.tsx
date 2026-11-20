@@ -53,12 +53,17 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
       }
       if (e.data.__lab === "height" && typeof e.data.h === "number") setHeight(Math.max(240, Math.min(4000, e.data.h)));
       // ツールが知らせた結果の一文を、ページのシェアのボタンに渡す
-      if (e.data.__lab === "share-text" && typeof e.data.text === "string") {
+      // 結果が出たことは、結果のあとの欄（ResultSheet）にも lab-result-shown で知らせる。quiet（遊びが続くツールの途中の結果）のときは知らせない
+      // 中身を確かめた知らせのときだけ知らせる（本文のない・番号の形が違う知らせでは、欄を開かない。PR #113 の ai-review の指摘）
+      const shown = () => { if (!e.data.quiet) window.dispatchEvent(new Event("lab-result-shown")); };
+      if (e.data.__lab === "share-text" && typeof e.data.text === "string" && e.data.text.trim()) {
         window.dispatchEvent(new CustomEvent("lab-share-text", { detail: e.data.text.slice(0, 200) }));
+        shown();
       }
       // ツールが知らせた結果の番号を、ページのシェアのボタンに渡す（結果ごとのシェア画像のリンクにする）
-      if (e.data.__lab === "result" && typeof e.data.i === "number") {
+      if (e.data.__lab === "result" && Number.isInteger(e.data.i) && e.data.i >= 0 && e.data.i < 100) {
         window.dispatchEvent(new CustomEvent("lab-share-result", { detail: e.data.i }));
+        shown();
       }
       if (e.data.__lab === "use" && !used.current) {
         used.current = true;

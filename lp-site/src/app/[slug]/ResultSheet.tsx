@@ -11,7 +11,8 @@ export type OtherTool = { slug: string; title: string; version: number };
 export const RESULT_SHEET_DELAY = 1500;
 
 // 遊びのツール（短いページ）で、結果が出たあとに下から出す欄: シェア と ほかの遊び（運営者の依頼。遊び終わったら、次の遊びに進めるように）
-// - 結果が出たことは、ツールの labShare・labResult の知らせ（ToolFrame が lab-share-text・lab-share-result として流す）で知る
+// - 結果が出たことは、ツールの labShare・labResult の知らせ（ToolFrame が lab-result-shown として流す）で知る。
+//   遊びが続くツール（#72 のように、見つけても終わらないもの）は quiet を付けて知らせ、遊びの途中で欄が開いて操作を隠さないようにする
 // - 自動で開くのは最初の1回だけ。閉じたあとは、上の帯の「シェア・ほかの遊び」で開き直せる
 //   （入れるたびに結果の一文を知らせるツールもあるので、毎回開くと遊ぶ邪魔になる）
 // - シェアのボタンは、閉じている間も置いておく（結果の一文と番号の知らせを取りこぼさないように）
@@ -30,12 +31,11 @@ export function ResultSheet({ slug, version, shareText, results, others }: { slu
         setOpen(true);
       }, RESULT_SHEET_DELAY);
     };
-    window.addEventListener("lab-share-text", on);
-    window.addEventListener("lab-share-result", on);
+    // ツールが「静かに」知らせた結果（遊びが続くツールの途中の結果。labShare(…, { quiet: true })）では開かない（ToolFrame が lab-result-shown を流さない）
+    window.addEventListener("lab-result-shown", on);
     return () => {
       clearTimeout(timer);
-      window.removeEventListener("lab-share-text", on);
-      window.removeEventListener("lab-share-result", on);
+      window.removeEventListener("lab-result-shown", on);
     };
   }, []);
   useEffect(() => {
@@ -58,7 +58,7 @@ export function ResultSheet({ slug, version, shareText, results, others }: { slu
         inert={!open}
         className={`fixed inset-x-0 bottom-0 z-40 transition-transform duration-300 ${open ? "translate-y-0" : "pointer-events-none translate-y-full"}`}
       >
-        <div className="mx-auto max-w-3xl rounded-t-2xl border border-b-0 border-[color:var(--border)] bg-[color:var(--bg)] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-[0_-8px_30px_rgba(0,0,0,0.18)]">
+        <div className="mx-auto max-w-3xl rounded-t-2xl border border-b-0 border-[color:var(--border)] bg-[color:var(--bg)] px-4 pb-[max(1rem,env(safe-area-inset-bottom),var(--lab-inapp-pad,0px))] pt-3 shadow-[0_-8px_30px_rgba(0,0,0,0.18)]">
           <div className="flex items-center justify-between gap-3">
             <p className="text-sm font-bold">{SHORT_SHARE_HEADING}</p>
             <button type="button" onClick={() => setOpen(false)} aria-label="閉じる" className="-mr-2 grid size-9 shrink-0 place-items-center rounded-full text-xl leading-none text-ink-2">×</button>

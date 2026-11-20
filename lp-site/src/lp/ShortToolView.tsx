@@ -8,8 +8,8 @@ import type { ReactNode } from "react";
 // - 運営者名とプライバシーポリシーは、サイト全体の下の欄に出る
 // ツールの下のシェアの欄の見出し（公開サイトとダッシュボードのプレビュー、結果のあとの欄で同じ文にする）
 export const SHORT_SHARE_HEADING = "楽しかったら、シェアしてもらえるとうれしいです";
-// ツールの枠の高さ（画面の高さから、上の帯の高さ h-11 を引いたもの）
-export const SHORT_FRAME_HEIGHT = "calc(100dvh - 2.75rem)";
+// ツールの枠の高さ（画面の高さから、上の帯の高さ h-11 と、SNS のアプリの中のブラウザの下の帯の目安 --lab-inapp-pad を引いたもの。inApp.ts）
+export const SHORT_FRAME_HEIGHT = "calc(100dvh - 2.75rem - var(--lab-inapp-pad, 0px))";
 
 // home: 上の帯の左に出す、サイトの入口へのリンク（プレビューでは押せないもの）
 // barEnd: 上の帯の右に出すもの（結果が出たあとの「シェア・ほかの遊び」のボタン）

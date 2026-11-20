@@ -10,6 +10,7 @@ import { TOOL_STORE_MAX } from "./toolStore";
 //   入力欄・選択肢・ラベルは、押しただけでは数えない（中身を変えたときに input・change で数える）
 // - ツールは結果が出たら window.labShare("…") で、シェアの文に使う結果の一文を知らせられる
 // - 結果の種類が決まっているツールは window.labResult(番号) で、どの結果かを知らせられる（シェアのリンクと、結果ごとのシェア画像に使う）
+// - どちらも2つ目に { quiet: true } を付けると、シェアの文と番号だけ替え、結果のあとの欄（シェア・ほかの遊び）を開かない（遊びが続くツールの途中の結果）
 // - 次に開いたときにも残したいものは window.labStore.get()・set(値) で、ページの側に預けられる（toolStore.ts）
 //   ページが答えないとき（公開前の自動テスト・動画の録画など）は、1.5秒で get は null、set は false になる
 // - スマホの動きは window.labMotion.request() で許可を頼み、"labmotion" イベント（detail: x・y・z）で受け取る（toolMotion.ts）
@@ -34,8 +35,8 @@ function originOf(url: string | undefined): string | null {
 }
 const BRIDGE = `<script>(function(){var u=false;function h(){parent.postMessage({__lab:"height",h:Math.ceil(document.documentElement.scrollHeight)},"*")}
 function use(){if(u)return;u=true;parent.postMessage({__lab:"use"},"*")}
-window.labShare=function(t){if(typeof t==="string"&&t.trim())parent.postMessage({__lab:"share-text",text:t.trim().slice(0,200)},"*")};
-window.labResult=function(i){if(typeof i==="number"&&i>=0&&i<100&&Math.floor(i)===i)parent.postMessage({__lab:"result",i:i},"*")};
+window.labShare=function(t,o){if(typeof t==="string"&&t.trim())parent.postMessage({__lab:"share-text",text:t.trim().slice(0,200),quiet:!!(o&&o.quiet)},"*")};
+window.labResult=function(i,o){if(typeof i==="number"&&i>=0&&i<100&&Math.floor(i)===i)parent.postMessage({__lab:"result",i:i,quiet:!!(o&&o.quiet)},"*")};
 addEventListener("load",h);if(window.ResizeObserver){new ResizeObserver(h).observe(document.documentElement)}setTimeout(h,300);
 addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.__lab==="ping")h()});
 var T="button,a,summary,canvas,[role=button],[role=tab],[role=option],[role=slider],[onclick]";var F="input,select,textarea,label";
