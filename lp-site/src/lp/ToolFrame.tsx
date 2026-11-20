@@ -21,9 +21,11 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
   const store = useRef<StoreBackend | null>(null);
   // 動きのセンサーの窓口（許可・最初の知らせの確かめ・枠への中継は toolMotion.ts の motionGate）。ask: ボタンを出しているか
   const [ask, setAsk] = useState(false);
+  // 枠の中身（srcDoc）ごとに作り直す。中身が入れ替わったら、前のツールの許可・受け取り・待っている頼みを片付ける
+  const doc = wrapToolHtml(html, { data, fonts, illustration, images, fill });
   const gate = useRef<ReturnType<typeof motionGate> | null>(null);
   useEffect(() => {
-    gate.current = motionGate({
+    const g = motionGate({
       api: () => window.DeviceMotionEvent as unknown as { requestPermission?: () => Promise<string> } | undefined,
       listen: (on) => {
         const h = (e: DeviceMotionEvent) => on(e.accelerationIncludingGravity);
@@ -34,8 +36,9 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
       reply: (id, state) => ref.current?.contentWindow?.postMessage({ __lab: "motion-state", id, state }, "*"),
       showButton: setAsk,
     });
-    return () => gate.current?.dispose();
-  }, []);
+    gate.current = g;
+    return () => { g.dispose(); if (gate.current === g) gate.current = null; setAsk(false); };
+  }, [doc]);
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
@@ -75,7 +78,7 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
       title={title}
       sandbox="allow-scripts allow-downloads"
       allow="clipboard-write; accelerometer; gyroscope"
-      srcDoc={wrapToolHtml(html, { data, fonts, illustration, images, fill })}
+      srcDoc={doc}
       style={{ width: "100%", height: fill ? "100%" : height, border: 0, display: "block" }}
     />
     {ask && (

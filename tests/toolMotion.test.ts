@@ -21,19 +21,19 @@ test("動きの窓口: 端末ごとに許可の取り方を分け、動きの知
 
 // ページの側の窓口を、端末の代わりの作り物で動かす（fire: 動きの知らせを1回送る）
 function fakeGate(api: { requestPermission?: () => Promise<string> } | undefined) {
-  const replies: [number, MotionState][] = [], sent: unknown[] = [], button: boolean[] = [];
+  const replies: [number, MotionState][] = [], sent: unknown[] = [], button: boolean[] = [], log: string[] = [];
   let listens = 0;
   let on: ((a: { x: number | null; y: number | null; z: number | null }) => void) | null = null;
   const g = motionGate({
     api: () => api,
     listen: (f) => { listens++; on = f; return () => { on = null; }; },
-    send: (m) => sent.push(m),
-    reply: (id, s) => replies.push([id, s]),
+    send: (m) => { sent.push(m); log.push("send"); },
+    reply: (id, s) => { replies.push([id, s]); log.push("reply"); },
     showButton: (b) => button.push(b),
     wait: 40,
-    askFor: 60,
+    limit: 60,
   });
-  return { g, replies, sent, button, listens: () => listens, fire: (x: number | null) => on?.({ x, y: x === null ? null : -9.8, z: 0 }), listening: () => !!on };
+  return { g, replies, sent, button, log, listens: () => listens, fire: (x: number | null) => on?.({ x, y: x === null ? null : -9.8, z: 0 }), listening: () => !!on };
 }
 const tick = (ms = 0) => new Promise((ok) => setTimeout(ok, ms));
 
@@ -129,6 +129,30 @@ test("動きの窓口: 待っている頼みには上限があり、超えた頼
   assert.deepEqual(f.replies, [[MOTION_PENDING_MAX + 1, "unavailable"], [MOTION_PENDING_MAX + 2, "unavailable"]]);
   f.g.decline();
   assert.equal(f.replies.length, MOTION_PENDING_MAX + 2);
+});
+
+// ai-review の指摘（#112・3回目）: 期限は頼みが来たときから数える・granted は最初の知らせより先に返す
+test("動きの窓口: 期限は頼みが来たときから数え、許可の画面への答えが期限より遅れたら、その許可は捨てて受け取りを始めない", async () => {
+  let tapped = false, grant: (v: string) => void = () => {};
+  const f = fakeGate({ requestPermission: () => (tapped ? new Promise<string>((ok) => { grant = ok; }) : Promise.reject(new Error("NotAllowedError"))) });
+  f.g.request(1);
+  await tick();
+  tapped = true;
+  const t = f.g.tap(); // 許可の画面を出したまま、期限が過ぎる
+  await tick(100);
+  assert.deepEqual(f.replies, [[1, "unavailable"]]);
+  grant("granted");
+  await t;
+  assert.equal(f.listens(), 0);
+  assert.deepEqual(f.replies, [[1, "unavailable"]]);
+});
+
+test("動きの窓口: granted を返してから最初の動きの知らせを渡す（許可されてから聞き始めるツールでも、最初の知らせを受け取れる）", async () => {
+  const f = fakeGate({});
+  f.g.request(1);
+  f.fire(2);
+  f.fire(3);
+  assert.deepEqual(f.log, ["reply", "send", "send"]);
 });
 
 test("動きの窓口: 枠の中の window.labMotion が許可を頼み、ページから渡された動きを labmotion イベントで受け取る。ページが答えないときは unavailable", async (t) => {

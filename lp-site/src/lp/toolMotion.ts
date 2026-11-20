@@ -35,51 +35,49 @@ export type MotionGateDeps = {
   reply: (id: number, state: MotionState) => void; // 枠へ許可の結果を返す
   showButton: (show: boolean) => void; // 「センサーを使う」ボタンを出す・消す
   wait?: number; // 最初の動きの知らせを待つ時間（ms）
-  askFor?: number; // ボタンを出しておく時間（ms）。枠の中の頼み（20秒で unavailable）より先に閉じる
+  limit?: number; // 頼みが来てから答えるまでの期限（ms）。枠の中の頼み（20秒で unavailable）より先に切れるようにする
 };
 // 待っている頼みの上限（枠の中からいくら頼まれても、ページの側にためない）
 export const MOTION_PENDING_MAX = 8;
 
 // ページの側の、動きのセンサーの窓口。request（枠からの頼み）・tap（ボタン）・decline（使わない）・dispose（片付け）
 // - 決まった答え（granted・unavailable）は覚えておき、次の頼みにはすぐ返す。denied は覚えない（ツールが頼み直せば、またボタンを出す）
-// - ボタンを押されないまま askFor が過ぎたら、ボタンを閉じて unavailable を返す（覚えない）。ツールはもう別の遊び方に移っているため
+// - 頼みが来てから limit が過ぎたら、どの段階でも（ボタン・許可の画面・最初の知らせ待ち）そこでやめて unavailable を返す（覚えない）。
+//   枠の中の頼みはもう切れていて、ツールは別の遊び方に移っているため。期限のあとに届いた許可の返事や知らせは捨てる
+// - granted は、最初の動きの知らせを渡す前に返す（「許可されたら聞き始める」ツールが、最初の知らせを取りこぼさないように）
 // - dispose のあとは、何も始めず、何も返さない（タイマー・受け取り・許可の返事を待つ処理を止める）
 export function motionGate(d: MotionGateDeps) {
   let decided: "granted" | "unavailable" | null = null;
-  let busy = false, disposed = false;
+  let busy = false, disposed = false, round = 0; // round: 今の頼みの回。期限や答えのあとに届いた古い返事を捨てるため
   let pending: number[] = [];
   let stop: (() => void) | null = null;
-  let timer: ReturnType<typeof setTimeout> | undefined = undefined;
-  const clear = () => { clearTimeout(timer); timer = undefined; };
+  let limitT: ReturnType<typeof setTimeout> | undefined = undefined, probeT: ReturnType<typeof setTimeout> | undefined = undefined;
+  const live = (r: number) => !disposed && busy && r === round;
   const finish = (s: MotionState, remember = s !== "denied") => {
     if (disposed) return;
-    clear();
+    clearTimeout(limitT); clearTimeout(probeT);
     busy = false;
+    round++;
+    if (s !== "granted") { stop?.(); stop = null; }
     d.showButton(false);
     if (remember && s !== "denied") decided = s;
     const ids = pending;
     pending = [];
     ids.forEach((id) => d.reply(id, s));
   };
-  const askTap = () => {
-    if (disposed) return;
-    d.showButton(true);
-    clear();
-    timer = setTimeout(() => finish("unavailable", false), d.askFor ?? 18000);
-  };
   // 動きの知らせを聞き始め、値のある知らせが届いたら granted。待っても届かなければ、聞くのをやめて unavailable
-  const probe = () => {
-    if (disposed) return;
+  const probe = (r: number) => {
+    if (!live(r)) return;
     let got = false;
-    clear();
     stop = d.listen((a) => {
       const m = motionMessage(a);
       if (!m || disposed) return;
+      if (!got) { if (!live(r)) return; got = true; finish("granted"); }
       d.send(m);
-      if (!got) { got = true; finish("granted"); }
     });
-    timer = setTimeout(() => { if (got) return; stop?.(); stop = null; finish("unavailable"); }, d.wait ?? 1500);
+    probeT = setTimeout(() => { if (live(r) && !got) finish("unavailable"); }, d.wait ?? 1500);
   };
+  const askTap = (r: number) => { if (live(r)) d.showButton(true); };
   return {
     request(id: number) {
       if (disposed) return;
@@ -88,21 +86,24 @@ export function motionGate(d: MotionGateDeps) {
       pending.push(id);
       if (busy) return;
       busy = true;
+      const r = ++round;
+      limitT = setTimeout(() => { if (live(r)) finish("unavailable", false); }, d.limit ?? 18000);
       const api = d.api(), path = motionPath(api);
       if (path === "none") { finish("unavailable"); return; }
-      if (path === "direct") { probe(); return; }
+      if (path === "direct") { probe(r); return; }
       // iPhone など: まず求めてみて、断られたら（タップがないと断られる）ボタンを出して待つ
-      api!.requestPermission!().then((r) => (motionStateOf(r) === "granted" ? probe() : askTap()), askTap);
+      api!.requestPermission!().then((v) => (motionStateOf(v) === "granted" ? probe(r) : askTap(r)), () => askTap(r));
     },
     async tap() {
-      if (disposed) return;
-      clear();
+      const r = round;
+      if (!live(r)) return;
       d.showButton(false);
       let s: MotionState = "denied";
       try { s = motionStateOf(await d.api()?.requestPermission?.()); } catch { s = "denied"; }
-      if (s === "granted") probe(); else finish("denied");
+      if (!live(r)) return; // 許可の画面に答えるまでに期限が過ぎた
+      if (s === "granted") probe(r); else finish("denied");
     },
-    decline() { finish("denied"); },
-    dispose() { disposed = true; clear(); stop?.(); stop = null; pending = []; },
+    decline() { if (busy) finish("denied"); },
+    dispose() { disposed = true; clearTimeout(limitT); clearTimeout(probeT); stop?.(); stop = null; pending = []; },
   };
 }
