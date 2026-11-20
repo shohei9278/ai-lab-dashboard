@@ -7,7 +7,8 @@ import { fixInstruction, pageOnlyIssues } from "./fixText";
 import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
-import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
+import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
+import { toolAssets, toolImages } from "./toolAssets";
 import { hasResultsTag, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
 import { MODELS, hasKey, modelInfo } from "./models";
 import { screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
@@ -763,6 +764,20 @@ async function requestDev(projectId: number, instruction?: string, comment?: str
   saveDevRequest(projectId, out.design, out.idea, instruction, comment);
 }
 
+// Claude Code に貼る依頼文の「画像（素材）」: 入れてある画像と、ツールでの使い方（運営者の依頼。#72 を、AIで作った景色の画像で作るため）
+function imagesNote(projectId: number): string {
+  const a = toolAssets(projectId);
+  const list = a.length
+    ? a.map((x) => `- ${x.name}: ${x.type}・${(x.bytes / 1024).toFixed(0)}KB → window.labAssets.images.${x.name}`).join("\n")
+    : `なし。画像が要るときは、運営者が開発のカードの「画像を入れる」から、名前を付けて入れる（${TOOL_IMAGES_MAX}枚まで・1枚${TOOL_IMAGE_BYTES_MAX / 1024 / 1024}MBまで・PNG・JPEG・WebP）`;
+  return `${list}
+使うときの決まり（入れた画像があるときだけ、外部の画像を使わない決まりの例外になる）:
+- 画像の URL は window.labAssets.images.名前（公開する版にも、そのときの画像が付く）。fetch では読めない（通信は止めている）ので、<img> か Image で読む
+- canvas・WebGL に描くときは、src より先に crossOrigin = "anonymous" を付けて読む（例: var img = new Image(); img.crossOrigin = "anonymous"; img.src = window.labAssets.images.名前;）。付けないと、描いたあと画像を保存できず、WebGL でも使えない
+- 画像がない・読み込めないときも崩れない作りにする（読み込み中の表示と、読めなかったときの代わりを用意する）
+- 手元で確かめるときは、ai-lab のリポジトリで \`npx tsx scripts/tool-preview.mts <ツールのHTML> --image 名前=ファイル\` を実行すると、公開と同じ枠に入れたページ（data/tool-preview/index.html）ができる。動画の台本の play-check にも、同じ --image を付ける`;
+}
+
 // Claude Code に貼る依頼文（設計書・作るときの決まり・データ・入れ方）
 export function devRequestText(projectId: number, design: string, instruction: string | null): string {
   const p = getProject(projectId)!;
@@ -780,6 +795,7 @@ export function devRequestText(projectId: number, design: string, instruction: s
     p.lp && instruction ? `直す指示: ${instruction}\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。${/^\d+\. 紹介ページ: /m.test(instruction) ? "\n「紹介ページ:」で始まる指摘は、ツールではなくAIが書く紹介ページのもの。ツールを入れたあとに、AIが紹介ページを作り直すときに直すので、ツールでは直さない。" : ""}` : "",
     `## 設計書\n${design}`,
     `## データ\n${dataNote}`,
+    `## 画像（素材）\n${imagesNote(projectId)}`,
     needsNote(p) ? `## 人が用意したもの（人の作業待ちで「済み」にしたもの）\n${needsNote(p)}\n素材の場所・使い方など、ここに書いていないことは、作る前に運営者に聞く。` : "",
     `## 作るときの決まり（AIが書くときと同じ。ただし Claude Code で作るときは、コードの長さは${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）\n${rules}`,
     `## 遊ぶ様子の動画の台本（任意。ねらいが「広がる」のツールは付ける）\nSNS に載せる縦長の動画（${PLAY_SECONDS_MAX}秒まで・スマホ幅360px・高さ510pxの枠で本物のツールを操作して録画する）の台本を、ツールの HTML の中に <script type="application/json" id="lab-play">{"hook":"動画の上の一言（${PLAY_HOOK_MAX}文字以内。20文字くらいまでが読みやすい。なくてもよい）","steps":[...]}</script> として入れる。入れると、本番の動画づくりで、AIが台本を書く代わりにこの手順で録画する（投稿文の案はAIが書く。この要素は公開するツールからは除く）。手順の書き方:\n${PLAY_STEP_RULES}\n手順の値は決まりの範囲の中で書く（範囲の外・形の違う手順があると、ツールを入れるときに断られる）。ai-lab のリポジトリで \`npx tsx scripts/play-check.mts <ツールのHTML>\` を実行すると、本番と同じ仕組みで録画して、どの手順ができたか・最初・途中・最後のコマを出すので、最後の結果まで映ることを確かめてから入れる`,
@@ -1150,7 +1166,7 @@ async function reviewTool(p: ProjectRow, html: string, instruction?: string): Pr
     projectId: p.id,
     system: `あなたはWebツールの公開前チェック担当です。コードを読んで、次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
 - 文法の誤りや、ボタンを押しても何も起きない・結果が出ないなど、動かない箇所がある
-- 外部への通信、外部ファイルの読み込み、保存領域・Cookie・alert・window.open を使っている（Google Fonts の読み込みと、window.labAssets のイラストを <img> で出すことは問題にしない）${p.deep ? `（このツールはじっくり案件${p.deep_need ? "。先に置かれた window.labData を読むことも問題にしない。window.labData の中身をコードに書き写していたら問題にする）\n- 遊びのための見立てのデータを、事実のように見せている" : "）"}` : ""}
+- 外部への通信、外部ファイルの読み込み、保存領域・Cookie・alert・window.open を使っている（Google Fonts の読み込みと、window.labAssets のイラストを <img> で出すこと、window.labAssets.images の画像（人が入れた素材）を <img>・Image・canvas・WebGL で使うことは問題にしない）${p.deep ? `（このツールはじっくり案件${p.deep_need ? "。先に置かれた window.labData を読むことも問題にしない。window.labData の中身をコードに書き写していたら問題にする）\n- 遊びのための見立てのデータを、事実のように見せている" : "）"}` : ""}
 - 個人を特定できる情報を入力させている
 - 架空の統計を事実のように書いている、医療・法律・お金の助言をしている、誰かを傷つける・差別的な内容がある
 - 実在の人物・団体について、不正確そうなデータを使っている
@@ -1211,10 +1227,11 @@ ${toolRules(deep, shortToolPage(p.aim))}
 }
 
 // given: ここ（Claude Code）で作ったツールのHTML。あれば、AIは書かずに、チェックと動作の確かめだけをする（書き直し・見た目を磨く段は通さない）
-async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string, given?: string): Promise<{ html: string; review: Review; test: ToolTest; model: string; rewrites: number; deep: { data?: DeepRow[]; fonts: true } | null }> {
+// images: じっくり案件で人が入れた画像（素材）。動作の確かめでも、公開と同じく window.labAssets.images として渡す
+async function buildTool(p: ProjectRow, shotName: string, instruction?: string, prevHtml?: string, given?: string, images?: ToolImages): Promise<{ html: string; review: Review; test: ToolTest; model: string; rewrites: number; deep: { data?: DeepRow[]; fonts: true } | null }> {
   let model = given !== undefined ? CLAUDE_CODE : toolModelFor(p);
   const deep = deepContext(p);
-  const frame = deep ? { data: deep.data?.rows, fonts: true as const } : { fonts: true as const };
+  const frame = deep ? { data: deep.data?.rows, fonts: true as const, images } : { fonts: true as const };
   // 長すぎて最後まで書けなかったら、別の会社のAIに規模を絞って書き直してもらう（同じAIで繰り返すと、同じ所で切れやすい）
   const write = async (note?: string, base?: string): Promise<string> => {
     try {
@@ -1297,7 +1314,7 @@ export async function retestTool(projectId: number): Promise<ToolTest> {
   const p = getProject(projectId);
   const tool = p?.lp ? (JSON.parse(p.lp) as Lp).tool : undefined;
   if (!p || !tool) throw new Error("動くツールの案件ではありません");
-  const test = await testTool(tool.html, `p${p.id}-v${p.lp_version}`, { data: tool.data, fonts: tool.fonts });
+  const test = await testTool(tool.html, `p${p.id}-v${p.lp_version}`, { data: tool.data, fonts: tool.fonts, images: tool.images });
   db().prepare("UPDATE lp_versions SET test = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(test), p.id, p.lp_version);
   const issues = testIssues(test);
   logEvent(p.id, "system", "tool-test", test.skipped ? test.skipped : issues.length ? `自動テストで問題: ${issues.join(" / ")}` : `自動テストで問題なし（${test.clicked}か所を操作）`);
@@ -1576,11 +1593,13 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   const { shareText, ...page } = await writeLp(p, opts.instruction, opts.keepCore);
   const version = nextVersion(p.id);
   // ツールを今のまま使うとき（紹介ページの指摘だけを直す）は、ツールのチェックに紹介ページへの指示を渡さない（ツールで直していないと誤って指摘しないように）
-  const tool = await buildTool(p, `p${p.id}-v${version}`, opts.keepTool ? undefined : opts.instruction, before?.tool?.html, opts.toolHtml);
+  // 人が入れた画像（素材）: ツールを今のまま使うときは前の版の一覧、入れ直したツールは今の一覧（じっくり案件だけ）
+  const images = opts.keepTool ? before?.tool?.images : p.deep ? toolImages(p.id) : undefined;
+  const tool = await buildTool(p, `p${p.id}-v${version}`, opts.keepTool ? undefined : opts.instruction, before?.tool?.html, opts.toolHtml, images);
   const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined, tool.html);
   // 紹介ページの文の指摘には「紹介ページ: 」を付けて、ツールの指摘と分ける（じっくり案件で、紹介ページだけを直せるように）
   let review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues.map((x) => `紹介ページ: ${x}`)] };
-  let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline, fonts: true, results: toolResultsOf(tool.html), ...(tool.deep ?? {}) } });
+  let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline, fonts: true, results: toolResultsOf(tool.html), ...(tool.deep ?? {}), ...(images ? { images } : {}) } });
   if (!lp.tool) throw new Error("ツールが大きすぎるか空のため保存できませんでした");
   if (tool.deep?.data && !lp.tool.data) throw new Error("じっくり案件のデータが大きすぎるため保存できませんでした");
   if (lp.design) lp.design.illustration = before?.design?.illustration;

@@ -21,7 +21,7 @@ export function PreviewBody({ lp, title, pc = false, freePage = true }: { lp: Lp
           lead={lp.subheadline}
           home={<span title="プレビューでは押せません">（公開サイトの屋号）</span>}
           frameHeight={pc ? "676px" : "800px"}
-          tool={<ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} fill />}
+          tool={<ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} images={lp.tool.images} fill />}
           after={
             // シェアの欄も、公開サイトと同じ見た目で出す（プレビューでは押せない。押せる形にすると、未公開のページを広めてしまうため）
             <section data-section="share" className="px-6 pb-12 pt-2">
@@ -49,7 +49,7 @@ export function PreviewBody({ lp, title, pc = false, freePage = true }: { lp: Lp
           title={title}
           imgOrigins={imgOriginsOf(lp.design?.illustration?.url, lp.page.html)}
           operator="運営: （公開サイトの屋号が入ります）"
-          tool={<ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} />}
+          tool={<ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} images={lp.tool.images} />}
         />
       </div>
     );
@@ -68,7 +68,7 @@ export function PreviewBody({ lp, title, pc = false, freePage = true }: { lp: Lp
         title={title}
         topCta={lp.tool ? <a href="#tool" className={lpButtonClass} style={lpButtonStyle}>{lp.cta}</a> : button}
         signup={<div className="text-center">{button}</div>}
-        tool={lp.tool ? <ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} /> : undefined}
+        tool={lp.tool ? <ToolFrame html={lp.tool.html} title={title} data={lp.tool.data} fonts={lp.tool.fonts} illustration={lp.design?.illustration?.url} images={lp.tool.images} /> : undefined}
       />
     </article>
   );

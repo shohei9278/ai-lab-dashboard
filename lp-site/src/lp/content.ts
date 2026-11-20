@@ -58,7 +58,8 @@ export type Lp = {
   // 動くツールの案件だけ: ツール本体（1つのHTML）と、シェアするときの文
   // じっくり案件のツールは、人が確かめたデータ（data。枠の中で window.labData として読める）と、Google Fonts を使ってよい印（fonts）を持つ
   // results: 結果の種類が決まっているツール（診断など）の結果の名前。シェアのリンク（?r=番号）と、結果ごとのシェア画像に使う
-  tool?: { html: string; shareText: string; data?: unknown[]; fonts?: boolean; results?: string[] };
+  // images: じっくり案件で人が入れた画像（素材）。名前 → 公開用の保存領域の URL。枠の中で window.labAssets.images として読める
+  tool?: { html: string; shareText: string; data?: unknown[]; fonts?: boolean; results?: string[]; images?: ToolImages };
   // AIが丸ごと自由に書いたページ（1つのHTML）。あれば部品の表示の代わりにこれを出す。上の文言はシェア画像・検索結果・予備に使う
   page?: { html: string };
   // 動くツールの案件だけ: 紹介ページを作らず、名前と一行 → ツール → シェア の短い形で出す（ねらいが「広がる」「また来てもらう」のツール。ShortToolView）
@@ -76,6 +77,22 @@ export const TOOL_RESULT_LEN = 30;
 export function isToolResults(v: unknown): v is string[] {
   return Array.isArray(v) && v.length >= 1 && v.length <= TOOL_RESULTS_MAX
     && v.every((x) => typeof x === "string" && x.length > 0 && x.length <= TOOL_RESULT_LEN && x === x.trim());
+}
+// じっくり案件のツールに付ける画像（素材）: 名前 → https の URL
+// 名前は、ツールのコードで window.labAssets.images.名前 と書けるように、英小文字で始まる英小文字・数字・_ の24文字まで
+export type ToolImages = Record<string, string>;
+export const TOOL_IMAGES_MAX = 4;
+export const TOOL_IMAGE_BYTES_MAX = 2 * 1024 * 1024;
+export const TOOL_IMAGE_NAME = /^[a-z][a-z0-9_]{0,23}$/;
+// 画像の一覧として正しいものだけを返す（名前の形・https の URL・数の上限。1つでもおかしければ使わない）
+// allowData: 画像そのもの（data: の URL）も受け付ける（手元で Claude Code が確かめる play-check だけ。公開する版には入れない）
+export function toolImagesOf(v: unknown, allowData = false): ToolImages | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const e = Object.entries(v as Record<string, unknown>);
+  if (!e.length || e.length > TOOL_IMAGES_MAX) return undefined;
+  const okUrl = (u: unknown) => typeof u === "string" && (/^https:\/\/[^\s"'<>]+$/.test(u) || (allowData && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(u)));
+  if (!e.every(([k, u]) => TOOL_IMAGE_NAME.test(k) && okUrl(u))) return undefined;
+  return Object.fromEntries(e) as ToolImages;
 }
 // 結果の一覧を取り出す処理（hasResultsTag・toolResultsOf）は、HTMLのパーサーを使うので htmlDom.ts にある（画面のコードに入れない）
 
@@ -162,6 +179,8 @@ export function normalizeLp(raw: unknown): Lp {
     if (Array.isArray(data) && data.length > 0 && data.length <= TOOL_DATA_ROWS_MAX && JSON.stringify(data).length <= TOOL_DATA_MAX) lp.tool.data = data;
     if (v.tool.fonts === true) lp.tool.fonts = true;
     if (isToolResults(v.tool.results)) lp.tool.results = v.tool.results;
+    const images = toolImagesOf(v.tool.images);
+    if (images) lp.tool.images = images;
   }
   if (isObj(v.page) && isStr(v.page.html) && v.page.html.length <= PAGE_HTML_MAX) lp.page = { html: v.page.html };
   if (v.short === true && lp.tool) lp.short = true;

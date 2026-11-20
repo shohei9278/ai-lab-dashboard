@@ -3,17 +3,19 @@ import { db, getSettings, type ApprovalRow, type ProjectRow } from "./db";
 import { CONV, approvedDeepData, debateFor, devRequestText, projectTotals, shadowModels, targetRate, type Decision, type Lp, type Review, type ShadowRow } from "./loop";
 import { modelInfo } from "./models";
 import { problemLabel } from "./aims";
+import { toolAssets } from "./toolAssets";
 import { sampleRows, type DeepSpec } from "./deep";
 
 // じっくり案件の開発待ちに出すもの。設計書と依頼文はAIの出力なので、運営者にだけ渡す
 function devView(projectId: number, payload: string | null, owner: boolean): ApprovalView["dev"] {
-  if (!owner) return { owner: false, design: "", request: "", instruction: null, hasData: false, hasTool: false };
+  if (!owner) return { owner: false, design: "", request: "", instruction: null, hasData: false, hasTool: false, assets: [] };
   const p = payload ? (JSON.parse(payload) as { design?: string; instruction?: string | null }) : {};
   const design = p.design ?? "";
   const proj = db().prepare("SELECT lp FROM projects WHERE id = ?").get(projectId) as { lp: string | null } | undefined;
   return {
     owner: true, design, instruction: p.instruction ?? null, request: devRequestText(projectId, design, p.instruction ?? null),
     hasData: !!approvedDeepData(projectId), hasTool: !!proj?.lp && !!(JSON.parse(proj.lp) as Lp).tool,
+    assets: toolAssets(projectId).map((a) => ({ name: a.name, url: a.url, bytes: a.bytes })),
   };
 }
 
