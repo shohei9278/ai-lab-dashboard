@@ -1,4 +1,5 @@
 import { toolImagesOf, type ToolImages } from "./content";
+import { TOOL_STORE_MAX } from "./toolStore";
 
 // ツール本体を、隔離された枠に入れるページの形にする。公開サイト・プレビュー・公開前の自動テストで同じものを使う
 // - CSP で外部への通信や外部ファイルの読み込みを止める
@@ -9,6 +10,8 @@ import { toolImagesOf, type ToolImages } from "./content";
 //   入力欄・選択肢・ラベルは、押しただけでは数えない（中身を変えたときに input・change で数える）
 // - ツールは結果が出たら window.labShare("…") で、シェアの文に使う結果の一文を知らせられる
 // - 結果の種類が決まっているツールは window.labResult(番号) で、どの結果かを知らせられる（シェアのリンクと、結果ごとのシェア画像に使う）
+// - 次に開いたときにも残したいものは window.labStore.get()・set(値) で、ページの側に預けられる（toolStore.ts）
+//   ページが答えないとき（公開前の自動テスト・動画の録画など）は、1.5秒で get は null、set は false になる
 // fonts: Google Fonts を使ってよいとき、読み込めるのはその2か所の CSS と文字の形だけ
 // imgOrigins: このツールの紹介イラストと、人が入れた画像（素材）を置いている場所（https のときだけ。画像の読み込みだけを許す）。ほかへの通信は止めたまま
 function csp(fonts: boolean, imgOrigins: string[]): string {
@@ -34,7 +37,11 @@ addEventListener("load",h);if(window.ResizeObserver){new ResizeObserver(h).obser
 addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.__lab==="ping")h()});
 var T="button,a,summary,canvas,[role=button],[role=tab],[role=option],[role=slider],[onclick]";var F="input,select,textarea,label";
 addEventListener("click",function(e){var t=e.target;if(!t||!t.closest||t.closest(F))return;if(t.closest(T)||getComputedStyle(t).cursor==="pointer")use()},true);
-addEventListener("input",use,true);addEventListener("change",use,true);})();</script>`;
+addEventListener("input",use,true);addEventListener("change",use,true);
+var sq=0,sw={};addEventListener("message",function(e){var d=e.data;if(e.source===parent&&parent!==window&&d&&d.__lab==="store"&&sw[d.id]){var f=sw[d.id];delete sw[d.id];f(d)}});
+function sreq(m){return new Promise(function(ok){if(parent===window){ok(null);return}var id=++sq,t=setTimeout(function(){delete sw[id];ok(null)},1500);sw[id]=function(d){clearTimeout(t);ok(d)};m.id=id;parent.postMessage(m,"*")})}
+window.labStore={get:function(){return sreq({__lab:"store-get"}).then(function(d){if(!d||!d.ok||typeof d.value!=="string")return null;try{return JSON.parse(d.value)}catch(x){return null}})},
+set:function(v){var s;try{s=JSON.stringify(v)}catch(x){return Promise.resolve(false)}if(typeof s!=="string"||s.length>${TOOL_STORE_MAX})return Promise.resolve(false);return sreq({__lab:"store-set",value:s}).then(function(d){return !!(d&&d.ok)})}};})();</script>`;
 
 // data: じっくり案件の、人が確かめたデータ。ツールより先に window.labData として置く（通信せずに読める）
 // fonts: Google Fonts を使ってよいか

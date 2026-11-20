@@ -23,7 +23,7 @@ export function ToolSection({ slug, version, html, title, data, fonts, illustrat
     record(slug, version, "use");
     gaEvent("tool_use", { lp_slug: slug, lp_version: version });
   }, [slug, version]);
-  return <ToolFrame html={html} title={title} onUse={onUse} data={data} fonts={fonts} illustration={illustration} images={images} fill={fill} />;
+  return <ToolFrame html={html} title={title} onUse={onUse} data={data} fonts={fonts} illustration={illustration} images={images} fill={fill} storeKey={slug} />;
 }
 
 // シェアのボタン（X とリンクのコピー）
