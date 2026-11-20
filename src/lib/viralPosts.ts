@@ -302,7 +302,8 @@ export async function drainQueue(ms: number) {
       clearTimeout(timer);
       continue;
     }
-    await new Promise((ok) => setTimeout(ok, 2000));
+    // ほかのまとめが動いている間は、少し待って確かめ直す。待つのは残りの時間まで（2秒のまま待つと、決めた時間を最大2秒過ぎる。CI で見つかった）
+    await new Promise((ok) => setTimeout(ok, Math.min(2000, Math.max(0, end - Date.now()))));
   }
 }
 
