@@ -659,7 +659,7 @@ function needsNote(p: ProjectRow): string {
 // 誰向けとねらいは変えない（変えるなら別の案件）。名前は、まだ公開していない案件だけ変える（公開中のツールの名前が勝手に変わらないように）
 export const IDEA_REVISE_FIELDS = {
   title: { label: "名前", max: 80 },
-  problem: { label: "刺さる気持ち・困りごと", max: 1500 },
+  problem: { label: "困りごと", max: 1500 }, // 経過に出す名前は、ねらいで変える（fieldLabel）
   solution: { label: "解決策", max: 1500 },
   deep_plan: { label: "作り込む所", max: 1500 },
   hypothesis: { label: "検証する仮説", max: 800 },
@@ -696,8 +696,10 @@ export function applyIdeaRevision(projectId: number, idea: IdeaRevision | null):
   });
   tx();
   // 前の値は切らずに全文を残す（あとで、何がどう変わったかを確かめたり、戻したりできるように。PR #109 の ai-review の指摘）
-  const before = changed.map((k) => `前の${IDEA_REVISE_FIELDS[k].label}: ${p[k] ?? "（なし）"}`).join(" / ");
-  logEvent(projectId, "ai", "idea-revise", `設計を直す指示に合わせて、案件の${changed.map((k) => IDEA_REVISE_FIELDS[k].label).join("・")}も直しました（${before}）`);
+  // problem の欄の名前は、画面やAIへの指示と同じく、ねらいで変える（PR #109 の ai-review の指摘）
+  const fieldLabel = (k: keyof IdeaRevision) => (k === "problem" ? problemLabel(p.aim) : IDEA_REVISE_FIELDS[k].label);
+  const before = changed.map((k) => `前の${fieldLabel(k)}: ${p[k] ?? "（なし）"}`).join(" / ");
+  logEvent(projectId, "ai", "idea-revise", `設計を直す指示に合わせて、案件の${changed.map(fieldLabel).join("・")}も直しました（${before}）`);
   return changed;
 }
 

@@ -70,3 +70,15 @@ test("設計を直す指示: 案件の書き換えと開発待ちの保存は、
   assert.match(a.proposal, /「ふって、しずめる」のツールを Claude Code で作る/);
   assert.equal((JSON.parse(a.payload) as { design: string }).design, "## 一言で\n景色を振る");
 });
+
+test("設計を直す指示: 経過に残す problem の欄の名前は、ねらいで変える（PR #109 の ai-review の指摘）", () => {
+  const msg = (aim: string) => {
+    const id = addDeep();
+    db().prepare("UPDATE projects SET aim = ? WHERE id = ?").run(aim, id);
+    applyIdeaRevision(id, { problem: "新しい中身" });
+    return (db().prepare("SELECT message FROM events WHERE project_id = ? AND kind = 'idea-revise'").get(id) as { message: string }).message;
+  };
+  assert.match(msg("spread"), /案件の刺さる気持ちも直しました（前の刺さる気持ち: 閉じこめたい気持ち）/);
+  assert.match(msg("return"), /案件の毎日来る動機も直しました（前の毎日来る動機: /);
+  assert.match(msg("useful"), /案件の困りごとも直しました（前の困りごと: /);
+});
