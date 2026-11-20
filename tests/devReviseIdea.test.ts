@@ -11,11 +11,14 @@ const addDeep = (publicSlug: string | null = null) => Number(db().prepare(
 
 test("設計を直す指示: AIが返した案件の直しは、形が合うものだけ受け付け、書かれていない項目は変えない", () => {
   assert.equal(parseIdeaRevision(null), null);
-  assert.equal(parseIdeaRevision(undefined), null);
-  assert.deepEqual(parseIdeaRevision({ solution: " 景色を振る ", title: null, problem: "", target: "別の人" }), { solution: "景色を振る" });
+  assert.deepEqual(parseIdeaRevision({ solution: " 景色を振る ", title: null, problem: "" }), { solution: "景色を振る" });
   // 形が違うもの（文字でない値・オブジェクトでない）は断る（設計書ごとやり直す）
   assert.equal(parseIdeaRevision({ solution: 3 }), undefined);
   assert.equal(parseIdeaRevision("解決策"), undefined);
+  // idea の書き忘れ・決めた項目名でないもの（変えない誰向け・名前の間違い）も断る。「変えない」と扱うと、設計書だけが変わって食い違いが残る（PR #109 の ai-review の指摘）
+  assert.equal(parseIdeaRevision(undefined), undefined);
+  assert.equal(parseIdeaRevision({ name: "新しい名前" }), undefined);
+  assert.equal(parseIdeaRevision({ solution: "景色を振る", target: "別の人" }), undefined);
   // 長すぎる値は切る
   assert.equal(parseIdeaRevision({ title: "あ".repeat(200) })!.title!.length, 80);
 });
@@ -32,10 +35,15 @@ test("設計を直す指示: 直した中身を案件に入れ、前の値を経
   const ev = db().prepare("SELECT message FROM events WHERE project_id = ? AND kind = 'idea-revise'").get(id) as { message: string };
   assert.match(ev.message, /名前・解決策も直しました/);
   assert.match(ev.message, /前の解決策: 手描き風の小物40種を置いて振る/);
+  // 長い値も切らずに全文を残す（PR #109 の ai-review の指摘）
+  const long = "長い解決策。".repeat(100);
+  db().prepare("UPDATE projects SET solution = ? WHERE id = ?").run(long, id);
+  applyIdeaRevision(id, { solution: "短い解決策" });
+  assert.ok((db().prepare("SELECT message FROM events WHERE project_id = ? AND kind = 'idea-revise' ORDER BY id DESC").get(id) as { message: string }).message.includes(`前の解決策: ${long}`));
   // 直しがなければ、何も変えず経過にも残さない
   assert.deepEqual(applyIdeaRevision(id, null), []);
   assert.deepEqual(applyIdeaRevision(id, {}), []);
-  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE project_id = ? AND kind = 'idea-revise'").get(id) as { n: number }).n, 1);
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE project_id = ? AND kind = 'idea-revise'").get(id) as { n: number }).n, 2);
 });
 
 test("設計を直す指示: 公開中の案件は、名前を変えない（公開中のツールの名前が勝手に変わらないように）", () => {

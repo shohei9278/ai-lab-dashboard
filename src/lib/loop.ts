@@ -666,14 +666,16 @@ export const IDEA_REVISE_FIELDS = {
 } as const;
 export type IdeaRevision = Partial<Record<keyof typeof IDEA_REVISE_FIELDS, string>>;
 
-// AIが返した idea を確かめる。null・書かれていない項目は「変えない」。形が違うものは受け付けない（設計書ごとやり直す）
+// AIが返した idea を確かめる。明示の null・書かれていない項目・空の値は「変えない」
+// idea がない・決めた項目名でない（name など）・文字でない値は、受け付けない（undefined）。設計書ごとやり直させる
+// （書き忘れや名前の間違いを「変えない」と扱うと、設計書だけが変わって食い違いが残る。PR #109 の ai-review の指摘）
 export function parseIdeaRevision(v: unknown): IdeaRevision | null | undefined {
-  if (v === null || v === undefined) return null;
+  if (v === null) return null;
   if (!isObj(v)) return undefined;
   const out: IdeaRevision = {};
   for (const [k, val] of Object.entries(v)) {
-    if (!Object.hasOwn(IDEA_REVISE_FIELDS, k)) continue;
-    if (val === null || val === undefined) continue;
+    if (!Object.hasOwn(IDEA_REVISE_FIELDS, k)) return undefined;
+    if (val === null) continue;
     if (typeof val !== "string") return undefined;
     const t = val.trim();
     if (t) out[k as keyof IdeaRevision] = t.slice(0, IDEA_REVISE_FIELDS[k as keyof IdeaRevision].max);
@@ -693,7 +695,8 @@ export function applyIdeaRevision(projectId: number, idea: IdeaRevision | null):
     for (const k of changed) db().prepare(`UPDATE projects SET ${k} = ? WHERE id = ?`).run(idea[k], projectId);
   });
   tx();
-  const before = changed.map((k) => `前の${IDEA_REVISE_FIELDS[k].label}: ${(p[k] ?? "（なし）").slice(0, 160)}${(p[k] ?? "").length > 160 ? "…" : ""}`).join(" / ");
+  // 前の値は切らずに全文を残す（あとで、何がどう変わったかを確かめたり、戻したりできるように。PR #109 の ai-review の指摘）
+  const before = changed.map((k) => `前の${IDEA_REVISE_FIELDS[k].label}: ${p[k] ?? "（なし）"}`).join(" / ");
   logEvent(projectId, "ai", "idea-revise", `設計を直す指示に合わせて、案件の${changed.map((k) => IDEA_REVISE_FIELDS[k].label).join("・")}も直しました（${before}）`);
   return changed;
 }
@@ -701,7 +704,7 @@ export function applyIdeaRevision(projectId: number, idea: IdeaRevision | null):
 async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | null): Promise<{ design: string; idea: IdeaRevision | null }> {
   const titleNote = p.public_slug ? "名前（title）は公開中なので変えない" : "名前（title）は、今の名前が直した中身と食い違うとき（例: 選べなくなったのに「自分だけの」と付いている）だけ変える";
   const ideaRule = comment
-    ? `\n運営者の指示で、ツールで何をするか・何ができるかが変わり、下の「アイデア」（名前・刺さる気持ち・何ができるか・作り込む所・仮説）と食い違うようになるときは、idea に直した値を書く。食い違う項目だけを書き、食い違わない項目は書かない。食い違いがなければ idea は null。誰向けとねらいは変えない。${titleNote}。直した値は、元の文の書き方（無料・登録なしなどの決まり、長さ）に合わせる。
+    ? `\n運営者の指示で、ツールで何をするか・何ができるかが変わり、下の「アイデア」（名前・${problemLabel(p.aim)}・何ができるか・作り込む所・仮説）と食い違うようになるときは、idea に直した値を書く。食い違う項目だけを書き、食い違わない項目は書かない。食い違いがなければ idea は null。誰向けとねらいは変えない。${titleNote}。直した値は、元の文の書き方（無料・登録なしなどの決まり、長さ）に合わせる。
 出力はJSONのみ: {"design":"設計書（Markdown）","idea":null または {"title":"","problem":"","solution":"","deep_plan":"","hypothesis":""}（変える項目だけ）}`
     : `\n出力はJSONのみ: {"design":"設計書（Markdown）"}`;
   const out = await callJson<{ design: string; idea?: unknown }>({
@@ -720,7 +723,7 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
 ## できたかの確かめ（動作の確かめの項目。5〜10個）
 実在の人物・既存の作品（キャラクター・作品名・決めぜりふ・絵柄・ロゴ）を使わない（誰もが知る型を、作品名もキャラも出さずに作り直すのと、権利の切れた題材（昔話・古典文学・青空文庫の作品など）はよい）。人をばかにするネタにしない。誇大な約束をしない。${ideaRule}`,
     user: `アイデア:\nツール名: ${p.title}\n対象: ${p.target}\n${problemLabel(p.aim)}: ${p.problem}\n何ができるか: ${p.solution}\n作り込む所（じっくり案件）: ${p.deep_plan ?? "（なし）"}\n検証する仮説: ${p.hypothesis}${p.deep_need ? `\n使うデータ: ${p.deep_need}` : ""}${needsNote(p) ? `\n人が用意したもの（人の作業待ちで「済み」にしたもの。これを使う前提で設計する）:\n${needsNote(p)}` : ""}${prev ? `\n\n前の設計書:\n${prev}` : ""}${comment ? `\n\n運営者の指示（この指示に沿って設計書を直す）: ${comment}` : ""}`,
-    validate: (v): v is { design: string; idea?: unknown } => isObj(v) && isStr(v.design) && v.design.trim().length > 0 && (!comment || parseIdeaRevision(v.idea) !== undefined),
+    validate: (v): v is { design: string; idea?: unknown } => isObj(v) && isStr(v.design) && v.design.trim().length > 0 && (!comment || (Object.hasOwn(v, "idea") && parseIdeaRevision(v.idea) !== undefined)),
   });
   // 頼んだ長さ（6,000文字）を超えた分は切る（依頼文が長くなりすぎないように）
   return { design: out.design.trim().slice(0, DEV_DESIGN_MAX), idea: comment ? parseIdeaRevision(out.idea) ?? null : null };
