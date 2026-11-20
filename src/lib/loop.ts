@@ -4,7 +4,7 @@ import { PLAY_HOOK_MAX, PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublis
 import { hitsText } from "./hits";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
-import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "./aims";
+import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp } from "../../lp-site/src/lp/content";
@@ -311,7 +311,7 @@ genre には、アイデアのジャンルを短い言葉で書く（例: ${GENR
 - 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案や、知らない人へのDM・個別の勧誘は出さない（スパム扱いされやすいため）
 - 自分の投稿だけ（フォロワーほぼ0では、ほとんど表示されない）にせず、運営者が手でできる直接の接点を最低1つ、数つきで channel に入れる（first_test には書かない）。例: 対象の人が集まるコミュニティ・グループの管理者に、紹介してよいか相談する（2か所）/ 対象に当てはまる知人に使ってもらい、感想を聞く（3人）/ ルールで紹介が認められている場（自己紹介・成果物の共有の場など）に1回だけ載せる
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
-形式: {"ideas":[{"aim":"spread・useful・return・demand のどれか","genre":"ジャンル（短い言葉）","kind":"lp または tool（aim から決まる）","title":"サービス名","target":"誰向けか（具体的に）","problem":"その人が困っていること・欲しいこと","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 何を作り込むか","deep_data":"じっくり案件で大きなデータが要るときだけ: 要るデータ","needs":[{"kind":"store・api・ai・asset・other のどれか（じっくり案件で、今はない仕組みが要るときだけ）","what":"何が要るか（短く）","why":"なぜ要るか"}],"api_wish":{"name":"使いたい API の名前（あるときだけ）","purpose":"何に使うか","key":true または false（鍵が要るか）,"sends":"訪問者のどんな情報を送ることになるか（送らないなら「なし」）"}}]}`,
+形式: {"ideas":[{"aim":"spread・useful・return・demand のどれか","genre":"ジャンル（短い言葉）","kind":"lp または tool（aim から決まる）","title":"サービス名","target":"誰向けか（具体的に）","problem":"useful・demand は、その人が困っていること・欲しいこと。spread は、その人のどんな気持ちに刺さるか。return は、毎日来る動機（考える順番のとおり）","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 何を作り込むか","deep_data":"じっくり案件で大きなデータが要るときだけ: 要るデータ","needs":[{"kind":"store・api・ai・asset・other のどれか（じっくり案件で、今はない仕組みが要るときだけ）","what":"何が要るか（短く）","why":"なぜ要るか"}],"api_wish":{"name":"使いたい API の名前（あるときだけ）","purpose":"何に使うか","key":true または false（鍵が要るか）,"sends":"訪問者のどんな情報を送ることになるか（送らないなら「なし」）"}}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
     user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}${aims.length ? `\n今回のねらい（この順に1件ずつ出す）: ${aims.map((a, i) => `${i + 1}件目=${a}（${AIMS[a].label}）`).join("、")}` : ""}\nジャンル: ${genres.length ? `運営者が選んだもの（合うものがなければ、ないジャンルを使ってよい）: ${genres.join("・")}` : `おまかせ（最近の案件のジャンル: ${recentGenres.join("・") || "まだなし"}。同じジャンルが続かないようにする）`}${deepOnly ? "\n今回は運営者の依頼で、すべてをじっくり案件（kind は tool、deep に何を作り込むかを書く。大きなデータが要るときは deep_data も書く）で出すこと。ふつうの tool の制限では面白さが出ない題材を選ぶ" : ""}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n- spread は上の tool の基準に加えて、公開から3日の、遊んだ人の数とシェアの数も見る。return は、何日かあとにまた来た人がいるかも見る\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}${hitsText()}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
@@ -654,8 +654,62 @@ function needsNote(p: ProjectRow): string {
   return needsOf(JSON.parse(p.needs)).map((n) => `- ${NEED_KINDS[n.kind].label}: ${n.what}${n.why ? `（${n.why}）` : ""}`).join("\n");
 }
 
-async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | null): Promise<string> {
-  const out = await callJson<{ design: string }>({
+// 設計を直す指示で、ツールで何をするかが変わったとき、案件の中身（アイデア）も合わせて直す（運営者の依頼。#72 で、設計書だけ変わって解決策と食い違うのを防ぐ）
+// 解決策などは、公開前のチェック（ツールの目的からずれていないか）・投稿文・動画の一言でも読むので、設計書と食い違うと誤った判断や文になる
+// 誰向けとねらいは変えない（変えるなら別の案件）。名前は、まだ公開していない案件だけ変える（公開中のツールの名前が勝手に変わらないように）
+export const IDEA_REVISE_FIELDS = {
+  title: { label: "名前", max: 80 },
+  problem: { label: "困りごと", max: 1500 }, // 経過に出す名前は、ねらいで変える（fieldLabel）
+  solution: { label: "解決策", max: 1500 },
+  deep_plan: { label: "作り込む所", max: 1500 },
+  hypothesis: { label: "検証する仮説", max: 800 },
+} as const;
+export type IdeaRevision = Partial<Record<keyof typeof IDEA_REVISE_FIELDS, string>>;
+
+// AIが返した idea を確かめる。明示の null・書かれていない項目・空の値は「変えない」
+// idea がない・決めた項目名でない（name など）・文字でない値は、受け付けない（undefined）。設計書ごとやり直させる
+// （書き忘れや名前の間違いを「変えない」と扱うと、設計書だけが変わって食い違いが残る。PR #109 の ai-review の指摘）
+export function parseIdeaRevision(v: unknown): IdeaRevision | null | undefined {
+  if (v === null) return null;
+  if (!isObj(v)) return undefined;
+  const out: IdeaRevision = {};
+  for (const [k, val] of Object.entries(v)) {
+    if (!Object.hasOwn(IDEA_REVISE_FIELDS, k)) return undefined;
+    if (val === null) continue;
+    if (typeof val !== "string") return undefined;
+    const t = val.trim();
+    if (t) out[k as keyof IdeaRevision] = t.slice(0, IDEA_REVISE_FIELDS[k as keyof IdeaRevision].max);
+  }
+  return out;
+}
+
+// 直した中身を案件に入れ、前の値を経過に残す。変えた項目の名前を返す（変えたものがなければ空）
+export function applyIdeaRevision(projectId: number, idea: IdeaRevision | null): string[] {
+  if (!idea) return [];
+  const p = getProject(projectId)!;
+  const changed = (Object.keys(IDEA_REVISE_FIELDS) as (keyof IdeaRevision)[])
+    .filter((k) => idea[k] && idea[k] !== (p[k] ?? ""))
+    .filter((k) => k !== "title" || !p.public_slug);
+  if (!changed.length) return [];
+  const tx = db().transaction(() => {
+    for (const k of changed) db().prepare(`UPDATE projects SET ${k} = ? WHERE id = ?`).run(idea[k], projectId);
+  });
+  tx();
+  // 前の値は切らずに全文を残す（あとで、何がどう変わったかを確かめたり、戻したりできるように。PR #109 の ai-review の指摘）
+  // problem の欄の名前は、画面やAIへの指示と同じく、ねらいで変える（PR #109 の ai-review の指摘）
+  const fieldLabel = (k: keyof IdeaRevision) => (k === "problem" ? problemLabel(p.aim) : IDEA_REVISE_FIELDS[k].label);
+  const before = changed.map((k) => `前の${fieldLabel(k)}: ${p[k] ?? "（なし）"}`).join(" / ");
+  logEvent(projectId, "ai", "idea-revise", `設計を直す指示に合わせて、案件の${changed.map(fieldLabel).join("・")}も直しました（${before}）`);
+  return changed;
+}
+
+async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | null): Promise<{ design: string; idea: IdeaRevision | null }> {
+  const titleNote = p.public_slug ? "名前（title）は公開中なので変えない" : "名前（title）は、今の名前が直した中身と食い違うとき（例: 選べなくなったのに「自分だけの」と付いている）だけ変える";
+  const ideaRule = comment
+    ? `\n運営者の指示で、ツールで何をするか・何ができるかが変わり、下の「アイデア」（名前・${problemLabel(p.aim)}・何ができるか・作り込む所・仮説）と食い違うようになるときは、idea に直した値を書く。食い違う項目だけを書き、食い違わない項目は書かない。食い違いがなければ idea は null。誰向けとねらいは変えない。${titleNote}。直した値は、元の文の書き方（無料・登録なしなどの決まり、長さ）に合わせる。
+出力はJSONのみ: {"design":"設計書（Markdown）","idea":null または {"title":"","problem":"","solution":"","deep_plan":"","hypothesis":""}（変える項目だけ）}`
+    : `\n出力はJSONのみ: {"design":"設計書（Markdown）"}`;
+  const out = await callJson<{ design: string; idea?: unknown }>({
     purpose: "じっくり案件の設計",
     projectId: p.id,
     system: `あなたは小さなWebツールの設計担当です。じっくり案件のツールの設計書を書きます。ツールは開発担当（Claude Code）が、この設計書をもとに、ブラウザで確かめながら作ります。
@@ -669,13 +723,33 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
 ## データ（使うデータとその使い方。要らなければ「なし」）
 ## 作り込むところ・やらないこと（時間をかける所と、今回は入れないもの）
 ## できたかの確かめ（動作の確かめの項目。5〜10個）
-実在の人物・既存の作品（キャラクター・作品名・決めぜりふ・絵柄・ロゴ）を使わない（誰もが知る型を、作品名もキャラも出さずに作り直すのと、権利の切れた題材（昔話・古典文学・青空文庫の作品など）はよい）。人をばかにするネタにしない。誇大な約束をしない。
-出力はJSONのみ: {"design":"設計書（Markdown）"}`,
-    user: `ツール名: ${p.title}\n対象: ${p.target}\n${p.aim === "spread" ? "刺さる気持ち" : "困りごと"}: ${p.problem}\n何ができるか: ${p.solution}\n作り込む所（じっくり案件）: ${p.deep_plan ?? "（なし）"}${p.deep_need ? `\n使うデータ: ${p.deep_need}` : ""}${needsNote(p) ? `\n人が用意したもの（人の作業待ちで「済み」にしたもの。これを使う前提で設計する）:\n${needsNote(p)}` : ""}${prev ? `\n\n前の設計書:\n${prev}` : ""}${comment ? `\n\n運営者の指示（この指示に沿って設計書を直す）: ${comment}` : ""}`,
-    validate: (v): v is { design: string } => isObj(v) && isStr(v.design) && v.design.trim().length > 0,
+実在の人物・既存の作品（キャラクター・作品名・決めぜりふ・絵柄・ロゴ）を使わない（誰もが知る型を、作品名もキャラも出さずに作り直すのと、権利の切れた題材（昔話・古典文学・青空文庫の作品など）はよい）。人をばかにするネタにしない。誇大な約束をしない。${ideaRule}`,
+    user: `アイデア:\nツール名: ${p.title}\n対象: ${p.target}\n${problemLabel(p.aim)}: ${p.problem}\n何ができるか: ${p.solution}\n作り込む所（じっくり案件）: ${p.deep_plan ?? "（なし）"}\n検証する仮説: ${p.hypothesis}${p.deep_need ? `\n使うデータ: ${p.deep_need}` : ""}${needsNote(p) ? `\n人が用意したもの（人の作業待ちで「済み」にしたもの。これを使う前提で設計する）:\n${needsNote(p)}` : ""}${prev ? `\n\n前の設計書:\n${prev}` : ""}${comment ? `\n\n運営者の指示（この指示に沿って設計書を直す）: ${comment}` : ""}`,
+    validate: (v): v is { design: string; idea?: unknown } => isObj(v) && isStr(v.design) && v.design.trim().length > 0 && (!comment || (Object.hasOwn(v, "idea") && parseIdeaRevision(v.idea) !== undefined)),
   });
   // 頼んだ長さ（6,000文字）を超えた分は切る（依頼文が長くなりすぎないように）
-  return out.design.trim().slice(0, DEV_DESIGN_MAX);
+  return { design: out.design.trim().slice(0, DEV_DESIGN_MAX), idea: comment ? parseIdeaRevision(out.idea) ?? null : null };
+}
+
+// 開発待ちを残す。指示でツールの中身が変わったなら、案件の中身も合わせる（設計書と、解決策・名前などが食い違わないように）
+// 案件の書き換え・経過・開発待ちの保存は、1つのトランザクションにする。途中で失敗すると、案件の中身だけ変わって、
+// 設計書は前のまま（失敗したら元の開発待ちに戻す）という食い違いが残るため（PR #109 の ai-review の指摘）
+export function saveDevRequest(projectId: number, design: string, idea: IdeaRevision | null, instruction?: string, comment?: string) {
+  db().transaction(() => {
+    applyIdeaRevision(projectId, idea);
+    // 名前を直したときは、カードにも新しい名前を出す
+    const p = getProject(projectId)!;
+    const first = !p.lp;
+    addApproval(
+      projectId, "dev",
+      first ? `「${p.title}」のツールを Claude Code で作る` : `「${p.title}」のツールを Claude Code で直す`,
+      first
+        ? "AIが設計書を書きました。依頼文を Claude Code に貼って作り、できたツールのHTMLをここから入れてください。入れると、いつもどおりチェック・動作の確かめ・紹介ページづくりをして、公開の判断待ちに出します。"
+        : `次の指示で直します: ${instruction ?? comment ?? "（指示なし）"}。依頼文を Claude Code に貼って直し、できたHTMLをここから入れてください。入れるまでは、今の版のままです。`,
+      { design, instruction: instruction ?? null },
+    );
+    logEvent(projectId, "ai", "dev-design", first || comment ? `じっくり案件のツールの設計書を書き、開発待ちにしました（Claude Code で作ります）${comment ? "・指示を反映" : ""}` : `じっくり案件のツールを直すため、開発待ちにしました（Claude Code で直します）: ${(instruction ?? "").slice(0, 120)}`);
+  })();
 }
 
 // 開発待ちにする。最初に作るとき・設計を直す指示のときは、AIが設計書を書く（直すときは、前の設計書と直す指示を渡す）
@@ -683,19 +757,10 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
 async function requestDev(projectId: number, instruction?: string, comment?: string) {
   const p = getProject(projectId)!;
   const prev = lastDevDesign(projectId);
-  const design = !prev || comment
+  const out = !prev || comment
     ? await whileBuilding(projectId, "ツールの設計書を書いています", () => writeDevDesign(p, comment, prev))
-    : prev;
-  const first = !p.lp;
-  addApproval(
-    projectId, "dev",
-    first ? `「${p.title}」のツールを Claude Code で作る` : `「${p.title}」のツールを Claude Code で直す`,
-    first
-      ? "AIが設計書を書きました。依頼文を Claude Code に貼って作り、できたツールのHTMLをここから入れてください。入れると、いつもどおりチェック・動作の確かめ・紹介ページづくりをして、公開の判断待ちに出します。"
-      : `次の指示で直します: ${instruction ?? comment ?? "（指示なし）"}。依頼文を Claude Code に貼って直し、できたHTMLをここから入れてください。入れるまでは、今の版のままです。`,
-    { design, instruction: instruction ?? null },
-  );
-  logEvent(projectId, "ai", "dev-design", first || comment ? `じっくり案件のツールの設計書を書き、開発待ちにしました（Claude Code で作ります）${comment ? "・指示を反映" : ""}` : `じっくり案件のツールを直すため、開発待ちにしました（Claude Code で直します）: ${(instruction ?? "").slice(0, 120)}`);
+    : { design: prev, idea: null };
+  saveDevRequest(projectId, out.design, out.idea, instruction, comment);
 }
 
 // Claude Code に貼る依頼文（設計書・作るときの決まり・データ・入れ方）

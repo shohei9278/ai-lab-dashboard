@@ -12,6 +12,14 @@ export type Aim = keyof typeof AIMS;
 export const AIM_KEYS = Object.keys(AIMS) as Aim[];
 export const isAim = (v: unknown): v is Aim => typeof v === "string" && Object.hasOwn(AIMS, v);
 
+// アイデアの problem 欄の呼び名。ねらいで書く中身が違う（運営者の指摘: 遊びの案にも「困りごと」と出ていて、困りごとがあるように見えた）
+// 広がる = その人のどんな気持ちに刺さるか、また来てもらう = 毎日来る動機、役に立つ・需要を確かめる（とねらいのない古い案件）= 困りごと
+export function problemLabel(aim: unknown): string {
+  if (aim === "spread") return "刺さる気持ち";
+  if (aim === "return") return "毎日来る動機";
+  return "困りごと";
+}
+
 // ジャンルの例（選びたいときだけ選ぶ。AIはこの中にないジャンルも出してよい）
 export const GENRES = [
   "ガチャ・診断", "あるある体験", "手ざわり", "なりきり・仕事体験", "反射・早押し", "作る・混ぜる",

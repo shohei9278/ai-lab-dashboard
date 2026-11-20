@@ -2,6 +2,7 @@ import type { ApprovalView } from "@/components/ApprovalCard";
 import { db, getSettings, type ApprovalRow, type ProjectRow } from "./db";
 import { CONV, approvedDeepData, debateFor, devRequestText, projectTotals, shadowModels, targetRate, type Decision, type Lp, type Review, type ShadowRow } from "./loop";
 import { modelInfo } from "./models";
+import { problemLabel } from "./aims";
 import { sampleRows, type DeepSpec } from "./deep";
 
 // じっくり案件の開発待ちに出すもの。設計書と依頼文はAIの出力なので、運営者にだけ渡す
@@ -32,12 +33,12 @@ function dataView(payload: string | null, owner: boolean): ApprovalView["data"] 
 export function pendingApprovals(projectId?: number, owner = false): ApprovalView[] {
   const rows = db()
     .prepare(
-      `SELECT a.*, p.title, p.target, p.problem, p.solution, p.hypothesis, p.ai_confidence, p.demo, p.kind AS product_kind, p.lp_version, p.public_version, p.deep
+      `SELECT a.*, p.title, p.target, p.problem, p.solution, p.hypothesis, p.ai_confidence, p.demo, p.kind AS product_kind, p.lp_version, p.public_version, p.deep, p.aim
        FROM approvals a JOIN projects p ON p.id = a.project_id
        WHERE a.status = 'pending' ${projectId ? "AND a.project_id = ?" : ""}
        ORDER BY a.id`,
     )
-    .all(...(projectId ? [projectId] : [])) as (ApprovalRow & Pick<ProjectRow, "title" | "target" | "problem" | "solution" | "hypothesis" | "ai_confidence" | "demo" | "lp_version" | "public_version" | "deep"> & { product_kind: ProjectRow["kind"] })[];
+    .all(...(projectId ? [projectId] : [])) as (ApprovalRow & Pick<ProjectRow, "title" | "target" | "problem" | "solution" | "hypothesis" | "ai_confidence" | "demo" | "lp_version" | "public_version" | "deep" | "aim"> & { product_kind: ProjectRow["kind"] })[];
   const s = getSettings();
   return rows.map((r) => {
     const d = r.kind === "decision" && r.payload ? (JSON.parse(r.payload) as Decision) : null;
@@ -51,7 +52,7 @@ export function pendingApprovals(projectId?: number, owner = false): ApprovalVie
       createdAt: r.created_at,
       project: {
         id: r.project_id, title: r.title, target: r.target, problem: r.problem, solution: r.solution,
-        hypothesis: r.hypothesis, confidence: r.ai_confidence, demo: !!r.demo, kind: r.product_kind, lpVersion: r.lp_version, publicVersion: r.public_version, deep: !!r.deep,
+        hypothesis: r.hypothesis, confidence: r.ai_confidence, demo: !!r.demo, kind: r.product_kind, lpVersion: r.lp_version, publicVersion: r.public_version, deep: !!r.deep, problemLabel: problemLabel(r.aim),
       },
       data: r.kind === "data" ? dataView(r.payload, owner) : undefined,
       dev: r.kind === "dev" ? devView(r.project_id, r.payload, owner) : undefined,
