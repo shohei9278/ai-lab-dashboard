@@ -87,7 +87,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
   // 遊び・毎日のお題のツール（short）は、開いたらすぐ画面いっぱいで遊べる形で出す（紹介ページは作らない）
   // 結果が出たら、下から シェア と ほかの遊び（同じカテゴリを先に）の欄を出す
   // 遊ぶ画面は、上の帯をなくしてツールの枠を画面に固定し、見えている範囲いっぱいに出す（運営者が決めた。inApp.ts・ShortToolView の play）。
-  // サイト名・シェア・ほかの遊び・ひとことは、上の真ん中のメニューのボタンから開く欄にまとめる。低い画面ではツールを縮めて収める（自分で合わせるツールは除く）
+  // 上には細い帯（サイト名・ツール名・メニューのボタン）だけを置き、シェア・ほかの遊び・ひとことはメニューから開く欄にまとめる。低い画面ではツールを縮めて収める（自分で合わせるツールは除く）
   const tool = lp.content.tool;
   if (tool && lp.content.short) {
     const others = pickOthers((await listPages().catch(() => ({ tools: [] }))).tools, lp.slug).map(({ slug, title, version }) => ({ slug, title, version }));
@@ -98,6 +98,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
           play
           title={lp.title}
           lead={lp.content.subheadline}
+          home={<Link href="/?s=related">{SITE_NAME}</Link>}
           menu={
             <ResultSheet
               slug={lp.slug}
@@ -106,7 +107,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
               results={tool.results}
               others={others}
               menu={{
-                label: `${SITE_NAME} ･･･`,
+                label: "メニュー",
                 // サイト全体の下の欄（運営者名・プライバシーポリシー）は遊ぶ画面の下に隠れるので、ここにも出す
                 home: (
                   <>
