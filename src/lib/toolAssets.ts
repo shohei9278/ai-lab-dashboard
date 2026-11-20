@@ -46,11 +46,23 @@ export async function addToolAsset(projectId: number, name: string, base64: stri
   // 中身ごとに別の場所に置く（差し替えても、公開済みの版が前の画像を読めるように）
   const hash = crypto.createHash("sha256").update(bytes).digest("hex").slice(0, 10);
   const url = await uploadImage(`tool-assets/p${projectId}/${name}-${hash}.${EXT[type]}`, bytes, type);
-  const replaced = now.some((a) => a.name === name);
-  db().prepare("INSERT INTO tool_assets (project_id, name, url, type, bytes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, name) DO UPDATE SET url = excluded.url, type = excluded.type, bytes = excluded.bytes, at = datetime('now')")
-    .run(projectId, name, url, type, bytes.length);
+  const replaced = saveToolAsset(projectId, name, url, type, bytes.length);
   logEvent(projectId, "human", "tool-asset", `ツールの画像「${name}」（${(bytes.length / 1024).toFixed(0)}KB）を${replaced ? "差し替えました" : "入れました"}。次にツールを入れた版から使えます`);
   return toolAssets(projectId).find((a) => a.name === name)!;
+}
+
+// 一覧に書き込む。枚数の上限は、書き込む直前にトランザクションの中で数え直す
+// （保存領域に置いている間に別の画像が入ると、最初の確かめだけでは上限を超える。超えると版の一覧ごと使われなくなる。PR #110 の ai-review の指摘）
+// 差し替えたときは true
+export function saveToolAsset(projectId: number, name: string, url: string, type: string, bytes: number): boolean {
+  return db().transaction(() => {
+    const names = (db().prepare("SELECT name FROM tool_assets WHERE project_id = ?").all(projectId) as { name: string }[]).map((r) => r.name);
+    const replaced = names.includes(name);
+    if (!replaced && names.length >= TOOL_IMAGES_MAX) throw new Error(`画像は${TOOL_IMAGES_MAX}枚までです（いらないものを外してから入れてください）`);
+    db().prepare("INSERT INTO tool_assets (project_id, name, url, type, bytes) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, name) DO UPDATE SET url = excluded.url, type = excluded.type, bytes = excluded.bytes, at = datetime('now')")
+      .run(projectId, name, url, type, bytes);
+    return replaced;
+  }).immediate();
 }
 
 // 画像を外す（保存領域の画像は消さない。公開済みの版が読み続けられるように）

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db } from "../src/lib/db";
 import { devRequestText } from "../src/lib/loop";
-import { addToolAsset, removeToolAsset, sniffImage, toolImages } from "../src/lib/toolAssets";
+import { addToolAsset, removeToolAsset, saveToolAsset, sniffImage, toolImages } from "../src/lib/toolAssets";
 import { TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, normalizeLp, toolImagesOf } from "../lp-site/src/lp/content";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 
@@ -74,6 +74,10 @@ test("ツールの画像: 入れる前に、案件・名前・大きさ・種類
   // テストでは保存領域がないので、差し替えは保存のところで失敗し、一覧は変わらない
   await assert.rejects(addToolAsset(id, "a", PNG.toString("base64")), /Supabase の設定がない/);
   assert.deepEqual(Object.keys(toolImages(id)!), ["a", "b", "c", "d"]);
+  // 書き込む直前にも数え直す（保存領域に置いている間に、別の画像が入ったとき。PR #110 の ai-review の指摘）
+  assert.throws(() => saveToolAsset(id, "night", URL1, "image/png", 10), /4枚まで/);
+  assert.equal(saveToolAsset(id, "a", URL1, "image/jpeg", 20), true);
+  assert.equal(Object.keys(toolImages(id)!).length, 4);
   removeToolAsset(id, "d");
   assert.deepEqual(Object.keys(toolImages(id)!), ["a", "b", "c"]);
   assert.throws(() => removeToolAsset(id, "d"), /見つかりません/);
