@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { answerStore, localBackend, memoryBackend, storeKey as keyOf, type StoreBackend } from "./toolStore";
+import { motionMessage, motionPath, motionStateOf, type MotionState } from "./toolMotion";
 import type { ToolImages } from "./content";
 import { wrapToolHtml } from "./toolHtml";
 
@@ -9,6 +10,7 @@ import { wrapToolHtml } from "./toolHtml";
 // - allow-same-origin を付けないので、ツールからはこのサイトの Cookie・保存領域・ページに触れない
 // - 結果の画像の保存（ダウンロード）とコピーだけは許す。別のページを開く・移動することはできない
 // - スマホの動きのセンサー（加速度・ジャイロ）の知らせは、枠の中にも届くようにする（振って遊ぶツールのため。運営者が #72 で見つけた）
+//   iPhone は枠の中からの許可の求めを断るので、ツールが window.labMotion で頼んだら、ページの側で許可を求めて動きを渡す（toolMotion.ts）
 // - storeKey: 公開サイトのツールの名前（p72 など）。あれば、枠からの記録（window.labStore）をブラウザに残す。なければその場だけ（プレビュー）
 // fill: 枠の高さを中身に合わせず、親の高さいっぱいにする（遊びのツールの全画面。中身が長ければ枠の中でスクロールする）
 // images: じっくり案件で人が入れた画像（素材）。枠の中で window.labAssets.images として読める
@@ -17,6 +19,24 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
   const [height, setHeight] = useState(480);
   const used = useRef(false);
   const store = useRef<StoreBackend | null>(null);
+  // 動きの知らせを枠へ渡しているか・ページの側でのタップを待っている許可の求め（そのときは枠の上にボタンを出す）
+  const relaying = useRef<((e: DeviceMotionEvent) => void) | null>(null);
+  const [askId, setAskId] = useState<number | null>(null);
+  const reply = (id: number, state: MotionState) => ref.current?.contentWindow?.postMessage({ __lab: "motion-state", id, state }, "*");
+  const relay = () => {
+    if (relaying.current) return;
+    relaying.current = (e) => { const m = motionMessage(e.accelerationIncludingGravity); if (m) ref.current?.contentWindow?.postMessage(m, "*"); };
+    window.addEventListener("devicemotion", relaying.current);
+  };
+  const askWithTap = async (id: number) => {
+    setAskId(null);
+    const api = window.DeviceMotionEvent as unknown as { requestPermission?: () => Promise<string> };
+    let state: MotionState = "denied";
+    try { state = motionStateOf(await api.requestPermission?.()); } catch { state = "denied"; }
+    if (state === "granted") relay();
+    reply(id, state);
+  };
+  useEffect(() => () => { if (relaying.current) window.removeEventListener("devicemotion", relaying.current); }, []);
 
   useEffect(() => {
     function onMessage(e: MessageEvent) {
@@ -24,6 +44,15 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
       store.current ??= storeKey ? localBackend() : memoryBackend();
       const ans = answerStore(e.data, storeKey ? keyOf(storeKey) : "preview", store.current);
       if (ans) { ref.current?.contentWindow?.postMessage(ans, "*"); return; }
+      // ツールが動きのセンサーを頼んだら、ページの側で許可を求める（許可が要らない端末はすぐ渡す。求めて断られたら、ボタンでのタップを待つ）
+      if (e.data.__lab === "motion-request" && typeof e.data.id === "number") {
+        const id = e.data.id as number, api = window.DeviceMotionEvent as unknown as { requestPermission?: () => Promise<string> } | undefined;
+        const path = motionPath(api);
+        if (path === "none") reply(id, "unavailable");
+        else if (path === "direct") { relay(); reply(id, "granted"); }
+        else api!.requestPermission!().then((r) => { if (motionStateOf(r) === "granted") { relay(); reply(id, "granted"); } else setAskId(id); }, () => setAskId(id));
+        return;
+      }
       if (e.data.__lab === "height" && typeof e.data.h === "number") setHeight(Math.max(240, Math.min(4000, e.data.h)));
       // ツールが知らせた結果の一文を、ページのシェアのボタンに渡す
       if (e.data.__lab === "share-text" && typeof e.data.text === "string") {
@@ -45,6 +74,7 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
   }, [onUse, storeKey]);
 
   return (
+    <div style={{ position: "relative", height: fill ? "100%" : undefined }}>
     <iframe
       ref={ref}
       title={title}
@@ -53,5 +83,17 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
       srcDoc={wrapToolHtml(html, { data, fonts, illustration, images, fill })}
       style={{ width: "100%", height: fill ? "100%" : height, border: 0, display: "block" }}
     />
+    {askId !== null && (
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: 16, background: "rgba(6,10,26,.62)", color: "#fff", textAlign: "center" }}>
+        <button type="button" onClick={() => askWithTap(askId)} style={{ minHeight: 48, padding: "0 22px", borderRadius: 999, border: 0, background: "#fff", color: "#141a2a", fontSize: 15, fontWeight: 700 }}>
+          センサーを使う
+        </button>
+        <p style={{ margin: 0, fontSize: 12, lineHeight: 1.6 }}>スマホを振ったり傾けたりして遊ぶために、動きのセンサーを使います。<br />この端末では、ここで一度許可が要ります。</p>
+        <button type="button" onClick={() => { reply(askId, "denied"); setAskId(null); }} style={{ minHeight: 36, padding: "0 16px", borderRadius: 999, border: "1px solid rgba(255,255,255,.5)", background: "transparent", color: "#fff", fontSize: 12, fontWeight: 700 }}>
+          使わない
+        </button>
+      </div>
+    )}
+    </div>
   );
 }

@@ -1096,6 +1096,7 @@ ${deep ? deepToolNote(deep.data) : `${FONT_RULE}。必要なデータはコー�
 ${ASSET_RULE}
 - localStorage・sessionStorage・Cookie・IndexedDB・alert・confirm・prompt・window.open は使えない（エラーになる）。別のページを開くリンクも動かない
 - 次に開いたときにも残したいもの（見つけたもの・最高記録など）は、window.labStore で残せる。window.labStore && window.labStore.get() で前の値（なければ null）、window.labStore.set(値) で残す（どちらも Promise。値は JSON にできる形で${TOOL_STORE_MAX.toLocaleString("en-US")}文字まで。そのツール専用で、使う人のブラウザの中にだけ残る）。ないとき・残せないときも、その場では遊べる作りにする
+- スマホの動き（振る・傾ける）を使うときは、DeviceMotionEvent を直接使わず、window.labMotion を使う。押したボタンなどから window.labMotion.request() で許可を頼み（Promise で "granted"・"denied"・"unavailable"）、"granted" なら window の "labmotion" イベント（event.detail の x・y・z。重力を含む加速度 m/s²）で動きを受け取る（iPhone は枠の中からの許可を断るので、ページの側で許可を求めて渡す）。使えないときも、ボタンやドラッグで遊べる作りにする
 - 結果を画像としてダウンロードさせることと、文をクリップボードにコピーすることはできる
 - フォームは送信しない（ボタンは type="button"）。入力は端末の中だけで処理する
 - 名前・メールアドレスなど個人を特定できる情報は入力させない
