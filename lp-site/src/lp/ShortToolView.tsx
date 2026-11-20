@@ -28,7 +28,13 @@ export function ShortToolView({ title, lead, tool, after, home, barEnd, frameHei
         <div aria-hidden className="fixed inset-0 z-20 bg-[color:var(--bg)]" />
         <section id="tool" data-section="tool" className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-3xl overflow-hidden bg-[color:var(--bg)] sm:border-x sm:border-[color:var(--border)]" style={{ top: "var(--lab-inapp-top, 0px)" }}>
           {tool}
-          {menu && <div className="absolute left-1/2 top-1.5 z-10 -translate-x-1/2">{menu}</div>}
+          {/* 真ん中に寄せるのに transform を使わない。transform のある要素は、中の position: fixed（メニューの欄）の基準になり、
+              欄が画面の下ではなくボタンの所に細く出てしまうため（PR #118 の ai-review の指摘）。ボタンの外はツールを押せるようにする */}
+          {menu && (
+            <div className="pointer-events-none absolute inset-x-0 top-1.5 z-10 flex justify-center">
+              <div className="pointer-events-auto">{menu}</div>
+            </div>
+          )}
         </section>
       </div>
     );
