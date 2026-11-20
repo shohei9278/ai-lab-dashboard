@@ -40,4 +40,5 @@ export function fitScale(width: number, height: number, minHeight = PLAY_MIN_HEI
   const scale = Math.min(1, height / minHeight);
   return { scale, width: width / scale, height: height / scale };
 }
-export const toolFluid = (html: string) => /<meta\s+name=["']lab-fluid["']/i.test(html);
+// 属性の順番・= のまわりの空白・引用符の有無が違っても見分ける（PR #118 の ai-review の指摘）
+export const toolFluid = (html: string) => /<meta\b[^>]*\sname\s*=\s*(["']?)lab-fluid\1(?=[\s/>])/i.test(html);

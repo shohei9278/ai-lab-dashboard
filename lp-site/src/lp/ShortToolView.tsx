@@ -26,7 +26,7 @@ export function ShortToolView({ title, lead, tool, after, home, barEnd, frameHei
         {lead && <p className="sr-only">{lead}</p>}
         {/* 遊ぶ画面の後ろを塞ぐ（X のときに上を空けた所や、PC の左右に、ページの下の欄が透けて見えないように） */}
         <div aria-hidden className="fixed inset-0 z-20 bg-[color:var(--bg)]" />
-        <section id="tool" data-section="tool" className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-3xl overflow-hidden bg-[color:var(--bg)] sm:border-x sm:border-[color:var(--border)]" style={{ top: "var(--lab-inapp-top, 0px)" }}>
+        <section id="tool" data-section="tool" data-play="" className="fixed inset-x-0 bottom-0 z-30 mx-auto max-w-3xl overflow-hidden bg-[color:var(--bg)] sm:border-x sm:border-[color:var(--border)]" style={{ top: "var(--lab-inapp-top, 0px)" }}>
           {tool}
           {/* 真ん中に寄せるのに transform を使わない。transform のある要素は、中の position: fixed（メニューの欄）の基準になり、
               欄が画面の下ではなくボタンの所に細く出てしまうため（PR #118 の ai-review の指摘）。ボタンの外はツールを押せるようにする */}

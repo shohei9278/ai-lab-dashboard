@@ -68,6 +68,12 @@ test("遊ぶ画面（運営者が決めた）: 見えている高さが決まっ
   assert.equal(PLAY_MIN_HEIGHT, 640);
   assert.equal(toolFluid('<meta name="lab-fluid" content="1"><div></div>'), true);
   assert.equal(toolFluid("<div>lab-fluid</div>"), false);
+  // 属性の順番・空白・引用符が違っても同じ意味なら見分ける（PR #118 の ai-review の指摘）
+  assert.equal(toolFluid('<meta content="1" name="lab-fluid">'), true);
+  assert.equal(toolFluid("<meta name = 'lab-fluid' >"), true);
+  assert.equal(toolFluid("<META NAME=lab-fluid>"), true);
+  assert.equal(toolFluid('<meta name="lab-fluid-x">'), false);
+  assert.equal(toolFluid('<meta data-name="lab-fluid">'), false);
 });
 
 test("結果の知らせ: quiet を付けると、ページへの知らせに quiet が付く（結果のあとの欄を開かせない）", async (t) => {
