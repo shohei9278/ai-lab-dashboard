@@ -1,7 +1,7 @@
 import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FIT_SCREEN_RULE, SHORT_PAGE_AIMS, devRequestText, shortToolPage } from "../src/lib/loop";
+import { FIT_SCREEN_RULE, MOTION_RULE, SHORT_PAGE_AIMS, devRequestText, shortToolPage } from "../src/lib/loop";
 import { db } from "../src/lib/db";
 import { normalizeLp } from "../lp-site/src/lp/content";
 import { pickOthers } from "../lp-site/src/lp/categories";
@@ -58,4 +58,19 @@ test("遊びのツールを1画面に収める（#66 で運営者が見つけた
   // 紹介ページのあるツール（枠がツールの高さに合わせて伸びる）には入れない
   assert.ok(!devRequestText(add("useful"), "設計", null).includes(FIT_SCREEN_RULE));
   assert.ok(!devRequestText(add(null), "設計", null).includes(FIT_SCREEN_RULE));
+});
+
+test("振りの強さの測り方（#72 で運営者が見つけた）: 作る決まりに、前の値との差ではなく重力をならした値からのずれで測ることを書き、どのツールにも渡す", () => {
+  const add = (aim: string | null) => Number(db().prepare(
+    "INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim) VALUES ('t', 't', 'p', 's', 'h', 'r', 'lp', 'claude', 'tool', ?)",
+  ).run(aim).lastInsertRowid);
+  assert.match(MOTION_RULE, /window\.labMotion/);
+  assert.match(MOTION_RULE, /1つ前に届いた値との差で測らない/);
+  assert.match(MOTION_RULE, /ならす/);
+  for (const aim of ["spread", "useful", null]) {
+    const text = devRequestText(add(aim), "設計", null);
+    assert.ok(text.includes(MOTION_RULE));
+    // 見つける・集めるツールで、見つけたものを二度目から「見つけた」と知らせない（#72 で運営者が決めた）
+    assert.match(text, /「見つけた」の表示は初めてのときだけ/);
+  }
 });
