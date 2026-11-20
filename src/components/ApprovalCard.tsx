@@ -15,7 +15,7 @@ export type ApprovalView = {
   proposal: string;
   reason: string;
   createdAt: string;
-  project: { id: number; title: string; target: string; problem: string; solution: string; hypothesis: string; confidence: number | null; demo: boolean; kind: "lp" | "tool"; lpVersion: number; publicVersion: number | null; deep: boolean };
+  project: { id: number; title: string; target: string; problem: string; solution: string; hypothesis: string; confidence: number | null; demo: boolean; kind: "lp" | "tool"; lpVersion: number; publicVersion: number | null; deep: boolean; problemLabel: string };
   // じっくり案件のデータの確認。sample（中身の例）は運営者にだけ入る
   // error: 下書きに失敗したとき（id は null）。owner: 運営者が見ているか（データを自分で入れられる）
   data?: { id: number | null; count: number; groups: number; note: string; fields: { key: string; label: string; kind: "fact" | "view" }[]; sample?: Record<string, unknown>[]; error?: string; owner: boolean };
@@ -42,7 +42,7 @@ export type ApprovalView = {
 const KIND = {
   idea: { label: "アイデアの採用", approve: "このアイデアで進める", after: "承認すると、AIがLP（動くツールの場合はツール本体も）を作ります。", busy: "AIが作っています…" },
   data: { label: "データの確認", approve: "このデータで作る", after: "承認すると、AIがこのデータを使ってツールを作ります（そのあと、公開の承認があります）。修正を指示すると、データを作り直します。", busy: "AIがツールを作っています…" },
-  dev: { label: "開発（Claude Code）", approve: "", after: "依頼文を Claude Code に貼って作り、できたツールのHTMLを入れると、チェック・動作の確かめ・紹介ページづくりをして、公開の判断待ちに出します。修正を指示すると、AIが設計書を直します。", busy: "処理しています…" },
+  dev: { label: "開発（Claude Code）", approve: "", after: "依頼文を Claude Code に貼って作り、できたツールのHTMLを入れると、チェック・動作の確かめ・紹介ページづくりをして、公開の判断待ちに出します。修正を指示すると、AIが設計書を直します（指示でツールの中身が変わるときは、案件の解決策・名前なども合わせて直します）。", busy: "処理しています…" },
   publish: { label: "公開", approve: "公開して集客を始める", after: "承認すると公開されて「公開中・集客中」になります（広告の出稿は手動）。", busy: "処理しています…" },
   decision: {
     label: "AIの判断",
@@ -88,7 +88,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
       {a.kind === "idea" && (
         <dl className="grid gap-2 text-sm sm:grid-cols-2">
           <Item label="誰向け">{a.project.target}</Item>
-          <Item label="困りごと">{a.project.problem}</Item>
+          <Item label={a.project.problemLabel}>{a.project.problem}</Item>
           <Item label="解決策">{a.project.solution}</Item>
           <Item label="検証する仮説">{a.project.hypothesis}</Item>
           {a.project.confidence !== null && <Item label="AIの自信度">{Math.round(a.project.confidence * 100)}%</Item>}

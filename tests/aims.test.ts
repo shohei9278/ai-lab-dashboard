@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getSettings } from "../src/lib/db";
-import { AIMS, aimOfIdea, aimWeightsOf, aimsByDeficit, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, type Aim } from "../src/lib/aims";
+import { AIMS, aimOfIdea, aimWeightsOf, aimsByDeficit, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, problemLabel, type Aim } from "../src/lib/aims";
 
 const W = { spread: 4, useful: 3, return: 2, demand: 1 };
 
@@ -115,4 +115,14 @@ test("AIの答えのねらい（PR #84 の ai-review の指摘）: 頼んだね�
   assert.deepEqual([over.ideas.map((x) => x.title), over.dropped.map((x) => x.idea.title)], [["o1"], ["o2"]]);
   // 頼んでいないときは、書かれたねらい（なければ形から）
   assert.deepEqual(alignIdeaAims([{ aim: "return", kind: "lp" }, { kind: "lp" }]).ideas.map((x) => [x.aim, x.kind]), [["return", "tool"], ["demand", "lp"]]);
+});
+
+// 運営者の指摘: 遊びの案にも「困りごと」と出ていて、困りごとがあるように見えた。ねらいごとに、アイデアで書かせた中身の名前で出す
+test("ねらい: アイデアの problem 欄は、ねらいごとに書かせた中身の名前で出す", () => {
+  assert.equal(problemLabel("spread"), "刺さる気持ち");
+  assert.equal(problemLabel("return"), "毎日来る動機");
+  assert.equal(problemLabel("useful"), "困りごと");
+  assert.equal(problemLabel("demand"), "困りごと");
+  // ねらいのない前からある案件は、前のまま
+  assert.equal(problemLabel(null), "困りごと");
 });

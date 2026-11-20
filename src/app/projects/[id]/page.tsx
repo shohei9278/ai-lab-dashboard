@@ -38,7 +38,7 @@ import { publicUrl } from "@/lib/publish";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
 import { plainIssue } from "@/lib/issueText";
 import { hasUnpublishedVersion, versionLabel } from "@/lib/versions";
-import { AIMS, isAim } from "@/lib/aims";
+import { AIMS, isAim, problemLabel } from "@/lib/aims";
 import { SITE_CATEGORIES, isSiteCategory, siteCategoryOf } from "@/lib/siteCategory";
 import { SiteCategoryPicker } from "./SiteCategoryPicker";
 import { NEED_KINDS, needsOf } from "@/lib/needs";
@@ -205,11 +205,11 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
 
       {/* 企画の中身は長いので、開いたときだけ読む */}
       <details className="card p-4">
-        <summary data-demo-ok className="cursor-pointer font-bold">AIのアイデア（誰向け・困りごと・解決策・仮説）</summary>
+        <summary data-demo-ok className="cursor-pointer font-bold">AIのアイデア（誰向け・{problemLabel(p.aim)}・解決策・仮説）</summary>
         <div className="mt-3 space-y-3">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <Item label="誰向け">{p.target}</Item>
-          <Item label="困りごと">{p.problem}</Item>
+          <Item label={problemLabel(p.aim)}>{p.problem}</Item>
           <Item label="解決策">{p.solution}</Item>
           <Item label="検証する仮説">{p.hypothesis}</Item>
           <Item label="最初の届け方（企画のとき）">{p.first_channel ?? "—"}</Item>
