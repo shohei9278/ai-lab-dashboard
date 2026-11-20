@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { answerStore, localBackend, memoryBackend, storeKey as keyOf, type StoreBackend } from "./toolStore";
 import { motionGate } from "./toolMotion";
+import { fitScale } from "./inApp";
 import type { ToolImages } from "./content";
 import { wrapToolHtml } from "./toolHtml";
 
@@ -14,9 +15,21 @@ import { wrapToolHtml } from "./toolHtml";
 // - storeKey: 公開サイトのツールの名前（p72 など）。あれば、枠からの記録（window.labStore）をブラウザに残す。なければその場だけ（プレビュー）
 // fill: 枠の高さを中身に合わせず、親の高さいっぱいにする（遊びのツールの全画面。中身が長ければ枠の中でスクロールする）
 // images: じっくり案件で人が入れた画像（素材）。枠の中で window.labAssets.images として読める
-export function ToolFrame({ html, title, onUse, data, fonts, illustration, images, fill = false, storeKey }: { html: string; title: string; onUse?: () => void; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; storeKey?: string }) {
+// fit: 遊ぶ画面（fill）で、見えている高さが低いときは、ツールを決まった高さ（inApp.ts の PLAY_MIN_HEIGHT）で作らせて枠ごと縮める（運営者が決めた）
+export function ToolFrame({ html, title, onUse, data, fonts, illustration, images, fill = false, storeKey, fit = false }: { html: string; title: string; onUse?: () => void; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; storeKey?: string; fit?: boolean }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(480);
+  // 縮めて収めるときの、枠（外の箱）の大きさ。測るまでは縮めない
+  const box = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    if (!fit || !fill || !box.current || typeof ResizeObserver === "undefined") return;
+    const el = box.current;
+    const ro = new ResizeObserver(() => setSize({ w: el.clientWidth, h: el.clientHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [fit, fill]);
+  const scaled = fit && fill && size ? fitScale(size.w, size.h) : null;
   const used = useRef(false);
   const store = useRef<StoreBackend | null>(null);
   // 動きのセンサーの窓口（許可・最初の知らせの確かめ・枠への中継は toolMotion.ts の motionGate）。ask: ボタンを出しているか
@@ -77,14 +90,18 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
   }, [onUse, storeKey]);
 
   return (
-    <div style={{ position: "relative", height: fill ? "100%" : undefined }}>
+    <div ref={box} style={{ position: "relative", height: fill ? "100%" : undefined, overflow: scaled ? "hidden" : undefined }}>
     <iframe
       ref={ref}
       title={title}
       sandbox="allow-scripts allow-downloads"
       allow="clipboard-write; accelerometer; gyroscope"
       srcDoc={doc}
-      style={{ width: "100%", height: fill ? "100%" : height, border: 0, display: "block" }}
+      style={
+        scaled && scaled.scale < 1
+          ? { width: scaled.width, height: scaled.height, border: 0, display: "block", transform: `scale(${scaled.scale})`, transformOrigin: "0 0" }
+          : { width: "100%", height: fill ? "100%" : height, border: 0, display: "block" }
+      }
     />
     {ask && (
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, padding: 16, background: "rgba(6,10,26,.62)", color: "#fff", textAlign: "center" }}>

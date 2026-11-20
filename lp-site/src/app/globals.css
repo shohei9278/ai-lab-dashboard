@@ -14,9 +14,16 @@
   --critical: #c23434;
 }
 
-/* SNS のアプリの中のブラウザ（inApp.ts が <html data-inapp> を付ける）: 下に重なるアプリの帯の目安。全画面のツールの枠をこの分だけ短くする */
-html[data-inapp] {
-  --lab-inapp-pad: 3.5rem;
+/* SNS のアプリの中のブラウザ（inApp.ts が <html data-inapp="アプリ"> を付ける）。遊ぶ画面は画面に固定するので、下の端はどのアプリでも合う。
+   X だけは上の帯の分ページをずらしていて、固定すると上が帯の下に隠れるので、上を空ける（運営者が /inapp-check で測った。約64px） */
+html[data-inapp="x"] {
+  --lab-inapp-top: 4rem;
+}
+
+/* 遊ぶ画面（ShortToolView の play。data-play の付いた枠）のときは、サイト共通の下の欄を外す。遊ぶ画面の後ろに隠れたまま、
+   キーボードで見えないリンクに移ったり、読み上げでメニューの欄と二度案内されたりしないように（PR #118 の ai-review の指摘） */
+body:has([data-play]) > footer {
+  display: none;
 }
 
 @media (prefers-color-scheme: dark) {

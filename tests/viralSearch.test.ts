@@ -199,6 +199,20 @@ test("話題の投稿のまとめを待つ時間（PR #83 の ai-review の指�
   }
 });
 
+test("話題の投稿のまとめを待つ時間（CI で見つかった）: ほかのまとめが動いている間に待っても、決めた時間を過ぎない", async () => {
+  const g = globalThis as { __aiLabViralQueue?: unknown };
+  const before = g.__aiLabViralQueue;
+  // ほかのまとめが動いている（終わらない）
+  g.__aiLabViralQueue = true;
+  try {
+    const t = Date.now();
+    await drainQueue(300);
+    assert.ok(Date.now() - t < 1000, `待った時間 ${Date.now() - t}ms`);
+  } finally {
+    g.__aiLabViralQueue = before;
+  }
+});
+
 test("話題の投稿の検索（PR #83 の ai-review の指摘）: 検索の一式は同時に1つだけ動き、動いている間に呼ばれたら同じ結果を待つ", async () => {
   let n = 0;
   const realFetch = globalThis.fetch;

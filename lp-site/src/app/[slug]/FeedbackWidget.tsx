@@ -10,7 +10,8 @@ const OPTIONS = {
   lp: { q: "登録しなかった理由を、よければ教えてください", items: [["not_now", "今はまだ必要ない"], ["unclear", "内容がよく分からない"], ["distrust", "信用できるか不安"], ["other", "その他"]] },
 } as const;
 
-export function FeedbackWidget({ slug, version, kind }: { slug: string; version: number; kind: "lp" | "tool" }) {
+// inline: 遊ぶ画面の「メニュー」の欄の中に置く形（右下に浮かせず、待たずに出し、閉じるボタンを出さない。運営者が決めた遊ぶ画面の作り）
+export function FeedbackWidget({ slug, version, kind, inline = false }: { slug: string; version: number; kind: "lp" | "tool"; inline?: boolean }) {
   const key = `lp_feedback_${slug}_${version}`;
   const [show, setShow] = useState(false);
   const [open, setOpen] = useState(false);
@@ -24,9 +25,9 @@ export function FeedbackWidget({ slug, version, kind }: { slug: string; version:
     } catch {
       // 保存できないブラウザでも出す
     }
-    const t = setTimeout(() => setShow(true), kind === "tool" ? 30_000 : 20_000);
+    const t = setTimeout(() => setShow(true), inline ? 0 : kind === "tool" ? 30_000 : 20_000);
     return () => clearTimeout(t);
-  }, [key, kind]);
+  }, [key, kind, inline]);
 
   const done = () => {
     try {
@@ -39,6 +40,7 @@ export function FeedbackWidget({ slug, version, kind }: { slug: string; version:
   const o = OPTIONS[kind];
 
   if (!open) {
+    if (inline) return <button type="button" onClick={() => setOpen(true)} className="rounded-full border border-[color:var(--border)] px-3 py-1.5 text-sm">ひとこと聞かせてください</button>;
     return (
       <div className="fixed bottom-4 right-4 z-50 flex items-center gap-1 rounded-full border border-black/10 bg-white px-3 py-2 text-sm shadow-lg">
         <button type="button" onClick={() => setOpen(true)} className="font-medium text-neutral-800">ひとこと聞かせてください</button>
@@ -47,7 +49,7 @@ export function FeedbackWidget({ slug, version, kind }: { slug: string; version:
     );
   }
   return (
-    <div className="fixed bottom-4 right-4 z-50 w-[min(92vw,340px)] space-y-3 rounded-2xl border border-black/10 bg-white p-4 text-sm text-neutral-800 shadow-xl">
+    <div className={inline ? "space-y-3 rounded-2xl border border-black/10 bg-white p-4 text-sm text-neutral-800" : "fixed bottom-4 right-4 z-50 w-[min(92vw,340px)] space-y-3 rounded-2xl border border-black/10 bg-white p-4 text-sm text-neutral-800 shadow-xl"}>
       {sent ? (
         <div className="space-y-2">
           <p className="font-medium">ありがとうございます。いただいた声は、改善に使います。</p>
