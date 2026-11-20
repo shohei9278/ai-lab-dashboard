@@ -9,6 +9,7 @@ import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
 import { toolAssets, toolImages } from "./toolAssets";
+import { TOOL_STORE_MAX } from "../../lp-site/src/lp/toolStore";
 import { hasResultsTag, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
 import { MODELS, hasKey, modelInfo } from "./models";
 import { screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
@@ -1094,6 +1095,7 @@ function toolRules(deep: { data: DeepData | null } | null, short = false): strin
 ${deep ? deepToolNote(deep.data) : `${FONT_RULE}。必要なデータはコードの中に書く`}
 ${ASSET_RULE}
 - localStorage・sessionStorage・Cookie・IndexedDB・alert・confirm・prompt・window.open は使えない（エラーになる）。別のページを開くリンクも動かない
+- 次に開いたときにも残したいもの（見つけたもの・最高記録など）は、window.labStore で残せる。window.labStore && window.labStore.get() で前の値（なければ null）、window.labStore.set(値) で残す（どちらも Promise。値は JSON にできる形で${TOOL_STORE_MAX.toLocaleString("en-US")}文字まで。そのツール専用で、使う人のブラウザの中にだけ残る）。ないとき・残せないときも、その場では遊べる作りにする
 - 結果を画像としてダウンロードさせることと、文をクリップボードにコピーすることはできる
 - フォームは送信しない（ボタンは type="button"）。入力は端末の中だけで処理する
 - 名前・メールアドレスなど個人を特定できる情報は入力させない
@@ -1166,7 +1168,7 @@ async function reviewTool(p: ProjectRow, html: string, instruction?: string): Pr
     projectId: p.id,
     system: `あなたはWebツールの公開前チェック担当です。コードを読んで、次の点に1つでも当てはまれば ok を false にし、issues に具体的に書きます。
 - 文法の誤りや、ボタンを押しても何も起きない・結果が出ないなど、動かない箇所がある
-- 外部への通信、外部ファイルの読み込み、保存領域・Cookie・alert・window.open を使っている（Google Fonts の読み込みと、window.labAssets のイラストを <img> で出すこと、window.labAssets.images の画像（人が入れた素材）を <img>・Image・canvas・WebGL で使うことは問題にしない）${p.deep ? `（このツールはじっくり案件${p.deep_need ? "。先に置かれた window.labData を読むことも問題にしない。window.labData の中身をコードに書き写していたら問題にする）\n- 遊びのための見立てのデータを、事実のように見せている" : "）"}` : ""}
+- 外部への通信、外部ファイルの読み込み、保存領域・Cookie・alert・window.open を使っている（Google Fonts の読み込みと、window.labAssets のイラストを <img> で出すこと、window.labAssets.images の画像（人が入れた素材）を <img>・Image・canvas・WebGL で使うこと、window.labStore（ページが用意した記録の窓口）で記録を残すことは問題にしない）${p.deep ? `（このツールはじっくり案件${p.deep_need ? "。先に置かれた window.labData を読むことも問題にしない。window.labData の中身をコードに書き写していたら問題にする）\n- 遊びのための見立てのデータを、事実のように見せている" : "）"}` : ""}
 - 個人を特定できる情報を入力させている
 - 架空の統計を事実のように書いている、医療・法律・お金の助言をしている、誰かを傷つける・差別的な内容がある
 - 実在の人物・団体について、不正確そうなデータを使っている
