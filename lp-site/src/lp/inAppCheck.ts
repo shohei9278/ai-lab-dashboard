@@ -3,7 +3,7 @@
 // - 枠の下の端からの高さの目盛り（10px ごと・左に数字）を引き、アプリの帯がどこまで重なるかを、スクリーンショットで読めるようにする
 // - 枠の中で測った画面の高さの単位（100dvh・100vh・100svh・100lvh）も出す。#72 は枠の中で 100dvh を高さにしていて、
 //   X のアプリの中のブラウザで「ふる」が枠の下にはみ出した。枠の中の単位が、枠ではなく外の画面の高さになっていないかを確かめる
-//   （ページの上の情報の欄に隠れないよう、文は枠の真ん中より少し上に置く）
+//   （ページの上の情報の欄に隠れないよう、文は枠の真ん中より少し下、目盛りの上に置く）
 export const CHECK_TOOL_HTML = `<style>
 html,body{margin:0;height:100%;background:#0e1a3a;color:#fff;font:12px/1.5 system-ui,sans-serif;overflow:hidden}
 #r{position:absolute;left:0;right:0;bottom:0;height:200px;pointer-events:none}
@@ -11,7 +11,7 @@ html,body{margin:0;height:100%;background:#0e1a3a;color:#fff;font:12px/1.5 syste
 .l.m{border-top-color:#ffcf73;width:60%}
 .l span{position:absolute;left:4px;top:-9px;font-size:11px;font-weight:700;background:#0e1a3a;padding:0 3px}
 #btn{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);min-width:170px;min-height:56px;border-radius:999px;border:1.5px solid rgba(255,255,255,.6);background:rgba(240,244,255,.2);color:#fff;font-size:20px;font-weight:700;letter-spacing:.4em;padding-left:.4em}
-#h{position:absolute;top:38%;left:12px;right:12px;text-align:center;color:#dfe5f3}
+#h{position:absolute;top:55%;left:12px;right:12px;text-align:center;color:#dfe5f3}
 #u{margin-top:6px;font-size:13px;color:#ffcf73}
 .p{position:fixed;left:0;top:0;width:1px;visibility:hidden;pointer-events:none}
 </style>

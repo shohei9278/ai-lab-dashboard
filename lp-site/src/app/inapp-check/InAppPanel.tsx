@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 
 // アプリの中のブラウザの確かめ用ページで、画面の上に出す情報と、画面の下の端からの目盛り
 // 運営者が X などのアプリから開いてスクリーンショットを撮り、見分け（data-inapp）が効いたか・帯がどこまで重なるかを読むためのもの
+// - アプリが上の帯の分だけページを下にずらしているか（ずれは 100dvh に入らない）を、その場で測れるかも出す。運営者の考え:
+//   アプリごとの目測の余白ではなく、見えている範囲をその場で測り、遊ぶ画面は上の帯を取って、ツールを縮めて収める
 export function InAppPanel() {
   const [info, setInfo] = useState<[string, string][]>([]);
   const [open, setOpen] = useState(true);
@@ -15,7 +17,10 @@ export function InAppPanel() {
     const read = () => {
       const html = document.documentElement;
       const pad = getComputedStyle(html).getPropertyValue("--lab-inapp-pad").trim() || "なし";
-      const frame = document.getElementById("tool")?.getBoundingClientRect().height ?? 0;
+      const tool = document.getElementById("tool")?.getBoundingClientRect();
+      const frame = tool?.height ?? 0;
+      const top = (el: Element | null) => (el ? Math.round(el.getBoundingClientRect().top) : NaN);
+      const vv = window.visualViewport;
       setInfo([
         ["アプリの中と見分けた", html.hasAttribute("data-inapp") ? "はい" : "いいえ"],
         ["下に空けた余白", pad],
@@ -23,6 +28,13 @@ export function InAppPanel() {
         ["見えている高さ（visualViewport）", `${Math.round(window.visualViewport?.height ?? 0)}px`],
         ["100dvh", `${Math.round(probe.getBoundingClientRect().height)}px`],
         ["ツールの枠の高さ", `${Math.round(frame)}px`],
+        ["ページの上の端の位置（html の top）", `${top(html)}px`],
+        ["上の帯（Hitoride）の位置（top）", `${top(document.querySelector("main header"))}px`],
+        ["ツールの枠の上と下（top / bottom）", `${Math.round(tool?.top ?? NaN)}px / ${Math.round(tool?.bottom ?? NaN)}px`],
+        ["枠の下の端と、画面の下の端の差（innerHeight − bottom）", `${Math.round(window.innerHeight - (tool?.bottom ?? NaN))}px`],
+        ["スクロールの位置（scrollY）", `${Math.round(window.scrollY)}px`],
+        ["見えている範囲のずれ（visualViewport の offsetTop / pageTop）", `${Math.round(vv?.offsetTop ?? NaN)}px / ${Math.round(vv?.pageTop ?? NaN)}px`],
+        ["端末の画面（screen の height / availHeight）", `${window.screen.height}px / ${window.screen.availHeight}px`],
         ["画面の幅", `${window.innerWidth}px（${window.devicePixelRatio}倍）`],
         ["ブラウザの名乗り（UA）", navigator.userAgent],
         ["来た元（referrer）", document.referrer || "なし"],
