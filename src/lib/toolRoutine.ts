@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { db, getSettings, type ApprovalRow } from "./db";
-import { getProject, logEvent, type Lp } from "./loop";
+import { getProject, lastDevDesign, logEvent, type Lp } from "./loop";
 import { atMs, fireRoutine, routineConfigured, type Fetch } from "./routine";
 
 // 案件のツールを、クラウドの Claude Code（ルーティン「案件のツールを作る」）に作ってもらう
@@ -44,6 +44,9 @@ export function hasTool(lp: string | null): boolean {
   }
 }
 
+// 起動のときに渡す直す指示の長さ（これを超える分は、ダッシュボードの依頼文から読む）
+const INSTRUCTION_IN_FIRE = 1500;
+
 // ルーティンに渡す文（ルーティンの側では、外から来た信用しない文として受け取る）
 export function toolRoutineText(a: ApprovalRow): string {
   const p = getProject(a.project_id)!;
@@ -53,7 +56,8 @@ export function toolRoutineText(a: ApprovalRow): string {
     p.deep ? "じっくり案件" : "ふつうの案件",
     hasTool(p.lp) ? "直す（今のツールがある）" : "新しく作る",
     `開発待ちの番号: ${a.id}`,
-    payload.instruction ? `直す指示: ${payload.instruction.slice(0, 1500)}` : "",
+    // 起動のときに渡す文は短くする。切ったときは、全文がダッシュボードの依頼文にあると書き添える（ルーティンは作業の最初に依頼文を丸ごと読む）
+    payload.instruction ? `直す指示: ${payload.instruction.length > INSTRUCTION_IN_FIRE ? `${payload.instruction.slice(0, INSTRUCTION_IN_FIRE)}…（ここまで。全文はダッシュボードの依頼文にあります）` : payload.instruction}` : "",
   ].filter(Boolean).join("\n");
 }
 
@@ -120,4 +124,27 @@ export function toolRoutineView(a: Pick<ApprovalRow, "status" | "routine_at" | "
     configured: toolRoutineConfigured(), at: a.routine_at, url: a.routine_url, working: working(a, now),
     retryable: a.status === "pending" && (!a.routine_at || now - atMs(a.routine_at) >= RETRY_MS),
   };
+}
+
+// チェックで止まったツールを、ルーティンに直してもらう（運営者が決めた。設定「チェックで止まったツールを、ルーティンに直してもらう」）
+// 公開の判断待ちを作る代わりに、指摘を「直す指示」にした開発待ちを作る（運営者への判断待ちの知らせは出さない。ルーティンが直すため）
+// 同じ案件では7日に1回だけ（ルーティンが直しても問題が残ったら、これまでどおり運営者の判断待ちに出す）。動くツールの案件だけ
+// 直したツールを入れると、いつもどおりチェック・紹介ページづくりに進む（紹介ページの指摘は、紹介ページを作り直すときに直る）
+export const HELD_FIX_DAYS = 7;
+export function heldToRoutine(projectId: number, issues: string[]): boolean {
+  const s = getSettings();
+  const p = getProject(projectId);
+  if (!p || p.kind !== "tool" || !s.toolRoutineFixHeld || s.killSwitch || !toolRoutineConfigured() || !issues.length) return false;
+  const recent = db().prepare(`SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'dev' AND json_extract(payload, '$.heldFix') = 1 AND created_at >= datetime('now', ?)`).get(projectId, `-${HELD_FIX_DAYS} days`);
+  if (recent) return false;
+  if (db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending' AND kind = 'dev'").get(projectId)) return false;
+  const instruction = `公開の前のチェックで、次の問題が残りました。ツールを直してください（「紹介ページ:」で始まるものは、ツールを入れたあとに紹介ページを作り直すときに直るので、ツールでは直さない）。\n${issues.map((x, i) => `${i + 1}. ${x}`).join("\n")}`; // 切らずに全文を残す（後ろの指摘が抜けると、直せずにまた止まる。PR #132 の ai-review の指摘）
+  const design = lastDevDesign(projectId) ?? "（設計書はありません。今のツールを読み、直す指示に沿って直してください。ツールの目的は、案件の名前と、依頼文の作るときの決まりから読み取ります）";
+  db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason, payload, lp_version) VALUES (?, 'dev', ?, ?, ?, (SELECT lp_version FROM projects WHERE id = ?))").run(
+    projectId, `「${p.title}」のツールを、チェックの指摘に沿って直す`,
+    `公開の前のチェックで問題が残ったので、クラウドの Claude Code（ルーティン）に直してもらいます。直したら、もう一度チェックします（ルーティンに頼むのは${HELD_FIX_DAYS}日に1回だけ。それでも問題が残れば、公開の判断待ちに出します）。手元の Claude Code で直して入れてもかまいません。`,
+    JSON.stringify({ design, instruction, heldFix: true }), projectId,
+  );
+  logEvent(projectId, "system", "held-to-routine", `チェックで問題が残ったため、公開の判断待ちにせず、クラウドの Claude Code（ルーティン）に直してもらうことにしました: ${issues.join(" / ").slice(0, 200)}`);
+  return true;
 }

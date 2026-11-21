@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { PLAY_HOOK_MAX, PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublish, parseGivenPlay, replacePlayScript } from "./playVideo";
+import { heldToRoutine } from "./toolRoutine";
 import { hitsText } from "./hits";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
@@ -645,7 +646,7 @@ export function devWaiting(): number {
 }
 
 // 前の設計書（いちばん新しい開発待ちのもの）
-function lastDevDesign(projectId: number): string | null {
+export function lastDevDesign(projectId: number): string | null {
   const r = db().prepare("SELECT payload FROM approvals WHERE project_id = ? AND kind = 'dev' ORDER BY id DESC LIMIT 1").get(projectId) as { payload: string | null } | undefined;
   return r?.payload ? ((JSON.parse(r.payload) as { design?: string }).design ?? null) : null;
 }
@@ -792,8 +793,9 @@ export function devRequestText(projectId: number, design: string, instruction: s
     rules = `（作るときの決まりを出せませんでした: ${e instanceof Error ? e.message : String(e)}）`;
   }
   return [
-    `ai-lab の案件 #${p.id}「${p.title}」の、じっくり案件のツールを${p.lp ? "直して" : "作って"}ください。`,
-    p.lp && instruction ? `直す指示: ${instruction}\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。${/^\d+\. 紹介ページ: /m.test(instruction) ? "\n「紹介ページ:」で始まる指摘は、ツールではなくAIが書く紹介ページのもの。ツールを入れたあとに、AIが紹介ページを作り直すときに直すので、ツールでは直さない。" : ""}` : "",
+    `ai-lab の案件 #${p.id}「${p.title}」の、${p.deep ? "じっくり案件の" : ""}ツールを${p.lp ? "直して" : "作って"}ください。`,
+    // 直す指示は、今のツールの有無にかかわらず全文を入れる（チェックで止まったツールの指摘も、ここでルーティンに渡る。PR #132 の ai-review の指摘）
+    instruction ? `直す指示: ${instruction}${p.lp ? "\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。" : ""}${/^\d+\. 紹介ページ: /m.test(instruction) ? "\n「紹介ページ:」で始まる指摘は、ツールではなくAIが書く紹介ページのもの。ツールを入れたあとに、AIが紹介ページを作り直すときに直すので、ツールでは直さない。" : ""}` : "",
     `## 設計書\n${design}`,
     `## データ\n${dataNote}`,
     `## 画像（素材）\n${imagesNote(projectId)}`,
@@ -1675,6 +1677,8 @@ export async function prepareLp(projectId: number, instruction?: string, opts: {
     await announcePublish(projectId);
     return;
   }
+  // チェックで問題が残ったツールは、まずクラウドの Claude Code（ルーティン）に直してもらう（1回だけ。運営者が決めた）
+  if (!review.ok && heldToRoutine(projectId, review.issues)) return;
   if (opts.auto && getSettings().fullAuto) logEvent(projectId, "system", "auto-blocked", `${blocked}、公開は人の承認に回します`);
   // すでに公開中なら、承認されるまでは前の版が公開されたまま
   const replacing = !!p.public_slug && p.public_version !== null;
@@ -2194,8 +2198,9 @@ async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutco
     if (!t || (!t.skipped && !t.ok)) review = { ok: false, issues: [...review.issues, ...(t ? testIssues(t) : ["ブラウザでの自動テストの結果がない"])] };
   }
   if (!review.ok) {
-    // チェックを通らない改善は公開せず、人に回す
+    // チェックを通らない改善は公開しない。ツールは、まずクラウドの Claude Code（ルーティン）に直してもらう（1回だけ）。それ以外は人に回す
     setStage(projectId, "lp");
+    if (heldToRoutine(projectId, review.issues)) return { kind: "held", detail: `第${version}版を作ったが、チェックで問題が残ったため公開せず、クラウドの Claude Code（ルーティン）に直してもらうことにした: ${review.issues.join(" / ").slice(0, 200)}` };
     addApproval(projectId, "publish", getProject(projectId)!.kind === "tool" ? "改善したツールを公開する" : "改善したLPを公開する", `AIのチェックで問題が残ったため、自動公開を止めました: ${review.issues.join(" / ")}`, { review });
     return { kind: "held", detail: `第${version}版を作ったが、チェックで問題が残ったため公開せず承認待ちにした: ${review.issues.join(" / ").slice(0, 200)}` };
   }

@@ -165,6 +165,13 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
               <span className="block text-xs text-muted">見回り（5分ごと）のたびに、古い開発待ちから順に、下の数の範囲で頼みます。一度頼んだものは、自動では頼み直しません。</span>
             </span>
           </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={v.toolRoutineFixHeld} onChange={(e) => set("toolRoutineFixHeld", e.target.checked)} />
+            <span>
+              公開の前のチェックで止まったツールを、ルーティンに直してもらう
+              <span className="block text-xs text-muted">チェックで問題が残ったツール（新しく作ったもの・直したもの）は、公開の判断待ちにする前に、指摘を「直す指示」にしてルーティンに頼みます（同じ案件は7日に1回だけ。それでも問題が残れば、判断待ちに出します）。頼む数は、下の数の範囲です。</span>
+            </span>
+          </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="同時に頼む数" note="頼んでから3時間以内で、まだツールが入っていないものを、作業中として数えます。0 で自動では頼みません。"><input type="number" min={0} max={5} {...num("toolRoutineConcurrent")} className={input} /></Field>
             <Field label="1日（24時間）に頼む数" note="手で頼んだ分も数えます。0 で自動では頼みません。"><input type="number" min={0} max={20} {...num("toolRoutinePerDay")} className={input} /></Field>

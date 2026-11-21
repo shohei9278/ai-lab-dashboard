@@ -826,6 +826,7 @@ export type Settings = {
   toolRoutineAuto: boolean;
   toolRoutineConcurrent: number;
   toolRoutinePerDay: number;
+  toolRoutineFixHeld: boolean; // 公開の前のチェックで止まったツールを、ルーティンに直してもらうか（toolRoutine.ts の heldToRoutine）
   // アイデア出しのねらいの配分（重み。0〜10）。広がる・役に立つ・また来てもらう・需要を確かめる
   aimSpread: number;
   aimUseful: number;
@@ -937,6 +938,7 @@ const DEFAULTS: Settings = {
   toolRoutineAuto: true,
   toolRoutineConcurrent: 1,
   toolRoutinePerDay: 3,
+  toolRoutineFixHeld: true,
   needsWaitMax: 5,
   aimSpread: 4,
   aimUseful: 3,
@@ -951,7 +953,7 @@ const DEFAULTS: Settings = {
 };
 
 const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish", "toolRoutineFixHeld"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];
