@@ -33,6 +33,28 @@ test("遊びの深さ: 触ってから10秒のあいだ、画面に出ている�
   assert.equal(got.length, 3);
 });
 
+test("遊びの深さ: 合図が間引かれても、画面に出ていた実際の経過時間で数える（PR #123 の ai-review の指摘）", () => {
+  const got: DepthEvent[] = [];
+  const d = playDepth((e) => got.push(e));
+  d.tick(0, true);
+  d.active(0);
+  d.tick(5000, true); // 合図が5秒あいても、5秒と数える
+  d.tick(20000, true); // 触ってから10秒をすぎた分は数えない（ここまでで10秒）
+  assert.deepEqual(got, [{ name: "play_time", value: 0 }]);
+  d.active(20000);
+  d.tick(26000, true); // 16秒
+  assert.deepEqual(got.at(-1), { name: "play_time", value: 15 });
+  d.active(26000);
+  d.tick(30000, false); // 隠れていた間は数えない（出る・隠れるが変わったときにも区切る）
+  d.tick(31000, true); // 17秒
+  d.active(31000);
+  d.tick(44000, true); // 27秒
+  assert.equal(got.length, 2);
+  d.active(44000);
+  d.tick(47000, true); // 30秒
+  assert.deepEqual(got.at(-1), { name: "play_time", value: 30 });
+});
+
 test("遊びの深さ: 振った動き（持っているだけの揺れでなく）は、遊んでいるとみなす", () => {
   const got: DepthEvent[] = [];
   const d = playDepth((e) => got.push(e));

@@ -49,7 +49,10 @@ export function ToolFrame({ html, title, onUse, onDepth, data, fonts, illustrati
     const d = playDepth((e) => depthCb.current?.(e));
     depth.current = d;
     const t = setInterval(() => d.tick(Date.now(), document.visibilityState === "visible"), 1000);
-    return () => { clearInterval(t); if (depth.current === d) depth.current = null; };
+    // 画面に出る・隠れるが変わったら、それまでの間を区切る（隠れる直前までは出ていた。出る直前までは隠れていた）
+    const onVis = () => d.tick(Date.now(), document.visibilityState !== "visible");
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); if (depth.current === d) depth.current = null; };
   }, [doc, tracking]);
   useEffect(() => {
     const g = motionGate({

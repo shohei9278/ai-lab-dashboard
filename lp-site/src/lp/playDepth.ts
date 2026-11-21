@@ -1,6 +1,7 @@
 // 遊びの深さ: 来た人1人あたり、どれだけ遊んだか（来た人数に左右されない、面白さの目安。運営者が決めた）
 // - 遊び始めた: 枠の中で初めて触った・押した・振ったときに、遊んだ時間の 0秒 として知らせる（遊びの深さの割合の分母。PR #123 の ai-review の指摘）
-// - 遊んだ時間: 枠の中で触った・押した・振ったときから10秒のあいだを「遊んでいる」として、画面に出ている秒数を足す
+// - 遊んだ時間: 枠の中で触った・押した・振ったときから10秒のあいだを「遊んでいる」として、画面に出ていた実際の経過時間を足す
+//   （1秒ごとの合図の回数では数えない。重いゲームで処理が止まったり、ブラウザが合図を間引いたりしても短くならないように。PR #123 の ai-review の指摘）
 // - 結果を出した回数: ツールが結果を知らせた回数（labShare と labResult が組で続けて来たら1回。同じ種類が続いたら別の回。quiet の途中の結果も数える）
 // - 出した結果の種類: labResult の番号の種類の数（集めるツールなら、どこまで集めたか）
 // それぞれ、決まった区切り（15秒・30秒…、2回・3回…、1種類・2種類…）を超えたときに1度だけ知らせる（公開サイトの記録は、人・区切りごとに1日1件）
@@ -29,7 +30,9 @@ export function depthValueOk(name: string, value: string): boolean {
 
 export function playDepth(emit: (e: DepthEvent) => void) {
   let lastActive = -Infinity;
-  let seconds = 0;
+  let since = -Infinity; // 今続けて遊んでいる間の始まり（触ってから10秒以上あいたら、次に触ったときから測り直す）
+  let lastTick: number | null = null;
+  let ms = 0;
   let timeMark = 0;
   let results = 0;
   let last: { kind: ResultKind; at: number; paired: boolean } | null = null;
@@ -37,17 +40,21 @@ export function playDepth(emit: (e: DepthEvent) => void) {
   let grav: [number, number, number] | null = null;
   let started = false;
   const touch = (now: number) => {
+    if (now > lastActive + ACTIVE_WINDOW_MS) since = now;
     lastActive = now;
     if (!started) { started = true; emit({ name: "play_time", value: 0 }); }
   };
   return {
     // 枠の中で触った・押した
     active(now: number) { touch(now); },
-    // 1秒ごとに呼ぶ。画面に出ていて、最近触っていれば、遊んだ時間を1秒足す
+    // 1秒ごとと、画面に出る・隠れるが変わったときに呼ぶ。visible: 前に呼んでから今までの間、画面に出ていたか
+    // その間のうち、遊んでいた（触ってから10秒以内の）分を足す
     tick(now: number, visible: boolean) {
-      if (!visible || now - lastActive > ACTIVE_WINDOW_MS) return;
-      seconds++;
-      while (timeMark < PLAY_TIME_MARKS.length && seconds >= PLAY_TIME_MARKS[timeMark]) emit({ name: "play_time", value: PLAY_TIME_MARKS[timeMark++] });
+      const prev = lastTick;
+      lastTick = now;
+      if (!visible || prev === null) return;
+      ms += Math.max(0, Math.min(now, lastActive + ACTIVE_WINDOW_MS) - Math.max(prev, since));
+      while (timeMark < PLAY_TIME_MARKS.length && ms >= PLAY_TIME_MARKS[timeMark] * 1000) emit({ name: "play_time", value: PLAY_TIME_MARKS[timeMark++] });
     },
     // ページの側がツールに渡した動き（重力を含む加速度）。持っているだけの揺れは数えず、振ったときだけ遊んでいるとみなす
     motion(now: number, x: number, y: number, z: number) {

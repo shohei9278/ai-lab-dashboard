@@ -25,7 +25,11 @@ export function ToolSection({ slug, version, html, title, data, fonts, illustrat
     gaEvent("tool_use", { lp_slug: slug, lp_version: version });
   }, [slug, version]);
   // 遊びの深さ（遊んだ時間・結果を出した回数・結果の種類）の区切りを超えたら記録する（ダッシュボードの「遊びの深さ」）
-  const onDepth = useCallback((e: DepthEvent) => gaEvent(e.name, { lp_slug: slug, lp_version: version, value: e.value }), [slug, version]);
+  // 運営者のブラウザ（?me=1）は、「操作した」と同じく記録しない（gaEvent も止めるが、ここでもそろえる。PR #123 の ai-review の指摘）
+  const onDepth = useCallback((e: DepthEvent) => {
+    if (isExcluded()) return;
+    gaEvent(e.name, { lp_slug: slug, lp_version: version, value: e.value });
+  }, [slug, version]);
   return <ToolFrame html={html} title={title} onUse={onUse} onDepth={onDepth}data={data} fonts={fonts} illustration={illustration} images={images} fill={fill} storeKey={slug} fit={fit} />;
 }
 
