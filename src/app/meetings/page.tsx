@@ -76,7 +76,7 @@ function MeetingCard({ m }: { m: Meeting }) {
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <Who id={it.who} />
                   <span className="font-medium">{it.title}</span>
-                  {it.score != null && <span className="num text-xs text-ink-2">平均 {it.score.toFixed(1)}点{it.adjusted !== undefined && Math.abs(it.adjusted - it.score) >= 0.05 ? `（採点者ごとの甘さ・辛さをならすと ${it.adjusted.toFixed(1)}点）` : ""}</span>}
+                  {it.score != null && <span className="num text-xs text-ink-2">平均 {it.score.toFixed(1)}点{it.adjusted !== undefined ? `（採点者ごとの甘さ・辛さをならすと ${it.adjusted.toFixed(1)}点）` : ""}</span>}
                   {it.won && <span className="text-xs text-accent">採用</span>}
                 </div>
                 {it.text && <p className="mt-1 whitespace-pre-wrap text-ink-2">{it.text}</p>}

@@ -61,6 +61,12 @@ test("やった改善の答え合わせ: やった日の前7日と後の、1日�
   assert.match(text, new RegExp(`「a の最初の画面を直す」（仕組み・作業の途中で・.+にやった・#${a.id}）: 訪問 2\\.0 → 6\\.0・成果 0\\.0 → 1\\.0（後は5日分）`));
   assert.match(text, /「昨日やったこと」.+（後は1日分。まだ判断しない）/);
   assert.match(text, /1つの改善の効果とは言い切れない/);
+  // 基準の時刻を渡すと、その時刻から見て選ぶ（10日前から見ると、5日前と1日前にやったものはまだ先のことなので入らない）
+  assert.deepEqual(doneEffects(28, Date.now() - 10 * 86_400_000).map((x) => x.title), []);
+  // 3日前から見ると、5日前にやったものは後が2日分
+  const past = doneEffects(28, Date.now() - 3 * 86_400_000);
+  assert.ok(!past.some((x) => x.title === "昨日やったこと"));
+  assert.equal(past.find((x) => x.projectId === a.id)?.afterDays, 2);
 });
 
 test("前の版との比べ: 前の版の動きと、今の版で変えたことを並べる。今の版に訪問がなくても前の版は渡す", () => {

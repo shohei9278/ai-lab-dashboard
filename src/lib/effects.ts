@@ -21,8 +21,10 @@ function totals(from: string, to: string, projectId: number | null): { visits: n
 export type DoneEffect = { id: number; title: string; target: string; source: string; day: string; projectId: number | null; afterDays: number; before: { visits: number; conversions: number }; after: { visits: number; conversions: number } };
 
 // やってから days 日以内のもの（敗者復活は、やった＝案件を作ったことなので除く）
+// now: 基準の時刻（対象を選ぶのも、期間を数えるのも、この時刻から。PR #127 の ai-review の指摘）
 export function doneEffects(days = 28, now = Date.now()): DoneEffect[] {
-  const rows = db().prepare("SELECT * FROM plan_requests WHERE status = 'done' AND source != 'revival' AND decided_at >= datetime('now', ?) ORDER BY decided_at DESC LIMIT 15").all(`-${days} days`) as RequestRow[];
+  const utc = (t: number) => new Date(t).toISOString().slice(0, 19).replace("T", " ");
+  const rows = db().prepare("SELECT * FROM plan_requests WHERE status = 'done' AND source != 'revival' AND decided_at >= ? AND decided_at <= ? ORDER BY decided_at DESC LIMIT 15").all(utc(now - days * DAY), utc(now)) as RequestRow[];
   const today = jday(now);
   return rows.map((r) => {
     const day = jday(Date.parse(`${r.decided_at!.replace(" ", "T")}Z`));
