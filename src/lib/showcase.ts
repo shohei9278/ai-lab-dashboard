@@ -140,7 +140,7 @@ export async function showcaseLearnings(): Promise<Learning[]> {
 // ツール: ルーティンが作って入れたツールの案件の数・そのうち公開した数・人の承認なしで公開した数
 // 改善: 提案箱から Claude Code に頼んだ数・できた PR がマージされた数
 export function showcaseRoutineStats(): { tools: number; published: number; autoPublished: number; asked: number; merged: number } {
-  const t = db().prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(p.published_at IS NOT NULL), 0) AS pub, COALESCE(SUM(p.auto_published = 1), 0) AS auto FROM projects p
+  const t = db().prepare(`SELECT COUNT(*) AS n, COALESCE(SUM(p.published_at IS NOT NULL), 0) AS pub, COALESCE(SUM(p.published_at IS NOT NULL AND p.auto_published = 1), 0) AS auto FROM projects p
     WHERE p.demo = 0 AND EXISTS (SELECT 1 FROM events e WHERE e.project_id = p.id AND e.kind = 'dev-upload' AND e.message LIKE '%ルーティン%')`).get() as { n: number; pub: number; auto: number };
   const f = db().prepare("SELECT COUNT(*) AS asked, COALESCE(SUM(ai_fix_pr_state = 'merged'), 0) AS merged FROM plan_requests WHERE ai_fix_at IS NOT NULL").get() as { asked: number; merged: number };
   return { tools: t.n, published: t.pub, autoPublished: t.auto, asked: f.asked, merged: f.merged };
