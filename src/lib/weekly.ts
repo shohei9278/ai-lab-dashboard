@@ -212,7 +212,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
 
   const content: WeeklyContent = {
     members: got, chair, summary,
-    ranked: ranked.map((p) => ({ title: p.existingId ? `（提案箱から）${p.title}` : p.title, proposer: p.proposer, score: Math.round(p.score * 10) / 10, raw: Math.round(p.raw * 10) / 10, scores: p.scores })),
+    ranked: ranked.map((p) => ({ title: p.existingId ? `（提案箱から）${p.title}` : p.title, proposer: p.proposer, score: Math.round(p.score * 10) / 10, raw: Math.round(p.raw * 10) / 10, won: adopted.includes(p), scores: p.scores })),
   };
   const conn = db();
   const id = Number(conn.prepare("INSERT INTO meetings (period_start, period_end, chair_model, content, report_id) VALUES (?, ?, ?, ?, ?)")

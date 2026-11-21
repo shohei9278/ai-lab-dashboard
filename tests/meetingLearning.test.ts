@@ -101,3 +101,21 @@ test("前の版との比べ: 前の版の動きと、今の版で変えたこと
   metric(only.id, ago(1), 3, 0, 1);
   assert.doesNotMatch(funnelText(only), /前の版/);
 });
+
+test("会議室: 定例会議の「採用」は、会議で実際に採ったものに付ける（前の会議は、今までどおり上位3件）", async () => {
+  const { listMeetings } = await import("../src/lib/meetings");
+  db().exec("DELETE FROM meetings");
+  const add = (ranked: unknown[]) => db().prepare("INSERT INTO meetings (kind, period_start, period_end, chair_model, content) VALUES ('weekly', '2026-11-16', '2026-11-23', 'claude', ?)").run(JSON.stringify({ members: [], chair: "claude", summary: "s", ranked }));
+  // 新しい会議: 2件目は6点未満で採らなかった
+  add([
+    { title: "採った", proposer: "a", score: 7, raw: 6.5, won: true, scores: [] },
+    { title: "採らなかった", proposer: "b", score: 5.8, raw: 6.5, won: false, scores: [] },
+  ]);
+  // 前の会議（won がない）: 上位3件に印
+  add([1, 2, 3, 4].map((n) => ({ title: `前${n}`, proposer: "a", score: 6, scores: [] })));
+  const items = listMeetings("weekly").flatMap((m) => m.items).filter((it) => it.title.startsWith("提案"));
+  const won = (t: string) => items.find((it) => it.title === `提案「${t}」`)?.won;
+  assert.equal(won("採った"), true);
+  assert.equal(won("採らなかった"), false);
+  assert.deepEqual(["前1", "前2", "前3", "前4"].map(won), [true, true, true, false]);
+});
