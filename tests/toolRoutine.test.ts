@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings, type ApprovalRow } from "../src/lib/db";
-import { autoToolRoutine, labTokenOk, startToolRoutine, toolRoutineConfigured, toolRoutineText, toolRoutineView } from "../src/lib/toolRoutine";
+import { autoToolRoutine, hasTool, labTokenOk, startToolRoutine, toolRoutineConfigured, toolRoutineText, toolRoutineView } from "../src/lib/toolRoutine";
 import { GET, POST } from "../src/app/api/tool-jobs/[id]/route";
 
 // 開発待ちのじっくり案件を、クラウドの Claude Code（ルーティン「案件のツールを作る」）に頼む（運営者が決めた。頼む数は設定で決める）
@@ -169,4 +169,16 @@ test("ツールのルーティンの入口: もう開発待ちでない（入れ
   // 様子は、入れ終わったあとも読める
   const st = await GET(new Request(`http://x/api/tool-jobs/${approvalId}?file=status`, { headers: { authorization: `Bearer ${LAB}` } }), { params: Promise.resolve({ id: String(approvalId) }) });
   assert.equal(st.status, 200);
+});
+
+test("ツールのルーティン: 「直す」か「新しく作る」かは、今のツールがあるかで見分ける", () => {
+  assert.equal(hasTool(null), false);
+  assert.equal(hasTool(JSON.stringify({ headline: "紹介ページだけ" })), false);
+  assert.equal(hasTool(JSON.stringify({ headline: "h", tool: { html: "<p>x</p>" } })), true);
+  assert.equal(hasTool("{壊れた"), false);
+  const { projectId, approvalId } = devCase("ページだけある");
+  db().prepare("UPDATE projects SET lp = ? WHERE id = ?").run(JSON.stringify({ headline: "紹介ページだけ" }), projectId);
+  assert.match(toolRoutineText(row(approvalId)), /新しく作る/);
+  db().prepare("UPDATE projects SET lp = ? WHERE id = ?").run(JSON.stringify({ headline: "h", tool: { html: "<p>x</p>" } }), projectId);
+  assert.match(toolRoutineText(row(approvalId)), /直す（今のツールがある）/);
 });

@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { db, getSettings, type ApprovalRow } from "./db";
-import { getProject, logEvent } from "./loop";
+import { getProject, logEvent, type Lp } from "./loop";
 import { atMs, fireRoutine, routineConfigured, type Fetch } from "./routine";
 
 // 案件のツールを、クラウドの Claude Code（ルーティン「案件のツールを作る」）に作ってもらう
@@ -34,6 +34,16 @@ export function labTokenOk(header: string | null): boolean {
 // 作業中か（頼んでから3時間以内で、まだ開発待ち）
 const working = (a: Pick<ApprovalRow, "status" | "routine_at">, now: number) => a.status === "pending" && !!a.routine_at && now - atMs(a.routine_at) < ROUTINE_WORK_MS;
 
+// 今のツールがあるか（紹介ページのデータがあっても、ツールがまだないことがある。PR #130 の ai-review の指摘）
+export function hasTool(lp: string | null): boolean {
+  if (!lp) return false;
+  try {
+    return !!(JSON.parse(lp) as Lp).tool?.html;
+  } catch {
+    return false;
+  }
+}
+
 // ルーティンに渡す文（ルーティンの側では、外から来た信用しない文として受け取る）
 export function toolRoutineText(a: ApprovalRow): string {
   const p = getProject(a.project_id)!;
@@ -41,7 +51,7 @@ export function toolRoutineText(a: ApprovalRow): string {
   return [
     `案件 #${p.id}「${p.title}」`,
     p.deep ? "じっくり案件" : "ふつうの案件",
-    p.lp ? "直す（今のツールがある）" : "新しく作る",
+    hasTool(p.lp) ? "直す（今のツールがある）" : "新しく作る",
     `開発待ちの番号: ${a.id}`,
     payload.instruction ? `直す指示: ${payload.instruction.slice(0, 1500)}` : "",
   ].filter(Boolean).join("\n");
@@ -69,7 +79,7 @@ export async function startToolRoutine(approvalId: number, opts: { manual?: bool
   }
   db().prepare("UPDATE approvals SET routine_url = ? WHERE id = ?").run(url, approvalId);
   // 1日に頼んだ数は、この経過の数で数える（同じ開発待ちを頼み直した分も、1回ずつ数える）
-  logEvent(a.project_id, opts.manual ? "human" : "system", "tool-routine", `ツールを${getProject(a.project_id)?.lp ? "直す" : "作る"}のを、クラウドの Claude Code（ルーティン）に頼みました${opts.manual ? "（運営者が頼んだ）" : ""}`);
+  logEvent(a.project_id, opts.manual ? "human" : "system", "tool-routine", `ツールを${hasTool(getProject(a.project_id)?.lp ?? null) ? "直す" : "作る"}のを、クラウドの Claude Code（ルーティン）に頼みました${opts.manual ? "（運営者が頼んだ）" : ""}`);
   return url;
 }
 
