@@ -1,7 +1,8 @@
 import { db, type ProjectRow } from "./db";
-import { projectTotals } from "./loop";
+import { logEvent, projectTotals } from "./loop";
 import { channelSteps, maskChannels, type ChannelRow } from "./channels";
 import { PLAY_TIME_MARKS, RESULT_MARKS, depthValueOk } from "../../lp-site/src/lp/playDepth";
+import { parseToolError } from "../../lp-site/src/lp/toolErrors";
 
 // 案件ごとの「ページの中での動き」。訪問した人が、どこまで進んだか（今の版）
 // 人数は訪問者ごと・1日1回で数える（同じ人が別の日に来ると2人と数える。訪問数と同じ数え方）
@@ -16,7 +17,38 @@ export type Funnel = {
   errors: number; // 登録に失敗した人
   hasEvents: boolean; // ページの中の動きの記録が届いているか（表を作る前・訪問0のときは false）
   play: PlayDepth | null; // 遊びの深さ（動くツールだけ）
+  toolErrors: ToolError[]; // 来た人の画面で、ツールの中で起きたエラー（動くツールだけ。人の多い順）
 };
+
+// 本番で来た人の画面で、ツールの中で起きたエラー（種類と行の番号。人数は訪問者ごと・1日1回）
+export type ToolError = { name: string; line: number | null; visitors: number };
+export function toolErrors(rows: { name: string; detail: string; visitors: number }[]): ToolError[] {
+  const by = new Map<string, ToolError>();
+  for (const r of rows) {
+    if (r.name !== "tool_error") continue;
+    const e = parseToolError(r.detail);
+    if (!e) continue;
+    const k = `${e.name}|${e.line}`;
+    const x = by.get(k) ?? { ...e, visitors: 0 };
+    x.visitors += r.visitors;
+    by.set(k, x);
+  }
+  return [...by.values()].sort((a, b) => b.visitors - a.visitors || (a.line ?? 0) - (b.line ?? 0));
+}
+export const toolErrorLabel = (e: ToolError) => `${e.name}${e.line ? `（${e.line}行目）` : ""}`;
+
+// 取り込みのたびに呼ぶ。公開中の版で、エラーが起きた人が前に知らせたときより増えていたら、経過に残して知らせる（-error の通知。同じ種類は1時間に1回まで）
+export function checkToolErrors(p: ProjectRow): void {
+  if (p.kind !== "tool") return;
+  const v = p.public_version ?? p.lp_version;
+  const errs = toolErrors(db().prepare("SELECT name, detail, visitors FROM lp_funnel WHERE project_id = ? AND version = ? AND name = 'tool_error'").all(p.id, v) as { name: string; detail: string; visitors: number }[]);
+  const n = errs.reduce((a, e) => a + e.visitors, 0);
+  let seen = { v: 0, n: 0 };
+  try { if (p.tool_errors_seen) seen = JSON.parse(p.tool_errors_seen) as { v: number; n: number }; } catch {}
+  if (n <= (seen.v === v ? seen.n : 0)) return;
+  db().prepare("UPDATE projects SET tool_errors_seen = ? WHERE id = ?").run(JSON.stringify({ v, n }), p.id);
+  logEvent(p.id, "system", "tool-runtime-error", `公開中の第${v}版のツールで、来た人の画面でエラーが起きました（のべ${n}人: ${errs.slice(0, 3).map((e) => `${toolErrorLabel(e)} ${e.visitors}人`).join("・")}）`);
+}
 
 // 遊びの深さ: 来た人1人あたり、どれだけ遊んだか（来た人数に左右されない、面白さの目安。まずは見るだけで、当たりの判定やAIの判断には使わない）
 // 公開サイトが、遊んだ時間・結果を出した回数・結果の種類が決まった区切りを超えたときに記録する（lp-site/src/lp/playDepth.ts）
@@ -69,7 +101,7 @@ export function funnel(p: ProjectRow, versionArg?: number): Funnel {
         { key: "signup", label: "事前登録した", visitors: t.signups, ofVisits: of(t.signups) },
       ];
   const sections = Object.keys(SECTION_LABEL).map((k) => ({ section: SECTION_LABEL[k], visitors: count("section_view", k) })).filter((x) => x.visitors > 0);
-  return { version, visits: t.visits, steps, depth, sections, errors: count("sign_up_error"), hasEvents: rows.some((r) => r.name !== "revisit"), play: p.kind === "tool" ? playDepth(rows) : null };
+  return { version, visits: t.visits, steps, depth, sections, errors: count("sign_up_error"), hasEvents: rows.some((r) => r.name !== "revisit"), play: p.kind === "tool" ? playDepth(rows) : null, toolErrors: p.kind === "tool" ? toolErrors(rows) : [] };
 }
 
 export function playDepth(all: { name: string; detail: string; visitors: number }[]): PlayDepth {
@@ -97,9 +129,11 @@ export function funnelText(p: ProjectRow): string {
   const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
   // 流入元は訪問の記録から数えるので、ページの中での動きの記録がない版でも渡す
   const channels = channelText(p, f.version).trim();
-  if (!f.hasEvents) return channels;
+  // 来た人の画面で起きたツールのエラーは、AIの判断にも渡す（遊べていないかもしれないため）
+  const errs = f.toolErrors.length ? `\n来た人の画面で起きたツールのエラー: ${f.toolErrors.slice(0, 5).map((e) => `${toolErrorLabel(e)} ${e.visitors}人`).join(" / ")}` : "";
+  if (!f.hasEvents) return `${channels}${errs}`.trim();
   return `ページの中での動き（第${f.version}版・訪問者に対する割合）: ${f.steps.map((s) => `${s.label} ${s.visitors}人（${pc(s.ofVisits)}）`).join(" → ")}
-読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}${channels ? `\n${channels}` : ""}`;
+読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}${channels ? `\n${channels}` : ""}${errs}`;
 }
 
 // 流入元ごとに、どこまで進んだか（件数が少ないうちは偶然の差が大きい）

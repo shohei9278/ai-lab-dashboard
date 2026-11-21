@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Funnel, PlayDepth } from "@/lib/funnel";
+import { toolErrorLabel, type Funnel, type PlayDepth } from "@/lib/funnel";
 import { ScrollHint } from "@/components/ui";
 import { channelSteps, type ChannelRow } from "@/lib/channels";
 
@@ -102,6 +102,15 @@ export function FunnelCard({ f, isTool, projectId, all, liveVersion, channels }:
             )}
             {f.errors > 0 && <p className="text-xs" style={{ color: "var(--critical)" }}>登録しようとして失敗した人: {f.errors}人</p>}
           </div>
+          {f.toolErrors.length > 0 && (
+            <div className="space-y-1 border-t border-line pt-3">
+              <div className="text-sm font-medium" style={{ color: "var(--critical)" }}>来た人の画面で、ツールの中でエラーが起きました</div>
+              <p className="text-xs text-muted">種類と、ツールのコードの行の番号だけを記録しています（入力された文などは送りません）。人数は訪問者ごと・1日1回で数えます。</p>
+              <ul className="space-y-1 text-sm">
+                {f.toolErrors.map((e) => <li key={`${e.name}-${e.line}`} className="num flex justify-between gap-2"><span>{toolErrorLabel(e)}</span><span>{e.visitors}人</span></li>)}
+              </ul>
+            </div>
+          )}
           {f.play && <PlayDepthView d={f.play} visits={f.visits} />}
           <Channels rows={channels} isTool={isTool} />
         </>

@@ -1257,7 +1257,7 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
     }
   };
   const check = async (h: string): Promise<{ review: Review; test: ToolTest }> => {
-    const [ai, test] = await Promise.all([reviewTool(p, h, instruction), testTool(h, shotName, frame)]);
+    const [ai, test] = await Promise.all([reviewTool(p, h, instruction), testTool(h, shotName, { ...frame, short: shortToolPage(p.aim) })]);
     // Claude Code で作ったツールは、長さの上限をふつうのツールと同じ（80,000文字）にする（AIが1回で書くときだけ、じっくり案件はコードを短めにさせる）
     const issues = [...staticToolIssues(h, !!deep && given === undefined), ...ai.issues, ...testIssues(test)];
     return { review: { ok: issues.length === 0 && ai.ok, issues }, test };
@@ -1323,7 +1323,7 @@ export async function retestTool(projectId: number): Promise<ToolTest> {
   const p = getProject(projectId);
   const tool = p?.lp ? (JSON.parse(p.lp) as Lp).tool : undefined;
   if (!p || !tool) throw new Error("動くツールの案件ではありません");
-  const test = await testTool(tool.html, `p${p.id}-v${p.lp_version}`, { data: tool.data, fonts: tool.fonts, images: tool.images });
+  const test = await testTool(tool.html, `p${p.id}-v${p.lp_version}`, { data: tool.data, fonts: tool.fonts, images: tool.images, short: shortToolPage(p.aim) });
   db().prepare("UPDATE lp_versions SET test = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(test), p.id, p.lp_version);
   const issues = testIssues(test);
   logEvent(p.id, "system", "tool-test", test.skipped ? test.skipped : issues.length ? `自動テストで問題: ${issues.join(" / ")}` : `自動テストで問題なし（${test.clicked}か所を操作）`);

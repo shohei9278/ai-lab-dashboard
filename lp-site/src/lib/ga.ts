@@ -7,7 +7,7 @@ type Gtag = (command: "event", name: string, params?: Record<string, string | nu
 
 // 記録で使う「細かい内容」: どの部分が見えたか・どこまで読んだか・どこでシェアしたか
 // 遊びの深さ（play_time・results・result_kinds）は、超えた区切りの数（秒・回・種類）
-const DETAIL_KEY: Record<string, string> = { section_view: "section", scroll_depth: "percent", share: "method", play_time: "value", results: "value", result_kinds: "value" };
+const DETAIL_KEY: Record<string, string> = { section_view: "section", scroll_depth: "percent", share: "method", play_time: "value", results: "value", result_kinds: "value", tool_error: "value" };
 
 export function gaEvent(name: string, params?: Record<string, string | number>) {
   try {
