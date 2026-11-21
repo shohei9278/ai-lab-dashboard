@@ -12,7 +12,7 @@ import { maybeRecordFollowersSafe } from "./hits";
 import { maybeCreatePlan, runPlanTasks } from "./plan";
 import { syncReactions } from "./postReactions";
 import { maybeNightlyReport } from "./diary";
-import { mergeSimilarOpen, proposeFromErrors } from "./voices";
+import { expireStaleProposals, mergeSimilarOpen, proposeFromErrors } from "./voices";
 import { syncAiFixPrs } from "./aiFix";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
@@ -109,9 +109,10 @@ async function tickNow() {
   } catch {
     // 見張りの失敗で、ほかの処理を止めない
   }
-  // 提案箱: 同じ趣旨の提案をまとめ、Claude Code に頼んだ改善の PR の状態を読む（どちらも1時間に1回。マージされていたら「やった」にする）
+  // 提案箱: 同じ趣旨の提案をまとめ、30日返事のない提案を見送りにし、Claude Code に頼んだ改善の PR の状態を読む（どれも1時間に1回。マージされていたら「やった」にする）
   try {
     mergeSimilarOpen();
+    expireStaleProposals();
   } catch {
     // まとめの失敗で、ほかの処理を止めない
   }

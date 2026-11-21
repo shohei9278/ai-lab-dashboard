@@ -65,3 +65,35 @@ test("定例会議の材料: 仕組みの改善の偏りと、運営者が手で
   assert.match(m, /返事待ちの仕組みの改善 1件: 出た場面 LPのチェック 1件/);
   assert.match(m, /deep-upload 1回（例: じっくり案件のツールを入れた）/);
 });
+
+test("提案箱: 返事がないまま30日たった提案は見送りにし、同じ提案がまた出たら入れる。何度も出たもの・頼んだもの・運営者の提案は残す", async () => {
+  const { STALE_NOTE, expireStaleProposals } = await import("../src/lib/voices");
+  const { aiImprovements } = await import("../src/lib/interventions");
+  db().exec("DELETE FROM plan_requests");
+  // 31日前に入った提案
+  const ins = (p: { title: string; how: string }, o: { source?: string; repeats?: number; asked?: boolean } = {}) =>
+    db().prepare(`INSERT INTO plan_requests (title, how, source, target, repeats, ai_fix_at, created_at) VALUES (?, ?, ?, 'system', ?, ?, datetime('now', '-31 days'))`)
+      .run(p.title, p.how, o.source ?? "scene", o.repeats ?? 0, o.asked ? "2026-10-20 00:00:00" : null);
+  ins(others[0]);
+  ins(others[1], { repeats: 2 });
+  ins(others[2], { asked: true });
+  ins(others[3], { source: "human" });
+  db().prepare("INSERT INTO plan_requests (title, how, source, target) VALUES ('新しい', 'まだ30日たっていない提案', 'scene', 'system')").run();
+  assert.equal(expireStaleProposals(true), 1);
+  const st = (t: string) => (db().prepare("SELECT status, note FROM plan_requests WHERE title = ?").get(t) as { status: string; note: string | null });
+  assert.deepEqual(st(others[0].title), { status: "declined", note: STALE_NOTE });
+  for (const t of [others[1].title, others[2].title, others[3].title, "新しい"]) assert.equal(st(t).status, "open", t);
+  // 返事がないまま見送ったものは、改善の記録（人が判断したもの）に載せない
+  assert.ok(!aiImprovements().some((r) => r.title === others[0].title));
+  // 同じ提案がまた出てきたら入れる（題が同じでも、同じ趣旨でも）
+  assert.ok(addProposal({ ...others[0], target: "system", source: "scene" }));
+});
+
+test("定例会議の材料: 返事がないまま見送ったものは、もう一度出してよいと伝え、運営者のひとことにしない", async () => {
+  const { STALE_NOTE } = await import("../src/lib/voices");
+  db().exec("DELETE FROM plan_requests");
+  db().prepare("INSERT INTO plan_requests (title, source, target, status, note) VALUES ('古い提案', 'scene', 'system', 'declined', ?)").run(STALE_NOTE);
+  const m = meetingMaterial("2000-01-01");
+  assert.match(m, /「古い提案」（仕組み向け）→ 返事がないまま見送り（今も効くなら、もう一度出してよい）/);
+  assert.doesNotMatch(m, /運営者のひとこと: 30日/);
+});

@@ -7,7 +7,7 @@ import { postStatsText } from "./postStats";
 import { createReport, gather } from "./report";
 import { followUpOf, type WeeklyContent } from "./meetings";
 import type { AdhocContent } from "./adhoc";
-import { addProposal, addVoice } from "./voices";
+import { STALE_NOTE, addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { researchText } from "./research";
 
@@ -37,7 +37,7 @@ export function meetingMaterial(start: string): string {
   const plans = (db().prepare("SELECT day, model_id, content FROM daily_plans WHERE day >= ? ORDER BY day").all(start) as { day: string; model_id: string; content: string }[])
     .map((p) => { const c = JSON.parse(p.content) as { focus: string; bottleneck: string }; return `- ${p.day} 担当 ${modelInfo(p.model_id).label}: ネック ${c.bottleneck}・${c.focus}`; });
   const reqs = (db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-45 days') ORDER BY id DESC").all() as RequestRow[])
-    .map((r) => `- 「${r.title}」（${r.target === "system" ? "仕組み" : "運営者"}向け）→ ${r.status === "open" ? "返事待ち" : r.status === "done" ? "やった" : "見送り"}${r.repeats ? `・同じ趣旨の提案がほかに${r.repeats}回出た` : ""}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`);
+    .map((r) => `- 「${r.title}」（${r.target === "system" ? "仕組み" : "運営者"}向け）→ ${r.status === "open" ? "返事待ち" : r.status === "done" ? "やった" : r.note === STALE_NOTE ? "返事がないまま見送り（今も効くなら、もう一度出してよい）" : "見送り"}${r.repeats ? `・同じ趣旨の提案がほかに${r.repeats}回出た` : ""}${r.note && r.note !== STALE_NOTE ? `・運営者のひとこと: ${r.note}` : ""}`);
   // 仕組みの改善の偏り: 返事待ちが、どこで出て、だれが出したものに偏っているか（作業の途中のチェックの手順の足しばかりになっていた。運営者が「幅が狭くないか」と気にした）
   const openSys = db().prepare("SELECT source, scene, proposer FROM plan_requests WHERE status = 'open' AND target = 'system' AND source != 'human'").all() as { source: string; scene: string | null; proposer: string | null }[];
   const tally = (xs: string[]) => [...xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}件`).join("・");
@@ -121,8 +121,9 @@ export async function createWeeklyMeeting(): Promise<number> {
   });
 
   // 2. だれの案かを伏せて、自分以外の案を採点し合う
-  // 今回の案と、この週に提案箱に入った提案（あなたが入れたもの・会議の案は除く）を一緒に採点する
-  const existing = (db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source != 'human' AND (source != 'meeting' OR scene LIKE '臨時会議%') AND created_at >= datetime('now', '-8 days')").all() as RequestRow[])
+  // 今回の案と、この週に提案箱に入った提案・まだ点のない返事待ちの提案（あなたが入れたもの・会議の案は除く）を一緒に採点する
+  // 点のない提案は、入った週の会議で採点されないと、いつまでも返事待ちに残っていた（運営者が、明らかに不要なものは自動で見送りにするか尋ね、おすすめを選んだ）
+  const existing = (db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source != 'human' AND (source != 'meeting' OR scene LIKE '臨時会議%') AND (created_at >= datetime('now', '-8 days') OR score IS NULL)").all() as RequestRow[])
     .map((r) => ({ title: r.title, how: r.how ?? "", why: r.why ?? "", target: r.target, proposer: r.proposer ?? "", existingId: r.id as number | undefined }));
   const pool = [...got.flatMap((m) => m.proposals.map((p) => ({ ...p, proposer: m.modelId, existingId: undefined as number | undefined }))), ...existing];
   const order = pool.map((_, i) => i).sort(() => Math.random() - 0.5);
