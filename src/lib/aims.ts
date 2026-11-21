@@ -123,6 +123,8 @@ export function pickChampion<T extends { top: number | null; avg: number }>(rest
 
 // 推し枠つきで keep 件（2件以上）を選ぶ。keep - 1 件は今までどおり平均点で選び、最後の1件を推し枠にする
 // 推し枠の候補からは、平均点なら最後の1件に選ばれる案を外す（今までと同じ案を推し枠と数えないように。PR #123 の ai-review の指摘）
+// 推し枠の候補は、作ってよいねらい（allowed）で、平均点が下限（floor）以上の案だけ（今までの選ぶ決まりを通す。PR #123 の ai-review の指摘）
+// ねらいの配分（足りないねらいを先にする並べ替え）は当てない（推し枠は、わざと平均点の順から外して選ぶ枠のため。運営者が決めた）
 // peek: accept と同じ条件を、件数を減らさずに確かめる。推し枠に当てはまる案がなければ、平均点の案を選ぶ
 export function pickWithChampion<T extends { aim: Aim; avg: number; author: string; top: number | null }>(
   list: T[], keep: number, weights: AimWeights, counts: Partial<Record<Aim, number>>, allowed: readonly Aim[], floor: number,
@@ -134,7 +136,7 @@ export function pickWithChampion<T extends { aim: Aim; avg: number; author: stri
   const n = { ...counts };
   for (const b of base) n[b.aim] = (n[b.aim] ?? 0) + 1;
   const next = pickByAims(rest, 1, weights, n, allowed, floor, peek)[0];
-  const champion = pickChampion(rest.filter((x) => x !== next), accept);
+  const champion = pickChampion(rest.filter((x) => x !== next && allowed.includes(x.aim) && x.avg >= floor), accept);
   if (champion) return { picked: [...base, champion], champion };
   return { picked: [...base, ...pickByAims(rest, 1, weights, n, allowed, floor, accept)], champion: null };
 }

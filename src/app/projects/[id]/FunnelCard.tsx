@@ -165,15 +165,15 @@ function PlayDepthView({ d, visits }: { d: PlayDepth; visits: number }) {
   return (
     <div className="space-y-2 border-t border-line pt-3">
       <div>
-        <div className="text-sm font-medium">遊びの深さ（ツールを操作した {d.users}人のうち）</div>
-        <p className="text-xs text-muted">来た人の数に左右されない、面白さの目安です。触った・押した・振ったときから10秒のあいだを、遊んだ時間として数えます。まずは見るだけで、当たりの判定やAIの判断には使っていません。</p>
+        <div className="text-sm font-medium">遊びの深さ（遊び始めた {d.users}人のうち）</div>
+        <p className="text-xs text-muted">来た人の数に左右されない、面白さの目安です。枠の中で初めて触った・押した・振った人を「遊び始めた」と数え、触った・押した・振ったときから10秒のあいだを、遊んだ時間として数えます。まずは見るだけで、当たりの判定やAIの判断には使っていません。</p>
       </div>
       {!d.hasData ? (
         <p className="text-sm text-ink-2">まだ記録がありません。この記録を始めたあとに遊んだ人から数えます。</p>
       ) : (
         <>
           <p className="text-sm">
-            {d.halfTime === null ? "15秒以上遊んだ人は、操作した人の半分に届いていません。" : <>操作した人の半分が、<b className="num">{secLabel(d.halfTime)}</b>以上遊びました。</>}
+            {d.halfTime === null ? "15秒以上遊んだ人は、遊び始めた人の半分に届いていません。" : <>遊び始めた人の半分が、<b className="num">{secLabel(d.halfTime)}</b>以上遊びました。</>}
           </p>
           <div className="grid gap-4 text-sm sm:grid-cols-3">
             <div>

@@ -20,16 +20,17 @@ test("遊びの深さ: 触ってから10秒のあいだ、画面に出ている�
   const run = (secs: number, visible = true) => { for (let i = 0; i < secs; i++) { now += 1000; d.tick(now, visible); } };
   run(20); // 触っていなければ数えない
   assert.deepEqual(got, []);
-  d.active(now);
+  d.active(now); // 初めて触ったら、遊び始めた（0秒）と知らせる
+  assert.deepEqual(got, [{ name: "play_time", value: 0 }]);
   run(10); // 触ってから10秒は数える
   run(5); // そのあとは数えない
-  assert.deepEqual(got, []);
+  assert.equal(got.length, 1);
   for (let i = 0; i < 30; i++) { d.active(now); run(1); } // 触り続けると数える（10+30=40秒）
-  assert.deepEqual(got, [{ name: "play_time", value: 15 }, { name: "play_time", value: 30 }]);
+  assert.deepEqual(got, [{ name: "play_time", value: 0 }, { name: "play_time", value: 15 }, { name: "play_time", value: 30 }]);
   d.active(now);
   run(5, false); // 画面に出ていない間は数えない
   run(5);
-  assert.equal(got.length, 2);
+  assert.equal(got.length, 3);
 });
 
 test("遊びの深さ: 振った動き（持っているだけの揺れでなく）は、遊んでいるとみなす", () => {
@@ -40,7 +41,7 @@ test("遊びの深さ: 振った動き（持っているだけの揺れでなく
   for (let i = 0; i < 20; i++) { now += 1000; d.motion(now, 0.3, -9.6, 0.2); d.tick(now, true); } // 持っているだけ
   assert.deepEqual(got, []);
   for (let i = 0; i < 20; i++) { now += 1000; d.motion(now, i % 2 ? 12 : -12, -9.8, 0); d.tick(now, true); } // 振る
-  assert.deepEqual(got, [{ name: "play_time", value: 15 }]);
+  assert.deepEqual(got, [{ name: "play_time", value: 0 }, { name: "play_time", value: 15 }]);
 });
 
 test("遊びの深さ: 結果は続けて来た知らせを1回と数え、2回目から知らせる。結果の番号は種類の数を知らせる", () => {
@@ -99,16 +100,19 @@ test("遊びの深さ: 取り込みで、別の日にまた来た人を数え、
   assert.equal(people.get("1|revisit|"), undefined);
 
   const d = depthOf([
+    { name: "play_time", detail: "0", visitors: 10 }, // 遊び始めた人が分母（ボタンを押していない、ドラッグだけの人も入る）
     { name: "play_time", detail: "15", visitors: 8 }, { name: "play_time", detail: "30", visitors: 5 }, { name: "play_time", detail: "60", visitors: 2 },
     { name: "results", detail: "2", visitors: 4 }, { name: "result_kinds", detail: "1", visitors: 6 }, { name: "result_kinds", detail: "3", visitors: 2 },
     { name: "revisit", detail: "", visitors: 3 },
-  ], 10);
+  ]);
+  assert.equal(d.users, 10);
   assert.equal(d.halfTime, 30); // 10人のうち5人が30秒以上
   assert.deepEqual(d.kinds, [{ mark: 1, visitors: 6 }, { mark: 3, visitors: 2 }]);
   assert.equal(d.results[0].visitors, 4);
   assert.equal(d.revisit, 3);
   assert.equal(d.hasData, true);
-  assert.equal(depthOf([{ name: "play_time", detail: "15", visitors: 1 }], 10).halfTime, null);
+  assert.equal(depthOf([{ name: "play_time", detail: "0", visitors: 10 }, { name: "play_time", detail: "15", visitors: 1 }]).halfTime, null);
+  assert.deepEqual(d.time.map((x) => x.mark), [15, 30, 60, 120, 300, 600]); // 0秒（遊び始めた）は区切りの一覧に出さない
 
   // 動くツールの案件だけに出す。また来た人だけの記録では、ページの中の動きの記録があるとは言わない
   const add = (kind: string) => Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind) VALUES ('t', 't', 'p', 's', 'h', 'r', 'live', 'claude', ?)").run(kind).lastInsertRowid);
@@ -142,6 +146,10 @@ test("推し枠: 平均点なら最後の1件に選ばれる案は、推し枠�
   const none = pickWithChampion([x("a", 8, 8), x("b", 7, 10), x("d", 5, 6)], 2, w, {}, ["spread"], 0, () => true, () => true);
   assert.deepEqual(none.picked.map((c) => c.name), ["a", "b"]);
   assert.equal(none.champion, null);
+  // 作ってよいねらいでない案・平均点が下限より低い案は、推し枠にしない（ねらいの配分は当てない）
+  const y = (name: string, aim: "spread" | "useful" | "demand", avg: number, top: number) => ({ name, aim, avg, author: name, top });
+  const ruled = pickWithChampion([y("a", "spread", 8, 8), y("b", "spread", 7, 7), y("c", "demand", 6, 10), y("d", "spread", 4, 10), y("e", "useful", 5, 9)], 2, w, {}, ["spread", "useful"], 5, () => true, () => true);
+  assert.equal(ruled.champion?.name, "e");
   // 1件だけ選ぶときは、推し枠を作らない
   assert.deepEqual(pickWithChampion(list, 1, w, {}, ["spread"], 0, () => true, () => true).picked.map((c) => c.name), ["a"]);
 });

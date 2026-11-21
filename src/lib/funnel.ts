@@ -22,14 +22,16 @@ export type Funnel = {
 // 公開サイトが、遊んだ時間・結果を出した回数・結果の種類が決まった区切りを超えたときに記録する（lp-site/src/lp/playDepth.ts）
 // 人数は、ほかの段と同じく訪問者ごと・1日1回で数える
 export type PlayDepth = {
-  users: number; // ツールを操作した人（割合の分母）
+  users: number; // 遊び始めた人（枠の中で初めて触った・押した・振った人。割合の分母）
   time: { mark: number; visitors: number }[]; // その秒数以上遊んだ人
-  halfTime: number | null; // 操作した人の半分以上が遊んだ秒数（区切りの中でいちばん長いもの。15秒に届かなければ null）
+  halfTime: number | null; // 遊び始めた人の半分以上が遊んだ秒数（区切りの中でいちばん長いもの。15秒に届かなければ null）
   results: { mark: number; visitors: number }[]; // 結果をその回数以上出した人（1回目は「操作した」とほぼ同じなので2回から）
   kinds: { mark: number; visitors: number }[]; // 結果をその種類以上出した人（結果の種類が決まっているツールだけ）
   revisit: number; // この版に、別の日にまた来た人
   hasData: boolean; // 遊びの深さの記録が届いているか
 };
+// 遊び始めた人は、遊んだ時間の 0秒 として記録する（lp-site/src/lp/playDepth.ts）
+const PLAY_START = "0";
 
 
 
@@ -67,11 +69,12 @@ export function funnel(p: ProjectRow, versionArg?: number): Funnel {
         { key: "signup", label: "事前登録した", visitors: t.signups, ofVisits: of(t.signups) },
       ];
   const sections = Object.keys(SECTION_LABEL).map((k) => ({ section: SECTION_LABEL[k], visitors: count("section_view", k) })).filter((x) => x.visitors > 0);
-  return { version, visits: t.visits, steps, depth, sections, errors: count("sign_up_error"), hasEvents: rows.some((r) => r.name !== "revisit"), play: p.kind === "tool" ? playDepth(rows, t.signups) : null };
+  return { version, visits: t.visits, steps, depth, sections, errors: count("sign_up_error"), hasEvents: rows.some((r) => r.name !== "revisit"), play: p.kind === "tool" ? playDepth(rows) : null };
 }
 
-export function playDepth(rows: { name: string; detail: string; visitors: number }[], users: number): PlayDepth {
+export function playDepth(rows: { name: string; detail: string; visitors: number }[]): PlayDepth {
   const count = (name: string, detail: string) => rows.filter((r) => r.name === name && r.detail === detail).reduce((n, r) => n + r.visitors, 0);
+  const users = count("play_time", PLAY_START);
   const time = PLAY_TIME_MARKS.map((mark) => ({ mark, visitors: count("play_time", String(mark)) }));
   const kindMarks = [...new Set(rows.filter((r) => r.name === "result_kinds").map((r) => Number(r.detail)).filter((n) => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
   const reached = time.filter((x) => users > 0 && x.visitors * 2 >= users);

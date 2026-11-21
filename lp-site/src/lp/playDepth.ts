@@ -1,4 +1,5 @@
 // 遊びの深さ: 来た人1人あたり、どれだけ遊んだか（来た人数に左右されない、面白さの目安。運営者が決めた）
+// - 遊び始めた: 枠の中で初めて触った・押した・振ったときに、遊んだ時間の 0秒 として知らせる（遊びの深さの割合の分母。PR #123 の ai-review の指摘）
 // - 遊んだ時間: 枠の中で触った・押した・振ったときから10秒のあいだを「遊んでいる」として、画面に出ている秒数を足す
 // - 結果を出した回数: ツールが結果を知らせた回数（labShare と labResult が続けて来ても1回。quiet の途中の結果も数える）
 // - 出した結果の種類: labResult の番号の種類の数（集めるツールなら、どこまで集めたか）
@@ -21,9 +22,14 @@ export function playDepth(emit: (e: DepthEvent) => void) {
   let lastResult = -Infinity;
   const kinds = new Set<number>();
   let grav: [number, number, number] | null = null;
+  let started = false;
+  const touch = (now: number) => {
+    lastActive = now;
+    if (!started) { started = true; emit({ name: "play_time", value: 0 }); }
+  };
   return {
     // 枠の中で触った・押した
-    active(now: number) { lastActive = now; },
+    active(now: number) { touch(now); },
     // 1秒ごとに呼ぶ。画面に出ていて、最近触っていれば、遊んだ時間を1秒足す
     tick(now: number, visible: boolean) {
       if (!visible || now - lastActive > ACTIVE_WINDOW_MS) return;
@@ -35,7 +41,7 @@ export function playDepth(emit: (e: DepthEvent) => void) {
       if (!grav) { grav = [x, y, z]; return; }
       const d = Math.hypot(x - grav[0], y - grav[1], z - grav[2]);
       grav = [grav[0] + (x - grav[0]) * 0.05, grav[1] + (y - grav[1]) * 0.05, grav[2] + (z - grav[2]) * 0.05];
-      if (d > SHAKE) lastActive = now;
+      if (d > SHAKE) touch(now);
     },
     // ツールが結果を知らせた。index は labResult の番号（labShare だけなら undefined）
     // 遊んだ時間は延ばさない（時間で勝手に結果を出すツールで、誰も触っていないのに数えないように。PR #123 の ai-review の指摘）
