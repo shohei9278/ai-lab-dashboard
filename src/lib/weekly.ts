@@ -159,7 +159,8 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
   });
   // 採点者ごとの甘さ・辛さをならした点で、並べて採るか決める（ある採点者はほぼ全部に8点、別の採点者はほぼ全部に5点を付け、平均がそろって差が付かなかった）
   const adjusted = adjustScores(ranked.map((p) => p.scores));
-  ranked.forEach((p, k) => { p.score = adjusted[k]; });
+  // 小数第1位にそろえてから、並べ方・採るか・見送るかを決める（会議室に出す点と、決めた点を同じにする。PR #127 の ai-review の指摘）
+  ranked.forEach((p, k) => { p.score = Math.round(adjusted[k] * 10) / 10; });
   ranked.sort((a, b) => b.score - a.score);
 
   // 同じ提案の組（言い方が違うと文字の重なりでは見分けられないので、採点のときに答えてもらう。運営者が足すと決めた）
