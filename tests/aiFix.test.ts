@@ -54,6 +54,11 @@ test("Claude Code に直してもらう: 提案の中身とひとことを渡し
   // できた PR がレビュー待ちの間は、時間がたっても頼めない
   assert.equal(aiFixRetryable({ ...saved, ai_fix_pr_state: "open" }, Date.now() + 61 * 60 * 1000), false);
   assert.equal(aiFixRetryable({ ...saved, ai_fix_pr_state: "closed" }, Date.now() + 61 * 60 * 1000), true);
+  // 閉じた PR のあとに頼み直すと、前の PR の番号と状態を消す
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now', '-2 hours'), ai_fix_pr = 3, ai_fix_pr_state = 'closed' WHERE id = ?").run(id);
+  await startAiFix(id, "", ok);
+  assert.equal(row(id).ai_fix_pr, null);
+  assert.equal(row(id).ai_fix_pr_state, null);
 });
 
 test("Claude Code に直してもらう: 運営者にやってほしいこと・答えた提案は頼めず、起動に失敗したら覚えない", async () => {
