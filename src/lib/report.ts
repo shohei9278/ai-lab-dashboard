@@ -27,9 +27,13 @@ const isReport = (v: unknown): v is Report =>
 const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 // AIに渡す材料（デモは除く）
+// 日本時間の日付（YYYY-MM-DD）の0時を、記録の日時（UTC の "YYYY-MM-DD HH:MM:SS"）にする
+// 記録は UTC で残しているので、日本時間の日付にそのまま 00:00:00 を付けると、日本時間の0時〜9時の記録が抜けていた（PR #126 の ai-review の指摘）
+export const jstStartUtc = (day: string) => new Date(`${day}T00:00:00+09:00`).toISOString().slice(0, 19).replace("T", " ");
+
 export function gather(start: string) {
   const s = getSettings();
-  const since = `${start} 00:00:00`;
+  const since = jstStartUtc(start);
   const projects = db().prepare("SELECT * FROM projects WHERE demo = 0").all() as ProjectRow[];
   const pid = new Set(projects.map((p) => p.id));
   const events = (db().prepare("SELECT e.at, e.actor, e.message, e.project_id FROM events e WHERE e.at >= ? ORDER BY e.id").all(since) as { at: string; actor: string; message: string; project_id: number | null }[])

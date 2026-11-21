@@ -4,13 +4,14 @@ import { logEvent } from "./loop";
 import { hasKey, modelInfo } from "./models";
 import { PLAN_MODELS, type RequestRow } from "./plan";
 import { postStatsText } from "./postStats";
-import { createReport, gather } from "./report";
-import { followUpOf, type WeeklyContent } from "./meetings";
+import { createReport, gather, jstStartUtc } from "./report";
+import { decisionsText, followUpOf, openDecisions, type WeeklyContent } from "./meetings";
 import type { AdhocContent } from "./adhoc";
 import { STALE_NOTE, addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { researchText } from "./research";
 import { doneEffectsText } from "./effects";
+import { waitsText } from "./waits";
 
 // 週の定例会議（毎週月曜）
 // 1. 3社のAIが、同じ材料（1週間の数字・計画と達成度・提案箱の返事など）から、それぞれ振り返りと改善案を出す
@@ -45,7 +46,7 @@ export function meetingMaterial(start: string): string {
   const skew = openSys.length ? `返事待ちの仕組みの改善 ${openSys.length}件: 出た場面 ${tally(openSys.map((r) => r.scene ?? r.source))} / 出したAI ${tally(openSys.map((r) => (r.proposer ? modelInfo(r.proposer).label : "システム")))}` : "返事待ちの仕組みの改善はない";
   // 人の手: この1週間に運営者が手でやったこと（種類ごとの回数）。人の手を減らす案の材料
   // 種類の名前だけでは何をしたか分からないので、いちばん新しい記録の文を1つ添える
-  const human = (db().prepare("SELECT kind, COUNT(*) AS n, (SELECT message FROM events e2 WHERE e2.actor = 'human' AND e2.kind = e.kind ORDER BY e2.id DESC LIMIT 1) AS last FROM events e WHERE actor = 'human' AND at >= ? GROUP BY kind ORDER BY n DESC LIMIT 15").all(`${start} 00:00:00`) as { kind: string; n: number; last: string }[])
+  const human = (db().prepare("SELECT kind, COUNT(*) AS n, (SELECT message FROM events e2 WHERE e2.actor = 'human' AND e2.kind = e.kind ORDER BY e2.id DESC LIMIT 1) AS last FROM events e WHERE actor = 'human' AND at >= ? GROUP BY kind ORDER BY n DESC LIMIT 15").all(jstStartUtc(start)) as { kind: string; n: number; last: string }[])
     .map((h) => `- ${h.kind} ${h.n}回（例: ${h.last.slice(0, 80)}）`).join("\n");
   return `${gather(start)}
 
@@ -61,6 +62,10 @@ ${postStatsText() || "効いた手の集計: まだ投稿がない"}
 ${reqs.join("\n") || "（まだなし）"}
 
 ${doneEffectsText()}
+
+${waitsText()}
+
+${decisionsText()}
 
 提案箱の偏り: ${skew}
 運営者が手でやったこと（この1週間・記録の種類ごと）:
@@ -207,6 +212,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
   // 4. 議長が議事録のまとめと発信用の下書きを書く
   const chair = chairFor(got.map((m) => m.modelId));
   const revisited = await revisitSplits(chair);
+  const settled = await settleDecisions(chair);
   const extra = `\n\n定例会議の振り返り（3社）:\n${got.map((m) => `- ${modelInfo(m.modelId).label}: ${m.review}`).join("\n")}\n\n定例会議で採用した提案:\n${adopted.map((p) => `- ${p.title}（${p.score.toFixed(1)}点）`).join("\n") || "（なし）"}`;
   const reportId = await createReport({ extra, modelId: chair, next: adopted.map((p) => `${p.title}（提案箱へ）`) });
   const summary = (JSON.parse((db().prepare("SELECT content FROM reports WHERE id = ?").get(reportId) as { content: string }).content) as { summary: string }).summary;
@@ -225,7 +231,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
   }
   // 提案箱にある、残すほうの提案に、まとめた回数を足す
   for (const [i, n] of extraRepeats) if (pool[i].existingId) db().prepare("UPDATE plan_requests SET repeats = repeats + ? WHERE id = ?").run(n, pool[i].existingId);
-  logEvent(null, "ai", "meeting", `週の定例会議: ${got.length}社が${pool.length - existing.length}件の改善案を出し合い、${added}件を提案箱に入れました。この週の提案${existing.length}件も採点し、${closed}件を見送りにしました${dupOf.size ? `。同じ提案の組を見つけ、${dupOf.size}件をまとめました（提案箱から消したもの${mergedSame}件）` : ""}${revisited ? `。臨時会議の少数意見を${revisited}件、答え合わせしました` : ""}（議長 ${modelInfo(chair).label}）`);
+  logEvent(null, "ai", "meeting", `週の定例会議: ${got.length}社が${pool.length - existing.length}件の改善案を出し合い、${added}件を提案箱に入れました。この週の提案${existing.length}件も採点し、${closed}件を見送りにしました${dupOf.size ? `。同じ提案の組を見つけ、${dupOf.size}件をまとめました（提案箱から消したもの${mergedSame}件）` : ""}${revisited ? `。臨時会議の少数意見を${revisited}件、答え合わせしました` : ""}${settled ? `。臨時会議で「あとで決める」としたことを${settled}件決めました` : ""}（議長 ${modelInfo(chair).label}）`);
   return id;
 }
 
@@ -261,6 +267,44 @@ export function sameGroups(n: number, sawBoth: (who: string, i: number, j: numbe
   const by = new Map<number, number[]>();
   for (let i = 0; i < n; i++) by.set(root(i), [...(by.get(root(i)) ?? []), i]);
   return [...by.values()].filter((g) => g.length > 1);
+}
+
+// あとで決めること: 臨時会議で「比べてから決める」としたことのうち、決める日が来たものを、議長が数字を見て決める
+// 決めきれないとき（数字が足りないなど）は、決めきれなかったと理由を残す（いつまでも先送りにしない）
+export async function settleDecisions(chair: string, ask: typeof callJson = callJson): Promise<number> {
+  let n = 0;
+  for (const { id, topic, f } of openDecisions().filter((x) => x.f.due)) {
+    const per = (x: { days: number; visits: number }) => (x.days ? (x.visits / x.days).toFixed(1) : "—");
+    try {
+      const out = await ask<{ settled: boolean; decision: string; note: string }>({
+        purpose: "定例会議（あとで決めることを決める）",
+        modelId: chair,
+        system: `以前の臨時会議で「比べてから決める」とした問いについて、決める日が来ました。会議で決めた決め方に沿って、材料の数字で決めます。
+- settled: 決め方に沿って決められたら true。数字が足りないなど、決められないときは false
+- decision: 決めたこと（1〜2文）。決められないときは、何が足りないか
+- note: 根拠の数字を入れて1〜2文。件数が少ないときは「まだ偶然の可能性が高い」と書く
+材料にある数字だけを使う。
+形式: {"settled":true,"decision":"","note":""}`,
+        user: `議題: ${topic}
+決めること: ${f.decide.question}
+何の数字で: ${f.decide.metric}
+決め方: ${f.decide.rule}
+全案件の1日あたりの訪問: 会議の前7日 ${per(f.before)}人 → 会議のあと${f.after.days}日 ${per(f.after)}人 / 登録・利用: 前 ${f.before.conversions}人 → あと ${f.after.conversions}人
+
+材料:
+${meetingMaterial(day(new Date(Date.now() - 7 * 86_400_000)))}`,
+        validate: (v): v is { settled: boolean; decision: string; note: string } => isObj(v) && isStr(v.decision) && isStr(v.note),
+      });
+      const row = db().prepare("SELECT content FROM meetings WHERE id = ?").get(id) as { content: string };
+      const c = JSON.parse(row.content) as AdhocContent;
+      c.decided = { at: new Date().toISOString(), settled: out.settled === true, decision: out.decision.slice(0, 400), note: out.note.slice(0, 400), by: chair };
+      db().prepare("UPDATE meetings SET content = ? WHERE id = ?").run(JSON.stringify(c), id);
+      n++;
+    } catch (e) {
+      logEvent(null, "system", "meeting-error", `「あとで決めること」を決めるときにエラー: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+    }
+  }
+  return n;
 }
 
 // 少数意見の答え合わせ: 臨時会議で意見が割れ、振り返る日が来たものについて、少数派の心配が実際に起きたかを議長が数字で確かめる

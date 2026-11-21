@@ -689,7 +689,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["plan_requests", "ai_fix_note", "TEXT"],
   ["plan_requests", "ai_fix_pr", "INTEGER"], // ルーティンが作った PR の番号と状態（open / merged / closed）。1時間に1回 GitHub から読む
   ["plan_requests", "ai_fix_pr_state", "TEXT"],
-  ["plan_requests", "repeats", "INTEGER NOT NULL DEFAULT 0"], // 同じ趣旨の提案が、ほかに何回出たか（まとめた分。voices.ts）
+  ["plan_requests", "repeats", "INTEGER NOT NULL DEFAULT 0"],
+  ["plan_requests", "wait_notified_at", "TEXT"], // 運営者へのお願いが7日返事待ちになったことを、運営者に知らせた日時（waits.ts） // 同じ趣旨の提案が、ほかに何回出たか（まとめた分。voices.ts）
   ["meetings", "kind", "TEXT NOT NULL DEFAULT 'weekly'"], // weekly = 週の定例会議 / adhoc = あなたが議題を出した臨時会議
   ["meetings", "topic", "TEXT"], // 臨時会議の議題
   ["voice_effects", "research_ids", "TEXT"], // JSON: 判断を変えた根拠になった調べもの（research の id）

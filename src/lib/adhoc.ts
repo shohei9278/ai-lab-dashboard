@@ -19,6 +19,11 @@ export type AdhocContent = {
   split?: { majority: string; minority: string; minorityBy: string[]; concern: string; watch: string; checkAfterDays: number };
   // 振り返りの結果（週の定例会議で、議長が数字を見て書く）
   revisit?: { at: string; happened: "yes" | "no" | "unclear"; note: string; by: string };
+  // あとで決めること: 結論が「比べてから決める」「様子を見てから決める」だったとき、何を・何の数字で・どうなったら決めるか
+  // 「比べる」と決めたものの多くが、いつ何件たまったら決めるかの記録がなく、その後どうなったか追えなかった（運営者が、止まっているものを進めると決めた）
+  decide?: { question: string; metric: string; rule: string; checkAfterDays: number };
+  // 決めた結果（決める日が来たら、週の定例会議で議長が数字を見て書く）。settled: 決めきれたか
+  decided?: { at: string; settled: boolean; decision: string; note: string; by: string };
 };
 
 const g = globalThis as unknown as { __aiLabAdhoc?: string };
@@ -94,16 +99,17 @@ ${rule}
     // 3. 議長が結論をまとめる
     const chair = chairFor(rounds.map((r) => r.modelId));
     liveStep(key, title, label(chair), "議長として結論をまとめています");
-    const out = await callJson<{ conclusion: string; actions: AdhocContent["actions"]; voice?: string; split?: { majority?: unknown; minority?: unknown; minority_by?: unknown; concern?: unknown; watch?: unknown; check_after_days?: unknown } | null }>({
+    const out = await callJson<{ conclusion: string; actions: AdhocContent["actions"]; voice?: string; split?: { majority?: unknown; minority?: unknown; minority_by?: unknown; concern?: unknown; watch?: unknown; check_after_days?: unknown } | null; decide?: { question?: unknown; metric?: unknown; rule?: unknown; check_after_days?: unknown } | null }>({
       purpose: "臨時会議（結論）",
       modelId: chair,
       system: `あなたは会議の議長です。議題と、社員それぞれの最初の意見・最終的な意見から、結論をまとめます。
 - conclusion: 結論（意見が割れた所は割れたまま書く。3〜6文）
 - actions: 結論からやること（0〜3件）。target は human（人が手を動かさないとできないこと。知人に聞く・コミュニティに相談する など）か system（AIへの指示・作るものの選び方・投稿のしかた・集計など、仕組みで変えられること）。やることがなければ空の配列
 - voice: 議長としての、会議のひとこと（つぶやき程度、60文字以内。何でもよい）
+- decide: 結論が「比べてから決める」「様子を見てから決める」など、今は決めずに、あとで決めることを残したときだけ。question（何を決めるか）、metric（何の数字で決めるか）、rule（どうなったら、どちらにするか。何件・何人たまったら決めるかも書く）、check_after_days（何日後に決めるか。7・14・28のどれか）。今決めきったなら null
 - split: 最終的な意見が割れたときだけ。majority（多数派の考え）、minority（少数派の考え）、minority_by（少数派の社員の名前）、concern（少数派が心配していること＝多数派の案だとこうなるかもしれない、という具体的なこと）、watch（その心配が当たったかを、あとで何の数字で確かめられるか）、check_after_days（何日後に確かめるか。7か14）。全員が同じ考えなら null
 ${rule}
-形式: {"conclusion":"結論","actions":[{"title":"短い題","how":"具体的に","why":"根拠","target":"human|system"}],"voice":"ひとこと","split":{"majority":"","minority":"","minority_by":["社員の名前"],"concern":"","watch":"","check_after_days":7} または null}`,
+形式: {"conclusion":"結論","actions":[{"title":"短い題","how":"具体的に","why":"根拠","target":"human|system"}],"voice":"ひとこと","split":{"majority":"","minority":"","minority_by":["社員の名前"],"concern":"","watch":"","check_after_days":7} または null,"decide":{"question":"","metric":"","rule":"","check_after_days":14} または null}`,
       user: `議題: ${topic}\n\n${rounds.map((r) => `${label(r.modelId)}\n- 最初の意見: ${r.opinion}\n- 最終的な意見: ${r.final ?? "（なし）"}`).join("\n\n")}`,
       validate: (v): v is { conclusion: string; actions: AdhocContent["actions"] } => isObj(v) && isStr(v.conclusion) && Array.isArray(v.actions),
     });
@@ -119,8 +125,16 @@ ${rule}
           checkAfterDays: Number(sp.check_after_days) === 14 ? 14 : 7,
         }
       : undefined;
+    const dc = out.decide;
+    const decide = dc && isStr(dc.question) && dc.question.trim() && isStr(dc.rule)
+      ? {
+          question: dc.question.trim().slice(0, 300), metric: String(dc.metric ?? "").slice(0, 300), rule: dc.rule.slice(0, 400),
+          checkAfterDays: [7, 14, 28].includes(Number(dc.check_after_days)) ? Number(dc.check_after_days) : 14,
+        }
+      : undefined;
+    if (decide) say(chair, "あとで決めること", `${decide.question}（${decide.checkAfterDays}日後に、${decide.metric}で決める: ${decide.rule}）`);
     if (split) say(chair, "意見が割れたところ", `多数派: ${split.majority} ／ 少数派: ${split.minority}（心配: ${split.concern}）`);
-    const content: AdhocContent = { topic, rounds, conclusion: out.conclusion.slice(0, 1500), actions, chair, split };
+    const content: AdhocContent = { topic, rounds, conclusion: out.conclusion.slice(0, 1500), actions, chair, split, decide };
     const today = day(new Date());
     const id = Number(db().prepare("INSERT INTO meetings (period_start, period_end, chair_model, content, kind, topic) VALUES (?, ?, ?, ?, 'adhoc', ?)")
       .run(today, today, chair, JSON.stringify(content), topic).lastInsertRowid);
