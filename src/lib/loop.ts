@@ -714,7 +714,7 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
 出力はJSONのみ: {"design":"設計書（Markdown）","idea":null または {"title":"","problem":"","solution":"","deep_plan":"","hypothesis":""}（変える項目だけ）}`
     : `\n出力はJSONのみ: {"design":"設計書（Markdown）"}`;
   const out = await callJson<{ design: string; idea?: unknown }>({
-    purpose: "じっくり案件の設計",
+    purpose: p.deep ? "じっくり案件の設計" : "ツールの設計",
     projectId: p.id,
     system: `あなたは小さなWebツールの設計担当です。${p.deep ? "じっくり案件の" : ""}ツールの設計書を書きます。ツールは開発担当（Claude Code）が、この設計書をもとに、ブラウザで確かめながら作ります。
 ツールは、紹介ページの中の枠に埋め込まれる1つのHTMLの断片で、外部との通信・保存の領域は使えません（作る側の決まりは別に渡します）。
@@ -1664,9 +1664,13 @@ function nextVersion(projectId: number): number {
 // 比べるのは、この仕組みを入れた日（ROUTINE_NORMAL_SINCE）からあとに作り始めた通常案件だけ（前からの数で比べると、追いつくまでルーティンばかりになる）
 // ルーティンの番の数は、ルーティンに作ってもらうと決めた案件（tool_maker）で数える（作っている途中のものも数える）。同じ数なら、ルーティンを先にする
 export const ROUTINE_NORMAL_SINCE = "2026-11-21 00:00:00";
-export function routineTurnForNew(p: Pick<ProjectRow, "kind" | "deep" | "lp">): boolean {
+// 一度ルーティンの番にした案件は、判定し直さずにルーティンのままにする（やり直したときに AI が書いて、担当の記録とずれないように。PR #134 の ai-review の指摘）
+// 入れた日より前に作り始めた案件は、番にしない（数えない案件を番にすると、ルーティンの数が増えないまま番が続くため。PR #134 の ai-review の指摘）
+export function routineTurnForNew(p: Pick<ProjectRow, "kind" | "deep" | "lp" | "tool_maker" | "created_at">): boolean {
   const s = getSettings();
   if (p.kind !== "tool" || p.deep || p.lp || !s.toolRoutineNormal || s.killSwitch || !toolRoutineConfigured()) return false;
+  if (p.tool_maker === "claude-code") return true;
+  if (p.created_at < ROUTINE_NORMAL_SINCE) return false;
   const usable = TOOL_MODELS.filter((id) => hasKey(modelInfo(id).provider));
   if (!usable.length) return true;
   const ai = new Map((db().prepare(`SELECT v.tool_model AS m, COUNT(DISTINCT v.project_id) AS n FROM lp_versions v JOIN projects p ON p.id = v.project_id
