@@ -97,3 +97,18 @@ test("定例会議の材料: 返事がないまま見送ったものは、もう
   assert.match(m, /「古い提案」（仕組み向け）→ 返事がないまま見送り（今も効くなら、もう一度出してよい）/);
   assert.doesNotMatch(m, /運営者のひとこと: 30日/);
 });
+
+test("定例会議: 採点者が答えた「同じ提案」の組は、両方を見た採点者の半分以上が答えたときだけまとめる", async () => {
+  const { sameGroups } = await import("../src/lib/weekly");
+  // 案 0〜5 の作者。採点者は自分の案を見ない
+  const author = ["A", "B", "C", "A", "B", "box"];
+  const saw = (who: string, i: number, j: number) => author[i] !== who && author[j] !== who;
+  // 0(A) と 1(B) を見たのは C だけ → C が答えればまとめる
+  assert.deepEqual(sameGroups(6, saw, [{ who: "C", pairs: [[0, 1]] }, { who: "A", pairs: [] }, { who: "B", pairs: [] }]), [[0, 1]]);
+  // 2(C) と 5(提案箱) を見たのは A と B → 1人でも半分以上なのでまとめる。つながった組は1つにする
+  assert.deepEqual(sameGroups(6, saw, [{ who: "A", pairs: [[2, 5]] }, { who: "B", pairs: [[5, 4]] }, { who: "C", pairs: [[4, 5]] }]), [[2, 4, 5]]);
+  // 5(提案箱) と 3(A) を見たのは B と C。3人のうち見ていない A の答え（自分の案を含む）は数えない
+  assert.deepEqual(sameGroups(6, saw, [{ who: "A", pairs: [[3, 5]] }, { who: "B", pairs: [] }, { who: "C", pairs: [] }]), []);
+  // 番号の外・同じ番号は無視する
+  assert.deepEqual(sameGroups(6, saw, [{ who: "C", pairs: [[0, 9], [1, 1], [-1, 0]] }]), []);
+});
