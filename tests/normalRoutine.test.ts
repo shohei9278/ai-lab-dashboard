@@ -48,6 +48,16 @@ test("通常案件のルーティン: 交代の番は、ルーティンに作っ
   db().prepare("UPDATE projects SET tool_maker = 'claude-code' WHERE id = ?").run(addTool("ルーティン2"));
   assert.equal(routineTurnForNew(p), false, "ルーティン2件・AI各1件");
   assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code" }), true);
+  // 番にしたあとで、設定をオフにしても・ルーティンのつながりが切れても、ルーティンのまま
+  saveSettings({ toolRoutineNormal: false });
+  assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code" }), true);
+  saveSettings({ toolRoutineNormal: true });
+  delete process.env.CLAUDE_TOOL_ROUTINE_FIRE_URL;
+  assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code" }), true);
+  configure();
+  // ただし、ツールがある・じっくり案件は、これまでどおり番にしない
+  assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code", lp: "{}" }), false);
+  assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code", deep: 1 }), false);
   // この仕組みを入れた日より前に作り始めた案件は数えない（前からの数で比べると、追いつくまでルーティンばかりになる）
   db().prepare("UPDATE projects SET created_at = '2026-11-01 00:00:00' WHERE title IN ('opus', 'sonnet', 'gpt')").run();
   assert.equal(routineTurnForNew(p), false, "比べるAIの数は0件に戻り、ルーティンは2件");

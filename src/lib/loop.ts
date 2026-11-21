@@ -1667,9 +1667,11 @@ export const ROUTINE_NORMAL_SINCE = "2026-11-21 00:00:00";
 // 一度ルーティンの番にした案件は、判定し直さずにルーティンのままにする（やり直したときに AI が書いて、担当の記録とずれないように。PR #134 の ai-review の指摘）
 // 入れた日より前に作り始めた案件は、番にしない（数えない案件を番にすると、ルーティンの数が増えないまま番が続くため。PR #134 の ai-review の指摘）
 export function routineTurnForNew(p: Pick<ProjectRow, "kind" | "deep" | "lp" | "tool_maker" | "created_at">): boolean {
-  const s = getSettings();
-  if (p.kind !== "tool" || p.deep || p.lp || !s.toolRoutineNormal || s.killSwitch || !toolRoutineConfigured()) return false;
+  if (p.kind !== "tool" || p.deep || p.lp) return false;
+  // 番にした案件は、設定・緊急停止・ルーティンのつながりが変わっても、ルーティンのまま（開発待ちのまま、ルーティンが戻るのを待つか、人が手元の Claude Code で作る。PR #134 の ai-review の指摘）
   if (p.tool_maker === "claude-code") return true;
+  const s = getSettings();
+  if (!s.toolRoutineNormal || s.killSwitch || !toolRoutineConfigured()) return false;
   if (p.created_at < ROUTINE_NORMAL_SINCE) return false;
   const usable = TOOL_MODELS.filter((id) => hasKey(modelInfo(id).provider));
   if (!usable.length) return true;
