@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { gaEvent } from "@/lib/ga";
 import { ToolFrame } from "@/lp/ToolFrame";
+import type { DepthEvent } from "@/lp/playDepth";
 import type { ToolImages } from "@/lp/content";
 import { lpButtonClass, lpButtonStyle } from "@/lp/LpView";
 import { isExcluded, visitorId } from "./visitor";
@@ -23,7 +24,9 @@ export function ToolSection({ slug, version, html, title, data, fonts, illustrat
     record(slug, version, "use");
     gaEvent("tool_use", { lp_slug: slug, lp_version: version });
   }, [slug, version]);
-  return <ToolFrame html={html} title={title} onUse={onUse} data={data} fonts={fonts} illustration={illustration} images={images} fill={fill} storeKey={slug} fit={fit} />;
+  // 遊びの深さ（遊んだ時間・結果を出した回数・結果の種類）の区切りを超えたら記録する（ダッシュボードの「遊びの深さ」）
+  const onDepth = useCallback((e: DepthEvent) => gaEvent(e.name, { lp_slug: slug, lp_version: version, value: e.value }), [slug, version]);
+  return <ToolFrame html={html} title={title} onUse={onUse} onDepth={onDepth}data={data} fonts={fonts} illustration={illustration} images={images} fill={fill} storeKey={slug} fit={fit} />;
 }
 
 // シェアのボタン（X とリンクのコピー）

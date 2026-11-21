@@ -187,7 +187,7 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
     attributePosts(p.id, views, conv);
     const fromIndex = indexCounts(views, conv);
     conn.prepare("UPDATE projects SET index_visits = ?, index_uses = ? WHERE id = ?").run(fromIndex.visits, fromIndex.uses, p.id);
-    const funnelEvents = await syncFunnel(p.id, slug);
+    const funnelEvents = await syncFunnel(p.id, slug, views);
     syncChannels(p, views, funnelEvents, conv);
     visits += views.length;
     signups += conv.length;
@@ -195,22 +195,18 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
   return { projects: projects.length, visits, signups };
 }
 
-// ページの中での動き（ボタン・入力開始・読んだ深さなど）を、版・イベントごとの人数にまとめて入れ直す
-// 公開サイトの Supabase に lp_events の表をまだ作っていないときは、何もしない
-async function syncFunnel(projectId: number, slug: string): Promise<Row[]> {
+// ページの中での動き（ボタン・入力開始・読んだ深さ・遊びの深さなど）を、版・イベントごとの人数にまとめて入れ直す
+// 別の日にまた来た人（revisit）は、訪問の記録から数えて一緒に入れる
+// 公開サイトの Supabase に lp_events の表をまだ作っていないときは、ページの中の動きは数えない
+async function syncFunnel(projectId: number, slug: string, views: Row[]): Promise<Row[]> {
   let rows: Row[];
   try {
     rows = await fetchAll("lp_events", slug);
   } catch (e) {
-    if (/lp_events/.test(e instanceof Error ? e.message : "")) return [];
-    throw e;
+    if (!/lp_events/.test(e instanceof Error ? e.message : "")) throw e;
+    rows = [];
   }
-  const people = new Map<string, Set<string>>();
-  for (const r of rows) {
-    const k = `${r.version}|${r.name}|${r.detail ?? ""}`;
-    if (!people.has(k)) people.set(k, new Set());
-    people.get(k)!.add(r.visitor_id);
-  }
+  const people = funnelPeople(rows, views);
   const conn = db();
   conn.transaction(() => {
     conn.prepare("DELETE FROM lp_funnel WHERE project_id = ?").run(projectId);
@@ -221,6 +217,28 @@ async function syncFunnel(projectId: number, slug: string): Promise<Row[]> {
     }
   })();
   return rows;
+}
+
+// 版・イベント・細かい内容ごとの人（訪問者）。別の日にまた来た人は "revisit"（その版に2日以上来た人）
+export function funnelPeople(events: { version: number; visitor_id: string; name?: string; detail?: string | null }[], views: { version: number; visitor_id: string; day: string }[]): Map<string, Set<string>> {
+  const people = new Map<string, Set<string>>();
+  const add = (k: string, v: string) => {
+    if (!people.has(k)) people.set(k, new Set());
+    people.get(k)!.add(v);
+  };
+  for (const r of events) add(`${r.version}|${r.name}|${r.detail ?? ""}`, r.visitor_id);
+  const days = new Map<string, Set<string>>();
+  for (const v of views) {
+    const k = `${v.version}|${v.visitor_id}`;
+    if (!days.has(k)) days.set(k, new Set());
+    days.get(k)!.add(v.day);
+  }
+  for (const [k, d] of days) {
+    if (d.size < 2) continue;
+    const [version, visitor] = [k.slice(0, k.indexOf("|")), k.slice(k.indexOf("|") + 1)];
+    add(`${version}|revisit|`, visitor);
+  }
+  return people;
 }
 
 // どこから来たかを、版ごと・流入元ごとに数えて保存する（来た元のページは、サイト名だけを残す）

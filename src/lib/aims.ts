@@ -109,6 +109,18 @@ export function pickByAims<T extends { aim: Aim; avg: number; author: string }>(
   return kept;
 }
 
+// 推し枠: 平均では選ばれなかった案のうち、作者ではない会社のAIが CHAMPION_MIN 点以上を付けた案を1件選ぶ（運営者が決めた）
+// 付けた点の高い順。同じなら、平均との差が大きい（評価が割れた・尖った）案、さらに同じなら平均点の高い案を先にする
+// accept で外れた案（作ってよい件数の上限など）は飛ばす。当てはまる案がなければ null
+export const CHAMPION_MIN = 8;
+export function pickChampion<T extends { top: number | null; avg: number }>(rest: T[], accept: (x: T) => boolean = () => true): T | null {
+  const list = rest
+    .filter((x): x is T & { top: number } => x.top !== null && x.top >= CHAMPION_MIN)
+    .sort((a, b) => b.top - a.top || (b.top - b.avg) - (a.top - a.avg) || b.avg - a.avg);
+  for (const x of list) if (accept(x)) return x;
+  return null;
+}
+
 // AIの答えのねらいを、頼んだねらいとそろえる
 // 頼んだねらい（aims）があるときは、ねらいごとに頼んだ件数までの案だけを残す（順番の入れ替えはよい。頼んでいないねらいや、件数を超えた分は外す。
 // 名前だけ書き換えると中身とねらいが食い違うので、外す）。書かれていなければ、書かれた案が使った分を除いて、残っているねらいを頼んだ順に当てる

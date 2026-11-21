@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { getLp, supabase } from "@/lib/supabase";
 
 // ページの中での動き（GA に送るのと同じイベント）を記録する。公開中の、今の版だけを数える
-const NAMES = new Set(["cta_click", "form_start", "section_view", "scroll_depth", "sign_up", "sign_up_error", "tool_use", "share"]);
+// play_time・results・result_kinds は、遊びの深さ（超えた区切りの秒・回・種類の数。lp/playDepth.ts）
+const NAMES = new Set(["cta_click", "form_start", "section_view", "scroll_depth", "sign_up", "sign_up_error", "tool_use", "share", "play_time", "results", "result_kinds"]);
 
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;

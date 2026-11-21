@@ -653,6 +653,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "sns_paused", "INTEGER NOT NULL DEFAULT 0"],
   ["lp_versions", "tool_model", "TEXT"],
   ["lp_versions", "tool_rewrites", "INTEGER"], // チェックやテストで問題が出て、書き直した回数 // その版のツールのコードを書いたAI（ツール作成のAIの比較用）
+  ["idea_candidates", "pick_kind", "TEXT"], // 案件にした案を、どの枠で選んだか（average = 平均点 / champion = 推し枠。選ばれていない・この印を付ける前の案は空）
   ["idea_candidates", "practice", "INTEGER NOT NULL DEFAULT 0"], // ライブ画面の「アイデア出しだけ見る」で出したもの（案件にしない・成績に数えない）
   ["projects", "end_reason", "TEXT"], // 撤退した理由の分類: unreached / unused / unspread / stopped
   ["projects", "first_channel", "TEXT"], // 企画のときに決めた、最初の利用者がいる場所
