@@ -57,20 +57,23 @@ document.getElementById("go").onclick = function () { window.labMotion.request()
 });
 
 test("公開前の自動テスト: 遊びの短いページのツールは、640px の画面で押す所が画面の下に出ていないかを見る", async (t) => {
-  const tall = `<div style="height:900px">絵</div><button type="button" onclick="this.textContent='押した'">ふる</button>`;
+  const tall = `<div style="height:900px">絵</div><button type="button" onclick="document.body.dataset.done='1';this.insertAdjacentText('afterend','押した')">ふる</button>`;
   const r = await testTool(tall, "test-tall-short", { short: true });
   if (r.skipped) return t.skip(r.skipped);
   assert.deepEqual(r.offscreen, ["ふる"]);
   assert.equal(r.ok, false);
   assert.ok(testIssues(r).some((x) => /640px/.test(x) && /「ふる」/.test(x)));
   // 入力欄なども、押す所と同じく見る（PR #125 の ai-review の指摘）
-  const input = await testTool(`<div style="height:900px">絵</div><input placeholder="答え"><button type="button" onclick="this.textContent='押した'">決める</button>`, "test-tall-input", { short: true });
+  const input = await testTool(`<div style="height:900px">絵</div><input placeholder="答え"><button type="button" onclick="document.body.dataset.done='1';this.insertAdjacentText('afterend','押した')">決める</button>`, "test-tall-input", { short: true });
   assert.deepEqual(input.offscreen, ["答え", "決める"]);
+  // 入力すると画面の下に出てくるボタンも見る（押すときの自動のスクロールで見逃さない。PR #125 の ai-review の指摘）
+  const reveal = await testTool(`<input placeholder="答え" oninput="document.getElementById('b').hidden=false"><div style="height:700px"></div><button type="button" id="b" hidden onclick="document.body.dataset.done='1';this.insertAdjacentText('afterend','押した')">決める</button>`, "test-reveal-short", { short: true });
+  assert.deepEqual(reveal.offscreen, ["決める"]);
   // 紹介ページのあるツール（枠が中身の高さに伸びる）では見ない
   const long = await testTool(tall, "test-tall-long");
   assert.equal(long.offscreen, undefined);
   // 画面に収まっているもの・スクロールできる一覧の中のものは数えない
-  const fit = await testTool(`<div style="height:300px">絵</div><div style="height:200px;overflow:auto"><div style="height:600px"></div><button type="button">一覧の下</button></div><button type="button" onclick="this.textContent='押した'">ふる</button>`, "test-fit-short", { short: true });
+  const fit = await testTool(`<div style="height:300px">絵</div><div style="height:200px;overflow:auto"><div style="height:600px"></div><button type="button">一覧の下</button></div><button type="button" onclick="document.body.dataset.done='1';this.insertAdjacentText('afterend','押した')">ふる</button>`, "test-fit-short", { short: true });
   assert.deepEqual(fit.offscreen, []);
 });
 

@@ -85,6 +85,11 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
         if (s.options.length > 1 && s.selectedIndex <= 0) { s.selectedIndex = 1; s.dispatchEvent(new Event("change", { bubbles: true })); }
       }
     });
+    // 入力したあとに出てくるボタンも、押す前に確かめる（押すときは自動でスクロールされて、見逃すため。PR #125 の ai-review の指摘）
+    if (opts.short) {
+      await page.waitForTimeout(150);
+      for (const x of await offscreenTargets(page)) offscreen.add(x);
+    }
     // 押せるものを順に押す（多すぎるときは最初の20個）
     const targets = page.locator(PRESSABLE);
     const n = Math.min(await targets.count(), 20);
@@ -133,14 +138,16 @@ async function offscreenTargets(page: Page): Promise<string[]> {
     if (Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) <= innerHeight + 1) return out;
     for (const el of Array.from(document.querySelectorAll(sel))) {
       const r = el.getBoundingClientRect();
-      if (!r.width || !r.height || r.bottom <= innerHeight + 1) continue;
+      // ページのいちばん上から見た位置で比べる（押す操作で自動でスクロールしたあとでも、見逃さないように）
+      if (!r.width || !r.height || r.bottom + (window.scrollY || document.body.scrollTop || 0) <= innerHeight + 1) continue;
       let skip = false;
       for (let p: Element | null = el; p && p !== document.documentElement; p = p.parentElement) {
         const st = getComputedStyle(p);
         if (st.display === "none" || st.visibility === "hidden" || Number(st.opacity) < 0.1 || p.getAttribute("aria-hidden") === "true" || p.hasAttribute("inert")) { skip = true; break; }
         if (p !== el && p !== document.body && (st.overflowY === "auto" || st.overflowY === "scroll") && p.scrollHeight > p.clientHeight + 1) { skip = true; break; }
       }
-      if (!skip) out.push(((el as HTMLElement).innerText || el.getAttribute("aria-label") || (el as HTMLInputElement).value || el.getAttribute("placeholder") || el.tagName.toLowerCase()).trim().slice(0, 20));
+      // 名前は、入力で変わる値より、決まった名前（aria-label・placeholder）を先にする
+      if (!skip) out.push(((el as HTMLElement).innerText || el.getAttribute("aria-label") || el.getAttribute("placeholder") || (el as HTMLInputElement).value || el.tagName.toLowerCase()).trim().slice(0, 20));
     }
     return out;
   }, CONTROLS);
