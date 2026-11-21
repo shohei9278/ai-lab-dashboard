@@ -715,6 +715,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   // 「広がる」の判定の起点の、遊んだ人（利用）とシェアの累計（判断・再開のたびに今の累計にする。判定はこの差だけで見る）
   ["projects", "spread_base_plays", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "spread_base_shares", "INTEGER NOT NULL DEFAULT 0"],
+  ["projects", "tool_errors_seen", "TEXT"], // 本番のツールのエラーを、どの版で何人まで知らせたか（{"v":版,"n":人数} の JSON。増えたときだけ知らせる）
   ["projects", "spread_hit", "INTEGER"], // 「広がる」の判定の結果（1 当たり / 0 当たらず。判定前は空）
   ["projects", "needs", "TEXT"], // じっくり案件で、作るのに要るもの（保存の場所・外部のAPI・AIなど。needs.ts の Need の JSON）。なければ空
   ["projects", "needs_done", "INTEGER NOT NULL DEFAULT 0"], // 要るものを人が用意した（「済み」）か。0 のあいだは、作り始める前に止めておく
@@ -1031,6 +1032,7 @@ export type ProjectRow = {
   spread_base_plays: number; // 「広がる」の判定の起点の累計（遊んだ人・シェア）
   spread_base_shares: number;
   spread_hit: number | null; // 「広がる」の判定の結果（1 当たり / 0 当たらず）
+  tool_errors_seen: string | null; // 本番のツールのエラーを、どの版で何人まで知らせたか
   needs: string | null; // 作るのに要るもの（Need[] の JSON）
   needs_done: number; // 要るものを人が用意した（「済み」）か
   needs_done_at: string | null; // 「済み」にして作り始めた日時

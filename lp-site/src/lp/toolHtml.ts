@@ -9,6 +9,10 @@ import { TOOL_STORE_MAX } from "./toolStore";
 //   「使った」は、ボタンなどの押せる所を押した・入力欄や選択肢を変えたときだけ（スクロールで触れただけでは数えない）
 //   入力欄・選択肢・ラベルは、押しただけでは数えない（中身を変えたときに input・change で数える）
 //   触った・押した・ドラッグした・キーを押したことは、1秒に1回まで {__lab:"active"} で知らせる（遊んだ時間を測るため。playDepth.ts）
+// - ツールの中で起きたエラー（止まった・Promise の失敗）は、種類（TypeError など）と行の番号だけを {__lab:"error"} で知らせる（1回の表示で違うものを3つまで）
+//   本番で来た人の画面でツールが止まっても、これまでは誰も気づけなかった（運営者が決めた）。文は個人の入力を含むことがあるので送らない
+//   ツールの読み込み中に起きるエラーも拾えるよう、ツールより前（<head>）で受け取る（ERROR_CATCH）
+//   ツールは <body> のすぐあとから始まり、その前は1行なので、行の番号はツールのコードの行の番号と同じになる
 // - ツールは結果が出たら window.labShare("…") で、シェアの文に使う結果の一文を知らせられる
 // - 結果の種類が決まっているツールは window.labResult(番号) で、どの結果かを知らせられる（シェアのリンクと、結果ごとのシェア画像に使う）
 // - どちらも2つ目に { quiet: true } を付けると、シェアの文と番号だけ替え、結果のあとの欄（シェア・ほかの遊び）を開かない（遊びが続くツールの途中の結果）
@@ -34,6 +38,11 @@ function originOf(url: string | undefined): string | null {
   if (!url || !/^https:\/\/[^\s"'<>]+$/.test(url)) return null;
   try { return new URL(url).origin; } catch { return null; }
 }
+// ツールの中で起きたエラーを、種類と行の番号だけ知らせる（改行を入れない。入れると、ツールの行の番号がずれる）
+// Promise の失敗は、エラーの経路（stack）から about:srcdoc の行の番号だけを取り出す（経路の文は送らない。取り出せなければ 0）
+// ページが受け取れるようになる前に起きたエラーは、ページの {__lab:"ping"} でもう一度送る（同じものはページの側で1回にする。PR #125 の ai-review の指摘）
+const ERROR_CATCH = `<script>(function(){var ec=0,es={},q=[];function er(n,l){n=String(n||"Error").replace(/[^A-Za-z]/g,"").slice(0,20)||"Error";l=Math.max(0,Math.floor(Number(l)||0));var k=n+l;if(ec>=3||es[k]||parent===window)return;es[k]=1;ec++;var m={__lab:"error",name:n,line:l};q.push(m);parent.postMessage(m,"*")}function ln(r){var m=/about:srcdoc:(\\d+):\\d+/.exec(r&&r.stack?String(r.stack):"");return m?m[1]:0}addEventListener("error",function(e){if(e.target&&e.target!==window)return;er(e.error&&e.error.name,e.lineno)});addEventListener("unhandledrejection",function(e){var r=e.reason;er(r&&r.name?r.name:"Rejection",ln(r))});addEventListener("message",function(e){if(e.source!==parent||!e.data||e.data.__lab!=="ping")return;for(var i=0;i<q.length;i++)parent.postMessage(q[i],"*")})})()</script>`;
+
 const BRIDGE = `<script>(function(){var u=false;function h(){parent.postMessage({__lab:"height",h:Math.ceil(document.documentElement.scrollHeight)},"*")}
 function use(){if(u)return;u=true;parent.postMessage({__lab:"use"},"*")}
 window.labShare=function(t,o){if(typeof t==="string"&&t.trim())parent.postMessage({__lab:"share-text",text:t.trim().slice(0,200),quiet:!!(o&&o.quiet)},"*")};
@@ -66,6 +75,6 @@ export function wrapToolHtml(html: string, opts: { data?: unknown[]; fonts?: boo
   // データの中の文字で </script> を閉じられないように、< と行区切りの文字を書き換える
   const data = opts.data ? `<script>window.labData=${JSON.stringify(opts.data).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029")};</script>` : "";
   const assets = `<script>window.labAssets=${JSON.stringify({ ...(imgOrigin ? { illustration: opts.illustration } : {}), ...(images ? { images } : {}) }).replace(/</g, "\\u003c")};</script>`;
-  return `<!doctype html><html lang="ja"><head>${head}${data}${assets}</head><body>${html}${BRIDGE}</body></html>`;
+  return `<!doctype html><html lang="ja"><head>${head}${ERROR_CATCH}${data}${assets}</head><body>${html}${BRIDGE}</body></html>`;
 }
 

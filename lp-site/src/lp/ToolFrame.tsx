@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { answerStore, localBackend, memoryBackend, storeKey as keyOf, type StoreBackend } from "./toolStore";
 import { motionGate } from "./toolMotion";
 import { playDepth, type DepthEvent } from "./playDepth";
@@ -17,8 +17,9 @@ import { wrapToolHtml } from "./toolHtml";
 // fill: 枠の高さを中身に合わせず、親の高さいっぱいにする（遊びのツールの全画面。中身が長ければ枠の中でスクロールする）
 // images: じっくり案件で人が入れた画像（素材）。枠の中で window.labAssets.images として読める
 // fit: 遊ぶ画面（fill）で、見えている高さが低いときは、ツールを決まった高さ（inApp.ts の PLAY_MIN_HEIGHT）で作らせて枠ごと縮める（運営者が決めた）
+// onError: ツールの中でエラーが起きたとき（種類と行の番号）。公開サイトだけ
 // onDepth: 遊びの深さ（遊んだ時間・結果を出した回数・結果の種類）の区切りを超えたときに呼ぶ（公開サイトだけ。playDepth.ts）
-export function ToolFrame({ html, title, onUse, onDepth, data, fonts, illustration, images, fill = false, storeKey, fit = false }: { html: string; title: string; onUse?: () => void; onDepth?: (e: DepthEvent) => void;data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; storeKey?: string; fit?: boolean }) {
+export function ToolFrame({ html, title, onUse, onDepth, onError, data, fonts, illustration, images, fill = false, storeKey, fit = false }: { html: string; title: string; onUse?: () => void; onDepth?: (e: DepthEvent) => void; onError?: (e: { name: string; line: number }) => void; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; storeKey?: string; fit?: boolean }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(480);
   // 縮めて収めるときの、枠（外の箱）の大きさ。測るまでは縮めない
@@ -43,6 +44,12 @@ export function ToolFrame({ html, title, onUse, onDepth, data, fonts, illustrati
   const depthCb = useRef(onDepth);
   useEffect(() => { depthCb.current = onDepth; }, [onDepth]);
   const depth = useRef<ReturnType<typeof playDepth> | null>(null);
+  // 知らせたエラー（種類と行）。中身が入れ替わったら忘れる
+  // 新しい中身のスクリプトが動く前に忘れるよう、画面に入れ替えを書き込んだすぐあと（useLayoutEffect）に忘れる
+  // （useEffect だと、新しい中身が前と同じエラーを先に送って、捨てられることがあった。PR #125 の ai-review の指摘）
+  // 受け取る側は入れ替えのあとも付けたままなので、聞き直し（ping）は要らない
+  const errSeen = useRef(new Set<string>());
+  useLayoutEffect(() => { errSeen.current = new Set(); }, [doc]);
   const tracking = !!onDepth;
   useEffect(() => {
     if (!tracking) return;
@@ -87,6 +94,12 @@ export function ToolFrame({ html, title, onUse, onDepth, data, fonts, illustrati
         return;
       }
       if (e.data.__lab === "active") { depth.current?.active(Date.now()); return; }
+      if (e.data.__lab === "error" && typeof e.data.name === "string") {
+        // 枠は、ページの準備ができる前に起きたエラーを ping でもう一度送るので、同じもの（種類と行）は1回だけ知らせる
+        const k = `${e.data.name}|${Number(e.data.line) || 0}`;
+        if (!errSeen.current.has(k)) { errSeen.current.add(k); onError?.({ name: e.data.name, line: Number(e.data.line) || 0 }); }
+        return;
+      }
       if (e.data.__lab === "height" && typeof e.data.h === "number") setHeight(Math.max(240, Math.min(4000, e.data.h)));
       // ツールが知らせた結果の一文を、ページのシェアのボタンに渡す
       // 結果が出たことは、結果のあとの欄（ResultSheet）にも lab-result-shown で知らせる。quiet（遊びが続くツールの途中の結果）のときは知らせない
@@ -112,7 +125,7 @@ export function ToolFrame({ html, title, onUse, onDepth, data, fonts, illustrati
     // 受け取れるようになる前に枠が読み込まれていると、最初の高さの知らせを取りこぼすので、今の高さを聞き直す
     ref.current?.contentWindow?.postMessage({ __lab: "ping" }, "*");
     return () => window.removeEventListener("message", onMessage);
-  }, [onUse, storeKey]);
+  }, [onUse, onError, storeKey]);
 
   return (
     <div ref={box} style={{ position: "relative", height: fill ? "100%" : undefined, overflow: scaled ? "hidden" : undefined }}>

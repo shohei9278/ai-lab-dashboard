@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { db, getSettings, type ProjectRow } from "./db";
 import { attributePosts } from "./sns";
 import { channelStats, hostOf } from "./channels";
+import { checkToolErrors } from "./funnel";
 import { classifySiteCategory, isSiteCategory, type SiteCategory } from "./siteCategory";
 
 // 公開用LPサイト（Vercel）とデータ（Supabase）をつなぐ部分。
@@ -188,6 +189,7 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
     const fromIndex = indexCounts(views, conv);
     conn.prepare("UPDATE projects SET index_visits = ?, index_uses = ? WHERE id = ?").run(fromIndex.visits, fromIndex.uses, p.id);
     const funnelEvents = await syncFunnel(p.id, slug, views);
+    checkToolErrors(p);
     syncChannels(p, views, funnelEvents, conv);
     visits += views.length;
     signups += conv.length;
