@@ -148,3 +148,12 @@ export function heldToRoutine(projectId: number, issues: string[]): boolean {
   logEvent(projectId, "system", "held-to-routine", `チェックで問題が残ったため、公開の判断待ちにせず、クラウドの Claude Code（ルーティン）に直してもらうことにしました: ${issues.join(" / ").slice(0, 200)}`);
   return true;
 }
+
+// いまルーティンが作業中の開発待ち（頼んでから3時間以内で、まだ入っていないもの）。本番の「作業中」（/api/live の building）に出す
+// ルーティンはクラウドで動くので、ダッシュボードの中の作業中の印には出ない。マージの前に「本番が止まっているか」を見るとき、
+// これを見ないと、作業中のルーティンがツールを入れた直後に本番が入れ替わり、取り込みが途中で止まる（#131 のマージで #65 が止まった）
+export function routinesWorking(now = Date.now()): { id: number; what: string; since: number }[] {
+  const rows = db().prepare("SELECT a.project_id, a.routine_at FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND a.status = 'pending' AND a.routine_at IS NOT NULL AND p.demo = 0 ORDER BY a.id").all() as { project_id: number; routine_at: string }[];
+  return rows.filter((r) => now - atMs(r.routine_at) < ROUTINE_WORK_MS)
+    .map((r) => ({ id: r.project_id, what: "クラウドの Claude Code（ルーティン）でツールを作っています", since: atMs(r.routine_at) }));
+}
