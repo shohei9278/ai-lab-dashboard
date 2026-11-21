@@ -69,7 +69,7 @@ test("ツールのルーティン: 開発待ちを頼むと、案件の番号と
 
 test("ツールのルーティン: 自動では、設定の同時に頼む数と1日に頼む数の範囲で、古い開発待ちから頼む", async () => {
   configure();
-  db().exec("DELETE FROM approvals");
+  db().exec("DELETE FROM approvals; DELETE FROM events");
   const ids = [devCase("a").approvalId, devCase("b").approvalId, devCase("c").approvalId, devCase("d").approvalId];
   const calls: { url: string; body: string; auth: string }[] = [];
   // 自動で頼まない設定
@@ -90,8 +90,8 @@ test("ツールのルーティン: 自動では、設定の同時に頼む数と
   assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later }), 1);
   assert.deepEqual(ids.map((id) => !!row(id).routine_at), [true, true, true, true]);
   assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later + 3600_000 }), 0);
-  // 起動に失敗したら、経過に残して、その回は続けて頼まない
-  db().exec("DELETE FROM approvals");
+  // 起動に失敗したら、経過に残して、その回は続けて頼まない（1日の数を空けてから試す）
+  db().exec("DELETE FROM approvals; DELETE FROM events");
   devCase("e"); devCase("f");
   const fail = async () => new Response("no", { status: 429 });
   assert.equal(await autoToolRoutine({ fetchImpl: fail }), 0);
@@ -128,4 +128,45 @@ test("ツールのルーティンの入口: 合言葉がないと断り、依頼
   const other = Number(db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason) VALUES (?, 'publish', 'p', 'r')").run(row(approvalId).project_id).lastInsertRowid);
   const r404 = await GET(new Request(`http://x/api/tool-jobs/${other}?file=request`, { headers: { authorization: auth } }), { params: Promise.resolve({ id: String(other) }) });
   assert.equal(r404.status, 404);
+});
+
+test("ツールのルーティン: 同時に頼まれても1回だけ起動し、起動に失敗したら頼んだ記録を戻す。1日の数は頼んだ回数で数える", async () => {
+  configure();
+  db().exec("DELETE FROM approvals; DELETE FROM events");
+  const { approvalId } = devCase("同時");
+  // 起動の返事が遅いあいだに、もう1回頼まれても、2回目は断る
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  let fired = 0;
+  const slow = async () => { fired++; await gate; return new Response(JSON.stringify({ claude_code_session_url: "https://claude.ai/code/session_SLOW" }), { status: 200 }); };
+  const first = startToolRoutine(approvalId, { manual: true, fetchImpl: slow });
+  await assert.rejects(startToolRoutine(approvalId, { fetchImpl: slow }), /頼んだばかり/);
+  release();
+  assert.equal(await first, "https://claude.ai/code/session_SLOW");
+  assert.equal(fired, 1);
+  assert.equal(row(approvalId).routine_url, "https://claude.ai/code/session_SLOW");
+  // 起動に失敗したら、頼んだ記録（前の日時と作業の画面）を戻す
+  const before = row(approvalId);
+  const fail = async () => new Response("no", { status: 500 });
+  await assert.rejects(startToolRoutine(approvalId, { manual: true, fetchImpl: fail, now: Date.now() + 2 * 3600_000 }), /起動できませんでした/);
+  assert.equal(row(approvalId).routine_at, before.routine_at);
+  assert.equal(row(approvalId).routine_url, before.routine_url);
+  // 同じ開発待ちを頼み直した分も、1日に頼む数に数える（1回目 + 2時間後に頼み直し = 2回）
+  const calls: { url: string; body: string; auth: string }[] = [];
+  await startToolRoutine(approvalId, { manual: true, fetchImpl: okFire(calls), now: Date.now() + 2 * 3600_000 });
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'tool-routine'").get() as { n: number }).n, 2);
+  saveSettings({ toolRoutineAuto: true, toolRoutineConcurrent: 5, toolRoutinePerDay: 2 });
+  devCase("次");
+  assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls) }), 0, "頼み直しを含めて1日2回に達している");
+});
+
+test("ツールのルーティンの入口: もう開発待ちでない（入れ終わった）番号に入れようとしたら 404 を返す", async () => {
+  configure();
+  const { approvalId } = devCase("入れ終わり");
+  db().prepare("UPDATE approvals SET status = 'approved' WHERE id = ?").run(approvalId);
+  const res = await POST(new Request(`http://x/api/tool-jobs/${approvalId}`, { method: "POST", headers: { authorization: `Bearer ${LAB}`, "Content-Type": "application/json" }, body: JSON.stringify({ html: "<p>x</p>" }) }), { params: Promise.resolve({ id: String(approvalId) }) });
+  assert.equal(res.status, 404);
+  // 様子は、入れ終わったあとも読める
+  const st = await GET(new Request(`http://x/api/tool-jobs/${approvalId}?file=status`, { headers: { authorization: `Bearer ${LAB}` } }), { params: Promise.resolve({ id: String(approvalId) }) });
+  assert.equal(st.status, 200);
 });

@@ -54,14 +54,32 @@ export async function startToolRoutine(approvalId: number, opts: { manual?: bool
   const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
   if (!a || a.kind !== "dev" || a.status !== "pending") throw new Error("ルーティンに頼める開発待ちが見つかりません");
   if (a.routine_at && now - atMs(a.routine_at) < RETRY_MS) throw new Error("頼んだばかりです。1時間たってから、もう一度頼めます");
-  const url = await fireRoutine(URL_VAR, TOKEN_VAR, toolRoutineText(a), opts.fetchImpl);
-  db().prepare("UPDATE approvals SET routine_at = datetime(?, 'unixepoch'), routine_url = ? WHERE id = ?").run(Math.floor(now / 1000), url, approvalId);
+  // 起動する前に「頼んだ」を先に記録し、記録できた呼び出しだけが起動する（見回りと運営者のボタンが同時に来ても、2回起動しない。PR #130 の ai-review の指摘）
+  const stamp = Math.floor(now / 1000);
+  const claimed = db().prepare(`UPDATE approvals SET routine_at = datetime(?, 'unixepoch'), routine_url = NULL
+    WHERE id = ? AND kind = 'dev' AND status = 'pending' AND (routine_at IS NULL OR routine_at <= datetime(?, 'unixepoch'))`).run(stamp, approvalId, stamp - RETRY_MS / 1000).changes;
+  if (!claimed) throw new Error("頼んだばかりです。1時間たってから、もう一度頼めます");
+  let url: string | null;
+  try {
+    url = await fireRoutine(URL_VAR, TOKEN_VAR, toolRoutineText(a), opts.fetchImpl);
+  } catch (e) {
+    // 起動できなかったら、頼んだ記録を元に戻す
+    db().prepare("UPDATE approvals SET routine_at = ?, routine_url = ? WHERE id = ?").run(a.routine_at, a.routine_url, approvalId);
+    throw e;
+  }
+  db().prepare("UPDATE approvals SET routine_url = ? WHERE id = ?").run(url, approvalId);
+  // 1日に頼んだ数は、この経過の数で数える（同じ開発待ちを頼み直した分も、1回ずつ数える）
   logEvent(a.project_id, opts.manual ? "human" : "system", "tool-routine", `ツールを${getProject(a.project_id)?.lp ? "直す" : "作る"}のを、クラウドの Claude Code（ルーティン）に頼みました${opts.manual ? "（運営者が頼んだ）" : ""}`);
   return url;
 }
 
+// 24時間以内にルーティンに頼んだ回数（手で頼んだ分・頼み直した分も、1回ずつ数える）
+function firedSince(now: number): number {
+  return (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'tool-routine' AND at > datetime(?, 'unixepoch')").get(Math.floor((now - DAY_MS) / 1000)) as { n: number }).n;
+}
+
 // 開発待ちを、設定の数の範囲で自動で頼む（見回りのたびに見る）。頼んだ数を返す
-// 同時に頼む数: 作業中（頼んで3時間以内でまだ入っていない）の数。1日に頼む数: 24時間以内に頼んだ数（手で頼んだ分も数える）
+// 同時に頼む数: 作業中（頼んで3時間以内でまだ入っていない）の数。1日に頼む数: 24時間以内に頼んだ回数（手で頼んだ分・頼み直した分も数える）
 // 自動では、一度頼んだ開発待ちは頼み直さない（入らなかったら、運営者が見て頼み直す）
 export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } = {}): Promise<number> {
   const s = getSettings();
@@ -69,7 +87,7 @@ export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } 
   const now = opts.now ?? Date.now();
   const rows = db().prepare("SELECT a.* FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND p.demo = 0 AND (a.status = 'pending' OR a.routine_at IS NOT NULL) ORDER BY a.id").all() as ApprovalRow[];
   const inFlight = rows.filter((a) => working(a, now)).length;
-  const today = rows.filter((a) => a.routine_at && now - atMs(a.routine_at) < DAY_MS).length;
+  const today = firedSince(now);
   let slots = Math.min(s.toolRoutineConcurrent - inFlight, s.toolRoutinePerDay - today);
   let n = 0;
   for (const a of rows.filter((x) => x.status === "pending" && !x.routine_at)) {

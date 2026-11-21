@@ -47,7 +47,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   if (!labTokenOk(req.headers.get("authorization"))) return new Response("Unauthorized", { status: 401 });
   const a = devApproval((await params).id);
-  if (!a) return new Response("Not found", { status: 404 });
+  // もう開発待ちでない（人が先に入れた・見送った・入れ終わった）ものは 404（ルーティンは入れ直さずに終える。PR #130 の ai-review の指摘）
+  if (!a || a.status !== "pending") return new Response("Not found", { status: 404 });
   const body = (await req.json().catch(() => ({}))) as { html?: unknown };
   let job: Promise<void>;
   try {
