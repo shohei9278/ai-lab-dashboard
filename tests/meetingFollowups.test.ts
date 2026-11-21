@@ -6,7 +6,7 @@ import { WAIT_DAYS, humanWaits, notifyLongWaits, waitsText } from "../src/lib/wa
 import { decisionsText, listMeetings, openDecisions } from "../src/lib/meetings";
 import { settleDecisions } from "../src/lib/weekly";
 import { gather, jstStartUtc } from "../src/lib/report";
-import type { AdhocContent } from "../src/lib/adhoc";
+import { parseDecide, type AdhocContent } from "../src/lib/adhoc";
 
 // 止まっているものを進める（運営者が決めた）: 人待ちの日数・「あとで決める」の追いかけ・会議の材料の日付の境目
 
@@ -58,6 +58,31 @@ test("あとで決めること: 決める日が来たら材料に出し、定例
   assert.match(m.decide?.decided?.decision ?? "", /決められない/);
   // 2回目は、もう決めたものは決めない
   assert.equal(await settleDecisions("claude-opus-5-5", ask), 0);
+});
+
+test("あとで決めること: 足りない答えは使わない（前後の数字は1日あたりにそろえる）", async () => {
+  // 議長の答え: 何を・何の数字で・どうなったらが全部ないと記録しない。日数は 7・14・28 以外なら14日
+  const full = { question: "q", metric: "m", rule: "r", check_after_days: 28 };
+  assert.deepEqual(parseDecide(full), { question: "q", metric: "m", rule: "r", checkAfterDays: 28 });
+  assert.equal(parseDecide({ ...full, metric: "" }), undefined);
+  assert.equal(parseDecide({ ...full, rule: 3 }), undefined);
+  assert.equal(parseDecide({ ...full, question: "  " }), undefined);
+  assert.equal(parseDecide(null), undefined);
+  assert.equal(parseDecide({ ...full, check_after_days: 10 })?.checkAfterDays, 14);
+  // 決めた結果: 決めたかどうか（true / false）がない答えは、書き直させる
+  db().exec("DELETE FROM meetings");
+  adhoc({ decide: { question: "q", metric: "m", rule: "r", checkAfterDays: 7 } }, 8);
+  let checked: boolean[] = [];
+  const ask = (async (o: { validate: (v: unknown) => boolean }) => {
+    checked = [o.validate({ decision: "d", note: "n" }), o.validate({ settled: "false", decision: "d", note: "n" }), o.validate({ settled: true, decision: " ", note: "n" }), o.validate({ settled: false, decision: "d", note: "n" })];
+    throw new Error("AIの出力を読み取れませんでした（2回失敗）");
+  }) as unknown as Parameters<typeof settleDecisions>[1];
+  assert.equal(await settleDecisions("claude-opus-5-5", ask), 0);
+  assert.deepEqual(checked, [false, false, false, true]);
+  // 読み取れなかったものは決めたことにせず、来週また決める
+  assert.equal(openDecisions().length, 1);
+  // 前（7日）と後で日数が違うので、登録/利用も1日あたりにする
+  assert.match(decisionsText(), /登録\/利用 [0-9.—]+人 → [0-9.—]+人/);
 });
 
 test("会議の材料の日付の境目: 日本時間の0時から数える（日本時間の0時〜9時の記録も入れる）", () => {

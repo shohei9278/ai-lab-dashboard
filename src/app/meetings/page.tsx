@@ -56,7 +56,7 @@ function FollowUpBox({ f }: { f: FollowUp }) {
 
 // あとで決めること（臨時会議で「比べてから決める」としたもの）と、決めた結果
 function DecideBox({ f }: { f: DecideFollowUp }) {
-  const per = (x: { days: number; visits: number }) => (x.days ? (x.visits / x.days).toFixed(1) : "—");
+  const per = (n: number, days: number) => (days ? (n / days).toFixed(1) : "—");
   return (
     <div className="space-y-1 rounded-lg p-3 text-sm" style={{ background: "var(--surface-2)" }}>
       <div className="font-medium">あとで決めること</div>
@@ -65,8 +65,8 @@ function DecideBox({ f }: { f: DecideFollowUp }) {
       <div className="border-t border-line pt-2">
         <div className="text-xs text-muted">{f.decided ? `決めた結果（${f.dueAt}に決める予定だったもの）` : f.due ? `決める日（${f.dueAt}）が来ました。次の定例会議で決めます` : `${f.dueAt}に決めます（今は途中経過）`}</div>
         <p className="num text-sm">
-          1日あたりの訪問: 会議の前7日 {per(f.before)}人 → 会議のあと{f.after.days}日 {per(f.after)}人
-          ・登録/利用: 前 {f.before.conversions}人 → あと {f.after.conversions}人
+          1日あたり（会議の前7日 → 会議のあと{f.after.days}日）: 訪問 {per(f.before.visits, f.before.days)}人 → {per(f.after.visits, f.after.days)}人
+          ・登録/利用 {per(f.before.conversions, f.before.days)}人 → {per(f.after.conversions, f.after.days)}人
         </p>
         {f.decided && (
           <p className="mt-1">

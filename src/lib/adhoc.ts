@@ -26,6 +26,18 @@ export type AdhocContent = {
   decided?: { at: string; settled: boolean; decision: string; note: string; by: string };
 };
 
+// 議長が書いた「あとで決めること」を読む。何を・何の数字で・どうなったら決めるかが全部書かれているときだけ使う
+// （足りないまま記録すると、決める日に決められない。PR #128 の ai-review の指摘）。日数が7・14・28のどれでもないときは14日
+export function parseDecide(dc: unknown): AdhocContent["decide"] {
+  if (!isObj(dc)) return undefined;
+  const filled = (x: unknown): x is string => isStr(x) && !!x.trim();
+  if (!filled(dc.question) || !filled(dc.metric) || !filled(dc.rule)) return undefined;
+  return {
+    question: dc.question.trim().slice(0, 300), metric: dc.metric.trim().slice(0, 300), rule: dc.rule.trim().slice(0, 400),
+    checkAfterDays: [7, 14, 28].includes(Number(dc.check_after_days)) ? Number(dc.check_after_days) : 14,
+  };
+}
+
 const g = globalThis as unknown as { __aiLabAdhoc?: string };
 export const adhocRunning = (): string | null => g.__aiLabAdhoc ?? null;
 
@@ -126,12 +138,9 @@ ${rule}
         }
       : undefined;
     const dc = out.decide;
-    const decide = dc && isStr(dc.question) && dc.question.trim() && isStr(dc.rule)
-      ? {
-          question: dc.question.trim().slice(0, 300), metric: String(dc.metric ?? "").slice(0, 300), rule: dc.rule.slice(0, 400),
-          checkAfterDays: [7, 14, 28].includes(Number(dc.check_after_days)) ? Number(dc.check_after_days) : 14,
-        }
-      : undefined;
+    // 足りないときは、結論は残し、「あとで決めること」だけを記録せず、そのことを残す（書き直させると、2回失敗したときに結論ごと失うため）
+    const decide = parseDecide(dc);
+    if (dc && !decide) logEvent(null, "system", "meeting-decide-skip", `臨時会議「${topic.slice(0, 40)}」: 議長が書いた「あとで決めること」に、何を・何の数字で・どうなったら決めるかが足りなかったため、記録しませんでした`);
     if (decide) say(chair, "あとで決めること", `${decide.question}（${decide.checkAfterDays}日後に、${decide.metric}で決める: ${decide.rule}）`);
     if (split) say(chair, "意見が割れたところ", `多数派: ${split.majority} ／ 少数派: ${split.minority}（心配: ${split.concern}）`);
     const content: AdhocContent = { topic, rounds, conclusion: out.conclusion.slice(0, 1500), actions, chair, split, decide };

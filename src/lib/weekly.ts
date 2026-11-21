@@ -274,7 +274,7 @@ export function sameGroups(n: number, sawBoth: (who: string, i: number, j: numbe
 export async function settleDecisions(chair: string, ask: typeof callJson = callJson): Promise<number> {
   let n = 0;
   for (const { id, topic, f } of openDecisions().filter((x) => x.f.due)) {
-    const per = (x: { days: number; visits: number }) => (x.days ? (x.visits / x.days).toFixed(1) : "—");
+    const per = (n: number, days: number) => (days ? (n / days).toFixed(1) : "—");
     try {
       const out = await ask<{ settled: boolean; decision: string; note: string }>({
         purpose: "定例会議（あとで決めることを決める）",
@@ -289,11 +289,12 @@ export async function settleDecisions(chair: string, ask: typeof callJson = call
 決めること: ${f.decide.question}
 何の数字で: ${f.decide.metric}
 決め方: ${f.decide.rule}
-全案件の1日あたりの訪問: 会議の前7日 ${per(f.before)}人 → 会議のあと${f.after.days}日 ${per(f.after)}人 / 登録・利用: 前 ${f.before.conversions}人 → あと ${f.after.conversions}人
+全案件の1日あたり（会議の前7日 → 会議のあと${f.after.days}日）: 訪問 ${per(f.before.visits, f.before.days)}人 → ${per(f.after.visits, f.after.days)}人 / 登録・利用 ${per(f.before.conversions, f.before.days)}人 → ${per(f.after.conversions, f.after.days)}人
 
 材料:
 ${meetingMaterial(day(new Date(Date.now() - 7 * 86_400_000)))}`,
-        validate: (v): v is { settled: boolean; decision: string; note: string } => isObj(v) && isStr(v.decision) && isStr(v.note),
+        // 決めたかどうかが欠けた答えを「決めきれなかった」として終わらせない（形が合わなければ書き直させ、2回だめなら来週また決める。PR #128 の ai-review の指摘）
+        validate: (v): v is { settled: boolean; decision: string; note: string } => isObj(v) && typeof v.settled === "boolean" && isStr(v.decision) && !!v.decision.trim() && isStr(v.note),
       });
       const row = db().prepare("SELECT content FROM meetings WHERE id = ?").get(id) as { content: string };
       const c = JSON.parse(row.content) as AdhocContent;

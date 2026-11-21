@@ -94,9 +94,10 @@ export function openDecisions(now = Date.now()): { id: number; topic: string; f:
 export function decisionsText(now = Date.now()): string {
   const xs = openDecisions(now);
   if (!xs.length) return "会議で「あとで決める」としたこと: なし";
-  const per = (x: { days: number; visits: number }) => (x.days ? (x.visits / x.days).toFixed(1) : "—");
+  // 前（7日）と後（決める日まで）は日数が違うので、訪問も登録・利用も1日あたりに直して並べる（PR #128 の ai-review の指摘）
+  const per = (n: number, days: number) => (days ? (n / days).toFixed(1) : "—");
   return `会議で「あとで決める」としたこと（決める日が来たものは、週の定例会議で決める。それまでの計画も、これを決めるための数字が集まるようにする）:
-${xs.map(({ topic, f }) => `- 臨時会議「${topic.slice(0, 40)}」: ${f.decide.question}（${f.decide.metric}で決める: ${f.decide.rule}）${f.due ? `→ 決める日（${f.dueAt}）が来た` : `→ ${f.dueAt}に決める`}。全案件の1日あたりの訪問 会議の前7日 ${per(f.before)}人 → 会議のあと${f.after.days}日 ${per(f.after)}人・登録/利用 ${f.before.conversions}人 → ${f.after.conversions}人`).join("\n")}`;
+${xs.map(({ topic, f }) => `- 臨時会議「${topic.slice(0, 40)}」: ${f.decide.question}（${f.decide.metric}で決める: ${f.decide.rule}）${f.due ? `→ 決める日（${f.dueAt}）が来た` : `→ ${f.dueAt}に決める`}。全案件の1日あたり 会議の前7日 → 会議のあと${f.after.days}日: 訪問 ${per(f.before.visits, f.before.days)}人 → ${per(f.after.visits, f.after.days)}人・登録/利用 ${per(f.before.conversions, f.before.days)}人 → ${per(f.after.conversions, f.after.days)}人`).join("\n")}`;
 }
 
 const uniq = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))];
