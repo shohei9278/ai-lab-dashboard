@@ -117,6 +117,19 @@ test("Claude Code に直してもらう: PR の状態を GitHub から読み、�
   const n = urls.length;
   await syncAiFixPrs(gh);
   assert.equal(urls.length, n);
+  // 頼み直したあとは、頼む前に作られた PR（前の閉じた PR）を拾わない
+  const again = add("system");
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now') WHERE id = ?").run(again);
+  const old = new Date(Date.now() - 3 * 3600_000).toISOString();
+  const fresh = new Date(Date.now() + 60_000).toISOString();
+  let reply: unknown[] = [{ number: 11, state: "closed", merged_at: null, created_at: old }];
+  const gh2 = async () => new Response(JSON.stringify(reply), { status: 200 });
+  await syncAiFixPrs(gh2, true);
+  assert.equal(row(again).ai_fix_pr, null);
+  reply = [{ number: 11, state: "closed", merged_at: null, created_at: old }, { number: 12, state: "open", merged_at: null, created_at: fresh }];
+  await syncAiFixPrs(gh2, true);
+  assert.equal(row(again).ai_fix_pr, 12);
+  assert.equal(row(again).ai_fix_pr_state, "open");
   // 「やった」になったものは、もう読まない
   await syncAiFixPrs(gh, true);
   assert.ok(!urls.slice(n).some((u) => u.includes(`proposal-${merged}`)));
