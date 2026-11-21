@@ -7,7 +7,7 @@ import { funnel, playDepth as depthOf } from "../src/lib/funnel";
 import { funnelPeople } from "../src/lib/publish";
 import { pickChampion, pickWithChampion, type AimWeights } from "../src/lib/aims";
 import { scoreChecks, type HitRow } from "../src/lib/hits";
-import { playDepth, type DepthEvent } from "../lp-site/src/lp/playDepth";
+import { depthValueOk, playDepth, type DepthEvent } from "../lp-site/src/lp/playDepth";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 
 // 運営者の問い（ゲーム系は別の軸で測ったほうがいいか）から、遊び系のツールの「遊びの深さ」を測ることにした（まずは見るだけ）
@@ -44,26 +44,44 @@ test("遊びの深さ: 振った動き（持っているだけの揺れでなく
   assert.deepEqual(got, [{ name: "play_time", value: 0 }, { name: "play_time", value: 15 }]);
 });
 
-test("遊びの深さ: 結果は続けて来た知らせを1回と数え、2回目から知らせる。結果の番号は種類の数を知らせる", () => {
+test("遊びの深さ: labShare と labResult が組で続けて来たら1回、同じ種類が続いたら別の回と数える。結果の番号は種類の数を知らせる（PR #123 の ai-review の指摘）", () => {
   const got: DepthEvent[] = [];
   const d = playDepth((e) => got.push(e));
-  d.result(0); d.result(100, 4); // labShare と labResult が続けて来ても1回
-  d.result(5000, 4); // 2回目（同じ種類）
-  d.result(9000, 7); // 3回目（新しい種類）
-  d.result(9500); // 続けて来たので数えない
+  d.result(0, "share"); d.result(100, "result", 4); // 組で続けて来たので1回
+  d.result(5000, "result", 4); // 2回目（同じ種類の結果）
+  d.result(5300, "result", 7); // 3回目（同じ種類の知らせが続いたので別の回・新しい種類）
+  d.result(5500, "share"); // 直前の labResult と組なので数えない
+  d.result(5700, "share"); // 4回目（直前はもう組になった）
+  d.result(5800, "share"); // 5回目（同じ種類が続いた）
   assert.deepEqual(got, [
     { name: "result_kinds", value: 1 },
     { name: "results", value: 2 },
     { name: "results", value: 3 },
     { name: "result_kinds", value: 2 },
+    { name: "results", value: 5 },
   ]);
+});
+
+test("遊びの深さ: 公開サイトの受け口と集計で、ありえない値を外す（PR #123 の ai-review の指摘）", () => {
+  assert.equal(depthValueOk("play_time", "0"), true);
+  assert.equal(depthValueOk("play_time", "30"), true);
+  assert.equal(depthValueOk("play_time", "31"), false);
+  assert.equal(depthValueOk("results", "5"), true);
+  assert.equal(depthValueOk("results", "4"), false);
+  assert.equal(depthValueOk("result_kinds", "100"), true);
+  assert.equal(depthValueOk("result_kinds", "999999"), false);
+  assert.equal(depthValueOk("result_kinds", "0"), false);
+  assert.equal(depthValueOk("result_kinds", "1.5"), false);
+  assert.equal(depthValueOk("section_view", "tool"), true); // 遊びの深さでない記録は確かめない
+  const d = depthOf([{ name: "play_time", detail: "0", visitors: 2 }, { name: "result_kinds", detail: "999999", visitors: 1 }, { name: "result_kinds", detail: "2", visitors: 1 }]);
+  assert.deepEqual(d.kinds, [{ mark: 2, visitors: 1 }]);
 });
 
 test("遊びの深さ: 結果の知らせだけでは、遊んだ時間を数えない（時間で勝手に結果を出すツールのため。PR #123 の ai-review の指摘）", () => {
   const got: DepthEvent[] = [];
   const d = playDepth((e) => got.push(e));
   let now = 0;
-  for (let i = 0; i < 30; i++) { now += 1000; d.result(now, i); d.tick(now, true); }
+  for (let i = 0; i < 30; i++) { now += 1000; d.result(now, "result", i); d.tick(now, true); }
   assert.equal(got.filter((e) => e.name === "play_time").length, 0);
 });
 

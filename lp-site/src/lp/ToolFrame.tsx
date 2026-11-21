@@ -89,13 +89,13 @@ export function ToolFrame({ html, title, onUse, onDepth, data, fonts, illustrati
       const shown = () => { if (!e.data.quiet) window.dispatchEvent(new Event("lab-result-shown")); };
       if (e.data.__lab === "share-text" && typeof e.data.text === "string" && e.data.text.trim()) {
         window.dispatchEvent(new CustomEvent("lab-share-text", { detail: e.data.text.slice(0, 200) }));
-        depth.current?.result(Date.now());
+        depth.current?.result(Date.now(), "share");
         shown();
       }
       // ツールが知らせた結果の番号を、ページのシェアのボタンに渡す（結果ごとのシェア画像のリンクにする）
       if (e.data.__lab === "result" && Number.isInteger(e.data.i) && e.data.i >= 0 && e.data.i < 100) {
         window.dispatchEvent(new CustomEvent("lab-share-result", { detail: e.data.i }));
-        depth.current?.result(Date.now(), e.data.i);
+        depth.current?.result(Date.now(), "result", e.data.i);
         shown();
       }
       if (e.data.__lab === "use" && !used.current) {

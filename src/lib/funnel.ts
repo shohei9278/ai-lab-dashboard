@@ -1,7 +1,7 @@
 import { db, type ProjectRow } from "./db";
 import { projectTotals } from "./loop";
 import { channelSteps, maskChannels, type ChannelRow } from "./channels";
-import { PLAY_TIME_MARKS, RESULT_MARKS } from "../../lp-site/src/lp/playDepth";
+import { PLAY_TIME_MARKS, RESULT_MARKS, depthValueOk } from "../../lp-site/src/lp/playDepth";
 
 // 案件ごとの「ページの中での動き」。訪問した人が、どこまで進んだか（今の版）
 // 人数は訪問者ごと・1日1回で数える（同じ人が別の日に来ると2人と数える。訪問数と同じ数え方）
@@ -72,7 +72,8 @@ export function funnel(p: ProjectRow, versionArg?: number): Funnel {
   return { version, visits: t.visits, steps, depth, sections, errors: count("sign_up_error"), hasEvents: rows.some((r) => r.name !== "revisit"), play: p.kind === "tool" ? playDepth(rows) : null };
 }
 
-export function playDepth(rows: { name: string; detail: string; visitors: number }[]): PlayDepth {
+export function playDepth(all: { name: string; detail: string; visitors: number }[]): PlayDepth {
+  const rows = all.filter((r) => depthValueOk(r.name, r.detail)); // ありえない値は外す（前に送り込まれた記録にも耐える）
   const count = (name: string, detail: string) => rows.filter((r) => r.name === name && r.detail === detail).reduce((n, r) => n + r.visitors, 0);
   const users = count("play_time", PLAY_START);
   const time = PLAY_TIME_MARKS.map((mark) => ({ mark, visitors: count("play_time", String(mark)) }));
