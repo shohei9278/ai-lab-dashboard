@@ -25,6 +25,16 @@ test("定例会議の採点: ほぼ全部に8点の採点者と、ほぼ全部�
   // 全体の平均は変えない（ならすのは、採点者どうしの差だけ）
   const raw = items.flat().reduce((n, x) => n + x.score, 0) / 8;
   assert.ok(Math.abs(adj.reduce((n, x) => n + x, 0) / 4 - raw) < 1e-9);
+  // 採点者ごとの点を1〜10に収めてから平均する（辛い採点者の10点は、ならすと10を超えるが、10で止める。PR #127 の ai-review の指摘）
+  // 甘い採点者 a（10・10・10・7、平均9.25）と辛い採点者 b（1・1・1・10、平均3.25）。全体の平均は6.25
+  // 4つ目の案: a の7点は 7-3=4、b の10点は 10+3=13 → 10。平均は (4+10)/2=7（先に平均してから収めると 8.5 になる）
+  const edge = adjustScores([
+    [{ who: "a", score: 10 }, { who: "b", score: 1 }],
+    [{ who: "a", score: 10 }, { who: "b", score: 1 }],
+    [{ who: "a", score: 10 }, { who: "b", score: 1 }],
+    [{ who: "a", score: 7 }, { who: "b", score: 10 }],
+  ]);
+  assert.equal(edge[3], 7);
   // 2件しか採点していない採点者は、ならさない。点のない案は0点
   const few = adjustScores([[{ who: "a", score: 9 }], [{ who: "a", score: 7 }], []]);
   assert.deepEqual(few, [9, 7, 0]);

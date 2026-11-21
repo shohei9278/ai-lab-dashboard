@@ -228,7 +228,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
   return id;
 }
 
-// 採点者ごとの甘さ・辛さをならす: 採点者が付けた点から、その採点者の平均を引き、全体の平均を足す（1〜10に収める）
+// 採点者ごとの甘さ・辛さをならす: 採点者が付けた点から、その採点者の平均を引き、全体の平均を足す（採点者ごとの点を1〜10に収めてから、提案ごとに平均する）
 // 3件以上採点した採点者だけならす（少ないと、平均がその採点者の甘さを表さない）。点のない案は0点
 export function adjustScores(items: { who: string; score: number }[][]): number[] {
   const all = items.flat();
@@ -238,7 +238,7 @@ export function adjustScores(items: { who: string; score: number }[][]): number[
   const by = new Map<string, number[]>();
   for (const x of all) by.set(x.who, [...(by.get(x.who) ?? []), x.score]);
   const bias = new Map([...by].map(([who, xs]) => [who, xs.length >= 3 ? mean(xs) - overall : 0]));
-  return items.map((xs) => (xs.length ? Math.max(1, Math.min(10, mean(xs.map((x) => x.score - (bias.get(x.who) ?? 0))))) : 0));
+  return items.map((xs) => (xs.length ? mean(xs.map((x) => Math.max(1, Math.min(10, x.score - (bias.get(x.who) ?? 0))))) : 0));
 }
 
 // 同じ提案の組を、まとまりにする
