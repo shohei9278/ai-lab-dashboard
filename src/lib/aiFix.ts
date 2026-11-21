@@ -75,7 +75,7 @@ export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fe
 // リポジトリは公開なので、トークンなしで読める（GITHUB_TOKEN があれば使う。1時間に60回までの制限を避けるため）
 // 読むのは、頼んでから30日以内で、まだ返事のない提案だけ
 const gSync = globalThis as unknown as { __aiLabAiFixSync?: number };
-type Pull = { number: number; state: string; merged_at: string | null; html_url: string };
+type Pull = { number: number; state: string; merged_at: string | null; html_url: string; created_at?: string };
 export async function syncAiFixPrs(fetchImpl: Fetch = fetch, force = false): Promise<number> {
   if (!force && gSync.__aiLabAiFixSync && Date.now() - gSync.__aiLabAiFixSync < 3_600_000) return 0;
   gSync.__aiLabAiFixSync = Date.now();
@@ -89,7 +89,10 @@ export async function syncAiFixPrs(fetchImpl: Fetch = fetch, force = false): Pro
       signal: AbortSignal.timeout(15_000),
     });
     if (!res.ok) throw new Error(`GitHub から PR の状態を読めませんでした（${res.status}）`);
-    const pulls = ((await res.json()) as Pull[]).filter((x) => Number.isInteger(x.number));
+    // 頼んだあとに作られた PR だけを見る（頼み直したとき、前の閉じた PR を拾い直さない。PR #126 の ai-review の指摘）
+    // 頼んだ時刻は秒までなので、1分前からを許す
+    const asked = Date.parse(`${r.ai_fix_at!.replace(" ", "T")}Z`) - 60_000;
+    const pulls = ((await res.json()) as Pull[]).filter((x) => Number.isInteger(x.number) && (!x.created_at || !Number.isFinite(asked) || Date.parse(x.created_at) >= asked));
     if (!pulls.length) continue;
     // 頼み直して PR が2つ以上あるときは、マージされたものを、なければいちばん新しいものを見る
     const pr = pulls.find((x) => x.merged_at) ?? pulls.reduce((a, b) => (b.number > a.number ? b : a));
