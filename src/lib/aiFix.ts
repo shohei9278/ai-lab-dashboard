@@ -34,7 +34,7 @@ export function aiFixText(r: RequestRow, note: string): string {
     `題: ${r.title}`,
     r.how ? `何をどう変えるか: ${r.how}` : "",
     r.why ? `理由: ${r.why}` : "",
-    `出どころ: ${sourceLabel(r)}${r.scene && r.source === "scene" ? `（${r.scene}）` : ""}${r.score !== null ? `・ほかのAIの評価 ${r.score.toFixed(1)}点` : ""}${r.project_id ? `・案件 #${r.project_id}` : ""}`,
+    `出どころ: ${r.source === "human" ? "運営者" : sourceLabel(r)}${r.scene && r.source === "scene" ? `（${r.scene}）` : ""}${r.score !== null ? `・ほかのAIの評価 ${r.score.toFixed(1)}点` : ""}${r.project_id ? `・案件 #${r.project_id}` : ""}`,
     note ? `運営者のひとこと: ${note}` : "",
     `ブランチ: ${aiFixBranch(r.id)}`,
   ].filter(Boolean).join("\n");
