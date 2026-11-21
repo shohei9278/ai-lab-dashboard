@@ -45,6 +45,12 @@ test("公開前の自動テスト: 振って遊ぶツールは、振る動きを
 <div id="c" hidden>${motionTool(true)}</div>`;
   const stepped = await testTool(steps, "test-motion-steps");
   assert.equal(stepped.motion?.ok, false, JSON.stringify(stepped.motion));
+  // 時計などの数字が動き続けるツールでも、同じボタンを押し続けずに先へ進む（画面の中身は数字を除いて比べる。PR #125 の ai-review の指摘）
+  const clock = `<span id="t"></span><button type="button">もどる</button><button type="button" id="go">はじめる</button>
+<script>setInterval(function () { document.getElementById("t").textContent = String(Date.now()); }, 50);
+document.getElementById("go").onclick = function () { window.labMotion.request(); };</script>`;
+  const ticking = await testTool(clock, "test-motion-clock");
+  assert.ok(ticking.motion, "センサーまで進めなかった");
   // 動きのセンサーを使わないツールは、振りを確かめない
   const plain = await testTool(`<button type="button" onclick="this.textContent='押した'">押す</button>`, "test-motion-none");
   assert.equal(plain.motion, undefined);
@@ -90,6 +96,27 @@ null.x;
     const got = (await page.evaluate("window.got")) as { name: string; line: number }[];
     assert.equal(got.length, 3); // 同じものは1回、全部で3つまで
     assert.deepEqual(got.map((x) => x.name).slice(0, 2), ["TypeError", "TypeError"]);
+  } finally {
+    await browser.close();
+  }
+});
+
+test("本番のエラー: ページが受け取れるようになる前に起きたエラーも、ping でもう一度送る（PR #125 の ai-review の指摘）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`<iframe id="f" sandbox="allow-scripts"></iframe>`);
+    await page.locator("#f").evaluate((el, h) => { (el as HTMLIFrameElement).srcdoc = h; }, wrapToolHtml(`<script>\nnull.x;\n</script>`));
+    await page.waitForTimeout(300); // 枠が読み込まれ、エラーが起きたあとに、受け取り口を付ける
+    await page.evaluate(`window.got = []; addEventListener("message", function (e) { if (e.data && e.data.__lab === "error") window.got.push(e.data); }); document.getElementById("f").contentWindow.postMessage({ __lab: "ping" }, "*");`);
+    await page.waitForTimeout(200);
+    assert.deepEqual(await page.evaluate("window.got"), [{ __lab: "error", name: "TypeError", line: 2 }]);
+    // Promise の失敗も、エラーの経路からツールのコードの行の番号を取り出す（PR #125 の ai-review の指摘）
+    await page.evaluate(`window.got = [];`);
+    await page.locator("#f").evaluate((el, h) => { (el as HTMLIFrameElement).srcdoc = h; }, wrapToolHtml(`<p>遊び</p>\n<script>\nPromise.reject(new RangeError("r"));\n</script>`));
+    await page.waitForTimeout(300);
+    assert.deepEqual(await page.evaluate("window.got"), [{ __lab: "error", name: "RangeError", line: 3 }]);
   } finally {
     await browser.close();
   }

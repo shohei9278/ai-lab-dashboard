@@ -158,9 +158,10 @@ async function motionCheck(ctx: BrowserContext, html: string, opts: { data?: unk
     await page.evaluate(`if (window.labMotion) window.labMotion = { request: function () { window.__labMotionAsked = true; return Promise.resolve("granted"); } };`);
     const asked = () => page.evaluate("!!window.__labMotionAsked") as Promise<boolean>;
     // 押したものは、そのときの画面の中身と組で覚える。画面の中身が変わったら、同じ名前のボタン（「次へ」など）もまた押せる（PR #125 の ai-review の指摘）
+    // 画面の中身からは数字を除く（時計・カウントダウン・スコアが動くたびに「変わった」とみなして、同じボタンを押し続けないように）
     const pressed = new Set<string>();
     for (let step = 0; step < 8 && !(await asked()); step++) {
-      const state = (await page.evaluate("document.body.innerText")) as string;
+      const state = ((await page.evaluate("document.body.innerText")) as string).replace(/[0-9０-９]/g, "");
       const buttons = page.locator(PRESSABLE);
       const names = await buttons.evaluateAll((els) => els.map((el) => {
         const r = el.getBoundingClientRect();

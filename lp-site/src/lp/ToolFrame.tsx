@@ -44,6 +44,9 @@ export function ToolFrame({ html, title, onUse, onDepth, onError, data, fonts, i
   const depthCb = useRef(onDepth);
   useEffect(() => { depthCb.current = onDepth; }, [onDepth]);
   const depth = useRef<ReturnType<typeof playDepth> | null>(null);
+  // 知らせたエラー（種類と行）。中身が入れ替わったら忘れる
+  const errSeen = useRef(new Set<string>());
+  useEffect(() => { errSeen.current = new Set(); }, [doc]);
   const tracking = !!onDepth;
   useEffect(() => {
     if (!tracking) return;
@@ -88,7 +91,12 @@ export function ToolFrame({ html, title, onUse, onDepth, onError, data, fonts, i
         return;
       }
       if (e.data.__lab === "active") { depth.current?.active(Date.now()); return; }
-      if (e.data.__lab === "error" && typeof e.data.name === "string") { onError?.({ name: e.data.name, line: Number(e.data.line) || 0 }); return; }
+      if (e.data.__lab === "error" && typeof e.data.name === "string") {
+        // 枠は、ページの準備ができる前に起きたエラーを ping でもう一度送るので、同じもの（種類と行）は1回だけ知らせる
+        const k = `${e.data.name}|${Number(e.data.line) || 0}`;
+        if (!errSeen.current.has(k)) { errSeen.current.add(k); onError?.({ name: e.data.name, line: Number(e.data.line) || 0 }); }
+        return;
+      }
       if (e.data.__lab === "height" && typeof e.data.h === "number") setHeight(Math.max(240, Math.min(4000, e.data.h)));
       // ツールが知らせた結果の一文を、ページのシェアのボタンに渡す
       // 結果が出たことは、結果のあとの欄（ResultSheet）にも lab-result-shown で知らせる。quiet（遊びが続くツールの途中の結果）のときは知らせない

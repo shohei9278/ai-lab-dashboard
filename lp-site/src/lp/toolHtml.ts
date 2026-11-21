@@ -39,7 +39,9 @@ function originOf(url: string | undefined): string | null {
   try { return new URL(url).origin; } catch { return null; }
 }
 // ツールの中で起きたエラーを、種類と行の番号だけ知らせる（改行を入れない。入れると、ツールの行の番号がずれる）
-const ERROR_CATCH = `<script>(function(){var ec=0,es={};function er(n,l){n=String(n||"Error").replace(/[^A-Za-z]/g,"").slice(0,20)||"Error";l=Math.max(0,Math.floor(Number(l)||0));var k=n+l;if(ec>=3||es[k]||parent===window)return;es[k]=1;ec++;parent.postMessage({__lab:"error",name:n,line:l},"*")}addEventListener("error",function(e){if(e.target&&e.target!==window)return;er(e.error&&e.error.name,e.lineno)});addEventListener("unhandledrejection",function(e){var r=e.reason;er(r&&r.name?r.name:"Rejection",0)})})()</script>`;
+// Promise の失敗は、エラーの経路（stack）から about:srcdoc の行の番号だけを取り出す（経路の文は送らない。取り出せなければ 0）
+// ページが受け取れるようになる前に起きたエラーは、ページの {__lab:"ping"} でもう一度送る（同じものはページの側で1回にする。PR #125 の ai-review の指摘）
+const ERROR_CATCH = `<script>(function(){var ec=0,es={},q=[];function er(n,l){n=String(n||"Error").replace(/[^A-Za-z]/g,"").slice(0,20)||"Error";l=Math.max(0,Math.floor(Number(l)||0));var k=n+l;if(ec>=3||es[k]||parent===window)return;es[k]=1;ec++;var m={__lab:"error",name:n,line:l};q.push(m);parent.postMessage(m,"*")}function ln(r){var m=/about:srcdoc:(\\d+):\\d+/.exec(r&&r.stack?String(r.stack):"");return m?m[1]:0}addEventListener("error",function(e){if(e.target&&e.target!==window)return;er(e.error&&e.error.name,e.lineno)});addEventListener("unhandledrejection",function(e){var r=e.reason;er(r&&r.name?r.name:"Rejection",ln(r))});addEventListener("message",function(e){if(e.source!==parent||!e.data||e.data.__lab!=="ping")return;for(var i=0;i<q.length;i++)parent.postMessage(q[i],"*")})})()</script>`;
 
 const BRIDGE = `<script>(function(){var u=false;function h(){parent.postMessage({__lab:"height",h:Math.ceil(document.documentElement.scrollHeight)},"*")}
 function use(){if(u)return;u=true;parent.postMessage({__lab:"use"},"*")}
