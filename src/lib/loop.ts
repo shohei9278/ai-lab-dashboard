@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { PLAY_HOOK_MAX, PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublish, parseGivenPlay, replacePlayScript } from "./playVideo";
-import { heldToRoutine } from "./toolRoutine";
+import { heldToRoutine, toolRoutineConfigured } from "./toolRoutine";
 import { hitsText } from "./hits";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
@@ -642,7 +642,8 @@ export const DEV_DESIGN_MAX = 6000;
 
 // 開発待ち（Claude Code で作るのを待っている）のじっくり案件の数
 export function devWaiting(): number {
-  return (db().prepare("SELECT COUNT(*) AS n FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND a.status = 'pending' AND p.demo = 0").get() as { n: number }).n;
+  // じっくり案件だけを数える（通常案件をルーティンで作る開発待ちで、じっくり案件の作成が止まらないように）
+  return (db().prepare("SELECT COUNT(*) AS n FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND a.status = 'pending' AND p.demo = 0 AND p.deep = 1").get() as { n: number }).n;
 }
 
 // 前の設計書（いちばん新しい開発待ちのもの）
@@ -715,7 +716,7 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
   const out = await callJson<{ design: string; idea?: unknown }>({
     purpose: "じっくり案件の設計",
     projectId: p.id,
-    system: `あなたは小さなWebツールの設計担当です。じっくり案件のツールの設計書を書きます。ツールは開発担当（Claude Code）が、この設計書をもとに、ブラウザで確かめながら作ります。
+    system: `あなたは小さなWebツールの設計担当です。${p.deep ? "じっくり案件の" : ""}ツールの設計書を書きます。ツールは開発担当（Claude Code）が、この設計書をもとに、ブラウザで確かめながら作ります。
 ツールは、紹介ページの中の枠に埋め込まれる1つのHTMLの断片で、外部との通信・保存の領域は使えません（作る側の決まりは別に渡します）。
 設計書には、次の見出しで書く（Markdown。全体で${DEV_DESIGN_MAX.toLocaleString("en-US")}文字以内）:
 ## 一言で（何をするツールか。1〜2文）
@@ -751,7 +752,8 @@ export function saveDevRequest(projectId: number, design: string, idea: IdeaRevi
         : `次の指示で直します: ${instruction ?? comment ?? "（指示なし）"}。依頼文を Claude Code に貼って直し、できたHTMLをここから入れてください。入れるまでは、今の版のままです。`,
       { design, instruction: instruction ?? null },
     );
-    logEvent(projectId, "ai", "dev-design", first || comment ? `じっくり案件のツールの設計書を書き、開発待ちにしました（Claude Code で作ります）${comment ? "・指示を反映" : ""}` : `じっくり案件のツールを直すため、開発待ちにしました（Claude Code で直します）: ${(instruction ?? "").slice(0, 120)}`);
+    const kindLabel = p.deep ? "じっくり案件の" : "";
+    logEvent(projectId, "ai", "dev-design", first || comment ? `${kindLabel}ツールの設計書を書き、開発待ちにしました（Claude Code で作ります）${comment ? "・指示を反映" : ""}` : `${kindLabel}ツールを直すため、開発待ちにしました（Claude Code で直します）: ${(instruction ?? "").slice(0, 120)}`);
   })();
 }
 
@@ -1657,12 +1659,33 @@ function nextVersion(projectId: number): number {
   return (r.v ?? 0) + 1;
 }
 
+// 通常案件の新しいツールを、クラウドの Claude Code（ルーティン）に作ってもらう番か
+// ツールを書く担当（TOOL_MODELS）の交代に、4つ目として「Claude Code（ルーティン）」を入れる。1回で書くAIと、直しながら作る Claude Code を比べるため（運営者が決めた）
+// 比べるのは、この仕組みを入れた日（ROUTINE_NORMAL_SINCE）からあとに作り始めた通常案件だけ（前からの数で比べると、追いつくまでルーティンばかりになる）
+// ルーティンの番の数は、ルーティンに作ってもらうと決めた案件（tool_maker）で数える（作っている途中のものも数える）。同じ数なら、ルーティンを先にする
+export const ROUTINE_NORMAL_SINCE = "2026-11-21 00:00:00";
+export function routineTurnForNew(p: Pick<ProjectRow, "kind" | "deep" | "lp">): boolean {
+  const s = getSettings();
+  if (p.kind !== "tool" || p.deep || p.lp || !s.toolRoutineNormal || s.killSwitch || !toolRoutineConfigured()) return false;
+  const usable = TOOL_MODELS.filter((id) => hasKey(modelInfo(id).provider));
+  if (!usable.length) return true;
+  const ai = new Map((db().prepare(`SELECT v.tool_model AS m, COUNT(DISTINCT v.project_id) AS n FROM lp_versions v JOIN projects p ON p.id = v.project_id
+    WHERE v.tool_model IS NOT NULL AND p.deep = 0 AND p.demo = 0 AND p.tool_maker IS NULL AND p.created_at >= ? GROUP BY v.tool_model`).all(ROUTINE_NORMAL_SINCE) as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  const mine = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE tool_maker = 'claude-code' AND deep = 0 AND demo = 0 AND created_at >= ?").get(ROUTINE_NORMAL_SINCE) as { n: number }).n;
+  return mine <= Math.min(...usable.map((id) => ai.get(id) ?? 0));
+}
+
 // keepTool: じっくり案件のツールを今のまま使い、紹介ページだけを作り直す（紹介ページの指摘だけを直すとき）
 export async function prepareLp(projectId: number, instruction?: string, opts: { keepCore?: boolean; byHuman?: boolean; auto?: boolean; toolHtml?: string; keepTool?: boolean } = {}) {
   const p = getProject(projectId)!;
   const current = opts.keepTool && p.lp ? (JSON.parse(p.lp) as Lp).tool?.html : undefined;
   // じっくり案件のツールは、AIが1回で書かずに、ここ（Claude Code）で作る・直す。AIは設計書を書き、開発待ちにする
   if (p.kind === "tool" && p.deep && opts.toolHtml === undefined && current === undefined) return requestDev(projectId, instruction);
+  // 通常案件の新しいツールも、交代の番ならルーティンに作ってもらう（AIは設計書を書き、開発待ちにする。ルーティンが作って入れる）
+  if (opts.toolHtml === undefined && current === undefined && routineTurnForNew(p)) {
+    db().prepare("UPDATE projects SET tool_maker = 'claude-code' WHERE id = ?").run(projectId);
+    return requestDev(projectId, instruction);
+  }
   const toolHtml = opts.toolHtml ?? current;
   const note = !instruction ? "最初の版" : opts.byHuman ? `あなたの指示: ${instruction}` : `指示: ${instruction}`;
   const made = current !== undefined ? "（ツールは今のまま、紹介ページだけ直した）" : toolHtml !== undefined ? "（ツールは Claude Code で作った）" : "";

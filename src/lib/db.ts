@@ -725,6 +725,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   // 「広がる」の判定の起点の、遊んだ人（利用）とシェアの累計（判断・再開のたびに今の累計にする。判定はこの差だけで見る）
   ["projects", "spread_base_plays", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "spread_base_shares", "INTEGER NOT NULL DEFAULT 0"],
+  ["projects", "tool_maker", "TEXT"], // 通常案件の最初のツールを、クラウドの Claude Code（ルーティン）に作ってもらうと決めたとき 'claude-code'（loop.ts の routineTurnForNew）
   ["projects", "tool_errors_seen", "TEXT"], // 本番のツールのエラーを、どの版で何人まで知らせたか（{"v":版,"n":人数} の JSON。増えたときだけ知らせる）
   ["projects", "spread_hit", "INTEGER"], // 「広がる」の判定の結果（1 当たり / 0 当たらず。判定前は空）
   ["projects", "needs", "TEXT"], // じっくり案件で、作るのに要るもの（保存の場所・外部のAPI・AIなど。needs.ts の Need の JSON）。なければ空
@@ -826,7 +827,8 @@ export type Settings = {
   toolRoutineAuto: boolean;
   toolRoutineConcurrent: number;
   toolRoutinePerDay: number;
-  toolRoutineFixHeld: boolean; // 公開の前のチェックで止まったツールを、ルーティンに直してもらうか（toolRoutine.ts の heldToRoutine）
+  toolRoutineFixHeld: boolean;
+  toolRoutineNormal: boolean; // 通常案件の新しいツールも、ツールを書く担当の交代の1つとしてルーティンに作ってもらうか（loop.ts の routineTurnForNew） // 公開の前のチェックで止まったツールを、ルーティンに直してもらうか（toolRoutine.ts の heldToRoutine）
   // アイデア出しのねらいの配分（重み。0〜10）。広がる・役に立つ・また来てもらう・需要を確かめる
   aimSpread: number;
   aimUseful: number;
@@ -939,6 +941,7 @@ const DEFAULTS: Settings = {
   toolRoutineConcurrent: 1,
   toolRoutinePerDay: 3,
   toolRoutineFixHeld: true,
+  toolRoutineNormal: true,
   needsWaitMax: 5,
   aimSpread: 4,
   aimUseful: 3,
@@ -953,7 +956,7 @@ const DEFAULTS: Settings = {
 };
 
 const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish", "toolRoutineFixHeld"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish", "toolRoutineFixHeld", "toolRoutineNormal"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];
@@ -1055,7 +1058,8 @@ export type ProjectRow = {
   spread_base_plays: number; // 「広がる」の判定の起点の累計（遊んだ人・シェア）
   spread_base_shares: number;
   spread_hit: number | null; // 「広がる」の判定の結果（1 当たり / 0 当たらず）
-  tool_errors_seen: string | null; // 本番のツールのエラーを、どの版で何人まで知らせたか
+  tool_errors_seen: string | null;
+  tool_maker: string | null; // 本番のツールのエラーを、どの版で何人まで知らせたか
   needs: string | null; // 作るのに要るもの（Need[] の JSON）
   needs_done: number; // 要るものを人が用意した（「済み」）か
   needs_done_at: string | null; // 「済み」にして作り始めた日時

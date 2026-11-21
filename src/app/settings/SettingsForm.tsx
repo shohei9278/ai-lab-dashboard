@@ -155,7 +155,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
         <div className="space-y-2 border-t border-line pt-3">
           <h3 className="text-sm font-bold">ツールを作るルーティン（クラウドの Claude Code）</h3>
           <p className="text-xs text-muted">
-            開発待ちのじっくり案件を、クラウドの Claude Code（ルーティン「案件のツールを作る」）に頼みます。できたツールは、人が入れたときと同じく、チェック・動作の確かめ・紹介ページづくりをして、公開の判断に進みます。
+            開発待ちのツール（じっくり案件と、ルーティンの番になった通常案件）を、クラウドの Claude Code（ルーティン「案件のツールを作る」）に頼みます。できたツールは、人が入れたときと同じく、チェック・動作の確かめ・紹介ページづくりをして、公開の判断に進みます。
             ルーティンは claude.ai のプランの使用量で動くので（ふだん使う Claude Code と同じ枠）、頼む数をここで決めます。開発待ちのカードからは、数に関係なく手で頼めます。
           </p>
           <label className="flex items-start gap-2 text-sm">
@@ -170,6 +170,13 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
             <span>
               公開の前のチェックで止まったツールを、ルーティンに直してもらう
               <span className="block text-xs text-muted">チェックで問題が残ったツール（新しく作ったもの・直したもの）は、公開の判断待ちにする前に、指摘を「直す指示」にしてルーティンに頼みます（同じ案件は7日に1回だけ。それでも問題が残れば、判断待ちに出します）。頼む数は、下の数の範囲です。</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={v.toolRoutineNormal} onChange={(e) => set("toolRoutineNormal", e.target.checked)} />
+            <span>
+              通常案件の新しいツールも、ルーティンに作ってもらう
+              <span className="block text-xs text-muted">ツールを書く担当（Claude Opus・Claude Sonnet・GPT）の交代に、4つ目として「Claude Code（ルーティン）」を入れます。作った数が一番少ない担当の番に、ルーティンが作ります（AIが設計書を書き、開発待ちにします）。1回で書くAIと、直しながら作る Claude Code を、テストの通りやすさ・遊ばれ方で比べられます。頼む数は、じっくり案件と合わせて下の数の範囲です。</span>
             </span>
           </label>
           <div className="grid gap-4 sm:grid-cols-2">
