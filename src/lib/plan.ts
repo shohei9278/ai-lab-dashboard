@@ -15,6 +15,7 @@ import { addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { addResearch, researchText, runResearch } from "./research";
 import { maskHandles } from "./viewer";
+import { doneEffectsText } from "./effects";
 
 // 毎日の計画: 毎朝AIが全案件を振り返り、今のネック（届かない・使われない など）を1つ決めて、今日やることを決める
 // - やること: 案件の宣伝の投稿 / 宣伝ではない普通の投稿 / ページを直す / 新しい案件づくりを休む / 次のアイデア出しに課題を伝える
@@ -276,6 +277,7 @@ function planMaterial(): string {
     (() => { const c = trafficCapacity(); return `今の流入で育てられる案件の数: 直近7日の訪問は1日あたり約${c.perDay}人。判断の基準（1件${s.judgeMinVisits}人）まで${s.judgeAfterDays * 2}日で届けられるのは${c.projects}件くらい（公開中の案件がこれより多いと、1件あたりの訪問が薄まって、どれも判断できない。宣伝の投稿は、見込みのある少数の案件に集める）`; })(),
     `運営者からの提案（提案箱にあなたが入れたもの。返事待ち）:\n${(db().prepare("SELECT id, title, how FROM plan_requests WHERE source = 'human' AND status = 'open' ORDER BY id DESC LIMIT 10").all() as { id: number; title: string; how: string | null }[]).map((r) => `- 【${r.id}】${r.title}${r.how ? `: ${r.how}` : ""}`).join("\n") || "（なし）"}`,
     `提案箱（あなたたちAIからのお願い・定例会議の提案。直近30日）:\n${(db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-30 days') ORDER BY id DESC").all() as RequestRow[]).map((r) => `- 「${r.title}」→ ${r.status === "open" ? "まだ返事なし" : r.status === "done" ? `やった${r.decided_at ? `（${jstDateTime(r.decided_at)}）` : ""}` : "見送り"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`).join("\n") || "（まだなし）"}`,
+    doneEffectsText(),
     `教訓:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
     `保留中の案件（人が決めたもの。宣伝も改善も予定に入れない）:\n${(db().prepare("SELECT id, title, hold_until FROM projects WHERE stage = 'hold' AND demo = 0 ORDER BY id").all() as { id: number; title: string; hold_until: string | null }[]).map((p) => `- #${p.id} ${p.title}（${p.hold_until ? `${p.hold_until}に再開` : "再開日なし"}）`).join("\n") || "（なし）"}`,
   ].join("\n\n") + viralHints("sns") + badPostsText();

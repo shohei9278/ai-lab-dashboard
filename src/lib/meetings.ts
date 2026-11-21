@@ -16,7 +16,8 @@ export const MEETING_LABEL: Record<MeetingKind, string> = {
   adhoc: "臨時会議（運営者の議題）", idea: "アイデア会議", copy: "文章と構成の会議", design: "デザインの会議", judge: "判断の会議", plan: "朝会（今日の計画）", weekly: "週の定例会議",
 };
 
-export type MeetingItem = { who: string | null; title: string; text?: string; score?: number | null; won?: boolean; scores?: { who: string; score: number; reason?: string }[] };
+// adjusted: 採点者ごとの甘さ・辛さをならした点（定例会議。並べ方と採るかどうかはこちらで決める）
+export type MeetingItem = { who: string | null; title: string; text?: string; score?: number | null; adjusted?: number; won?: boolean; scores?: { who: string; score: number; reason?: string }[] };
 export type FollowUp = {
   split: NonNullable<AdhocContent["split"]>;
   dueAt: string; // 振り返る日（日本時間の YYYY-MM-DD）
@@ -210,7 +211,9 @@ function planMeetings(days: number): Meeting[] {
 
 export type WeeklyContent = {
   members: { modelId: string; review: string; proposals: { title: string; how: string; why: string; target: "human" | "system" }[] }[];
-  ranked: { title: string; proposer: string; score: number; scores: { who: string; score: number }[] }[];
+  // score: 採点者ごとの甘さ・辛さをならした点（並べ方と採るかどうかに使う）。raw: そのままの平均（ならす前の会議にはない）
+  // won: 提案箱に入れると決めたか（会議を開いたときに残す。前の会議にはないので、上位3件に印を付ける）
+  ranked: { title: string; proposer: string; score: number; raw?: number; won?: boolean; scores: { who: string; score: number }[] }[];
   summary: string; chair: string;
 };
 export type WeeklyRow = { id: number; at: string; period_start: string; period_end: string; chair_model: string; content: string; report_id: number | null };
@@ -225,7 +228,7 @@ function weeklyMeetings(days: number): Meeting[] {
       conclusion: c.summary,
       items: [
         ...c.members.map((m) => ({ who: m.modelId, title: "振り返り", text: m.review })),
-        ...c.ranked.map((p, i) => ({ who: p.proposer, title: `提案「${p.title}」`, score: p.score, won: i < 3, scores: p.scores })),
+        ...c.ranked.map((p, i) => ({ who: p.proposer, title: `提案「${p.title}」`, score: p.raw ?? p.score, adjusted: p.raw !== undefined ? p.score : undefined, won: p.won ?? i < 3, scores: p.scores })),
       ],
     };
   });
