@@ -125,15 +125,28 @@ export function playDepth(all: { name: string; detail: string; visitors: number 
 // AIの判断に渡す文
 export function funnelText(p: ProjectRow): string {
   const f = funnel(p);
-  if (!f.visits) return "";
+  // 直したばかりで今の版に訪問がないときも、前の版の数字は渡す（直す前がどうだったかを見失わないように）
+  if (!f.visits) { const prev = previousText(p, f.version); return prev ? `今の版（第${f.version}版）はまだ訪問なし${prev}` : ""; }
   const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
   // 流入元は訪問の記録から数えるので、ページの中での動きの記録がない版でも渡す
   const channels = channelText(p, f.version).trim();
   // 来た人の画面で起きたツールのエラーは、AIの判断にも渡す（遊べていないかもしれないため）
   const errs = f.toolErrors.length ? `\n来た人の画面で起きたツールのエラー: ${f.toolErrors.slice(0, 5).map((e) => `${toolErrorLabel(e)} ${e.visitors}人`).join(" / ")}` : "";
-  if (!f.hasEvents) return `${channels}${errs}`.trim();
+  const prev = previousText(p, f.version);
+  if (!f.hasEvents) return `${channels}${errs}${prev}`.trim();
   return `ページの中での動き（第${f.version}版・訪問者に対する割合）: ${f.steps.map((s) => `${s.label} ${s.visitors}人（${pc(s.ofVisits)}）`).join(" → ")}
-読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}${channels ? `\n${channels}` : ""}${errs}`;
+読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}${channels ? `\n${channels}` : ""}${errs}${prev}`;
+}
+
+// 前の版との比べ: ページを直して新しい版になると、新しい版の少ない数字しか見えず、直しが効いたかを比べられなかった（運営者が、毎日の直しが過去に基づいているかを尋ね、足すと決めた）
+// 今の版より前で、訪問のあるいちばん新しい版の動きと、今の版で変えたこと（版のメモ）を並べる
+export function previousText(p: ProjectRow, version: number): string {
+  const pc = (x: number | null) => (x === null ? "—" : `${Math.round(x * 100)}%`);
+  const prev = funnelVersions(p).filter((v) => v < version).map((v) => funnel(p, v)).find((f) => f.visits > 0);
+  if (!prev) return "";
+  const note = (db().prepare("SELECT note FROM lp_versions WHERE project_id = ? AND version = ?").get(p.id, version) as { note: string | null } | undefined)?.note;
+  const steps = prev.hasEvents ? `: ${prev.steps.map((s) => `${s.label} ${s.visitors}人（${pc(s.ofVisits)}）`).join(" → ")}` : "";
+  return `\n前の版（第${prev.version}版・訪問${prev.visits}人）${steps}${note ? `\n第${version}版で変えたこと: ${note.replace(/\s+/g, " ").slice(0, 120)}` : ""}\n（版ごとの人数が少ないうちは、差は偶然の可能性が高い）`;
 }
 
 // 流入元ごとに、どこまで進んだか（件数が少ないうちは偶然の差が大きい）

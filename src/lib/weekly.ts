@@ -10,6 +10,7 @@ import type { AdhocContent } from "./adhoc";
 import { STALE_NOTE, addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { researchText } from "./research";
+import { doneEffectsText } from "./effects";
 
 // 週の定例会議（毎週月曜）
 // 1. 3社のAIが、同じ材料（1週間の数字・計画と達成度・提案箱の返事など）から、それぞれ振り返りと改善案を出す
@@ -59,6 +60,8 @@ ${postStatsText() || "効いた手の集計: まだ投稿がない"}
 提案箱（これまでの提案と、運営者の返事。返事待ち・見送りと同じ提案は出さない）:
 ${reqs.join("\n") || "（まだなし）"}
 
+${doneEffectsText()}
+
 提案箱の偏り: ${skew}
 運営者が手でやったこと（この1週間・記録の種類ごと）:
 ${human || "（なし）"}
@@ -83,7 +86,7 @@ export async function createWeeklyMeeting(): Promise<number> {
 - review: 1週間の振り返り。次の5つに、材料の数字と外の声を根拠に順に答える（分からないものは「まだ分からない」と書く）
   1. 誰に届いたか（どの場所から、どんな人が来たか）
   2. 何に使われたか（登録・利用・外の声から分かること）
-  3. AIは何を変えたか（ページ・投稿の切り口・場所・作るものなど）
+  3. AIは何を変えたか（ページ・投稿の切り口・場所・作るものなど）と、材料の「やった改善の前後」「前の版」から、効いたように見えるもの・見えないもの
   4. 人間はどこで助けたか（運営者が手でやったこと・提案箱でやったこと）
   5. まだ分からないことは何か
 - voice_effects: 外の声や調べたことを根拠に、提案や考えを変えたときだけ [{"voice_ids":[声の番号],"research_ids":[調べものの番号],"change":"何をどう変えたか"}]
@@ -138,7 +141,7 @@ export async function createWeeklyMeeting(): Promise<number> {
       system: `週の定例会議で出た改善案を採点します。だれの案かは伏せてあります。
 観点: 材料の数字に根拠があるか / 実際にやれるか / やったら成果（訪問・登録・利用）に効きそうか / スパムや作り話にならないか
 「別軸:」で始まる案は、まだ実績がないので数字の根拠では比べない。今のネックに効く理屈があるか、小さく試せるか、うまくいかなかったときの損が小さいかで見る
-1〜10点で、甘くしないこと（平凡なら5点前後）。
+1〜10点で、甘くしないこと（平凡なら5点前後）。並んだ案どうしを比べて、良いものと良くないものに差を付ける（全部に同じ点を付けない）
 same: 言い方は違っても、やることが同じ案の組（例: [["P2","P5"]]）。片方をやれば、もう片方をやる意味がなくなるものだけ。似た話題・同じ場所を直すだけの別の案は入れない。なければ空の配列
 形式: {"scores":[{"id":"P1","score":点}],"same":[["P1","P4"]]}`,
       user: `${mat}\n\n採点する案:\n${mine.map((x) => `【${label(x.i)}】（${x.p.target === "system" ? "仕組み" : "運営者"}向け）${x.p.title}: ${x.p.how}（根拠: ${x.p.why}）`).join("\n")}`,
@@ -151,8 +154,12 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
       const s = r.value.scores.find((x) => String(x.id).trim() === label(i));
       return s && Number.isFinite(Number(s.score)) ? [{ who: r.value.who, score: Math.max(1, Math.min(10, Number(s.score))) }] : [];
     });
-    return { ...p, idx: i, scores, score: scores.length ? scores.reduce((n, x) => n + x.score, 0) / scores.length : 0 };
-  }).sort((a, b) => b.score - a.score);
+    return { ...p, idx: i, scores, raw: scores.length ? scores.reduce((n, x) => n + x.score, 0) / scores.length : 0, score: 0 };
+  });
+  // 採点者ごとの甘さ・辛さをならした点で、並べて採るか決める（ある採点者はほぼ全部に8点、別の採点者はほぼ全部に5点を付け、平均がそろって差が付かなかった）
+  const adjusted = adjustScores(ranked.map((p) => p.scores));
+  ranked.forEach((p, k) => { p.score = adjusted[k]; });
+  ranked.sort((a, b) => b.score - a.score);
 
   // 同じ提案の組（言い方が違うと文字の重なりでは見分けられないので、採点のときに答えてもらう。運営者が足すと決めた）
   // 残すのは、提案箱にあるもの（点の高いもの）、なければ今回の案の点の高いもの。残さないほうは、今回の案なら提案箱に入れず、提案箱のものはまとめて消す
@@ -203,7 +210,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
 
   const content: WeeklyContent = {
     members: got, chair, summary,
-    ranked: ranked.map((p) => ({ title: p.existingId ? `（提案箱から）${p.title}` : p.title, proposer: p.proposer, score: Math.round(p.score * 10) / 10, scores: p.scores })),
+    ranked: ranked.map((p) => ({ title: p.existingId ? `（提案箱から）${p.title}` : p.title, proposer: p.proposer, score: Math.round(p.score * 10) / 10, raw: Math.round(p.raw * 10) / 10, scores: p.scores })),
   };
   const conn = db();
   const id = Number(conn.prepare("INSERT INTO meetings (period_start, period_end, chair_model, content, report_id) VALUES (?, ?, ?, ?, ?)")
@@ -217,6 +224,19 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
   for (const [i, n] of extraRepeats) if (pool[i].existingId) db().prepare("UPDATE plan_requests SET repeats = repeats + ? WHERE id = ?").run(n, pool[i].existingId);
   logEvent(null, "ai", "meeting", `週の定例会議: ${got.length}社が${pool.length - existing.length}件の改善案を出し合い、${added}件を提案箱に入れました。この週の提案${existing.length}件も採点し、${closed}件を見送りにしました${dupOf.size ? `。同じ提案の組を見つけ、${dupOf.size}件をまとめました（提案箱から消したもの${mergedSame}件）` : ""}${revisited ? `。臨時会議の少数意見を${revisited}件、答え合わせしました` : ""}（議長 ${modelInfo(chair).label}）`);
   return id;
+}
+
+// 採点者ごとの甘さ・辛さをならす: 採点者が付けた点から、その採点者の平均を引き、全体の平均を足す（1〜10に収める）
+// 3件以上採点した採点者だけならす（少ないと、平均がその採点者の甘さを表さない）。点のない案は0点
+export function adjustScores(items: { who: string; score: number }[][]): number[] {
+  const all = items.flat();
+  if (!all.length) return items.map(() => 0);
+  const mean = (xs: number[]) => xs.reduce((n, x) => n + x, 0) / xs.length;
+  const overall = mean(all.map((x) => x.score));
+  const by = new Map<string, number[]>();
+  for (const x of all) by.set(x.who, [...(by.get(x.who) ?? []), x.score]);
+  const bias = new Map([...by].map(([who, xs]) => [who, xs.length >= 3 ? mean(xs) - overall : 0]));
+  return items.map((xs) => (xs.length ? Math.max(1, Math.min(10, mean(xs.map((x) => x.score - (bias.get(x.who) ?? 0))))) : 0));
 }
 
 // 同じ提案の組を、まとまりにする
