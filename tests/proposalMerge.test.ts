@@ -1,0 +1,67 @@
+import "./setup";
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { db } from "../src/lib/db";
+import { SIMILAR, addProposal, mergeSimilarOpen, similarity } from "../src/lib/voices";
+import { meetingMaterial } from "../src/lib/weekly";
+
+// 提案箱に、題の言い方だけ変えた同じ提案が4件並んでいた。同じ趣旨の提案は入れずに回数を数え、すでに入ったものはまとめる（運営者が「提案の幅も広げる」と決めた）
+
+// 本番の提案箱にあった、同じ趣旨の4件と、違う提案
+const same = [
+  { title: "表示順と中身の突き合わせ", how: "design.order に入っているセクション（例: beforeAfter）の中身がLPのデータにない場合は、生成時に order から外すか、チェック項目に加える" },
+  { title: "order と中身の突き合わせ", how: "design.order に入っているセクション（今回は beforeAfter）に対応するデータが LP 本体にあるかを、公開前に自動で照合する。ない場合は order から外すか、警告を出す" },
+  { title: "design.orderと中身の突き合わせ", how: "order に beforeAfter が入っているのに、LPに beforeAfter の中身がない。order に入っている項目の中身があるかを、生成時に自動で確かめるようにする" },
+  { title: "表示順と中身の照合", how: "design.orderに並べた区画ごとに、LP本体にその中身があるかを生成時に確かめ、なければorderから外すか中身を作る" },
+];
+const others = [
+  { title: "再生系の停止処理の確認を標準化", how: "setInterval やアニメーションを持つツールでは、リセット・エラー時にタイマーを必ず止めるかをチェック項目に加える" },
+  { title: "季節テーマ時の減点基準の見直し", how: "依頼テーマ自体が季節限定の場合、季節もの減点の対象外とするか、育てる期間の前提を短くする。" },
+  { title: "季節ものツールの評価基準の調整", how: "spread狙いの場合、季節ものであっても「毎年恒例の定番として再浮上するポテンシャルがあるか」を考慮して評価できるようにする。" },
+  { title: "差分修正でもチェックには全文を渡す", how: "修正後のチェックには、変更した箇所だけでなく、修正を反映したtool.html全体を必ず渡すようにする" },
+];
+
+test("提案箱: 同じ趣旨の提案は似ていると見分け、違う提案は見分けない", () => {
+  for (let i = 0; i < same.length; i++) for (let j = i + 1; j < same.length; j++) assert.ok(similarity(same[i], same[j]) >= SIMILAR, `${same[i].title} / ${same[j].title}`);
+  for (const a of [...same.slice(0, 1), ...others]) for (const b of others) if (a !== b) assert.ok(similarity(a, b) < SIMILAR, `${a.title} / ${b.title}`);
+});
+
+test("提案箱: 同じ趣旨の提案は入れずに回数を数え、見送ったものと同じ趣旨なら入れない。運営者の提案は止めない", () => {
+  db().exec("DELETE FROM plan_requests");
+  const first = addProposal({ ...same[0], target: "system", source: "scene", scene: "LPのチェック" });
+  assert.ok(first);
+  assert.equal(addProposal({ ...same[1], target: "system", source: "scene", scene: "LPのチェック" }), null);
+  assert.equal(addProposal({ ...same[2], target: "system", source: "meeting" }), null);
+  assert.equal((db().prepare("SELECT repeats FROM plan_requests WHERE id = ?").get(first) as { repeats: number }).repeats, 2);
+  // 運営者にやってほしいこと（target が違う）は別に数える
+  assert.ok(addProposal({ ...same[3], target: "human", source: "plan" }));
+  // 見送ったものと同じ趣旨なら入れない
+  const s = addProposal({ ...others[0], target: "system", source: "scene" });
+  db().prepare("UPDATE plan_requests SET status = 'declined' WHERE id = ?").run(s);
+  assert.equal(addProposal({ title: "再生の停止処理の確認", how: others[0].how, target: "system", source: "meeting" }), null);
+  // 運営者が入れた提案は、似ていても入れる
+  assert.ok(addProposal({ ...same[1], title: "表示順の確かめ（運営者）", target: "system", source: "human" }));
+});
+
+test("提案箱: すでに入っている同じ趣旨の提案は、点の高いものに1件にまとめる（頼んだもの・声から入れたものは消さない）", () => {
+  db().exec("DELETE FROM plan_requests");
+  const ins = (p: { title: string; how: string }, score: number | null) => Number(db().prepare("INSERT INTO plan_requests (title, how, source, target, score) VALUES (?, ?, 'scene', 'system', ?)").run(p.title, p.how, score).lastInsertRowid);
+  const a = ins(same[0], null), b = ins(same[1], 7), c = ins(same[2], null), d = ins(same[3], null), x = ins(others[0], null);
+  db().prepare("INSERT INTO voices (scene, text, request_id) VALUES ('t', '声から入れた', ?)").run(d);
+  assert.equal(mergeSimilarOpen(true), 2);
+  const left = (db().prepare("SELECT id, repeats FROM plan_requests ORDER BY id").all() as { id: number; repeats: number }[]);
+  assert.deepEqual(left.map((r) => r.id), [b, d, x]);
+  assert.equal(left[0].repeats, 2);
+  assert.ok(!left.some((r) => r.id === a || r.id === c));
+  // 2回目は何もしない（1時間に1回）
+  assert.equal(mergeSimilarOpen(), 0);
+});
+
+test("定例会議の材料: 仕組みの改善の偏りと、運営者が手でやったことを渡す", () => {
+  db().exec("DELETE FROM plan_requests");
+  db().prepare("INSERT INTO plan_requests (title, how, source, target, scene, proposer) VALUES ('a', 'x', 'scene', 'system', 'LPのチェック', 'claude-opus-5-5')").run();
+  db().prepare("INSERT INTO events (actor, kind, message) VALUES ('human', 'deep-upload', 'じっくり案件のツールを入れた')").run();
+  const m = meetingMaterial("2000-01-01");
+  assert.match(m, /返事待ちの仕組みの改善 1件: 出た場面 LPのチェック 1件/);
+  assert.match(m, /deep-upload 1回（例: じっくり案件のツールを入れた）/);
+});

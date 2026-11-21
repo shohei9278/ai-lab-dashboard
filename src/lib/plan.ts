@@ -108,6 +108,8 @@ export type RequestRow = {
   id: number; plan_id: number | null; created_at: string; title: string; how: string | null; why: string | null; status: "open" | "done" | "declined"; note: string | null; decided_at: string | null;
   source: "plan" | "meeting" | "scene" | "error" | "revival" | "human" | "voice"; proposer: string | null; target: "human" | "system"; score: number | null; meeting_id: number | null;
   scene: string | null; project_id: number | null; ref_id: number | null; ai_reply: string | null;
+  ai_fix_at: string | null; ai_fix_url: string | null; ai_fix_note: string | null; ai_fix_pr: number | null; ai_fix_pr_state: "open" | "merged" | "closed" | null;
+  repeats: number;
 };
 
 const REQUEST_SOURCE: Record<string, string> = {

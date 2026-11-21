@@ -3,10 +3,11 @@ import { answerRequest, cancelTask, createPlan, editAnswer } from "@/lib/plan";
 import { reviewPost } from "@/lib/postStats";
 import { addProposal, promoteVoice } from "@/lib/voices";
 import { reviveIdea } from "@/lib/loop";
+import { startAiFix } from "@/lib/aiFix";
 
-// 毎日の計画: 予定を取りやめる・今日の計画を作り直す・AIだけで出した投稿に印を付ける・提案箱の提案に答える（答えを直す）・提案を入れる・敗者復活の案で案件を作る・社員の声を提案箱に入れる
+// 毎日の計画: 予定を取りやめる・今日の計画を作り直す・AIだけで出した投稿に印を付ける・提案箱の提案に答える（答えを直す）・提案を入れる・敗者復活の案で案件を作る・社員の声を提案箱に入れる・仕組みの改善をクラウドの Claude Code に直してもらう
 export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as { propose?: { title?: unknown; how?: unknown }; reviveId?: unknown; promoteVoiceId?: unknown; cancelTaskId?: unknown; action?: unknown; review?: { table?: unknown; id?: unknown; verdict?: unknown; note?: unknown }; answer?: { id?: unknown; status?: unknown; note?: unknown; edit?: unknown } };
+  const body = (await req.json().catch(() => ({}))) as { propose?: { title?: unknown; how?: unknown }; reviveId?: unknown; promoteVoiceId?: unknown; cancelTaskId?: unknown; action?: unknown; aiFix?: { id?: unknown; note?: unknown }; review?: { table?: unknown; id?: unknown; verdict?: unknown; note?: unknown }; answer?: { id?: unknown; status?: unknown; note?: unknown; edit?: unknown } };
   try {
     const pr = body.propose;
     if (pr && typeof pr.title === "string" && pr.title.trim()) {
@@ -26,6 +27,8 @@ export async function POST(req: Request) {
       (a.edit === true ? editAnswer : answerRequest)(a.id, a.status, typeof a.note === "string" ? a.note : "");
       return NextResponse.json({ ok: true });
     }
+    const f = body.aiFix;
+    if (f && typeof f.id === "number") return NextResponse.json(await startAiFix(f.id, typeof f.note === "string" ? f.note : ""));
     if (typeof body.cancelTaskId === "number") {
       cancelTask(body.cancelTaskId);
       return NextResponse.json({ ok: true });

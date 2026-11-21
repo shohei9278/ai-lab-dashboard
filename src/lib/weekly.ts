@@ -37,7 +37,15 @@ export function meetingMaterial(start: string): string {
   const plans = (db().prepare("SELECT day, model_id, content FROM daily_plans WHERE day >= ? ORDER BY day").all(start) as { day: string; model_id: string; content: string }[])
     .map((p) => { const c = JSON.parse(p.content) as { focus: string; bottleneck: string }; return `- ${p.day} 担当 ${modelInfo(p.model_id).label}: ネック ${c.bottleneck}・${c.focus}`; });
   const reqs = (db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-45 days') ORDER BY id DESC").all() as RequestRow[])
-    .map((r) => `- 「${r.title}」（${r.target === "system" ? "仕組み" : "運営者"}向け）→ ${r.status === "open" ? "返事待ち" : r.status === "done" ? "やった" : "見送り"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`);
+    .map((r) => `- 「${r.title}」（${r.target === "system" ? "仕組み" : "運営者"}向け）→ ${r.status === "open" ? "返事待ち" : r.status === "done" ? "やった" : "見送り"}${r.repeats ? `・同じ趣旨の提案がほかに${r.repeats}回出た` : ""}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`);
+  // 仕組みの改善の偏り: 返事待ちが、どこで出て、だれが出したものに偏っているか（作業の途中のチェックの手順の足しばかりになっていた。運営者が「幅が狭くないか」と気にした）
+  const openSys = db().prepare("SELECT source, scene, proposer FROM plan_requests WHERE status = 'open' AND target = 'system' AND source != 'human'").all() as { source: string; scene: string | null; proposer: string | null }[];
+  const tally = (xs: string[]) => [...xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map<string, number>())].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}件`).join("・");
+  const skew = openSys.length ? `返事待ちの仕組みの改善 ${openSys.length}件: 出た場面 ${tally(openSys.map((r) => r.scene ?? r.source))} / 出したAI ${tally(openSys.map((r) => (r.proposer ? modelInfo(r.proposer).label : "システム")))}` : "返事待ちの仕組みの改善はない";
+  // 人の手: この1週間に運営者が手でやったこと（種類ごとの回数）。人の手を減らす案の材料
+  // 種類の名前だけでは何をしたか分からないので、いちばん新しい記録の文を1つ添える
+  const human = (db().prepare("SELECT kind, COUNT(*) AS n, (SELECT message FROM events e2 WHERE e2.actor = 'human' AND e2.kind = e.kind ORDER BY e2.id DESC LIMIT 1) AS last FROM events e WHERE actor = 'human' AND at >= ? GROUP BY kind ORDER BY n DESC LIMIT 15").all(`${start} 00:00:00`) as { kind: string; n: number; last: string }[])
+    .map((h) => `- ${h.kind} ${h.n}回（例: ${h.last.slice(0, 80)}）`).join("\n");
   return `${gather(start)}
 
 ${outsideText()}
@@ -50,6 +58,10 @@ ${postStatsText() || "効いた手の集計: まだ投稿がない"}
 
 提案箱（これまでの提案と、運営者の返事。返事待ち・見送りと同じ提案は出さない）:
 ${reqs.join("\n") || "（まだなし）"}
+
+提案箱の偏り: ${skew}
+運営者が手でやったこと（この1週間・記録の種類ごと）:
+${human || "（なし）"}
 
 社員の声（この1週間のつぶやき。何度も出ている心配は、改善案にする価値がある）:
 ${(db().prepare("SELECT model_id, scene, text FROM voices WHERE at >= datetime('now', '-7 days') ORDER BY id DESC LIMIT 40").all() as { model_id: string | null; scene: string; text: string }[]).map((v) => `- ${v.model_id ? modelInfo(v.model_id).label : "システム"}（${v.scene}）: ${v.text}`).join("\n") || "（なし）"}`;
@@ -79,6 +91,9 @@ export async function createWeeklyMeeting(): Promise<number> {
   - human: 運営者（人）にやってほしいこと（AIは他人への働きかけ・アカウントの設定・コミュニティへの参加などができない）
   - system: この会社の仕組み（AIへの指示・集計のしかた・自動化の決まり・作るものの選び方など）を変える案
   title は短く、how は具体的に何をどう変えるか、why は材料の数字の根拠
+  - system の案は、次の観点を見渡して考える。提案箱の偏り（材料）を見て、返事待ちに多い観点より、少ない観点を優先する
+    ①届ける（訪問を増やす仕組み）②作るものの質（ツール・LP の作り方・確かめ方）③人の手を減らす（材料の「運営者が手でやったこと」を、自動にできないか）④費用（目的別のAI費用）⑤数字の使い方（集めているのに判断に使っていない数字）
+  - system の案は、運営者が提案箱で押すと、Claude Code がそのままコードを直して PR にする。how は、何をどう変えれば終わりかが分かる具体さで書く（どの作業の、どの決まり・指示・集計を、どう変えるか）
   - 3件のうち1件は、思いつけば「別軸」の案にしてよい（axis を "new" に）。今のやり方の改善ではなく、まだ試していない手（動画など新しい発信の形・新しい場所・届け方・作るものの形を変えるなど）。how には ①何をするか ②自動でできるか、人の手が要るか（人が手でやる形でもよい）③小さく試す方法 ④何の数字で続けるか決めるか を書く。外のサービスの規約やAPIの制約は、確かでなければ断定せず「要確認」と書く。why には、今のネックにどう効くかを書く
 - voice: 今週のひとこと（80文字以内）。感想・気づき・この会社へのダメ出し・試したいことなど何でもよい。遠慮はいらない
 守ること:
