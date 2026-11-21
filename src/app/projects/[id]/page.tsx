@@ -98,7 +98,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
       <div className="space-y-2">
         <Link href="/projects" className="text-sm text-accent underline">← 案件の一覧</Link>
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-bold">{p.title}</h1>
+          <h1 className="text-xl font-bold"><span className="num mr-2 text-base font-normal text-muted">#{p.id}</span>{p.title}</h1>
           <span className="rounded border border-line px-1.5 py-0.5 text-xs">{STAGE_LABEL[p.stage]}</span>
           {p.stage === "killed" && p.end_reason && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">撤退の理由: {END_REASON_LABEL[p.end_reason] ?? p.end_reason}</span>}
           {!!p.growth_phase && <span className="rounded px-1.5 py-0.5 text-xs font-medium" style={{ background: "var(--surface-2)", color: "var(--good)" }}>育てる段階（実験 {p.growth_count}回）</span>}

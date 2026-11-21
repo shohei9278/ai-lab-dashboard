@@ -502,7 +502,9 @@ async function makeOnce(projectId: number): Promise<number> {
 }
 
 // 公開したときに、ねらいが「広がる」の案件は、裏で遊ぶ様子の動画を作っておく（投稿に使う。失敗しても公開は止めない）
+// 設定の「公開したときに動画を自動で作る」がオンのときだけ（運営者が、必要なときだけ作れればよいと決めた。案件の画面のボタンからはいつでも作れる）
 export function makePlayVideoOnPublish(p: Pick<ProjectRow, "id" | "kind" | "aim">) {
-  if (p.kind !== "tool" || p.aim !== "spread" || getSettings().killSwitch || pending.has(p.id)) return;
+  const s = getSettings();
+  if (!s.playVideoOnPublish || p.kind !== "tool" || p.aim !== "spread" || s.killSwitch || pending.has(p.id)) return;
   void makePlayVideo(p.id).catch((e) => logEvent(p.id, "system", "play-video-error", `遊ぶ様子の動画を作れませんでした: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
 }
