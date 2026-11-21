@@ -34,3 +34,17 @@
 
 ## main を守る
 ルーティンは `claude/proposal-<番号>` のブランチに push します。main へ直接入らないよう、GitHub の main の保護（PR を通さない push を止める）を付けておきます。
+
+## いま作ってあるもの（2026-11-21）
+- ルーティン「提案箱の改善を直して PR を作る」（`trig_01Y5SMtXXi53Bs3buR3EZ9PS`）。環境は Default（本番のダッシュボードには通信しない）
+- ルーティン「案件のツールを作る」（`trig_01JJmfRhxAsH7WLUfhRRQkUP`）。環境は、ダッシュボードへの通信を許し、`LAB_DASHBOARD_URL`・`LAB_TOOL_TOKEN` を入れたもの。手順は [routine-tool-build.md](routine-tool-build.md)
+- 作るときの API が「いつ動かすか」を必ず求めるので、2030年1月1日に1回、として作りました（ツールのほうは、運営者が編集したときに外れています）。どちらも、ダッシュボードから起動したときだけ動きます
+
+## ツールを作るルーティンの変数（Railway）
+| 名前 | 値 |
+| --- | --- |
+| `CLAUDE_TOOL_ROUTINE_FIRE_URL` | 「案件のツールを作る」の起動の URL |
+| `CLAUDE_TOOL_ROUTINE_TOKEN` | 「案件のツールを作る」の API のトークン |
+| `LAB_TOOL_TOKEN` | ルーティンがダッシュボードに入る合言葉（32文字以上。ルーティンの環境の変数と同じ値） |
+
+自動で頼むか・同時に頼む数・1日に頼む数は、ダッシュボードの設定の「ツールを作るルーティン」で決めます。

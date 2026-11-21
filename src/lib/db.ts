@@ -641,6 +641,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["shadow_judgments", "round_id", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "idea_model", "TEXT"], // アイデアを考えたAI（LPなど以降の作業は設定のAIが行う）
   ["projects", "public_slug", "TEXT"], // 公開用LPサイトでのURLの一部（実際に公開したものだけ）
+  ["approvals", "routine_at", "TEXT"], // 開発待ちを、クラウドの Claude Code（ルーティン）に頼んだ日時と、作業の画面の URL（toolRoutine.ts）
+  ["approvals", "routine_url", "TEXT"],
   ["approvals", "initial_choice", "TEXT"], // 判断: AIの意見を見る前に人が選んだもの
   ["approvals", "final_choice", "TEXT"], // 判断: AIの意見と議論を見たあとに人が確定したもの
   ["projects", "kind", "TEXT NOT NULL DEFAULT 'lp'"],
@@ -819,6 +821,11 @@ export type Settings = {
   deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）
   needsWaitMax: number; // 人の作業待ち（保存の場所・API・AIなど、まだない仕組みが要るじっくり案件）がこの件数以上なら、そういう案件を新しく作らない
   deepDevWaitMax: number; // 開発待ち（Claude Code で作るのを待っている）のじっくり案件がこの件数以上なら、新しいじっくり案件を作らない
+  // 開発待ちのじっくり案件を、クラウドの Claude Code（ルーティン）に自動で頼むか・同時に頼む数・1日（24時間）に頼む数（toolRoutine.ts）
+  // ルーティンはサブスクの使用量で動くので、頼む数は運営者が設定で決める（運営者が決めた）
+  toolRoutineAuto: boolean;
+  toolRoutineConcurrent: number;
+  toolRoutinePerDay: number;
   // アイデア出しのねらいの配分（重み。0〜10）。広がる・役に立つ・また来てもらう・需要を確かめる
   aimSpread: number;
   aimUseful: number;
@@ -924,6 +931,9 @@ const DEFAULTS: Settings = {
   staleDays: 7,
   deepPerWeek: 3,
   deepDevWaitMax: 2,
+  toolRoutineAuto: true,
+  toolRoutineConcurrent: 1,
+  toolRoutinePerDay: 3,
   needsWaitMax: 5,
   aimSpread: 4,
   aimUseful: 3,
@@ -938,7 +948,7 @@ const DEFAULTS: Settings = {
 };
 
 const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];
@@ -1073,6 +1083,8 @@ export type ApprovalRow = {
   initial_choice: string | null;
   final_choice: string | null;
   lp_version: number;
+  routine_at: string | null;
+  routine_url: string | null;
 };
 
 export type EventRow = { id: number; at: string; project_id: number | null; actor: "ai" | "human" | "system"; kind: string; message: string };

@@ -1,6 +1,7 @@
 import { db } from "./db";
 import { logEvent } from "./loop";
 import { sourceLabel, type RequestRow } from "./plan";
+import { fireRoutine, routineConfigured, type Fetch } from "./routine";
 
 // 提案箱の「仕組みの改善」を、クラウドの Claude Code（ルーティン）に直させ、PR にしてもらう
 // 人がするのは、提案箱で「AIに直させる」を押すことと、できた PR を見てマージすることだけ（運営者が決めた。ルーティンで動かすのも運営者が選んだ）
@@ -10,11 +11,10 @@ import { sourceLabel, type RequestRow } from "./plan";
 // - 直す手順と守ること（main に入れない・マージしない・CI を変えない など）は、ルーティンに保存する指示（docs/routine-proposal-fix.md）に書く
 
 export const REPO_URL = "https://github.com/shohei9278/ai-lab-dashboard";
-// トークンを、決まった送り先（Anthropic のルーティンの起動）以外に送らない
-const FIRE_URL = /^https:\/\/api\.anthropic\.com\/v1\/claude_code\/routines\/trig_[A-Za-z0-9]+\/fire$/;
 const RETRY_MS = 60 * 60 * 1000;
 
-export const aiFixConfigured = () => FIRE_URL.test(process.env.CLAUDE_ROUTINE_FIRE_URL ?? "") && !!process.env.CLAUDE_ROUTINE_TOKEN;
+// トークンを、決まった送り先（Anthropic のルーティンの起動）以外に送らない（routine.ts）
+export const aiFixConfigured = () => routineConfigured("CLAUDE_ROUTINE_FIRE_URL", "CLAUDE_ROUTINE_TOKEN");
 // ルーティンが作るブランチの名前（PR を探すのにも使う）
 export const aiFixBranch = (id: number) => `claude/proposal-${id}`;
 export const aiFixPrsUrl = (id: number) => `${REPO_URL}/pulls?q=${encodeURIComponent(`is:pr head:${aiFixBranch(id)}`)}`;
@@ -40,7 +40,6 @@ export function aiFixText(r: RequestRow, note: string): string {
   ].filter(Boolean).join("\n");
 }
 
-type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
 // 運営者が「AIに直させる」を押したとき。ルーティンを起動し、作業の画面の URL を覚える
 export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fetch): Promise<{ sessionUrl: string | null }> {
@@ -49,21 +48,7 @@ export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fe
   if (!r || r.status !== "open" || r.target !== "system") throw new Error("まだ答えていない「仕組みの改善」だけ頼めます");
   if (!aiFixRetryable(r)) throw new Error(r.ai_fix_pr_state === "open" ? "できた PR がレビュー待ちです。マージするか閉じてから頼めます" : "頼んだばかりです。1時間たってから、もう一度頼めます");
   const clean = note.trim().slice(0, 300);
-  const res = await fetchImpl(process.env.CLAUDE_ROUTINE_FIRE_URL!, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.CLAUDE_ROUTINE_TOKEN}`,
-      "anthropic-beta": "experimental-cc-routine-2026-04-01",
-      "anthropic-version": "2023-06-01",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ text: aiFixText(r, clean) }),
-    signal: AbortSignal.timeout(20_000),
-  });
-  // 失敗したときは、応答の中身（トークンの手がかりになりうる）を出さず、番号だけ伝える
-  if (!res.ok) throw new Error(`Claude Code のルーティンを起動できませんでした（${res.status}）`);
-  const data = (await res.json().catch(() => ({}))) as { claude_code_session_url?: unknown };
-  const url = typeof data.claude_code_session_url === "string" && /^https:\/\/claude\.ai\/[^\s"'<>]+$/.test(data.claude_code_session_url) ? data.claude_code_session_url : null;
+  const url = await fireRoutine("CLAUDE_ROUTINE_FIRE_URL", "CLAUDE_ROUTINE_TOKEN", aiFixText(r, clean), fetchImpl);
   // 頼み直したときは、前の PR の番号と状態を消す（新しい PR が見つかるまで「PR はまだ見つかっていません」と出す。PR #126 の ai-review の指摘）
   db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_url = ?, ai_fix_note = ?, ai_fix_pr = NULL, ai_fix_pr_state = NULL WHERE id = ?").run(url, clean || null, id);
   logEvent(null, "human", "plan-request-ai-fix", `提案箱の「${r.title}」を、Claude Code に直してもらうよう頼んだ（PR ができたら、見てマージする）`);
