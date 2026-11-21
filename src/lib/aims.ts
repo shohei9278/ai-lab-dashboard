@@ -109,6 +109,38 @@ export function pickByAims<T extends { aim: Aim; avg: number; author: string }>(
   return kept;
 }
 
+// 推し枠: 平均では選ばれなかった案のうち、作者ではない会社のAIが CHAMPION_MIN 点以上を付けた案を1件選ぶ（運営者が決めた）
+// 付けた点の高い順。同じなら、平均との差が大きい（評価が割れた・尖った）案、さらに同じなら平均点の高い案を先にする
+// accept で外れた案（作ってよい件数の上限など）は飛ばす。当てはまる案がなければ null
+export const CHAMPION_MIN = 8;
+export function pickChampion<T extends { top: number | null; avg: number }>(rest: T[], accept: (x: T) => boolean = () => true): T | null {
+  const list = rest
+    .filter((x): x is T & { top: number } => x.top !== null && x.top >= CHAMPION_MIN)
+    .sort((a, b) => b.top - a.top || (b.top - b.avg) - (a.top - a.avg) || b.avg - a.avg);
+  for (const x of list) if (accept(x)) return x;
+  return null;
+}
+
+// 推し枠つきで keep 件（2件以上）を選ぶ。keep - 1 件は今までどおり平均点で選び、最後の1件を推し枠にする
+// 推し枠の候補からは、平均点なら最後の1件に選ばれる案を外す（今までと同じ案を推し枠と数えないように。PR #123 の ai-review の指摘）
+// 推し枠の候補は、作ってよいねらい（allowed）で、平均点が下限（floor）以上の案だけ（今までの選ぶ決まりを通す。PR #123 の ai-review の指摘）
+// ねらいの配分（足りないねらいを先にする並べ替え）は当てない（推し枠は、わざと平均点の順から外して選ぶ枠のため。運営者が決めた）
+// peek: accept と同じ条件を、件数を減らさずに確かめる。推し枠に当てはまる案がなければ、平均点の案を選ぶ
+export function pickWithChampion<T extends { aim: Aim; avg: number; author: string; top: number | null }>(
+  list: T[], keep: number, weights: AimWeights, counts: Partial<Record<Aim, number>>, allowed: readonly Aim[], floor: number,
+  accept: (x: T) => boolean, peek: (x: T) => boolean,
+): { picked: T[]; champion: T | null } {
+  if (keep < 2) return { picked: pickByAims(list, keep, weights, counts, allowed, floor, accept), champion: null };
+  const base = pickByAims(list, keep - 1, weights, counts, allowed, floor, accept);
+  const rest = list.filter((x) => !base.includes(x));
+  const n = { ...counts };
+  for (const b of base) n[b.aim] = (n[b.aim] ?? 0) + 1;
+  const next = pickByAims(rest, 1, weights, n, allowed, floor, peek)[0];
+  const champion = pickChampion(rest.filter((x) => x !== next && allowed.includes(x.aim) && x.avg >= floor), accept);
+  if (champion) return { picked: [...base, champion], champion };
+  return { picked: [...base, ...pickByAims(rest, 1, weights, n, allowed, floor, accept)], champion: null };
+}
+
 // AIの答えのねらいを、頼んだねらいとそろえる
 // 頼んだねらい（aims）があるときは、ねらいごとに頼んだ件数までの案だけを残す（順番の入れ替えはよい。頼んでいないねらいや、件数を超えた分は外す。
 // 名前だけ書き換えると中身とねらいが食い違うので、外す）。書かれていなければ、書かれた案が使った分を除いて、残っているねらいを頼んだ順に当てる

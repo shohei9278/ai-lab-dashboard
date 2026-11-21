@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { getLp, supabase } from "@/lib/supabase";
+import { depthValueOk } from "@/lp/playDepth";
 
 // ページの中での動き（GA に送るのと同じイベント）を記録する。公開中の、今の版だけを数える
-const NAMES = new Set(["cta_click", "form_start", "section_view", "scroll_depth", "sign_up", "sign_up_error", "tool_use", "share"]);
+// play_time・results・result_kinds は、遊びの深さ（超えた区切りの秒・回・種類の数。lp/playDepth.ts）
+const NAMES = new Set(["cta_click", "form_start", "section_view", "scroll_depth", "sign_up", "sign_up_error", "tool_use", "share", "play_time", "results", "result_kinds"]);
 
 export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -10,7 +12,7 @@ export async function POST(req: Request) {
   const name = String(body.name ?? "");
   const visitorId = String(body.visitorId ?? "").slice(0, 64);
   const detail = String(body.detail ?? "").replace(/[^\w.-]/g, "").slice(0, 30);
-  if (!NAMES.has(name) || !visitorId || !slug) return NextResponse.json({ ok: false }, { status: 400 });
+  if (!NAMES.has(name) || !visitorId || !slug || !depthValueOk(name, detail)) return NextResponse.json({ ok: false }, { status: 400 });
   const lp = await getLp(slug);
   if (!lp || lp.status !== "published" || Number(body.version) !== lp.version) return NextResponse.json({ ok: false }, { status: 400 });
   const { error } = await supabase()

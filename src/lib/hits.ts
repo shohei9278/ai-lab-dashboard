@@ -96,6 +96,40 @@ export function hitGroups(rows: HitRow[] = hitRows()): HitGroup[] {
   return [...map.values()].sort((a, b) => b.hits - a.hits || b.count - a.count);
 }
 
+// ---- 採点の答え合わせ ----
+// アイデア会議で各社のAIが付けた点と、その案件が当たったかを並べる（どのAIの目が確かか。推し枠と平均で選んだ案のどちらが当たるか）
+// 作者が自分の案に付けた点は甘くなりがちなので、数えない。当たったかが分かった案件（hitRows の hit が null でないもの）だけを使う
+
+export type ScorerCheck = { model: string; hitN: number; hitAvg: number | null; missN: number; missAvg: number | null };
+export type PickCheck = { kind: "average" | "champion"; count: number; judged: number; hits: number };
+
+export function scoreChecks(rows: HitRow[] = hitRows()): { scorers: ScorerCheck[]; picks: PickCheck[] } {
+  const hit = new Map(rows.map((r) => [r.id, r.hit]));
+  const scores = db().prepare(
+    `SELECT c.project_id AS projectId, s.scorer_model AS model, s.score FROM idea_candidates c JOIN idea_scores s ON s.candidate_id = c.id
+     WHERE c.practice = 0 AND c.project_id IS NOT NULL AND s.scorer_model != c.author_model`,
+  ).all() as { projectId: number; model: string; score: number }[];
+  const by = new Map<string, { hit: number[]; miss: number[] }>();
+  for (const x of scores) {
+    const h = hit.get(x.projectId);
+    if (h === undefined || h === null) continue;
+    const m = by.get(x.model) ?? { hit: [], miss: [] };
+    (h ? m.hit : m.miss).push(x.score);
+    by.set(x.model, m);
+  }
+  const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  const scorers = [...by].map(([model, m]) => ({ model, hitN: m.hit.length, hitAvg: avg(m.hit), missN: m.miss.length, missAvg: avg(m.miss) }))
+    .sort((a, b) => a.model.localeCompare(b.model));
+  const picked = db().prepare("SELECT project_id AS projectId, pick_kind AS kind FROM idea_candidates WHERE practice = 0 AND project_id IS NOT NULL AND pick_kind IN ('average', 'champion')")
+    .all() as { projectId: number; kind: "average" | "champion" }[];
+  const picks: PickCheck[] = (["average", "champion"] as const).map((kind) => {
+    const ps = picked.filter((x) => x.kind === kind);
+    const judged = ps.filter((x) => (hit.get(x.projectId) ?? null) !== null);
+    return { kind, count: ps.length, judged: judged.length, hits: judged.filter((x) => hit.get(x.projectId)).length };
+  });
+  return { scorers, picks };
+}
+
 // アイデア出しに渡す文（成績があるときだけ）。当たったジャンルは少し多めに、ただし新しいジャンルを試す分は必ず残す
 export function hitsText(): string {
   const groups = hitGroups();

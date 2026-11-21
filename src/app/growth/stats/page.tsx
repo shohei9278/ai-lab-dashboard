@@ -2,7 +2,8 @@ import { PageIntro } from "@/components/PageIntro";
 import { GrowthTabs } from "@/components/LabTabs";
 import { PostStatsView } from "../../plan/PlanView";
 import { AIMS } from "@/lib/aims";
-import { followerHistory, hitGroups, hitRows } from "@/lib/hits";
+import { followerHistory, hitGroups, hitRows, scoreChecks, type HitRow } from "@/lib/hits";
+import { MODELS } from "@/lib/models";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export default function GrowthStatsPage() {
         <PostStatsView />
       </section>
       <HitsView />
+      <ScoreCheckView />
     </div>
   );
 }
@@ -91,6 +93,60 @@ function HitsView() {
           </ul>
         </details>
       )}
+    </section>
+  );
+}
+
+// 採点の答え合わせ: アイデア会議で各社のAIが付けた点と、当たったか。推し枠と平均で選んだ案の、当たりの数
+function ScoreCheckView({ rows }: { rows?: HitRow[] }) {
+  const { scorers, picks } = scoreChecks(rows);
+  const label = (id: string) => MODELS.find((m) => m.id === id)?.label ?? id;
+  const pt = (x: number | null) => (x === null ? "—" : `${x.toFixed(1)}点`);
+  const PICK_LABEL = { average: "平均点で選んだ案", champion: "推し枠で選んだ案" } as const;
+  return (
+    <section className="card space-y-4 p-4">
+      <div>
+        <h2 className="font-bold">採点の答え合わせ</h2>
+        <p className="text-xs text-muted">
+          アイデア会議で各社のAIが付けた点と、その案件が当たったかを並べています。当たった案に高く、当たらなかった案に低く付けているAIほど、当たりを見分けられています。作者が自分の案に付けた点は数えません。当たったかが分かった案件（上の「当たりの記録」と同じ判定）だけを使います。件数が少ないうちは、偶然の差が大きいです。
+        </p>
+      </div>
+      <div>
+        <h3 className="text-sm font-bold">AIごと</h3>
+        {scorers.length === 0 ? (
+          <p className="text-sm text-ink-2">まだありません（案件の当たりが分かると、ここにたまります）。</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-muted">
+                <tr><th className="py-1 pr-3 font-normal">AI</th><th className="py-1 pr-3 text-right font-normal">当たった案に付けた点</th><th className="py-1 pr-3 text-right font-normal">当たらなかった案に付けた点</th><th className="py-1 text-right font-normal">差</th></tr>
+              </thead>
+              <tbody>
+                {scorers.map((x) => (
+                  <tr key={x.model} className="border-t border-line">
+                    <td className="py-1 pr-3">{label(x.model)}</td>
+                    <td className="num py-1 pr-3 text-right">{pt(x.hitAvg)}<span className="ml-1 text-xs text-muted">{x.hitN}件</span></td>
+                    <td className="num py-1 pr-3 text-right">{pt(x.missAvg)}<span className="ml-1 text-xs text-muted">{x.missN}件</span></td>
+                    <td className="num py-1 text-right">{x.hitAvg !== null && x.missAvg !== null ? `${x.hitAvg - x.missAvg >= 0 ? "+" : ""}${(x.hitAvg - x.missAvg).toFixed(1)}` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <div>
+        <h3 className="text-sm font-bold">推し枠と平均点</h3>
+        <p className="text-xs text-muted">毎日のアイデア出しで2件以上作る日は、最後の1件を、平均では漏れた案のうち、作者ではない会社のAIが8点以上を付けた案から選びます（推し枠）。全員がそこそこ良いと思う案だけでなく、尖った案も試すためです。</p>
+        <ul className="mt-2 space-y-1 text-sm">
+          {picks.map((p) => (
+            <li key={p.kind} className="num flex justify-between gap-2">
+              <span>{PICK_LABEL[p.kind]}</span>
+              <span>{p.count}件・当たり {p.hits}/{p.judged}{p.judged ? `（${Math.round((p.hits / p.judged) * 100)}%）` : ""}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </section>
   );
 }

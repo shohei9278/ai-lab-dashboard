@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Funnel } from "@/lib/funnel";
+import type { Funnel, PlayDepth } from "@/lib/funnel";
 import { ScrollHint } from "@/components/ui";
 import { channelSteps, type ChannelRow } from "@/lib/channels";
 
@@ -102,6 +102,7 @@ export function FunnelCard({ f, isTool, projectId, all, liveVersion, channels }:
             )}
             {f.errors > 0 && <p className="text-xs" style={{ color: "var(--critical)" }}>登録しようとして失敗した人: {f.errors}人</p>}
           </div>
+          {f.play && <PlayDepthView d={f.play} visits={f.visits} />}
           <Channels rows={channels} isTool={isTool} />
         </>
       )}
@@ -149,6 +150,50 @@ function Channels({ rows, isTool }: { rows: ChannelRow[]; isTool: boolean }) {
         </div>
         </>
       )}
+    </div>
+  );
+}
+
+const secLabel = (s: number) => (s < 60 ? `${s}秒` : `${s / 60}分`);
+
+// 遊びの深さ: 来た人1人あたり、どれだけ遊んだか（来た人数に左右されない、面白さの目安）
+function PlayDepthView({ d, visits }: { d: PlayDepth; visits: number }) {
+  const of = (n: number) => pc(d.users ? n / d.users : null);
+  const Row = ({ label, n, base }: { label: string; n: number; base?: string }) => (
+    <li className="num flex justify-between gap-2"><span>{label}</span><span>{n}人（{base ?? of(n)}）</span></li>
+  );
+  return (
+    <div className="space-y-2 border-t border-line pt-3">
+      <div>
+        <div className="text-sm font-medium">遊びの深さ（遊び始めた {d.users}人のうち）</div>
+        <p className="text-xs text-muted">来た人の数に左右されない、面白さの目安です。枠の中で初めて触った・押した・振った人を「遊び始めた」と数え、触った・押した・振ったときから10秒のあいだを、遊んだ時間として数えます。まずは見るだけで、当たりの判定やAIの判断には使っていません。</p>
+      </div>
+      {!d.hasData ? (
+        <p className="text-sm text-ink-2">まだ記録がありません。この記録を始めたあとに遊んだ人から数えます。</p>
+      ) : (
+        <>
+          <p className="text-sm">
+            {d.halfTime === null ? "15秒以上遊んだ人は、遊び始めた人の半分に届いていません。" : <>遊び始めた人の半分が、<b className="num">{secLabel(d.halfTime)}</b>以上遊びました。</>}
+          </p>
+          <div className="grid gap-4 text-sm sm:grid-cols-3">
+            <div>
+              <div className="mb-1 text-xs text-muted">遊んだ時間</div>
+              <ul className="space-y-1">{d.time.map((x) => <Row key={x.mark} label={`${secLabel(x.mark)}以上`} n={x.visitors} />)}</ul>
+            </div>
+            <div>
+              <div className="mb-1 text-xs text-muted">結果を出した回数</div>
+              <ul className="space-y-1">{d.results.map((x) => <Row key={x.mark} label={`${x.mark}回以上`} n={x.visitors} />)}</ul>
+            </div>
+            {d.kinds.length > 0 && (
+              <div>
+                <div className="mb-1 text-xs text-muted">出した結果の種類</div>
+                <ul className="space-y-1">{d.kinds.map((x) => <Row key={x.mark} label={`${x.mark}種類以上`} n={x.visitors} />)}</ul>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+      <p className="num text-sm">この版に、別の日にまた来た人: {d.revisit}人<span className="ml-1 text-xs text-muted">（訪問 のべ{visits}人の {pc(visits ? d.revisit / visits : null)}）</span></p>
     </div>
   );
 }

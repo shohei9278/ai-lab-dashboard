@@ -4,7 +4,7 @@ import { PLAY_HOOK_MAX, PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublis
 import { hitsText } from "./hits";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
-import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, problemLabel, type Aim } from "./aims";
+import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
@@ -2723,7 +2723,7 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     if (busy) return { ran: false, message: `いま「${busy}」が動いているため、終わってから実行します`, projectIds: [] };
     const exclude = Object.keys(blocks) as Aim[];
     if (exclude.length) logEvent(null, "system", "daily", `毎日の自動実行: 今日は ${exclude.map((a) => AIMS[a].label).join("・")} を出しません（${[...new Set(Object.values(blocks))].join("。")}）`);
-    const { candidates, kept } = await withIdeaLock("毎日のアイデア出し", () => gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday, false, { exclude, spreadRoom: spreadRoom({ daily: true }) }));
+    const { candidates, kept } = await withIdeaLock("毎日のアイデア出し", () => gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday, false, { exclude, spreadRoom: spreadRoom({ daily: true }), champion: true }));
     if (!candidates.length) return skip("どのAIからもアイデアを得られなかったため休みました");
     const ids: number[] = [];
     const gate = createGate({ daily: true });
@@ -2739,7 +2739,9 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
       const conf = c.peerAvg !== null ? { value: c.peerAvg / 10, source: "他社のAIによる採点の平均" } : selfConfidence(c.idea);
       const id = insertProject(c.idea, "", { ...nextMode(conf), confidence: conf.value }, "daily", c.author);
       db().prepare("UPDATE idea_candidates SET selected = 1, project_id = ? WHERE id = ?").run(id, c.id);
-      logEvent(id, "ai", "select", `${candidates.length}件の候補から選ばれました（3社のAIによる採点の平均 ${c.avg.toFixed(1)}点 / 10点）`);
+      logEvent(id, "ai", "select", c.pick === "champion"
+        ? `${candidates.length}件の候補から、推し枠で選ばれました（作者ではない会社のAIが ${c.top}点 / 10点。平均は ${c.avg.toFixed(1)}点）`
+        : `${candidates.length}件の候補から選ばれました（3社のAIによる採点の平均 ${c.avg.toFixed(1)}点 / 10点）`);
       ids.push(id);
       await startProject(id);
     }
@@ -2762,7 +2764,8 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
 
 // ---- 3社でアイデアを出し、作者を伏せて全員で採点する ----
 
-type Candidate = { id: number; label: string; author: string; idea: Idea; avg: number; peerAvg: number | null };
+// top: 作者ではない会社のAIが付けた、いちばん高い点 / pick: どの枠で選ばれたか（champion = 推し枠。平均では選ばれない、1社が強く推した案）
+type Candidate = { id: number; label: string; author: string; idea: Idea; avg: number; peerAvg: number | null; top: number | null; pick?: "champion" };
 const AIM_KEYS_ALL: readonly Aim[] = AIM_KEYS;
 const AIM_KEYS_TOOL: Aim[] = AIM_KEYS.filter((a) => AIMS[a].kind === "tool");
 // ねらいの配分を守るために、点の低い案を案件にしない下限（平凡な案は5点前後）。下回るなら配分より点数を優先する
@@ -2791,7 +2794,7 @@ export function ideaAuthors(): string[] {
 }
 
 // exclude: いま作れないねらい（集客中の上限など）。spreadRoom: 今回案件にしてよい「広がる」の件数
-async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string; noRevival?: boolean; deepOnly?: boolean; aim?: Aim; exclude?: Aim[]; spreadRoom?: number } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
+async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string; noRevival?: boolean; deepOnly?: boolean; aim?: Aim; exclude?: Aim[]; spreadRoom?: number; champion?: boolean } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
   const authors = ideaAuthors();
   // ねらいの配分: 運営者がねらいを選んだらそれだけ、じっくり案件だけならツールのねらいだけ。いま作れないねらいは出させない。各社に交互に配る
   const weights = aimWeightsOf(getSettings());
@@ -2839,7 +2842,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   const candidates: Candidate[] = pool.map((x, i) => {
     const label = String.fromCharCode(65 + i);
     const id = Number(insert.run(batchId, label, x.author, x.idea.title, JSON.stringify(x.idea), practice ? 1 : 0).lastInsertRowid);
-    return { id, label, author: x.author, idea: x.idea, avg: 0, peerAvg: null };
+    return { id, label, author: x.author, idea: x.idea, avg: 0, peerAvg: null, top: null };
   });
 
   // 3. 各社が、作者を伏せた全候補に点を付ける
@@ -2897,6 +2900,8 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
     c.avg = r.a ?? 0;
     const peer = db().prepare("SELECT AVG(score) AS a FROM idea_scores WHERE candidate_id = ? AND scorer_model != ?").get(c.id, c.author) as { a: number | null };
     c.peerAvg = peer.a;
+    const top = db().prepare("SELECT MAX(score) AS m FROM idea_scores WHERE candidate_id = ? AND scorer_model != ?").get(c.id, c.author) as { m: number | null };
+    c.top = top.m;
     db().prepare("UPDATE idea_candidates SET avg_score = ? WHERE id = ?").run(c.avg, c.id);
   }
   // じっくり案件は直近7日の上限まで。上限を超えた案は、縮めて作らず、次の案に回す
@@ -2912,44 +2917,57 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
     if (isAim(r.aim)) aimCounts[r.aim] = r.n;
   }
   let spreadLeft = practice ? Infinity : opts.spreadRoom ?? Infinity;
-  const kept = pickByAims(candidates.map((c) => ({ c, aim: aimOfIdea(c.idea), avg: c.avg, author: c.author })), keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, ({ c, aim }) => {
+  // dry: 確かめるだけ（経過に残さず、件数も減らさない。推し枠で、平均点なら何を選ぶかを先に見るため）
+  const accept = ({ c, aim }: { c: Candidate; aim: Aim }, dry = false) => {
+    const skip = (kind: string, text: string) => { if (!dry) logEvent(null, "system", kind, text); return false; };
     // 「広がる」は今回案件にしてよい件数まで（同時に集客中の上限・1日の上限）、じっくり案件は直近7日の上限まで
     // どちらの条件も通ってから枠を減らす（片方で外れた案が、もう片方の枠を使わないように）
     const deep = isDeepIdea(c.idea);
     const needs = deep ? needsOf(c.idea.needs) : [];
     if (aim === "spread" && spreadLeft <= 0) {
-      logEvent(null, "system", "spread-skipped", `アイデア「${c.idea.title}」は「広がる」ですが、今回作ってよい件数を超えるため、案件にしません`);
-      return false;
+      return skip("spread-skipped", `アイデア「${c.idea.title}」は「広がる」ですが、今回作ってよい件数を超えるため、案件にしません`);
     }
     // まだない仕組みが要る案は、人の作業待ちに止めるだけなので、週の上限や開発待ちには数えず、人の作業待ちの上限で見る（人が頼んだときは止めない）
     if (needs.length) {
       if (!practice && !opts.deepOnly && needsWaiting() + needsMade >= getSettings().needsWaitMax) {
-        logEvent(null, "system", "needs-skipped", `アイデア「${c.idea.title}」は、まだない仕組み（${needs.map((n) => NEED_KINDS[n.kind].label).join("・")}）が要りますが、人の作業待ちが${getSettings().needsWaitMax}件以上になるため、今回は案件にしません`);
-        return false;
+        return skip("needs-skipped", `アイデア「${c.idea.title}」は、まだない仕組み（${needs.map((n) => NEED_KINDS[n.kind].label).join("・")}）が要りますが、人の作業待ちが${getSettings().needsWaitMax}件以上になるため、今回は案件にしません`);
       }
-      if (aim === "spread") spreadLeft--;
-      needsMade++;
+      if (!dry) {
+        if (aim === "spread") spreadLeft--;
+        needsMade++;
+      }
       return true;
     }
     if (deep && deepLeft <= 0) {
-      logEvent(null, "system", "deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、直近7日の上限に達しているため、今回は案件にしません`);
-      return false;
+      return skip("deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、直近7日の上限に達しているため、今回は案件にしません`);
     }
     // 開発待ちが溜まっているあいだは、新しいじっくり案件を作らない（Claude Code で作るのが追いつかないまま増やさない。人が頼んだときは止めない）
     if (deep && !practice && !opts.deepOnly && devWaiting() + deepMade >= getSettings().deepDevWaitMax) {
-      logEvent(null, "system", "deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、開発待ちが${getSettings().deepDevWaitMax}件以上になるため、今回は案件にしません`);
-      return false;
+      return skip("deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、開発待ちが${getSettings().deepDevWaitMax}件以上になるため、今回は案件にしません`);
     }
+    if (dry) return true;
     if (aim === "spread") spreadLeft--;
     if (deep) {
       deepLeft--;
       deepMade++;
     }
     return true;
-  }).map((x) => x.c);
+  };
+  // 推し枠（毎日のアイデア出しで、2件以上作るときだけ）: 最後の1件は平均点ではなく、平均では漏れた案のうち、作者ではない会社のAIが
+  // いちばん高い点（aims.ts の CHAMPION_MIN = 8点以上）を付けた案にする。平均で選ぶと、全員がそこそこ良いと思う案ばかりが残り、尖った案が残らないため（運営者が決めた）
+  // 当てはまる案がなければ、ふだんどおり平均点で選ぶ
+  const list = candidates.map((c) => ({ c, aim: aimOfIdea(c.idea), avg: c.avg, author: c.author, top: c.top }));
+  const champSlot = !practice && !!opts.champion && keep >= 2;
+  const { picked, champion } = champSlot
+    ? pickWithChampion(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept, (x) => accept(x, true))
+    : { picked: pickByAims(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept), champion: null };
+  if (champion) champion.c.pick = "champion";
+  const kept = picked.map((x) => x.c);
+  // どの枠で選んだかを残す（推し枠と平均で選んだ案の、どちらが当たるかを比べるため）
+  if (!practice) for (const k of kept) db().prepare("UPDATE idea_candidates SET pick_kind = ? WHERE id = ?").run(k.pick ?? "average", k.id);
   if (!practice && !opts.noRevival) proposeRevival(candidates.filter((c) => !kept.includes(c)));
   const best = [...candidates].sort((a, b) => b.avg - a.avg)[0];
-  if (best) liveNote({ who: "システム", provider: null, kind: "採点の結果", text: `1位は「${best.idea.title}」（${modelLabel(best.author)}の案・平均${best.avg.toFixed(1)}点）${practice ? "。見るだけなので、案件にはしません" : kept.length ? `。ねらいの配分も見て、${kept.map((k) => `「${k.idea.title}」（${AIMS[aimOfIdea(k.idea)].label}・${k.avg.toFixed(1)}点）`).join("・")}を案件にします` : opts.noRevival ? "。新しい案件を休んでいるため、案件にはしません" : ""}`, batch: batchId });
+  if (best) liveNote({ who: "システム", provider: null, kind: "採点の結果", text: `1位は「${best.idea.title}」（${modelLabel(best.author)}の案・平均${best.avg.toFixed(1)}点）${practice ? "。見るだけなので、案件にはしません" : kept.length ? `。ねらいの配分も見て、${kept.map((k) => `「${k.idea.title}」（${AIMS[aimOfIdea(k.idea)].label}・${k.pick === "champion" ? `推し枠・${k.top}点を付けた社あり・平均` : ""}${k.avg.toFixed(1)}点）`).join("・")}を案件にします` : opts.noRevival ? "。新しい案件を休んでいるため、案件にはしません" : ""}`, batch: batchId });
   return { candidates, kept };
   } finally {
     activities.delete(act);

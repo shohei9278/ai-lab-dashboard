@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { answerStore, localBackend, memoryBackend, storeKey as keyOf, type StoreBackend } from "./toolStore";
 import { motionGate } from "./toolMotion";
+import { playDepth, type DepthEvent } from "./playDepth";
 import { fitScale } from "./inApp";
 import type { ToolImages } from "./content";
 import { wrapToolHtml } from "./toolHtml";
@@ -16,7 +17,8 @@ import { wrapToolHtml } from "./toolHtml";
 // fill: 枠の高さを中身に合わせず、親の高さいっぱいにする（遊びのツールの全画面。中身が長ければ枠の中でスクロールする）
 // images: じっくり案件で人が入れた画像（素材）。枠の中で window.labAssets.images として読める
 // fit: 遊ぶ画面（fill）で、見えている高さが低いときは、ツールを決まった高さ（inApp.ts の PLAY_MIN_HEIGHT）で作らせて枠ごと縮める（運営者が決めた）
-export function ToolFrame({ html, title, onUse, data, fonts, illustration, images, fill = false, storeKey, fit = false }: { html: string; title: string; onUse?: () => void; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; storeKey?: string; fit?: boolean }) {
+// onDepth: 遊びの深さ（遊んだ時間・結果を出した回数・結果の種類）の区切りを超えたときに呼ぶ（公開サイトだけ。playDepth.ts）
+export function ToolFrame({ html, title, onUse, onDepth, data, fonts, illustration, images, fill = false, storeKey, fit = false }: { html: string; title: string; onUse?: () => void; onDepth?: (e: DepthEvent) => void;data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; storeKey?: string; fit?: boolean }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(480);
   // 縮めて収めるときの、枠（外の箱）の大きさ。測るまでは縮めない
@@ -37,6 +39,23 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
   // 枠の中身（srcDoc）ごとに作り直す。中身が入れ替わったら、前のツールの許可・受け取り・待っている頼みを片付ける
   const doc = wrapToolHtml(html, { data, fonts, illustration, images, fill });
   const gate = useRef<ReturnType<typeof motionGate> | null>(null);
+  // 遊びの深さ（公開サイトで onDepth があるときだけ）。中身が入れ替わったら、測り直す
+  const depthCb = useRef(onDepth);
+  useEffect(() => { depthCb.current = onDepth; }, [onDepth]);
+  const depth = useRef<ReturnType<typeof playDepth> | null>(null);
+  const tracking = !!onDepth;
+  useEffect(() => {
+    if (!tracking) return;
+    const d = playDepth((e) => depthCb.current?.(e));
+    depth.current = d;
+    // 作った時刻を測り始めにする（最初の1秒ごとの合図までに遊んだ分を数え落とさない。PR #123 の ai-review の指摘）
+    d.tick(Date.now(), document.visibilityState === "visible");
+    const t = setInterval(() => d.tick(Date.now(), document.visibilityState === "visible"), 1000);
+    // 画面に出る・隠れるが変わったら、それまでの間を区切る（隠れる直前までは出ていた。出る直前までは隠れていた）
+    const onVis = () => d.tick(Date.now(), document.visibilityState !== "visible");
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", onVis); if (depth.current === d) depth.current = null; };
+  }, [doc, tracking]);
   useEffect(() => {
     const g = motionGate({
       api: () => window.DeviceMotionEvent as unknown as { requestPermission?: () => Promise<string> } | undefined,
@@ -45,7 +64,10 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
         window.addEventListener("devicemotion", h);
         return () => window.removeEventListener("devicemotion", h);
       },
-      send: (m) => ref.current?.contentWindow?.postMessage(m, "*"),
+      send: (m) => {
+        depth.current?.motion(Date.now(), m.x, m.y, m.z);
+        ref.current?.contentWindow?.postMessage(m, "*");
+      },
       reply: (id, state) => ref.current?.contentWindow?.postMessage({ __lab: "motion-state", id, state }, "*"),
       showButton: setAsk,
     });
@@ -64,6 +86,7 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
         gate.current?.request(e.data.id);
         return;
       }
+      if (e.data.__lab === "active") { depth.current?.active(Date.now()); return; }
       if (e.data.__lab === "height" && typeof e.data.h === "number") setHeight(Math.max(240, Math.min(4000, e.data.h)));
       // ツールが知らせた結果の一文を、ページのシェアのボタンに渡す
       // 結果が出たことは、結果のあとの欄（ResultSheet）にも lab-result-shown で知らせる。quiet（遊びが続くツールの途中の結果）のときは知らせない
@@ -71,11 +94,13 @@ export function ToolFrame({ html, title, onUse, data, fonts, illustration, image
       const shown = () => { if (!e.data.quiet) window.dispatchEvent(new Event("lab-result-shown")); };
       if (e.data.__lab === "share-text" && typeof e.data.text === "string" && e.data.text.trim()) {
         window.dispatchEvent(new CustomEvent("lab-share-text", { detail: e.data.text.slice(0, 200) }));
+        depth.current?.result(Date.now(), "share");
         shown();
       }
       // ツールが知らせた結果の番号を、ページのシェアのボタンに渡す（結果ごとのシェア画像のリンクにする）
       if (e.data.__lab === "result" && Number.isInteger(e.data.i) && e.data.i >= 0 && e.data.i < 100) {
         window.dispatchEvent(new CustomEvent("lab-share-result", { detail: e.data.i }));
+        depth.current?.result(Date.now(), "result", e.data.i);
         shown();
       }
       if (e.data.__lab === "use" && !used.current) {

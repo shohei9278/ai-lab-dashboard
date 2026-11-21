@@ -8,6 +8,7 @@ import { TOOL_STORE_MAX } from "./toolStore";
 //   （ページの準備より先に枠が読み込まれると、最初の知らせを取りこぼして、枠が初めの高さのまま下が切れていた）
 //   「使った」は、ボタンなどの押せる所を押した・入力欄や選択肢を変えたときだけ（スクロールで触れただけでは数えない）
 //   入力欄・選択肢・ラベルは、押しただけでは数えない（中身を変えたときに input・change で数える）
+//   触った・押した・ドラッグした・キーを押したことは、1秒に1回まで {__lab:"active"} で知らせる（遊んだ時間を測るため。playDepth.ts）
 // - ツールは結果が出たら window.labShare("…") で、シェアの文に使う結果の一文を知らせられる
 // - 結果の種類が決まっているツールは window.labResult(番号) で、どの結果かを知らせられる（シェアのリンクと、結果ごとのシェア画像に使う）
 // - どちらも2つ目に { quiet: true } を付けると、シェアの文と番号だけ替え、結果のあとの欄（シェア・ほかの遊び）を開かない（遊びが続くツールの途中の結果）
@@ -42,6 +43,7 @@ addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.__la
 var T="button,a,summary,canvas,[role=button],[role=tab],[role=option],[role=slider],[onclick]";var F="input,select,textarea,label";
 addEventListener("click",function(e){var t=e.target;if(!t||!t.closest||t.closest(F))return;if(t.closest(T)||getComputedStyle(t).cursor==="pointer")use()},true);
 addEventListener("input",use,true);addEventListener("change",use,true);
+var la=0;function act(){var n=Date.now();if(n-la<1000)return;la=n;parent.postMessage({__lab:"active"},"*")}["pointerdown","keydown","wheel","touchstart"].forEach(function(t){addEventListener(t,act,{capture:true,passive:true})});addEventListener("pointermove",function(e){if(e.buttons)act()},{capture:true,passive:true});
 var sq=0,sw={};addEventListener("message",function(e){var d=e.data;if(e.source!==parent||parent===window||!d)return;if((d.__lab==="store"||d.__lab==="motion-state")&&sw[d.id]){var f=sw[d.id];delete sw[d.id];f(d)}
 if(d.__lab==="motion"&&typeof d.x==="number")dispatchEvent(new CustomEvent("labmotion",{detail:{x:d.x,y:d.y,z:d.z}}))});
 var mp=null;window.labMotion={request:function(){if(mp)return mp;mp=new Promise(function(ok){if(parent===window){ok("unavailable");return}var id=++sq,t=setTimeout(function(){delete sw[id];ok("unavailable")},20000);sw[id]=function(d){clearTimeout(t);ok(d.state==="granted"||d.state==="denied"?d.state:"unavailable")};parent.postMessage({__lab:"motion-request",id:id},"*")});mp.then(function(){mp=null});return mp}};
