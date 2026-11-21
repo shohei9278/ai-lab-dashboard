@@ -793,8 +793,9 @@ export function devRequestText(projectId: number, design: string, instruction: s
     rules = `（作るときの決まりを出せませんでした: ${e instanceof Error ? e.message : String(e)}）`;
   }
   return [
-    `ai-lab の案件 #${p.id}「${p.title}」の、じっくり案件のツールを${p.lp ? "直して" : "作って"}ください。`,
-    p.lp && instruction ? `直す指示: ${instruction}\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。${/^\d+\. 紹介ページ: /m.test(instruction) ? "\n「紹介ページ:」で始まる指摘は、ツールではなくAIが書く紹介ページのもの。ツールを入れたあとに、AIが紹介ページを作り直すときに直すので、ツールでは直さない。" : ""}` : "",
+    `ai-lab の案件 #${p.id}「${p.title}」の、${p.deep ? "じっくり案件の" : ""}ツールを${p.lp ? "直して" : "作って"}ください。`,
+    // 直す指示は、今のツールの有無にかかわらず全文を入れる（チェックで止まったツールの指摘も、ここでルーティンに渡る。PR #132 の ai-review の指摘）
+    instruction ? `直す指示: ${instruction}${p.lp ? "\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。" : ""}${/^\d+\. 紹介ページ: /m.test(instruction) ? "\n「紹介ページ:」で始まる指摘は、ツールではなくAIが書く紹介ページのもの。ツールを入れたあとに、AIが紹介ページを作り直すときに直すので、ツールでは直さない。" : ""}` : "",
     `## 設計書\n${design}`,
     `## データ\n${dataNote}`,
     `## 画像（素材）\n${imagesNote(projectId)}`,

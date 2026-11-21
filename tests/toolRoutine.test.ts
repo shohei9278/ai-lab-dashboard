@@ -213,6 +213,19 @@ test("チェックで止まったツール: 公開の判断待ちにせず、指
   assert.equal(heldToRoutine(tool, issues), false, "7日以内に一度回した");
   db().prepare("UPDATE approvals SET created_at = datetime('now', '-8 days') WHERE id = ?").run(dev.id);
   assert.equal(heldToRoutine(tool, issues), true, "8日たてばまた回す");
+  // 指摘が長くても、直す指示は切らずに全文を残す。起動のときの文は短くして、全文が依頼文にあると書き添える
+  db().exec("DELETE FROM approvals");
+  const long = Array.from({ length: 40 }, (_, i) => `問題その${i + 1}: ${"とても長い説明".repeat(20)}`);
+  assert.equal(heldToRoutine(tool, long), true);
+  const longDev = db().prepare("SELECT * FROM approvals WHERE project_id = ? AND kind = 'dev' ORDER BY id DESC").get(tool) as ApprovalRow;
+  const full = (JSON.parse(longDev.payload ?? "{}") as { instruction: string }).instruction;
+  assert.ok(full.length > 4000);
+  assert.match(full, /40\. 問題その40/);
+  const fire = toolRoutineText(longDev);
+  assert.match(fire, /全文はダッシュボードの依頼文にあります/);
+  assert.ok(fire.length < 2000);
+  const req = await GET(new Request(`http://x/api/tool-jobs/${longDev.id}?file=request`, { headers: { authorization: `Bearer ${LAB}` } }), { params: Promise.resolve({ id: String(longDev.id) }) });
+  assert.match(await req.text(), /40\. 問題その40/);
   // ルーティンがつながっていなければ回さない
   delete process.env.CLAUDE_TOOL_ROUTINE_FIRE_URL;
   db().exec("DELETE FROM approvals");
