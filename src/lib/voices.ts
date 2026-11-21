@@ -72,7 +72,9 @@ export function addProposal(p: NewProposal): number | null {
 }
 
 // 返事待ちの提案のうち、同じ趣旨のものを1件にまとめる（同じ趣旨の提案を入れなくする前に入ったもの。1時間に1回）
-// 残すのは、Claude Code に頼んだもの → 点の高いもの → 古いもの。まとめた分は「何回出たか」に足し、まとめたほうは消す
+// 残すのは、Claude Code に頼んだもの → 社員の声から入れたもの → 点の高いもの → 古いもの。まとめた分は「何回出たか」に足し、まとめたほうは消す
+// （頼んだもの・声から入れたものは消さないので、先に残すほうにしないと、両方が残り続ける。PR #126 の ai-review の指摘）
+// まとめるのは、ある提案と直接似ているものだけ（A と B、B と C が似ていても、A と C が似ていなければ、まとめない。つないでいくと、別の提案まで消すため）
 // 社員の声から入れたもの・Claude Code に頼んだものは消さない
 const gMerge = globalThis as unknown as { __aiLabMergeCheck?: number };
 export function mergeSimilarOpen(force = false): number {
@@ -80,7 +82,7 @@ export function mergeSimilarOpen(force = false): number {
   gMerge.__aiLabMergeCheck = Date.now();
   type Row = Near & { score: number | null; repeats: number; ai_fix_at: string | null; voiced: number };
   const rows = db().prepare("SELECT r.id, r.title, r.how, r.status, r.target, r.score, r.repeats, r.ai_fix_at, EXISTS (SELECT 1 FROM voices v WHERE v.request_id = r.id) AS voiced FROM plan_requests r WHERE r.status = 'open' AND r.source != 'human' ORDER BY r.id").all() as Row[];
-  const rank = (r: Row) => [r.ai_fix_at ? 0 : 1, -(r.score ?? 0), r.id];
+  const rank = (r: Row) => [r.ai_fix_at ? 0 : 1, r.voiced ? 0 : 1, -(r.score ?? 0), r.id];
   const better = (a: Row, b: Row) => { const x = rank(a), y = rank(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i]; return false; };
   const gone = new Set<number>();
   let merged = 0;

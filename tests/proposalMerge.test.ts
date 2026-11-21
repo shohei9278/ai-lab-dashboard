@@ -43,18 +43,35 @@ test("提案箱: 同じ趣旨の提案は入れずに回数を数え、見送っ
   assert.ok(addProposal({ ...same[1], title: "表示順の確かめ（運営者）", target: "system", source: "human" }));
 });
 
-test("提案箱: すでに入っている同じ趣旨の提案は、点の高いものに1件にまとめる（頼んだもの・声から入れたものは消さない）", () => {
+test("提案箱: すでに入っている同じ趣旨の提案は、1件にまとめる（頼んだもの → 声から入れたもの → 点の高いものを残す）", () => {
   db().exec("DELETE FROM plan_requests");
   const ins = (p: { title: string; how: string }, score: number | null) => Number(db().prepare("INSERT INTO plan_requests (title, how, source, target, score) VALUES (?, ?, 'scene', 'system', ?)").run(p.title, p.how, score).lastInsertRowid);
-  const a = ins(same[0], null), b = ins(same[1], 7), c = ins(same[2], null), d = ins(same[3], null), x = ins(others[0], null);
-  db().prepare("INSERT INTO voices (scene, text, request_id) VALUES ('t', '声から入れた', ?)").run(d);
+  // 点の高いものだけのときは、点の高いものを残す
+  const a = ins(same[0], null), b = ins(same[1], 7), c = ins(same[2], null), x = ins(others[0], null);
   assert.equal(mergeSimilarOpen(true), 2);
-  const left = (db().prepare("SELECT id, repeats FROM plan_requests ORDER BY id").all() as { id: number; repeats: number }[]);
-  assert.deepEqual(left.map((r) => r.id), [b, d, x]);
+  let left = (db().prepare("SELECT id, repeats FROM plan_requests ORDER BY id").all() as { id: number; repeats: number }[]);
+  assert.deepEqual(left.map((r) => r.id), [b, x]);
   assert.equal(left[0].repeats, 2);
   assert.ok(!left.some((r) => r.id === a || r.id === c));
   // 2回目は何もしない（1時間に1回）
   assert.equal(mergeSimilarOpen(), 0);
+  // 声から入れたものは、点が低くても残すほうにする（消さないので、ほかを残すと両方が残り続けた。PR #126 の ai-review の指摘）
+  db().exec("DELETE FROM plan_requests");
+  const hi = ins(same[0], 8), voiced = ins(same[1], null), lo = ins(same[2], null);
+  db().prepare("INSERT INTO voices (scene, text, request_id) VALUES ('t', '声から入れた', ?)").run(voiced);
+  assert.equal(mergeSimilarOpen(true), 2);
+  left = (db().prepare("SELECT id, repeats FROM plan_requests ORDER BY id").all() as { id: number; repeats: number }[]);
+  assert.deepEqual(left, [{ id: voiced, repeats: 2 }]);
+  assert.ok(hi && lo);
+  // 頼んだものがあれば、頼んだものを残し、声から入れたものも消さない
+  db().exec("DELETE FROM plan_requests");
+  const v2 = ins(same[0], null), a2 = ins(same[1], 3), o2 = ins(same[2], 9);
+  db().prepare("INSERT INTO voices (scene, text, request_id) VALUES ('t', '声から入れた', ?)").run(v2);
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now') WHERE id = ?").run(a2);
+  assert.equal(mergeSimilarOpen(true), 1);
+  assert.equal((db().prepare("SELECT repeats FROM plan_requests WHERE id = ?").get(a2) as { repeats: number }).repeats, 1);
+  assert.deepEqual((db().prepare("SELECT id FROM plan_requests ORDER BY id").all() as { id: number }[]).map((r) => r.id), [v2, a2]);
+  assert.ok(o2);
 });
 
 test("定例会議の材料: 仕組みの改善の偏りと、運営者が手でやったことを渡す", () => {

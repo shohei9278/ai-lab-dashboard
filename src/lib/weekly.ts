@@ -189,7 +189,8 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
     }
     const sc = Math.round(p.score * 10) / 10;
     if (p.score < 5) {
-      closed += db().prepare("UPDATE plan_requests SET score = ?, status = 'declined', note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open'").run(sc, `定例会議で低評価（平均${sc}点）のため自動で見送り`, p.existingId).changes;
+      // 採点の途中で Claude Code に頼まれたものは見送りにしない（PR #126 の ai-review の指摘）
+      closed += db().prepare("UPDATE plan_requests SET score = ?, status = 'declined', note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open' AND ai_fix_at IS NULL").run(sc, `定例会議で低評価（平均${sc}点）のため自動で見送り`, p.existingId).changes;
     } else {
       db().prepare("UPDATE plan_requests SET score = ? WHERE id = ?").run(sc, p.existingId);
     }
