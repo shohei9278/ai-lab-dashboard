@@ -32,6 +32,7 @@ export async function POST(req: Request) {
   if (typeof body.playVideoOnPublish === "boolean") patch.playVideoOnPublish = body.playVideoOnPublish;
   if (typeof body.fullAuto === "boolean") patch.fullAuto = body.fullAuto;
   if (typeof body.toolRoutineAuto === "boolean") patch.toolRoutineAuto = body.toolRoutineAuto;
+  if (typeof body.toolRoutineFixHeld === "boolean") patch.toolRoutineFixHeld = body.toolRoutineFixHeld;
   if (typeof body.autoPost === "boolean") patch.autoPost = body.autoPost;
   if (typeof body.dailyPlan === "boolean") patch.dailyPlan = body.dailyPlan;
   if (typeof body.dailyReport === "boolean") patch.dailyReport = body.dailyReport;

@@ -182,3 +182,40 @@ test("ツールのルーティン: 「直す」か「新しく作る」かは、
   db().prepare("UPDATE projects SET lp = ? WHERE id = ?").run(JSON.stringify({ headline: "h", tool: { html: "<p>x</p>" } }), projectId);
   assert.match(toolRoutineText(row(approvalId)), /直す（今のツールがある）/);
 });
+
+test("チェックで止まったツール: 公開の判断待ちにせず、指摘を直す指示にした開発待ちを作る（同じ案件は7日に1回・ツールだけ・設定でオフにできる）", async () => {
+  const { heldToRoutine } = await import("../src/lib/toolRoutine");
+  configure();
+  db().exec("DELETE FROM approvals; DELETE FROM events");
+  const tool = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind) VALUES ('止まったツール', 't', 'p', 's', 'h', 'r', 'lp', 'claude', 'tool')").run().lastInsertRowid);
+  const lp = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind) VALUES ('LP', 't', 'p', 's', 'h', 'r', 'lp', 'claude', 'lp')").run().lastInsertRowid);
+  const issues = ["ボタンが画面の下に隠れる", "紹介ページ: 保存できると言い切っている"];
+  // 設定でオフなら回さない
+  saveSettings({ toolRoutineFixHeld: false });
+  assert.equal(heldToRoutine(tool, issues), false);
+  saveSettings({ toolRoutineFixHeld: true });
+  // 事前登録のページ（ツールでない）は回さない
+  assert.equal(heldToRoutine(lp, issues), false);
+  // ツールは、指摘を直す指示にした開発待ちを作る（ルーティンの自動の数の範囲で頼まれる）
+  assert.equal(heldToRoutine(tool, issues), true);
+  const dev = db().prepare("SELECT * FROM approvals WHERE project_id = ? AND kind = 'dev'").get(tool) as ApprovalRow;
+  const payload = JSON.parse(dev.payload ?? "{}") as { instruction: string; heldFix: boolean; design: string };
+  assert.equal(payload.heldFix, true);
+  assert.match(payload.instruction, /1\. ボタンが画面の下に隠れる/);
+  assert.match(payload.instruction, /2\. 紹介ページ: 保存できると言い切っている/);
+  assert.match(payload.design, /設計書はありません/);
+  assert.match(toolRoutineText(dev), /直す指示: 公開の前のチェックで/);
+  assert.equal(db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'publish'").get(tool), undefined);
+  assert.ok(db().prepare("SELECT 1 FROM events WHERE kind = 'held-to-routine' AND project_id = ?").get(tool));
+  // 開発待ちが残っている間・7日以内は、もう回さない（人の判断待ちに出す）
+  assert.equal(heldToRoutine(tool, issues), false);
+  db().prepare("UPDATE approvals SET status = 'approved' WHERE id = ?").run(dev.id);
+  assert.equal(heldToRoutine(tool, issues), false, "7日以内に一度回した");
+  db().prepare("UPDATE approvals SET created_at = datetime('now', '-8 days') WHERE id = ?").run(dev.id);
+  assert.equal(heldToRoutine(tool, issues), true, "8日たてばまた回す");
+  // ルーティンがつながっていなければ回さない
+  delete process.env.CLAUDE_TOOL_ROUTINE_FIRE_URL;
+  db().exec("DELETE FROM approvals");
+  assert.equal(heldToRoutine(tool, issues), false);
+  configure();
+});
