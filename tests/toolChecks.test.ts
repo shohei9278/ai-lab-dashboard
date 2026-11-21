@@ -39,6 +39,12 @@ test("公開前の自動テスト: 振って遊ぶツールは、振る動きを
   assert.equal(weak.motion?.ok, false, JSON.stringify(weak.motion));
   assert.equal(weak.ok, false);
   assert.ok(testIssues(weak).some((x) => /振る動き/.test(x) && /重力をならした/.test(x)));
+  // 「次へ」を何回か押してからセンサーに進むツールでも、センサーまで進んで確かめる（同じ名前のボタンも、画面が変わればまた押す。PR #125 の ai-review の指摘）
+  const steps = `<div id="a">はじめ<button type="button" onclick="a.hidden=true;b.hidden=false">次へ</button></div>
+<div id="b" hidden>つぎ<button type="button" onclick="b.hidden=true;c.hidden=false">次へ</button></div>
+<div id="c" hidden>${motionTool(true)}</div>`;
+  const stepped = await testTool(steps, "test-motion-steps");
+  assert.equal(stepped.motion?.ok, false, JSON.stringify(stepped.motion));
   // 動きのセンサーを使わないツールは、振りを確かめない
   const plain = await testTool(`<button type="button" onclick="this.textContent='押した'">押す</button>`, "test-motion-none");
   assert.equal(plain.motion, undefined);
@@ -51,6 +57,9 @@ test("公開前の自動テスト: 遊びの短いページのツールは、640
   assert.deepEqual(r.offscreen, ["ふる"]);
   assert.equal(r.ok, false);
   assert.ok(testIssues(r).some((x) => /640px/.test(x) && /「ふる」/.test(x)));
+  // 入力欄なども、押す所と同じく見る（PR #125 の ai-review の指摘）
+  const input = await testTool(`<div style="height:900px">絵</div><input placeholder="答え"><button type="button" onclick="this.textContent='押した'">決める</button>`, "test-tall-input", { short: true });
+  assert.deepEqual(input.offscreen, ["答え", "決める"]);
   // 紹介ページのあるツール（枠が中身の高さに伸びる）では見ない
   const long = await testTool(tall, "test-tall-long");
   assert.equal(long.offscreen, undefined);

@@ -31,6 +31,11 @@ export type ToolTest = {
   at: string;
 };
 
+// 押す所（順に押す流れ・センサーまで進む流れ）と、画面の下に出ていないかを見る操作の所（押す所に、入力欄・選択肢を足したもの）
+// 両方の確かめで食い違わないよう、ここにまとめる（PR #125 の ai-review の指摘）
+const PRESSABLE = "button, [role=button], input[type=button], input[type=submit], input[type=checkbox], input[type=radio], a[href^='#']";
+const CONTROLS = `${PRESSABLE}, input:not([type=hidden]), select, textarea`;
+
 async function launch(): Promise<Browser | string> {
   const tries = [
     () => chromium.launch({ channel: "chrome", headless: true }),
@@ -81,7 +86,7 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
       }
     });
     // 押せるものを順に押す（多すぎるときは最初の20個）
-    const targets = page.locator("button, [role=button], input[type=checkbox], input[type=radio], a[href^='#']");
+    const targets = page.locator(PRESSABLE);
     const n = Math.min(await targets.count(), 20);
     let clicked = 0;
     for (let i = 0; i < n; i++) {
@@ -123,10 +128,10 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
 // 中身をスクロールできる箱（一覧など）の中にあるものと、見えなくした画面（透明・hidden・aria-hidden・inert）の中にあるものも数えない
 // （ブラウザに渡す関数の中では、名前を付けた関数を作らない。テストで動かすときに、ブラウザにない補助の関数が差し込まれるため）
 async function offscreenTargets(page: Page): Promise<string[]> {
-  return page.evaluate(() => {
+  return page.evaluate((sel) => {
     const out: string[] = [];
     if (Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) <= innerHeight + 1) return out;
-    for (const el of Array.from(document.querySelectorAll("button, [role=button], input[type=range]"))) {
+    for (const el of Array.from(document.querySelectorAll(sel))) {
       const r = el.getBoundingClientRect();
       if (!r.width || !r.height || r.bottom <= innerHeight + 1) continue;
       let skip = false;
@@ -135,10 +140,10 @@ async function offscreenTargets(page: Page): Promise<string[]> {
         if (st.display === "none" || st.visibility === "hidden" || Number(st.opacity) < 0.1 || p.getAttribute("aria-hidden") === "true" || p.hasAttribute("inert")) { skip = true; break; }
         if (p !== el && p !== document.body && (st.overflowY === "auto" || st.overflowY === "scroll") && p.scrollHeight > p.clientHeight + 1) { skip = true; break; }
       }
-      if (!skip) out.push(((el as HTMLElement).innerText || el.getAttribute("aria-label") || el.tagName).trim().slice(0, 20));
+      if (!skip) out.push(((el as HTMLElement).innerText || el.getAttribute("aria-label") || (el as HTMLInputElement).value || el.getAttribute("placeholder") || el.tagName.toLowerCase()).trim().slice(0, 20));
     }
     return out;
-  });
+  }, CONTROLS);
 }
 
 // 開き直して、ツールが動きのセンサーを頼むまで進め（押せるボタンのうち、センサー・振る・傾けるなどの名前のものを先に、なければ並び順に押す。8回まで）、振る動きを流す
@@ -152,21 +157,25 @@ async function motionCheck(ctx: BrowserContext, html: string, opts: { data?: unk
     // 文字で渡す（オブジェクトに関数を書くと、テストで動かすときに、ブラウザにない補助の関数が差し込まれるため）
     await page.evaluate(`if (window.labMotion) window.labMotion = { request: function () { window.__labMotionAsked = true; return Promise.resolve("granted"); } };`);
     const asked = () => page.evaluate("!!window.__labMotionAsked") as Promise<boolean>;
+    // 押したものは、そのときの画面の中身と組で覚える。画面の中身が変わったら、同じ名前のボタン（「次へ」など）もまた押せる（PR #125 の ai-review の指摘）
     const pressed = new Set<string>();
     for (let step = 0; step < 8 && !(await asked()); step++) {
-      const buttons = page.locator("button, [role=button]");
+      const state = (await page.evaluate("document.body.innerText")) as string;
+      const buttons = page.locator(PRESSABLE);
       const names = await buttons.evaluateAll((els) => els.map((el) => {
         const r = el.getBoundingClientRect();
         const st = getComputedStyle(el);
         // 押せるか: 画面の中にあり、真ん中を押したときに、ほかのもの（重なった別の画面など）に隠れていない
         const hit = r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < innerHeight ? document.elementFromPoint(r.left + r.width / 2, Math.min(r.top + r.height / 2, innerHeight - 1)) : null;
         const visible = !!hit && (hit === el || el.contains(hit)) && st.visibility !== "hidden" && Number(st.opacity) > 0.1;
-        return visible ? ((el as HTMLElement).innerText || el.getAttribute("aria-label") || "").trim() : null;
+        return visible ? ((el as HTMLElement).innerText || el.getAttribute("aria-label") || (el as HTMLInputElement).value || "").trim() : null;
       }));
-      const order = names.map((n, i) => ({ n, i })).filter((x): x is { n: string; i: number } => x.n !== null && !pressed.has(x.n));
+      // 名前のないものは、並びの番号で見分ける
+      const key = (n: string, i: number) => `${n || `#${i}`}\u0000${state}`;
+      const order = names.map((n, i) => ({ n, i })).filter((x): x is { n: string; i: number } => x.n !== null && !pressed.has(key(x.n, x.i)));
       const pick = order.find((x) => /センサー|振|ふる|ゆら|傾|かたむ|shake|motion|sensor/i.test(x.n)) ?? order[0];
       if (!pick) break;
-      pressed.add(pick.n);
+      pressed.add(key(pick.n, pick.i));
       await buttons.nth(pick.i).click({ timeout: 1000 }).catch(() => {});
       await page.waitForTimeout(400);
     }
