@@ -51,6 +51,16 @@ test("公開前の自動テスト: 振って遊ぶツールは、振る動きを
 document.getElementById("go").onclick = function () { window.labMotion.request(); };</script>`;
   const ticking = await testTool(clock, "test-motion-clock");
   assert.ok(ticking.motion, "センサーまで進めなかった");
+  // 読み込みのときに labMotion を変数に取っておくツール・読み込みのときに頼むツールも、頼んだと分かる（PR #125 の ai-review の指摘）
+  const held = `<button type="button" id="go">はじめる</button>
+<script>addEventListener("DOMContentLoaded", function () { var req = window.labMotion.request; document.getElementById("go").onclick = function () { req(); }; });</script>`;
+  assert.ok((await testTool(held, "test-motion-held")).motion, "取っておいた labMotion で頼んだのを見逃した");
+  const auto = `<p>あそぶ</p><script>addEventListener("load", function () { window.labMotion.request(); });</script>`;
+  assert.ok((await testTool(auto, "test-motion-auto")).motion, "読み込みのときに頼んだのを見逃した");
+  // 同じ画面に同じ名前のボタンが並び、1つ目で画面が変わらなくても、2つ目を押す（PR #125 の ai-review の指摘）
+  const twins = `<div id="a"><button type="button">次へ</button><button type="button" onclick="a.hidden=true;c.hidden=false">次へ</button></div>
+<div id="c" hidden>${motionTool(false)}</div>`;
+  assert.ok((await testTool(twins, "test-motion-twins")).motion, "2つ目の「次へ」を押さなかった");
   // 動きのセンサーを使わないツールは、振りを確かめない
   const plain = await testTool(`<button type="button" onclick="this.textContent='押した'">押す</button>`, "test-motion-none");
   assert.equal(plain.motion, undefined);

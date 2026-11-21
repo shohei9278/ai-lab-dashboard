@@ -153,16 +153,20 @@ async function offscreenTargets(page: Page): Promise<string[]> {
   }, CONTROLS);
 }
 
+// 振るテストの仕掛け: 枠の仕組みが window.labMotion を置くと、許可を「許可された」と答えて頼まれたかを覚えるものに替わる
+// 置かれる前は、本番と同じく何もない（ツールの見え方を変えない）
+const MOTION_SPY = `<script>(function(){var v;Object.defineProperty(window,"labMotion",{configurable:true,get:function(){return v},set:function(o){v=o&&{request:function(){window.__labMotionAsked=true;return Promise.resolve("granted")}}}})})()</script>`;
+
 // 開き直して、ツールが動きのセンサーを頼むまで進め（押せるボタンのうち、センサー・振る・傾けるなどの名前のものを先に、なければ並び順に押す。8回まで）、振る動きを流す
 // 枠に入れないので、動きのセンサーの許可は「許可された」として答え、頼まれたかを覚える
 // 最後まで頼まれなければ、確かめない（undefined）
 async function motionCheck(ctx: BrowserContext, html: string, opts: { data?: unknown[]; fonts?: boolean; images?: ToolImages }): Promise<ToolTest["motion"]> {
   const page = await ctx.newPage();
   try {
-    await page.setContent(wrapToolHtml(html, { data: opts.data, fonts: opts.fonts, images: opts.images }), { waitUntil: "load", timeout: 10_000 });
+    // ツールより前に仕掛けを入れ、枠の仕組みが window.labMotion を置いた時点で、頼まれたかを覚えるものに替える
+    // （読み込みのあとで替えると、読み込み中に頼むツールや、labMotion を変数に取っておくツールを見逃す。PR #125 の ai-review の指摘）
+    await page.setContent(wrapToolHtml(MOTION_SPY + html, { data: opts.data, fonts: opts.fonts, images: opts.images }), { waitUntil: "load", timeout: 10_000 });
     await page.waitForTimeout(500);
-    // 文字で渡す（オブジェクトに関数を書くと、テストで動かすときに、ブラウザにない補助の関数が差し込まれるため）
-    await page.evaluate(`if (window.labMotion) window.labMotion = { request: function () { window.__labMotionAsked = true; return Promise.resolve("granted"); } };`);
     const asked = () => page.evaluate("!!window.__labMotionAsked") as Promise<boolean>;
     // 押したものは、そのときの画面の中身と組で覚える。画面の中身が変わったら、同じ名前のボタン（「次へ」など）もまた押せる（PR #125 の ai-review の指摘）
     // 画面の中身からは数字を除く（時計・カウントダウン・スコアが動くたびに「変わった」とみなして、同じボタンを押し続けないように）
@@ -178,8 +182,8 @@ async function motionCheck(ctx: BrowserContext, html: string, opts: { data?: unk
         const visible = !!hit && (hit === el || el.contains(hit)) && st.visibility !== "hidden" && Number(st.opacity) > 0.1;
         return visible ? ((el as HTMLElement).innerText || el.getAttribute("aria-label") || (el as HTMLInputElement).value || "").trim() : null;
       }));
-      // 名前のないものは、並びの番号で見分ける
-      const key = (n: string, i: number) => `${n || `#${i}`}\u0000${state}`;
+      // 名前と並びの番号で見分ける（同じ画面に同じ名前のボタンが並び、1つ目で画面が変わらなくても、2つ目を押す。PR #125 の ai-review の指摘）
+      const key = (n: string, i: number) => `${n}#${i}\u0000${state}`;
       const order = names.map((n, i) => ({ n, i })).filter((x): x is { n: string; i: number } => x.n !== null && !pressed.has(key(x.n, x.i)));
       const pick = order.find((x) => /センサー|振|ふる|ゆら|傾|かたむ|shake|motion|sensor/i.test(x.n)) ?? order[0];
       if (!pick) break;

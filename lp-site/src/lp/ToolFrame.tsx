@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { answerStore, localBackend, memoryBackend, storeKey as keyOf, type StoreBackend } from "./toolStore";
 import { motionGate } from "./toolMotion";
 import { playDepth, type DepthEvent } from "./playDepth";
@@ -45,8 +45,11 @@ export function ToolFrame({ html, title, onUse, onDepth, onError, data, fonts, i
   useEffect(() => { depthCb.current = onDepth; }, [onDepth]);
   const depth = useRef<ReturnType<typeof playDepth> | null>(null);
   // 知らせたエラー（種類と行）。中身が入れ替わったら忘れる
+  // 新しい中身のスクリプトが動く前に忘れるよう、画面に入れ替えを書き込んだすぐあと（useLayoutEffect）に忘れる
+  // （useEffect だと、新しい中身が前と同じエラーを先に送って、捨てられることがあった。PR #125 の ai-review の指摘）
+  // 受け取る側は入れ替えのあとも付けたままなので、聞き直し（ping）は要らない
   const errSeen = useRef(new Set<string>());
-  useEffect(() => { errSeen.current = new Set(); }, [doc]);
+  useLayoutEffect(() => { errSeen.current = new Set(); }, [doc]);
   const tracking = !!onDepth;
   useEffect(() => {
     if (!tracking) return;
