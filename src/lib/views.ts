@@ -5,17 +5,22 @@ import { modelInfo } from "./models";
 import { problemLabel } from "./aims";
 import { toolAssets } from "./toolAssets";
 import { sampleRows, type DeepSpec } from "./deep";
+import { toolRoutineView } from "./toolRoutine";
 
 // じっくり案件の開発待ちに出すもの。設計書と依頼文はAIの出力なので、運営者にだけ渡す
-function devView(projectId: number, payload: string | null, owner: boolean): ApprovalView["dev"] {
-  if (!owner) return { owner: false, design: "", request: "", instruction: null, hasData: false, hasTool: false, assets: [] };
+function devView(projectId: number, payload: string | null, owner: boolean, a: Pick<ApprovalRow, "status" | "routine_at" | "routine_url">): ApprovalView["dev"] {
+  // ルーティンに頼んだか・作業中か（来訪者には、作業の画面の URL を渡さない）
+  const rv = toolRoutineView(a);
+  const routine = { ...rv, url: owner ? rv.url : null };
+  if (!owner) return { owner: false, design: "", request: "", instruction: null, hasData: false, hasTool: false, assets: [], routine };
   const p = payload ? (JSON.parse(payload) as { design?: string; instruction?: string | null }) : {};
   const design = p.design ?? "";
   const proj = db().prepare("SELECT lp FROM projects WHERE id = ?").get(projectId) as { lp: string | null } | undefined;
   return {
     owner: true, design, instruction: p.instruction ?? null, request: devRequestText(projectId, design, p.instruction ?? null),
     hasData: !!approvedDeepData(projectId), hasTool: !!proj?.lp && !!(JSON.parse(proj.lp) as Lp).tool,
-    assets: toolAssets(projectId).map((a) => ({ name: a.name, url: a.url, bytes: a.bytes })),
+    assets: toolAssets(projectId).map((x) => ({ name: x.name, url: x.url, bytes: x.bytes })),
+    routine,
   };
 }
 
@@ -57,7 +62,7 @@ export function pendingApprovals(projectId?: number, owner = false): ApprovalVie
         hypothesis: r.hypothesis, confidence: r.ai_confidence, demo: !!r.demo, kind: r.product_kind, lpVersion: r.lp_version, publicVersion: r.public_version, deep: !!r.deep, problemLabel: problemLabel(r.aim),
       },
       data: r.kind === "data" ? dataView(r.payload, owner) : undefined,
-      dev: r.kind === "dev" ? devView(r.project_id, r.payload, owner) : undefined,
+      dev: r.kind === "dev" ? devView(r.project_id, r.payload, owner, r) : undefined,
       decision: d ? { confidence: d.confidence, nextAction: d.next_action } : undefined,
       review,
       totals: t ? { visits: t.visits, signups: t.signups, rate: t.rate, adSpendJpy: t.adSpendJpy, simulated: t.simulated } : undefined,

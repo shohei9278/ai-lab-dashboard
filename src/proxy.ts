@@ -20,6 +20,8 @@ export async function proxy(req: NextRequest) {
 
   const method = req.method.toUpperCase();
   if (pathname === "/api/login" && method === "POST") return pass("guest");
+  // ツールを作るルーティンの入口は、合言葉（Bearer）を付けたときだけ通す。合言葉が正しいかは、入口（/api/tool-jobs）で確かめる
+  if (pathname.startsWith("/api/tool-jobs/") && method === "POST" && (req.headers.get("authorization") ?? "").startsWith("Bearer ")) return pass("guest");
   if (method !== "GET" && method !== "HEAD") {
     return NextResponse.json({ error: "公開中のデモでは操作できません（実際の操作では、AIやAPIの費用がかかります）" }, { status: 403 });
   }

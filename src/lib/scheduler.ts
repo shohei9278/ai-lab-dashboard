@@ -14,6 +14,7 @@ import { syncReactions } from "./postReactions";
 import { maybeNightlyReport } from "./diary";
 import { expireStaleProposals, mergeSimilarOpen, proposeFromErrors } from "./voices";
 import { syncAiFixPrs } from "./aiFix";
+import { autoToolRoutine } from "./toolRoutine";
 import { notifyLongWaits } from "./waits";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
@@ -118,6 +119,8 @@ async function tickNow() {
   } catch {
     // まとめの失敗で、ほかの処理を止めない
   }
+  // 開発待ちのツールを、設定の数の範囲でルーティンに頼む
+  await autoToolRoutine().catch((e) => logEvent(null, "system", "tool-routine-error", `ツールを作るルーティンに頼む処理でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   await syncAiFixPrs().catch((e) => logEvent(null, "system", "ai-fix-sync-error", `Claude Code に頼んだ改善の PR の状態を読めませんでした: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   // 投稿についた反応を取り込む（計画を作る前に。1時間に1回）
   await syncReactions().catch(() => 0);

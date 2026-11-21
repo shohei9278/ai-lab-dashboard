@@ -8,6 +8,7 @@ import { signupEmails } from "@/lib/publish";
 import { AIMS, isAim } from "@/lib/aims";
 import { makePlayVideo } from "@/lib/playVideo";
 import { addToolAsset, removeToolAsset } from "@/lib/toolAssets";
+import { startToolRoutine } from "@/lib/toolRoutine";
 
 // 長くかかる操作（アイデア会議・毎日の自動実行・遊ぶ様子の動画）は、受け付けたらすぐ返し、裏で進める
 // 会議の前にXの検索も入るので、1回の通信で終わるまで待つと途中で切れ、画面に「通信に失敗しました」と出るため。進み具合はライブと経過で見る
@@ -93,6 +94,11 @@ export async function POST(req: Request) {
       case "needs-done":
         background(Number(body.projectId), "作り始めること", markNeedsDone(requireProject(body).id));
         return NextResponse.json({ accepted: true });
+      case "tool-routine": {
+        // 開発待ちを、いまルーティンに頼む（運営者が押したとき。自動で頼む数の上限は見ない）
+        const url = await startToolRoutine(Number(body.approvalId), { manual: true });
+        return NextResponse.json({ ok: true, sessionUrl: url });
+      }
       case "dev-upload": {
         // 決まりに合わないHTMLは、すぐ理由を返す。入れたら、チェック・紹介ページづくりは裏で進める（数分かかる）
         const html = typeof body.html === "string" ? body.html : "";

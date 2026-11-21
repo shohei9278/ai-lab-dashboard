@@ -806,7 +806,8 @@ export function devRequestText(projectId: number, design: string, instruction: s
 
 // ここで作ったツールのHTMLを入れる。決まり（外部との通信・保存の領域など）に合わないものは、すぐ理由を返す（入れない）
 // 入れたら開発待ちを閉じ、いつもの流れ（チェック・動作の確かめ・紹介ページ・公開の判断）を始める（返すのは、その流れの Promise）
-export function startDevUpload(approvalId: number, html: string): Promise<void> {
+// by: 入れた人（経過に残す。運営者が画面から入れたときは「Claude Code」、ルーティンが入れたときは「Claude Code（ルーティン）」）
+export function startDevUpload(approvalId: number, html: string, by = "Claude Code"): Promise<void> {
   const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
   if (!a || a.kind !== "dev" || a.status !== "pending") throw new Error("ツールを入れられる開発待ちが見つかりません");
   // 遊ぶ様子の動画の台本（あれば）を取り出し、公開するツールからは除く。形が違う台本は、理由を返して入れない
@@ -828,10 +829,10 @@ export function startDevUpload(approvalId: number, html: string): Promise<void> 
   const issues = staticToolIssues(t);
   if (issues.length) throw new Error(`決まりに合わないため入れられません: ${issues.join(" / ")}`);
   const p = getProject(a.project_id)!;
-  db().prepare("UPDATE approvals SET status = 'approved', comment = ?, decided_at = datetime('now') WHERE id = ?").run("Claude Code で作ったツールを入れた", approvalId);
+  db().prepare("UPDATE approvals SET status = 'approved', comment = ?, decided_at = datetime('now') WHERE id = ?").run(`${by} で作ったツールを入れた`, approvalId);
   // 台本を入れ替える（台本なしで入れ直したら消す）。取り込みが失敗したら前の台本に戻す
   const undoPlay = replacePlayScript(p.id, t, given);
-  logEvent(p.id, "human", "dev-upload", `Claude Code で作ったツール（${(t.length / 1000).toFixed(1)}千文字）を入れました${given ? `。遊ぶ様子の動画の台本（手順${given.steps.length}つ）も入れました` : ""}`);
+  logEvent(p.id, by === "Claude Code" ? "human" : "ai", "dev-upload", `${by} で作ったツール（${(t.length / 1000).toFixed(1)}千文字）を入れました${given ? `。遊ぶ様子の動画の台本（手順${given.steps.length}つ）も入れました` : ""}`);
   const payload = JSON.parse(a.payload ?? "{}") as { design?: string; instruction?: string | null };
   const instruction = payload.instruction ?? undefined;
   // 取り込みの途中（紹介ページづくり・チェックなど）で失敗したら、開発待ちに戻す（同じHTMLをもう一度入れられるように。作り直しにはしない）

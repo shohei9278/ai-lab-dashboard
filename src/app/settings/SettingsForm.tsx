@@ -153,6 +153,24 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <Field label="じっくり案件の開発待ちの上限" note="Claude Code で作るのを待っているじっくり案件がこの件数以上なら、新しいじっくり案件を作りません（手で頼んだ分は止めません）。"><input type="number" min={1} max={10} {...num("deepDevWaitMax")} className={input} /></Field>
         </div>
         <div className="space-y-2 border-t border-line pt-3">
+          <h3 className="text-sm font-bold">ツールを作るルーティン（クラウドの Claude Code）</h3>
+          <p className="text-xs text-muted">
+            開発待ちのじっくり案件を、クラウドの Claude Code（ルーティン「案件のツールを作る」）に頼みます。できたツールは、人が入れたときと同じく、チェック・動作の確かめ・紹介ページづくりをして、公開の判断に進みます。
+            ルーティンは claude.ai のプランの使用量で動くので（ふだん使う Claude Code と同じ枠）、頼む数をここで決めます。開発待ちのカードからは、数に関係なく手で頼めます。
+          </p>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={v.toolRoutineAuto} onChange={(e) => set("toolRoutineAuto", e.target.checked)} />
+            <span>
+              開発待ちを自動でルーティンに頼む
+              <span className="block text-xs text-muted">見回り（5分ごと）のたびに、古い開発待ちから順に、下の数の範囲で頼みます。一度頼んだものは、自動では頼み直しません。</span>
+            </span>
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="同時に頼む数" note="頼んでから3時間以内で、まだツールが入っていないものを、作業中として数えます。0 で自動では頼みません。"><input type="number" min={0} max={5} {...num("toolRoutineConcurrent")} className={input} /></Field>
+            <Field label="1日（24時間）に頼む数" note="手で頼んだ分も数えます。0 で自動では頼みません。"><input type="number" min={0} max={20} {...num("toolRoutinePerDay")} className={input} /></Field>
+          </div>
+        </div>
+        <div className="space-y-2 border-t border-line pt-3">
           <h3 className="text-sm font-bold">ねらいの配分</h3>
           <p className="text-xs text-muted">
             アイデアを出すときと、案件にする案を選ぶときの配分です（数の比。0 にしたねらいは出しません）。ねらいごとに、考える順番と採点の観点が変わります。手でアイデアを出すときは、ねらいを1つに絞ることもできます。
