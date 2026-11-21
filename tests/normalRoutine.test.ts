@@ -22,7 +22,7 @@ test("通常案件のルーティン: 交代の番は、ルーティンに作っ
   process.env.ANTHROPIC_API_KEY = "k";
   process.env.OPENAI_API_KEY = "k";
   db().exec("DELETE FROM lp_versions; DELETE FROM approvals; DELETE FROM projects");
-  const p = { kind: "tool" as const, deep: 0, lp: null, tool_maker: null, created_at: "2026-11-22 00:00:00" };
+  const p = { id: 999999, kind: "tool" as const, deep: 0, lp: null, tool_maker: null, created_at: "2026-11-22 00:00:00" };
   // まだどれも作っていない → ルーティンが先
   assert.equal(routineTurnForNew(p), true);
   db().prepare("UPDATE projects SET tool_maker = 'claude-code' WHERE id = ?").run(addTool("ルーティン1"));
@@ -55,6 +55,11 @@ test("通常案件のルーティン: 交代の番は、ルーティンに作っ
   delete process.env.CLAUDE_TOOL_ROUTINE_FIRE_URL;
   assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code" }), true);
   configure();
+  // いまの版が空でも、過去にツールの版がある案件は番にしない（番にした案件でも）
+  const had = addTool("過去に版がある");
+  aiVersion(had, "claude-opus-5-5");
+  assert.equal(routineTurnForNew({ ...p, id: had }), false);
+  assert.equal(routineTurnForNew({ ...p, id: had, tool_maker: "claude-code" }), false);
   // ただし、ツールがある・じっくり案件は、これまでどおり番にしない
   assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code", lp: "{}" }), false);
   assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code", deep: 1 }), false);
