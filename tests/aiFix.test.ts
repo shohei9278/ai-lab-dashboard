@@ -78,6 +78,8 @@ test("Claude Code に直してもらう: ブランチの名前と、できた PR
   const text = aiFixText({ id: 3, title: "t", how: null, why: null, source: "scene", scene: "判断 #4", score: null, project_id: 9 } as RequestRow, "");
   assert.doesNotMatch(text, /運営者のひとこと|何をどう|理由/);
   assert.match(text, /作業の途中で（判断 #4）・案件 #9/);
+  // 運営者が入れた提案は「運営者」と書く（ダッシュボードの中の「あなた」のままだと、ルーティンには誰のことか分からない）
+  assert.match(aiFixText({ id: 4, title: "t", how: null, why: null, source: "human", scene: "あなた", score: null, project_id: null } as RequestRow, ""), /出どころ: 運営者$/m);
 });
 
 test("Claude Code に直してもらう: PR の状態を GitHub から読み、マージされたら「やった」にする（閉じただけなら返事を待つ）", async () => {

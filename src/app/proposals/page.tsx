@@ -95,7 +95,7 @@ export default async function ProposalsPage() {
             <p className="text-xs text-muted">AIの社員に検討してほしいことを書いてください。次の朝会で担当のAIが返事をし、計画に反映します。定例会議でも材料になります。</p>
           </div>
           <AddProposal />
-          {mine.length > 0 && <ul className="space-y-2">{mine.map((r) => <Item key={r.id} r={r} owner={owner} />)}</ul>}
+          {mine.length > 0 && <ul className="space-y-2">{mine.map((r) => <Item key={r.id} r={r} owner={owner} aiFix={aiFix} />)}</ul>}
         </section>
       )}
 
