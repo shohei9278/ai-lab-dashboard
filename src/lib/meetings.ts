@@ -29,7 +29,7 @@ export type FollowUp = {
 };
 export type Meeting = {
   key: string; kind: MeetingKind; at: string; title: string; attendees: string[]; conclusion: string;
-  items: MeetingItem[]; projectId?: number | null; hiddenAuthors?: boolean; followUp?: FollowUp;
+  items: MeetingItem[]; projectId?: number | null; hiddenAuthors?: boolean; followUp?: FollowUp; decide?: DecideFollowUp;
 };
 
 const jday = (d: Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(d);
@@ -57,6 +57,47 @@ export function followUpOf(id: number, at: string, c: AdhocContent): FollowUp | 
     actions: acts.map((a) => ({ title: a.title, status: a.status === "done" ? "やった" : a.status === "declined" ? "見送り" : "返事待ち" })),
     revisit: c.revisit,
   };
+}
+
+// あとで決めること（臨時会議の decide）: 決める日と、会議の前7日・会議のあと（決める日まで）の全案件の数字
+export type DecideFollowUp = {
+  decide: NonNullable<AdhocContent["decide"]>;
+  dueAt: string; due: boolean;
+  before: { days: number; visits: number; conversions: number };
+  after: { days: number; visits: number; conversions: number };
+  decided?: AdhocContent["decided"];
+};
+export function decideOf(at: string, c: AdhocContent, now = Date.now()): DecideFollowUp | undefined {
+  if (!c.decide) return undefined;
+  const start = jday(new Date(Date.parse(at.replace(" ", "T") + "Z")));
+  const dueAt = jday(new Date(Date.parse(`${start}T00:00:00+09:00`) + c.decide.checkAfterDays * 86_400_000));
+  const today = jday(new Date(now));
+  return {
+    decide: c.decide, dueAt, due: today >= dueAt,
+    before: windowTotals(jday(new Date(Date.parse(`${start}T00:00:00+09:00`) - 7 * 86_400_000)), start),
+    after: windowTotals(start, today < dueAt ? today : dueAt),
+    decided: c.decided,
+  };
+}
+
+// まだ決めていない「あとで決めること」（決める日が来たものと、待っているもの）
+export function openDecisions(now = Date.now()): { id: number; topic: string; f: DecideFollowUp }[] {
+  const rows = db().prepare("SELECT * FROM meetings WHERE kind = 'adhoc' ORDER BY id").all() as WeeklyRow[];
+  return rows.flatMap((r) => {
+    const c = JSON.parse(r.content) as AdhocContent;
+    const f = !c.decided ? decideOf(r.at, c, now) : undefined;
+    return f ? [{ id: r.id, topic: c.topic, f }] : [];
+  });
+}
+
+// 朝会・定例会議の材料: 会議で「あとで決める」としたこと
+export function decisionsText(now = Date.now()): string {
+  const xs = openDecisions(now);
+  if (!xs.length) return "会議で「あとで決める」としたこと: なし";
+  // 前（7日）と後（決める日まで）は日数が違うので、訪問も登録・利用も1日あたりに直して並べる（PR #128 の ai-review の指摘）
+  const per = (n: number, days: number) => (days ? (n / days).toFixed(1) : "—");
+  return `会議で「あとで決める」としたこと（決める日が来たものは、週の定例会議で決める。それまでの計画も、これを決めるための数字が集まるようにする）:
+${xs.map(({ topic, f }) => `- 臨時会議「${topic.slice(0, 40)}」: ${f.decide.question}（${f.decide.metric}で決める: ${f.decide.rule}）${f.due ? `→ 決める日（${f.dueAt}）が来た` : `→ ${f.dueAt}に決める`}。全案件の1日あたり 会議の前7日 → 会議のあと${f.after.days}日: 訪問 ${per(f.before.visits, f.before.days)}人 → ${per(f.after.visits, f.after.days)}人・登録/利用 ${per(f.before.conversions, f.before.days)}人 → ${per(f.after.conversions, f.after.days)}人`).join("\n")}`;
 }
 
 const uniq = (xs: (string | null | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x))];
@@ -239,7 +280,7 @@ function adhocMeetings(days: number): Meeting[] {
   return rows.map((r) => {
     const c = JSON.parse(r.content) as AdhocContent;
     return {
-      key: `meeting-${r.id}`, kind: "adhoc" as const, at: r.at, title: `議題「${c.topic}」`, followUp: followUpOf(r.id, r.at, c),
+      key: `meeting-${r.id}`, kind: "adhoc" as const, at: r.at, title: `議題「${c.topic}」`, followUp: followUpOf(r.id, r.at, c), decide: decideOf(r.at, c),
       attendees: uniq(c.rounds.map((x) => x.modelId)),
       conclusion: `${c.conclusion}（議長 ${modelInfo(c.chair).label}）`,
       items: [

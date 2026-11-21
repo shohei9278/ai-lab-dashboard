@@ -7,7 +7,7 @@ import { members } from "@/lib/weekly";
 import { MeetingForm } from "./MeetingForm";
 import { jstDateTime } from "@/lib/format";
 import { modelInfo } from "@/lib/models";
-import { MEETING_LABEL, listMeetings, type FollowUp, type Meeting, type MeetingKind } from "@/lib/meetings";
+import { MEETING_LABEL, listMeetings, type DecideFollowUp, type FollowUp, type Meeting, type MeetingKind } from "@/lib/meetings";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +54,32 @@ function FollowUpBox({ f }: { f: FollowUp }) {
   );
 }
 
+// あとで決めること（臨時会議で「比べてから決める」としたもの）と、決めた結果
+function DecideBox({ f }: { f: DecideFollowUp }) {
+  const per = (n: number, days: number) => (days ? (n / days).toFixed(1) : "—");
+  return (
+    <div className="space-y-1 rounded-lg p-3 text-sm" style={{ background: "var(--surface-2)" }}>
+      <div className="font-medium">あとで決めること</div>
+      <p>{f.decide.question}</p>
+      <p className="text-xs text-ink-2">決め方: {f.decide.metric ? `${f.decide.metric}で、` : ""}{f.decide.rule}</p>
+      <div className="border-t border-line pt-2">
+        <div className="text-xs text-muted">{f.decided ? `決めた結果（${f.dueAt}に決める予定だったもの）` : f.due ? `決める日（${f.dueAt}）が来ました。次の定例会議で決めます` : `${f.dueAt}に決めます（今は途中経過）`}</div>
+        <p className="num text-sm">
+          1日あたり（会議の前7日 → 会議のあと{f.after.days}日）: 訪問 {per(f.before.visits, f.before.days)}人 → {per(f.after.visits, f.after.days)}人
+          ・登録/利用 {per(f.before.conversions, f.before.days)}人 → {per(f.after.conversions, f.after.days)}人
+        </p>
+        {f.decided && (
+          <p className="mt-1">
+            <b style={{ color: f.decided.settled ? "var(--good)" : "var(--muted)" }}>{f.decided.settled ? "決めた" : "決めきれなかった"}</b>
+            <span className="text-ink-2">　{f.decided.decision}</span>
+            <span className="block text-xs text-ink-2">{f.decided.note}<span className="ml-1 text-muted">（{modelInfo(f.decided.by).label}が定例会議で確認）</span></span>
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function MeetingCard({ m }: { m: Meeting }) {
   return (
     <article id={m.key} className="card scroll-mt-4 space-y-2 p-4">
@@ -67,6 +93,7 @@ function MeetingCard({ m }: { m: Meeting }) {
       </div>
       <p className="text-sm"><span className="text-muted">結論: </span>{m.conclusion}</p>
       {m.followUp && <FollowUpBox f={m.followUp} />}
+      {m.decide && <DecideBox f={m.decide} />}
       {m.items.length > 0 && (
         <details className="border-t border-line pt-2">
           <summary className="cursor-pointer text-sm text-ink-2">発言と採点を見る（{m.items.length}件）</summary>

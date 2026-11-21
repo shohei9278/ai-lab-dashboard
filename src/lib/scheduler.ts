@@ -14,6 +14,7 @@ import { syncReactions } from "./postReactions";
 import { maybeNightlyReport } from "./diary";
 import { expireStaleProposals, mergeSimilarOpen, proposeFromErrors } from "./voices";
 import { syncAiFixPrs } from "./aiFix";
+import { notifyLongWaits } from "./waits";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
 const CHECK_EVERY_MS = 5 * 60 * 1000;
@@ -109,10 +110,11 @@ async function tickNow() {
   } catch {
     // 見張りの失敗で、ほかの処理を止めない
   }
-  // 提案箱: 同じ趣旨の提案をまとめ、30日返事のない提案を見送りにし、Claude Code に頼んだ改善の PR の状態を読む（どれも1時間に1回。マージされていたら「やった」にする）
+  // 提案箱: 同じ趣旨の提案をまとめ、30日返事のない提案を見送りにし、7日返事待ちの運営者へのお願いを知らせ、Claude Code に頼んだ改善の PR の状態を読む（どれも1時間に1回。マージされていたら「やった」にする）
   try {
     mergeSimilarOpen();
     expireStaleProposals();
+    notifyLongWaits();
   } catch {
     // まとめの失敗で、ほかの処理を止めない
   }
