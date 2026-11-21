@@ -64,7 +64,8 @@ export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fe
   if (!res.ok) throw new Error(`Claude Code のルーティンを起動できませんでした（${res.status}）`);
   const data = (await res.json().catch(() => ({}))) as { claude_code_session_url?: unknown };
   const url = typeof data.claude_code_session_url === "string" && /^https:\/\/claude\.ai\/[^\s"'<>]+$/.test(data.claude_code_session_url) ? data.claude_code_session_url : null;
-  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_url = ?, ai_fix_note = ? WHERE id = ?").run(url, clean || null, id);
+  // 頼み直したときは、前の PR の番号と状態を消す（新しい PR が見つかるまで「PR はまだ見つかっていません」と出す。PR #126 の ai-review の指摘）
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_url = ?, ai_fix_note = ?, ai_fix_pr = NULL, ai_fix_pr_state = NULL WHERE id = ?").run(url, clean || null, id);
   logEvent(null, "human", "plan-request-ai-fix", `提案箱の「${r.title}」を、Claude Code に直してもらうよう頼んだ（PR ができたら、見てマージする）`);
   return { sessionUrl: url };
 }

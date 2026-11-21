@@ -91,7 +91,8 @@ export function mergeSimilarOpen(force = false): number {
     const group = [r, ...rows.filter((o) => o.id !== r.id && !gone.has(o.id) && o.target === r.target && similarity(r, o) >= SIMILAR)];
     if (group.length < 2) continue;
     const keep = group.reduce((a, b) => (better(b, a) ? b : a));
-    const drop = group.filter((g) => g !== keep && !g.ai_fix_at && !g.voiced);
+    // 消すのは、残す提案と直接似ているものだけ（起点とだけ似ていて、残す提案とは似ていないものは、次の回に回す。PR #126 の ai-review の指摘）
+    const drop = group.filter((g) => g !== keep && !g.ai_fix_at && !g.voiced && similarity(g, keep) >= SIMILAR);
     if (!drop.length) continue;
     const conn = db();
     conn.transaction(() => {

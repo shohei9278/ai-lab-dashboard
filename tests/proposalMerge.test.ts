@@ -74,6 +74,22 @@ test("提案箱: すでに入っている同じ趣旨の提案は、1件にま�
   assert.ok(o2);
 });
 
+test("提案箱: まとめるとき、残す提案と直接似ていない提案は消さない", async () => {
+  const { similarity: sim } = await import("../src/lib/voices");
+  db().exec("DELETE FROM plan_requests");
+  // A は B とも C とも似ているが、B と C は似ていない。点の高い B を残すとき、C は消さない
+  const A = { title: "表示順と中身の突き合わせとタイマーの停止", how: "design.order の中身を確かめ、setInterval のタイマーを止める" };
+  const B = { title: "表示順と中身の突き合わせ", how: "design.order の中身を確かめる" };
+  const C = { title: "タイマーの停止", how: "setInterval のタイマーを止める" };
+  assert.ok(sim(A, B) >= 0.2 && sim(A, C) >= 0.2 && sim(B, C) < 0.2, `${sim(A, B)} ${sim(A, C)} ${sim(B, C)}`);
+  const ins = (p: { title: string; how: string }, score: number | null) => Number(db().prepare("INSERT INTO plan_requests (title, how, source, target, score) VALUES (?, ?, 'scene', 'system', ?)").run(p.title, p.how, score).lastInsertRowid);
+  const a = ins(A, null), b = ins(B, 8), c = ins(C, null);
+  mergeSimilarOpen(true);
+  const left = (db().prepare("SELECT id FROM plan_requests ORDER BY id").all() as { id: number }[]).map((r) => r.id);
+  assert.ok(!left.includes(a), "A は B にまとめる");
+  assert.ok(left.includes(b) && left.includes(c), "C は B と似ていないので残す");
+});
+
 test("定例会議の材料: 仕組みの改善の偏りと、運営者が手でやったことを渡す", () => {
   db().exec("DELETE FROM plan_requests");
   db().prepare("INSERT INTO plan_requests (title, how, source, target, scene, proposer) VALUES ('a', 'x', 'scene', 'system', 'LPのチェック', 'claude-opus-5-5')").run();
