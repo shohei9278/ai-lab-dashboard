@@ -17,16 +17,49 @@ const CAPPED: ProposalSource[] = ["scene", "error", "revival"];
 const SCENE_CAP_PER_DAY = 5;
 const norm = (s: string) => s.replace(/[\s「」『』"'、。・!！?？（）()]/g, "").toLowerCase();
 
-// 同じ題が「返事待ち」「見送り」「7日以内にやった」にあれば入れない
+// 返事がないまま30日たった提案は、自動で見送りにする（そのときのひとこと）
+// これは「いらない」と決めたものではないので、同じ提案がまた出てきたら入れる（見送りと同じ題・同じ趣旨でも止めない）
+export const STALE_NOTE = "30日返事がなかったので、自動で見送り";
+const STALE_DAYS = 30;
+const BLOCKING = "(status = 'open' OR (status = 'declined' AND COALESCE(note, '') != ?) OR (status = 'done' AND decided_at >= datetime('now', '-7 days')))";
+
+// 同じ題が「返事待ち」「見送り（返事がないまま見送ったものを除く）」「7日以内にやった」にあれば入れない
 function duplicate(title: string): boolean {
   const n = norm(title);
-  const rows = db().prepare("SELECT title FROM plan_requests WHERE status = 'open' OR status = 'declined' OR (status = 'done' AND decided_at >= datetime('now', '-7 days'))").all() as { title: string }[];
+  const rows = db().prepare(`SELECT title FROM plan_requests WHERE ${BLOCKING}`).all(STALE_NOTE) as { title: string }[];
   return rows.some((r) => norm(r.title) === n);
+}
+
+// 同じ趣旨の提案か: 題と中身の2文字ずつの重なり（Jaccard）が SIMILAR 以上
+// 題の言い方だけ変えた同じ提案が、提案箱に4件並んでいた（「表示順と中身の突き合わせ」など）。本番の提案では、同じ趣旨の組は 0.22〜0.45、違う提案は 0.10 以下だった
+// AIは呼ばない（提案が入るたびに費用をかけないため）
+export const SIMILAR = 0.2;
+const bigrams = (s: string) => { const n = norm(s).replace(/[:：,.\-〜~]/g, ""); return new Set(Array.from({ length: Math.max(0, n.length - 1) }, (_, i) => n.slice(i, i + 2))); };
+export function similarity(a: { title: string; how?: string | null }, b: { title: string; how?: string | null }): number {
+  const x = bigrams(`${a.title}${a.how ?? ""}`), y = bigrams(`${b.title}${b.how ?? ""}`);
+  if (x.size < 4 || y.size < 4) return 0;
+  let both = 0;
+  for (const g of x) if (y.has(g)) both++;
+  return both / (x.size + y.size - both);
+}
+type Near = { id: number; title: string; how: string | null; status: string; target: string };
+// AIの提案（運営者が入れたもの以外）のうち、同じ趣旨のもの。返事待ち・見送り（返事がないまま見送ったものを除く）・7日以内にやったものから探す
+function similarOf(p: { title: string; how?: string; target: string }): Near | undefined {
+  const rows = db().prepare(`SELECT id, title, how, status, target FROM plan_requests WHERE source != 'human' AND target = ? AND ${BLOCKING}`).all(p.target, STALE_NOTE) as Near[];
+  return rows.find((r) => similarity(r, p) >= SIMILAR);
 }
 
 export function addProposal(p: NewProposal): number | null {
   const title = p.title.trim().slice(0, 80);
   if (!title || duplicate(title)) return null;
+  // 同じ趣旨の提案がすでにあれば、新しく入れない。返事待ちなら「何回出たか」を数える（何度も出る提案は、優先して見る価値がある）
+  if (p.source !== "human") {
+    const near = similarOf({ title, how: p.how, target: p.target });
+    if (near) {
+      if (near.status === "open") db().prepare("UPDATE plan_requests SET repeats = repeats + 1 WHERE id = ?").run(near.id);
+      return null;
+    }
+  }
   if (CAPPED.includes(p.source)) {
     const today = (db().prepare(`SELECT COUNT(*) AS n FROM plan_requests WHERE source IN (${CAPPED.map(() => "?").join(",")}) AND created_at >= datetime('now', '-1 day')`).get(...CAPPED) as { n: number }).n;
     if (today >= SCENE_CAP_PER_DAY) return null;
@@ -36,6 +69,52 @@ export function addProposal(p: NewProposal): number | null {
   ).run(p.planId ?? null, title, (p.how ?? "").slice(0, 600), (p.why ?? "").slice(0, 400), p.source, p.proposer ?? null, p.target, p.score ?? null, p.meetingId ?? null, p.scene ?? null, p.projectId ?? null, p.refId ?? null).lastInsertRowid);
   if (p.source !== "human") logEvent(p.projectId ?? null, p.source === "error" ? "system" : "ai", "proposal", `提案箱に「${title}」が入りました${p.proposer ? `（${modelInfo(p.proposer).label}・${p.scene ?? ""}）` : ""}`);
   return id;
+}
+
+// 返事待ちの提案のうち、同じ趣旨のものを1件にまとめる（同じ趣旨の提案を入れなくする前に入ったもの。1時間に1回）
+// 残すのは、Claude Code に頼んだもの → 社員の声から入れたもの → 点の高いもの → 古いもの。まとめた分は「何回出たか」に足し、まとめたほうは消す
+// （頼んだもの・声から入れたものは消さないので、先に残すほうにしないと、両方が残り続ける。PR #126 の ai-review の指摘）
+// まとめるのは、ある提案と直接似ているものだけ（A と B、B と C が似ていても、A と C が似ていなければ、まとめない。つないでいくと、別の提案まで消すため）
+// 社員の声から入れたもの・Claude Code に頼んだものは消さない
+const gMerge = globalThis as unknown as { __aiLabMergeCheck?: number };
+export function mergeSimilarOpen(force = false): number {
+  if (!force && gMerge.__aiLabMergeCheck && Date.now() - gMerge.__aiLabMergeCheck < 3_600_000) return 0;
+  gMerge.__aiLabMergeCheck = Date.now();
+  type Row = Near & { score: number | null; repeats: number; ai_fix_at: string | null; voiced: number };
+  const rows = db().prepare("SELECT r.id, r.title, r.how, r.status, r.target, r.score, r.repeats, r.ai_fix_at, EXISTS (SELECT 1 FROM voices v WHERE v.request_id = r.id) AS voiced FROM plan_requests r WHERE r.status = 'open' AND r.source != 'human' ORDER BY r.id").all() as Row[];
+  const rank = (r: Row) => [r.ai_fix_at ? 0 : 1, r.voiced ? 0 : 1, -(r.score ?? 0), r.id];
+  const better = (a: Row, b: Row) => { const x = rank(a), y = rank(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i]; return false; };
+  const gone = new Set<number>();
+  let merged = 0;
+  for (const r of rows) {
+    if (gone.has(r.id)) continue;
+    const group = [r, ...rows.filter((o) => o.id !== r.id && !gone.has(o.id) && o.target === r.target && similarity(r, o) >= SIMILAR)];
+    if (group.length < 2) continue;
+    const keep = group.reduce((a, b) => (better(b, a) ? b : a));
+    // 消すのは、残す提案と直接似ているものだけ（起点とだけ似ていて、残す提案とは似ていないものは、次の回に回す。PR #126 の ai-review の指摘）
+    const drop = group.filter((g) => g !== keep && !g.ai_fix_at && !g.voiced && similarity(g, keep) >= SIMILAR);
+    if (!drop.length) continue;
+    const conn = db();
+    conn.transaction(() => {
+      for (const d of drop) { conn.prepare("DELETE FROM plan_requests WHERE id = ? AND status = 'open'").run(d.id); gone.add(d.id); }
+      conn.prepare("UPDATE plan_requests SET repeats = repeats + ? WHERE id = ?").run(drop.reduce((n, d) => n + 1 + d.repeats, 0), keep.id);
+    })();
+    merged += drop.length;
+    logEvent(null, "system", "proposal-merge", `提案箱の「${keep.title}」に、同じ趣旨の提案を${drop.length}件まとめました`);
+  }
+  return merged;
+}
+
+// 返事がないまま30日たったAIの提案を、見送りにする（1時間に1回。提案箱がたまり続けないように）
+// 残すもの: 同じ趣旨の提案がほかに2回以上出たもの（何度も出るものは、まだ見る価値がある）・Claude Code に頼んだもの・運営者が入れたもの
+const gStale = globalThis as unknown as { __aiLabStaleCheck?: number };
+export function expireStaleProposals(force = false): number {
+  if (!force && gStale.__aiLabStaleCheck && Date.now() - gStale.__aiLabStaleCheck < 3_600_000) return 0;
+  gStale.__aiLabStaleCheck = Date.now();
+  const n = db().prepare(`UPDATE plan_requests SET status = 'declined', note = ?, decided_at = datetime('now')
+    WHERE status = 'open' AND source != 'human' AND repeats < 2 AND ai_fix_at IS NULL AND created_at < datetime('now', ?)`).run(STALE_NOTE, `-${STALE_DAYS} days`).changes;
+  if (n) logEvent(null, "system", "proposal-stale", `提案箱で${STALE_DAYS}日返事がなかった提案を${n}件、見送りにしました（同じ提案がまた出てきたら入れます）`);
+  return n;
 }
 
 // 声を残す（同じ内容が7日以内にあれば残さない）

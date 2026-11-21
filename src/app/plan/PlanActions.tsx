@@ -84,6 +84,36 @@ export function AnswerRequest({ id }: { id: number }) {
   );
 }
 
+// 提案箱の「仕組みの改善」を、クラウドの Claude Code（ルーティン）に直してもらう。PR ができたら、運営者が見てマージする（aiFix.ts）
+export function AiFixRequest({ id, again }: { id: number; again: boolean }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  return (
+    <span className="inline-flex items-center gap-2">
+      <button
+        type="button"
+        disabled={busy}
+        className="rounded-lg border border-line px-2 py-0.5 text-xs disabled:opacity-50"
+        onClick={async () => {
+          const note = window.prompt("Claude Code が直して PR を作ります（サブスクの使用量を使います）。\n伝えたいこと（空でも可）");
+          if (note === null) return;
+          setBusy(true);
+          setMsg(null);
+          const res = await post({ aiFix: { id, note } });
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          setBusy(false);
+          if (!res.ok) return setMsg(data.error ?? "頼めませんでした");
+          router.refresh();
+        }}
+      >
+        {busy ? "頼んでいます…" : again ? "もう一度頼む" : "AIに直させる"}
+      </button>
+      {msg && <span className="text-xs" style={{ color: "var(--critical)" }}>{msg}</span>}
+    </span>
+  );
+}
+
 // あなたが提案箱に提案を入れる（次の朝会と定例会議で、AIが検討して返事をする）
 export function AddProposal() {
   const router = useRouter();

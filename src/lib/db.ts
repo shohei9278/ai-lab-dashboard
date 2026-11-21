@@ -683,6 +683,13 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["plan_requests", "project_id", "INTEGER"],
   ["plan_requests", "ref_id", "INTEGER"], // 敗者復活: 元のアイデアの候補（idea_candidates）
   ["plan_requests", "ai_reply", "TEXT"], // あなたが入れた提案への、AIの返事
+  // 提案箱の「仕組みの改善」を、クラウドの Claude Code（ルーティン）に頼んだとき（aiFix.ts）: 頼んだ日時・作業の画面の URL・運営者のひとこと
+  ["plan_requests", "ai_fix_at", "TEXT"],
+  ["plan_requests", "ai_fix_url", "TEXT"],
+  ["plan_requests", "ai_fix_note", "TEXT"],
+  ["plan_requests", "ai_fix_pr", "INTEGER"], // ルーティンが作った PR の番号と状態（open / merged / closed）。1時間に1回 GitHub から読む
+  ["plan_requests", "ai_fix_pr_state", "TEXT"],
+  ["plan_requests", "repeats", "INTEGER NOT NULL DEFAULT 0"], // 同じ趣旨の提案が、ほかに何回出たか（まとめた分。voices.ts）
   ["meetings", "kind", "TEXT NOT NULL DEFAULT 'weekly'"], // weekly = 週の定例会議 / adhoc = あなたが議題を出した臨時会議
   ["meetings", "topic", "TEXT"], // 臨時会議の議題
   ["voice_effects", "research_ids", "TEXT"], // JSON: 判断を変えた根拠になった調べもの（research の id）

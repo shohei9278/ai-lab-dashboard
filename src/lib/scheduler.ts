@@ -12,7 +12,8 @@ import { maybeRecordFollowersSafe } from "./hits";
 import { maybeCreatePlan, runPlanTasks } from "./plan";
 import { syncReactions } from "./postReactions";
 import { maybeNightlyReport } from "./diary";
-import { proposeFromErrors } from "./voices";
+import { expireStaleProposals, mergeSimilarOpen, proposeFromErrors } from "./voices";
+import { syncAiFixPrs } from "./aiFix";
 
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
 const CHECK_EVERY_MS = 5 * 60 * 1000;
@@ -108,6 +109,14 @@ async function tickNow() {
   } catch {
     // 見張りの失敗で、ほかの処理を止めない
   }
+  // 提案箱: 同じ趣旨の提案をまとめ、30日返事のない提案を見送りにし、Claude Code に頼んだ改善の PR の状態を読む（どれも1時間に1回。マージされていたら「やった」にする）
+  try {
+    mergeSimilarOpen();
+    expireStaleProposals();
+  } catch {
+    // まとめの失敗で、ほかの処理を止めない
+  }
+  await syncAiFixPrs().catch((e) => logEvent(null, "system", "ai-fix-sync-error", `Claude Code に頼んだ改善の PR の状態を読めませんでした: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   // 投稿についた反応を取り込む（計画を作る前に。1時間に1回）
   await syncReactions().catch(() => 0);
   // 毎朝の計画を作り、時刻が来た予定を実行する（毎日の自動実行より先に。計画で新しい案件を休むことがあるため）
