@@ -1,3 +1,4 @@
+import { routinesWorking } from "./toolRoutine";
 import { HIDDEN, maskEventMessage, maskHandles } from "./viewer";
 import { db, getSettings } from "./db";
 import { activityList, buildingList, ideaRunning, liveNotesList } from "./loop";
@@ -169,7 +170,8 @@ export function liveSnapshot({ guest = false } = {}) {
     dailyHour: s.dailyHour,
     digestHour: NIGHTLY_HOUR,
     killSwitch: s.killSwitch,
-    building: buildingList().map((b) => ({ ...b, title: titles.get(b.id) ?? `#${b.id}` })),
+    // ダッシュボードの中で作っているものと、クラウドの Claude Code（ルーティン）が作っているもの（同じ案件が両方にあれば、中のほうを出す）
+    building: [...buildingList(), ...routinesWorking().filter((r) => !buildingList().some((b) => b.id === r.id))].map((b) => ({ ...b, title: titles.get(b.id) ?? `#${b.id}` })),
     activities: activityList(),
     ideaBusy: ideaRunning(),
     numbers: {

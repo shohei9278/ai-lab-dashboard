@@ -232,3 +232,22 @@ test("チェックで止まったツール: 公開の判断待ちにせず、指
   assert.equal(heldToRoutine(tool, issues), false);
   configure();
 });
+
+test("本番の作業中: ルーティンが作業中の開発待ちも、/api/live の building に出す（3時間たったもの・入れ終わったものは出さない）", async () => {
+  const { routinesWorking } = await import("../src/lib/toolRoutine");
+  const { liveSnapshot } = await import("../src/lib/live");
+  configure();
+  db().exec("DELETE FROM approvals");
+  const working = devCase("作業中");
+  const old = devCase("3時間たった");
+  const done = devCase("入れ終わった");
+  db().prepare("UPDATE approvals SET routine_at = datetime('now', '-30 minutes') WHERE id = ?").run(working.approvalId);
+  db().prepare("UPDATE approvals SET routine_at = datetime('now', '-4 hours') WHERE id = ?").run(old.approvalId);
+  db().prepare("UPDATE approvals SET routine_at = datetime('now', '-10 minutes'), status = 'approved' WHERE id = ?").run(done.approvalId);
+  devCase("まだ頼んでいない");
+  assert.deepEqual(routinesWorking().map((r) => r.id), [working.projectId]);
+  const b = liveSnapshot().building;
+  assert.deepEqual(b.map((x) => x.id), [working.projectId]);
+  assert.match(b[0].what, /ルーティン/);
+  assert.equal(b[0].title, "作業中");
+});
