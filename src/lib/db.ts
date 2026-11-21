@@ -850,6 +850,8 @@ export type Settings = {
   snsAccount: string; // LP・ツールを紹介する X のアカウント（@なし）
   illustrations: boolean; // LPの見出しの横に、AIが描いたイラストを置く
   freePage: boolean; // 事前登録LPのページ全体と、新しく作るツールのまわりのページを、部品ではなくAIに自由にデザインさせる
+  // ねらいが「広がる」の案件を初めて公開したときに、遊ぶ様子の動画を自動で作るか（運営者が、必要なときだけ作れればよいと決めた。最初はオフ。案件の画面のボタンからはいつでも作れる）
+  playVideoOnPublish: boolean;
   fullAuto: boolean; // 自動モードの案件は、公開・撤退も人の承認なしで行う（人はあとから見て印を付ける）
   autoPublishPerWeek: number; // 人の承認なしで新しく公開してよい件数（直近7日）
   autoPost: boolean; // 集客中の案件を、AIが X に自動で投稿する（X のAPIキーが必要）
@@ -896,6 +898,7 @@ const DEFAULTS: Settings = {
   snsAccount: "",
   illustrations: true,
   freePage: true,
+  playVideoOnPublish: false,
   fullAuto: false,
   autoPublishPerWeek: 3,
   autoPost: false,
@@ -948,7 +951,7 @@ const DEFAULTS: Settings = {
 };
 
 const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];

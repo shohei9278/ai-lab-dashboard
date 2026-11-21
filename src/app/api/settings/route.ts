@@ -29,6 +29,7 @@ export async function POST(req: Request) {
   if (typeof body.weeklyReport === "boolean") patch.weeklyReport = body.weeklyReport;
   if (typeof body.illustrations === "boolean") patch.illustrations = body.illustrations;
   if (typeof body.freePage === "boolean") patch.freePage = body.freePage;
+  if (typeof body.playVideoOnPublish === "boolean") patch.playVideoOnPublish = body.playVideoOnPublish;
   if (typeof body.fullAuto === "boolean") patch.fullAuto = body.fullAuto;
   if (typeof body.toolRoutineAuto === "boolean") patch.toolRoutineAuto = body.toolRoutineAuto;
   if (typeof body.autoPost === "boolean") patch.autoPost = body.autoPost;

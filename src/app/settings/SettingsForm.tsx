@@ -215,6 +215,13 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           </span>
         </label>
         <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={v.playVideoOnPublish} onChange={(e) => set("playVideoOnPublish", e.target.checked)} />
+          <span>
+            公開したときに、遊ぶ様子の動画を自動で作る
+            <span className="block text-xs text-muted">オンにすると、ねらいが「広がる」の案件を初めて公開したときに、投稿に使う縦長の動画を裏で作ります（1本 約20円）。オフのときは、案件の画面の「動画を作る」から、必要なときだけ作ります。</span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={v.freePage} onChange={(e) => set("freePage", e.target.checked)} />
           <span>
             事前登録LPと、動くツールのページ全体を、AIに自由にデザインさせる
