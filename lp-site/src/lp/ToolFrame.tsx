@@ -48,6 +48,8 @@ export function ToolFrame({ html, title, onUse, onDepth, data, fonts, illustrati
     if (!tracking) return;
     const d = playDepth((e) => depthCb.current?.(e));
     depth.current = d;
+    // 作った時刻を測り始めにする（最初の1秒ごとの合図までに遊んだ分を数え落とさない。PR #123 の ai-review の指摘）
+    d.tick(Date.now(), document.visibilityState === "visible");
     const t = setInterval(() => d.tick(Date.now(), document.visibilityState === "visible"), 1000);
     // 画面に出る・隠れるが変わったら、それまでの間を区切る（隠れる直前までは出ていた。出る直前までは隠れていた）
     const onVis = () => d.tick(Date.now(), document.visibilityState !== "visible");
