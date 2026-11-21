@@ -38,8 +38,8 @@ export function playDepth(emit: (e: DepthEvent) => void) {
       if (d > SHAKE) lastActive = now;
     },
     // ツールが結果を知らせた。index は labResult の番号（labShare だけなら undefined）
+    // 遊んだ時間は延ばさない（時間で勝手に結果を出すツールで、誰も触っていないのに数えないように。PR #123 の ai-review の指摘）
     result(now: number, index?: number) {
-      lastActive = now;
       if (now - lastResult > SAME_RESULT_MS) {
         results++;
         if ((RESULT_MARKS as readonly number[]).includes(results)) emit({ name: "results", value: results });

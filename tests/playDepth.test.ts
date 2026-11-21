@@ -5,7 +5,7 @@ import { launch } from "../src/lib/freePage";
 import { db } from "../src/lib/db";
 import { funnel, playDepth as depthOf } from "../src/lib/funnel";
 import { funnelPeople } from "../src/lib/publish";
-import { pickChampion } from "../src/lib/aims";
+import { pickChampion, pickWithChampion, type AimWeights } from "../src/lib/aims";
 import { scoreChecks, type HitRow } from "../src/lib/hits";
 import { playDepth, type DepthEvent } from "../lp-site/src/lp/playDepth";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
@@ -56,6 +56,14 @@ test("遊びの深さ: 結果は続けて来た知らせを1回と数え、2回�
     { name: "results", value: 3 },
     { name: "result_kinds", value: 2 },
   ]);
+});
+
+test("遊びの深さ: 結果の知らせだけでは、遊んだ時間を数えない（時間で勝手に結果を出すツールのため。PR #123 の ai-review の指摘）", () => {
+  const got: DepthEvent[] = [];
+  const d = playDepth((e) => got.push(e));
+  let now = 0;
+  for (let i = 0; i < 30; i++) { now += 1000; d.result(now, i); d.tick(now, true); }
+  assert.equal(got.filter((e) => e.name === "play_time").length, 0);
 });
 
 test("遊びの深さ: 枠の中で触ったことを、1秒に1回まで active で知らせる", async (t) => {
@@ -118,6 +126,24 @@ test("推し枠: 平均で漏れた案のうち、作者ではない会社のAI�
   assert.equal(pickChampion([x("a", 7, 6), x("b", null, 9)]), null); // 8点以上がない
   assert.equal(pickChampion([x("a", 8, 7.5), x("b", 9, 5), x("c", 9, 6)])?.name, "b"); // 9点で、平均との差が大きい方
   assert.equal(pickChampion([x("a", 9, 5), x("b", 8, 5)], (c) => c.name !== "a")?.name, "b"); // 作ってよい件数などで外れた案は飛ばす
+});
+
+test("推し枠: 平均点なら最後の1件に選ばれる案は、推し枠の候補から外す（PR #123 の ai-review の指摘）", () => {
+  const w: AimWeights = { spread: 1, useful: 0, return: 0, demand: 0 };
+  const x = (name: string, avg: number, top: number | null) => ({ name, aim: "spread" as const, avg, author: name, top });
+  const list = [x("a", 8, 8), x("b", 7, 10), x("c", 6, 9), x("d", 5, 6)];
+  const peeked: string[] = [];
+  const r = pickWithChampion(list, 2, w, {}, ["spread"], 0, () => true, (c) => { peeked.push(c.name); return true; });
+  // b は平均点でも2件目に選ばれるので、推し枠にはせず、平均では漏れた c を推し枠にする
+  assert.deepEqual(r.picked.map((c) => c.name), ["a", "c"]);
+  assert.equal(r.champion?.name, "c");
+  assert.deepEqual(peeked, ["b"]); // 平均点の案は、件数を減らさずに確かめるだけ
+  // 推し枠に当てはまる案がなければ、平均点で選ぶ
+  const none = pickWithChampion([x("a", 8, 8), x("b", 7, 10), x("d", 5, 6)], 2, w, {}, ["spread"], 0, () => true, () => true);
+  assert.deepEqual(none.picked.map((c) => c.name), ["a", "b"]);
+  assert.equal(none.champion, null);
+  // 1件だけ選ぶときは、推し枠を作らない
+  assert.deepEqual(pickWithChampion(list, 1, w, {}, ["spread"], 0, () => true, () => true).picked.map((c) => c.name), ["a"]);
 });
 
 test("採点の答え合わせ: 作者以外のAIが付けた点を、当たった案と当たらなかった案に分け、推し枠と平均の当たりを数える", () => {

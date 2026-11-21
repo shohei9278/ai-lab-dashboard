@@ -4,7 +4,7 @@ import { PLAY_HOOK_MAX, PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublis
 import { hitsText } from "./hits";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
-import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, pickChampion, problemLabel, type Aim } from "./aims";
+import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
@@ -2917,34 +2917,35 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
     if (isAim(r.aim)) aimCounts[r.aim] = r.n;
   }
   let spreadLeft = practice ? Infinity : opts.spreadRoom ?? Infinity;
-  const accept = ({ c, aim }: { c: Candidate; aim: Aim }) => {
+  // dry: 確かめるだけ（経過に残さず、件数も減らさない。推し枠で、平均点なら何を選ぶかを先に見るため）
+  const accept = ({ c, aim }: { c: Candidate; aim: Aim }, dry = false) => {
+    const skip = (kind: string, text: string) => { if (!dry) logEvent(null, "system", kind, text); return false; };
     // 「広がる」は今回案件にしてよい件数まで（同時に集客中の上限・1日の上限）、じっくり案件は直近7日の上限まで
     // どちらの条件も通ってから枠を減らす（片方で外れた案が、もう片方の枠を使わないように）
     const deep = isDeepIdea(c.idea);
     const needs = deep ? needsOf(c.idea.needs) : [];
     if (aim === "spread" && spreadLeft <= 0) {
-      logEvent(null, "system", "spread-skipped", `アイデア「${c.idea.title}」は「広がる」ですが、今回作ってよい件数を超えるため、案件にしません`);
-      return false;
+      return skip("spread-skipped", `アイデア「${c.idea.title}」は「広がる」ですが、今回作ってよい件数を超えるため、案件にしません`);
     }
     // まだない仕組みが要る案は、人の作業待ちに止めるだけなので、週の上限や開発待ちには数えず、人の作業待ちの上限で見る（人が頼んだときは止めない）
     if (needs.length) {
       if (!practice && !opts.deepOnly && needsWaiting() + needsMade >= getSettings().needsWaitMax) {
-        logEvent(null, "system", "needs-skipped", `アイデア「${c.idea.title}」は、まだない仕組み（${needs.map((n) => NEED_KINDS[n.kind].label).join("・")}）が要りますが、人の作業待ちが${getSettings().needsWaitMax}件以上になるため、今回は案件にしません`);
-        return false;
+        return skip("needs-skipped", `アイデア「${c.idea.title}」は、まだない仕組み（${needs.map((n) => NEED_KINDS[n.kind].label).join("・")}）が要りますが、人の作業待ちが${getSettings().needsWaitMax}件以上になるため、今回は案件にしません`);
       }
-      if (aim === "spread") spreadLeft--;
-      needsMade++;
+      if (!dry) {
+        if (aim === "spread") spreadLeft--;
+        needsMade++;
+      }
       return true;
     }
     if (deep && deepLeft <= 0) {
-      logEvent(null, "system", "deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、直近7日の上限に達しているため、今回は案件にしません`);
-      return false;
+      return skip("deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、直近7日の上限に達しているため、今回は案件にしません`);
     }
     // 開発待ちが溜まっているあいだは、新しいじっくり案件を作らない（Claude Code で作るのが追いつかないまま増やさない。人が頼んだときは止めない）
     if (deep && !practice && !opts.deepOnly && devWaiting() + deepMade >= getSettings().deepDevWaitMax) {
-      logEvent(null, "system", "deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、開発待ちが${getSettings().deepDevWaitMax}件以上になるため、今回は案件にしません`);
-      return false;
+      return skip("deep-skipped", `アイデア「${c.idea.title}」はじっくり案件ですが、開発待ちが${getSettings().deepDevWaitMax}件以上になるため、今回は案件にしません`);
     }
+    if (dry) return true;
     if (aim === "spread") spreadLeft--;
     if (deep) {
       deepLeft--;
@@ -2957,20 +2958,10 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   // 当てはまる案がなければ、ふだんどおり平均点で選ぶ
   const list = candidates.map((c) => ({ c, aim: aimOfIdea(c.idea), avg: c.avg, author: c.author, top: c.top }));
   const champSlot = !practice && !!opts.champion && keep >= 2;
-  const base = pickByAims(list, champSlot ? keep - 1 : keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept);
-  let picked = base;
-  if (champSlot) {
-    const rest = list.filter((x) => !base.includes(x));
-    const champ = pickChampion(rest, accept);
-    if (champ) {
-      champ.c.pick = "champion";
-      picked = [...base, champ];
-    } else {
-      const counts = { ...aimCounts };
-      for (const b of base) counts[b.aim] = (counts[b.aim] ?? 0) + 1;
-      picked = [...base, ...pickByAims(rest, 1, weights, counts, allowed, AIM_PICK_FLOOR, accept)];
-    }
-  }
+  const { picked, champion } = champSlot
+    ? pickWithChampion(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept, (x) => accept(x, true))
+    : { picked: pickByAims(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept), champion: null };
+  if (champion) champion.c.pick = "champion";
   const kept = picked.map((x) => x.c);
   // どの枠で選んだかを残す（推し枠と平均で選んだ案の、どちらが当たるかを比べるため）
   if (!practice) for (const k of kept) db().prepare("UPDATE idea_candidates SET pick_kind = ? WHERE id = ?").run(k.pick ?? "average", k.id);
