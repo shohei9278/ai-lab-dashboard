@@ -12,6 +12,7 @@ test("自動運転: 月末の見込みで段階を決める（月の初めの数
   assert.equal(autopilotLevel(budget(9000), 10).level, "normal");
   assert.equal(autopilotLevel(budget(11000), 10).level, "careful");
   assert.equal(autopilotLevel(budget(13000), 10).level, "saving");
+  assert.equal(autopilotLevel(budget(12000), 10).level, "saving"); // ちょうど120%も節約
   assert.equal(autopilotLevel(budget(30000), 2).level, "normal");
   assert.equal(autopilotLevel(budget(1000, false), 2).level, "saving");
 });
@@ -26,6 +27,9 @@ test("自動運転: 段階に合わせて絞り、人が決めた値より増や
   // 人が0にしていたものを増やさない
   const zero = applyAutopilot({ ...s, spreadPerDay: 0, deepPerWeek: 0 }, "careful");
   assert.deepEqual([zero.spreadPerDay, zero.deepPerWeek], [0, 0]);
+  // アイデアの数を0にしていたら、どの段階でも0のまま
+  assert.equal(applyAutopilot({ ...s, dailyIdeaCount: 0 }, "careful").dailyIdeaCount, 0);
+  assert.equal(applyAutopilot({ ...s, dailyIdeaCount: 0 }, "saving").dailyIdeaCount, 0);
   assert.deepEqual(applyAutopilot({ ...s, budgetAutopilot: false }, "saving"), { ...s, budgetAutopilot: false });
 });
 

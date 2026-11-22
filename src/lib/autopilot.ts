@@ -17,16 +17,18 @@ export function autopilotLevel(b = budgetState(), day = new Date().getDate()): {
   const pace = b.budget > 0 ? b.projected / b.budget : 0;
   if (!b.creativeOk) return { level: "saving", pace };
   if (day < MIN_DAYS) return { level: "normal", pace };
-  return { level: pace > SAVING_PACE ? "saving" : pace > CAREFUL_PACE ? "careful" : "normal", pace };
+  // 「2割以上」なので、ちょうど120%も節約にする（PR #152 の ai-review の指摘）
+  return { level: pace >= SAVING_PACE ? "saving" : pace > CAREFUL_PACE ? "careful" : "normal", pace };
 }
 
 // 段階に合わせて、費用のかかる設定を絞った値（人が決めた値より増やさない）
 export function applyAutopilot(s: Settings, level: AutopilotLevel): Settings {
   if (!s.budgetAutopilot || level === "normal") return s;
+  // 人が決めた値より増やさない（人が0にしていたら0のまま。PR #152 の ai-review の指摘）
   if (level === "careful") {
-    return { ...s, dailyIdeaCount: Math.max(1, Math.ceil(s.dailyIdeaCount / 2)), playVideoOnPublish: false, deepPerWeek: Math.min(s.deepPerWeek, 1) };
+    return { ...s, dailyIdeaCount: Math.min(s.dailyIdeaCount, Math.max(1, Math.ceil(s.dailyIdeaCount / 2))), playVideoOnPublish: false, deepPerWeek: Math.min(s.deepPerWeek, 1) };
   }
-  return { ...s, dailyIdeaCount: 1, spreadPerDay: Math.min(s.spreadPerDay, 1), illustrations: false, playVideoOnPublish: false, deepPerWeek: 0 };
+  return { ...s, dailyIdeaCount: Math.min(s.dailyIdeaCount, 1), spreadPerDay: Math.min(s.spreadPerDay, 1), illustrations: false, playVideoOnPublish: false, deepPerWeek: 0 };
 }
 
 // 費用のかかる設定を読む所は、getSettings の代わりにこれを使う（設定の画面には、人が決めた値をそのまま出す）

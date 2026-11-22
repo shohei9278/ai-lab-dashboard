@@ -17,10 +17,11 @@ const MODES: { id: ApprovalMode; label: string; body: string }[] = [
 ];
 
 // 予算の自動運転の段階の呼び方（autopilot.ts の AUTOPILOT_LABEL と同じ。サーバーの部品を読み込まないよう、ここに書く）
+// 出す段階は、画面を開いたときの予算から計算したもの（保存してある段階は、定期の処理が変わったと記録するためのもので、少し遅れることがある。PR #152 の ai-review の指摘）
 const AUTOPILOT_LABEL: Record<string, string> = { normal: "ふつう", careful: "控えめ", saving: "節約" };
 
-export function SettingsForm({ initial, models, publishing, snsReady, notifyReady, backups }: {
-  initial: Settings; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { key: string; label: string; ok: boolean; free: boolean; promoYen: number; plainYen: number }[]; notifyReady: boolean; backups: { files: string[]; offsite: { file: string; at: string } | null } | null;
+export function SettingsForm({ initial, autopilotNow, models, publishing, snsReady, notifyReady, backups }: {
+  initial: Settings; autopilotNow: string; models: { id: string; label: string; ok: boolean }[]; publishing: boolean; snsReady: { key: string; label: string; ok: boolean; free: boolean; promoYen: number; plainYen: number }[]; notifyReady: boolean; backups: { files: string[]; offsite: { file: string; at: string } | null } | null;
 }) {
   const router = useRouter();
   const [v, setV] = useState({
@@ -498,7 +499,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={v.budgetAutopilot} onChange={(e) => set("budgetAutopilot", e.target.checked)} />
           <span>
-            予算の自動運転（いまは「{AUTOPILOT_LABEL[v.autopilotLevel] ?? "ふつう"}」）
+            予算の自動運転（いまは「{v.budgetAutopilot ? AUTOPILOT_LABEL[autopilotNow] ?? "ふつう" : "オフ"}」）
             <span className="block text-xs text-muted">月末の見込みが上限を超えそうなら「控えめ」（アイデアの数を半分・じっくり案件は週1件まで・公開のときの動画を止める）、2割以上超えそうなら「節約」（アイデアは1社1件・「広がる」は1日1件まで・イラスト・動画・じっくり案件を止める）にします。この画面の値より増やすことはありません。新しく作る案件の数は、オフでも予算のペースで決まります。</span>
           </span>
         </label>
