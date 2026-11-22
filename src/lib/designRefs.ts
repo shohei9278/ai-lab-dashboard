@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "playwright-core";
-import { callClaude, isObj, isStr, type ClaudeContent } from "./ai";
+import { GuardError, aiPaused, callClaude, isObj, isStr, type ClaudeContent } from "./ai";
 import { dataDir, db } from "./db";
 import { logEvent } from "./loop";
 
@@ -52,11 +52,15 @@ async function processQueue() {
   g.__aiLabRefQueue = true;
   try {
     for (;;) {
+      // 緊急停止・予算の上限の間は始めない（待ちのまま残し、解けたあとの見回りで続ける）
+      if (aiPaused()) break;
       const r = db().prepare("SELECT * FROM design_refs WHERE status = 'queued' ORDER BY id LIMIT 1").get() as DesignRef | undefined;
       if (!r) break;
       try {
         await capture(r);
       } catch (e) {
+        // 途中で緊急停止・予算の上限になったときも、失敗にせず待ちのまま抜ける
+        if (e instanceof GuardError && aiPaused()) break;
         db().prepare("UPDATE design_refs SET status = 'error', error = ? WHERE id = ?").run((e instanceof Error ? e.message : String(e)).slice(0, 300), r.id);
       }
     }

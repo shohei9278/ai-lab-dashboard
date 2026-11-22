@@ -9,6 +9,13 @@ import { withExternalRule } from "./untrusted";
 
 export class GuardError extends Error {}
 
+// 緊急停止中か、今月の予算の上限に達しているか（AIを呼べない間。解けばまた呼べる）
+// 裏で順に進める待ち（話題の投稿・デザインの参考）は、この間は始めず、失敗にもせずに待ちのまま残す
+export function aiPaused(): boolean {
+  const s = getSettings();
+  return s.killSwitch || monthSpendUsd() * s.usdJpy >= s.monthlyBudgetJpy;
+}
+
 // いま呼んでいる途中のAI（呼んだ記録 ai_calls は、終わってから書くので、ツールを書くような長い呼び出しの間は何も残らない）
 // オフィスの画面で、長い作業の間も社員をその部屋に置くために使う
 export type OngoingCall = { id: number; modelId: string; purpose: string; projectId: number | null; since: number };
