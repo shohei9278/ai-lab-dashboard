@@ -1,6 +1,6 @@
 import { db, getSettings } from "./db";
 import { logEvent } from "./loop";
-import { threadsToken } from "./snsApi";
+import { threadsFetch, threadsToken } from "./snsApi";
 import { X_READ_COST_USD, tweetMetrics, xConfigured } from "./xPost";
 
 // AIの投稿（宣伝・普通の投稿）についた反応（いいね・返信・リポスト）を取り込む。毎日の計画で「どの手が効いたか」を見るため
@@ -56,14 +56,17 @@ async function threads(targets: Target[]): Promise<number> {
   if (!targets.length || (g.__aiLabThreadsInsightsOff && Date.now() - g.__aiLabThreadsInsightsOff < 86_400_000)) return 0;
   const token = encodeURIComponent(threadsToken());
   // 投稿のURLの最後の部分から、Threads の投稿のIDを引く
-  const mine = (await (await fetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink&limit=100&access_token=${token}`)).json()) as { data?: { id: string; permalink: string }[] };
+  const mineRes = await threadsFetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink&limit=100&access_token=${token}`, "自分の投稿の一覧");
+  const mine = (await mineRes.json().catch(() => ({}))) as { data?: { id: string; permalink: string }[]; error?: { message?: string } };
+  // トークンが切れたときなどに、0件として黙らないように例外にする（syncReactions が reactions-error として記録する）
+  if (!mineRes.ok) throw new Error(`Threads の自分の投稿の一覧を読めません（${mineRes.status}）: ${(mine.error?.message ?? "").slice(0, 200)}`);
   const code = (u: string) => u.split("/post/")[1]?.replace(/[/?#].*$/, "");
   const byCode = new Map((mine.data ?? []).map((m) => [code(m.permalink), m.id]));
   let n = 0;
   for (const t of targets) {
     const id = byCode.get(code(t.url));
     if (!id) continue;
-    const res = await fetch(`https://graph.threads.net/v1.0/${id}/insights?metric=likes,replies,reposts,quotes&access_token=${token}`);
+    const res = await threadsFetch(`https://graph.threads.net/v1.0/${id}/insights?metric=likes,replies,reposts,quotes&access_token=${token}`, "投稿の反応");
     const data = (await res.json().catch(() => ({}))) as { data?: { name: string; values?: { value: number }[]; total_value?: { value: number } }[]; error?: { message?: string } };
     if (!res.ok) {
       g.__aiLabThreadsInsightsOff = Date.now();

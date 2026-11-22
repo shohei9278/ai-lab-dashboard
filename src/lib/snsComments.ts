@@ -2,7 +2,7 @@ import { callJson, isObj } from "./ai";
 import { db, getSettings, type ProjectRow } from "./db";
 import { getProject, logEvent, type Lp } from "./loop";
 import { EXTRAS_RULE, takeExtras } from "./voices";
-import { AUTO_PLATFORMS, blueskySession, threadsPost, threadsToken } from "./snsApi";
+import { AUTO_PLATFORMS, blueskySession, threadsFetch, threadsPost, threadsToken } from "./snsApi";
 import { external } from "./untrusted";
 
 // 自分の投稿（Threads・Bluesky）についたコメントを取り込み、AIが返信の案を書く。返信するのは、人が「送る」を押したときだけ
@@ -31,14 +31,18 @@ async function fetchThreads(): Promise<number> {
   if (!posts.length || !AUTO_PLATFORMS.threads.configured()) return 0;
   const token = encodeURIComponent(threadsToken());
   // 投稿のURLの最後の部分から、Threads の投稿のIDを引く
-  const mine = (await (await fetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink,username&limit=50&access_token=${token}`)).json()) as { data?: { id: string; permalink: string; username: string }[] };
+  const mineRes = await threadsFetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink,username&limit=50&access_token=${token}`, "自分の投稿の一覧");
+  const mine = (await mineRes.json().catch(() => ({}))) as { data?: { id: string; permalink: string; username: string }[]; error?: { message?: string } };
+  // トークンが切れたときなどに、0件として黙らないように例外にする（syncComments が記録する）
+  if (!mineRes.ok) throw new Error(`Threads の自分の投稿の一覧を読めません（${mineRes.status}）: ${(mine.error?.message ?? "").slice(0, 200)}`);
   const byCode = new Map((mine.data ?? []).map((m) => [m.permalink.split("/post/")[1]?.replace(/\/$/, ""), m]));
   let n = 0;
   for (const p of posts) {
     const m = byCode.get(p.post_url.split("/post/")[1]?.replace(/\/$/, ""));
     if (!m) continue;
-    const res = await fetch(`https://graph.threads.net/v1.0/${m.id}/replies?fields=id,text,username,timestamp&access_token=${token}`);
-    const data = (await res.json().catch(() => ({}))) as { data?: { id: string; text?: string; username: string; timestamp: string }[] };
+    const res = await threadsFetch(`https://graph.threads.net/v1.0/${m.id}/replies?fields=id,text,username,timestamp&access_token=${token}`, "投稿のコメント");
+    const data = (await res.json().catch(() => ({}))) as { data?: { id: string; text?: string; username: string; timestamp: string }[]; error?: { message?: string } };
+    if (!res.ok) throw new Error(`Threads の投稿のコメントを読めません（${res.status}）: ${(data.error?.message ?? "").slice(0, 200)}`);
     for (const c of data.data ?? []) {
       if (c.username === m.username || !c.text) continue; // 自分の返信は数えない
       n += insert().run(p.id, p.project_id, "threads", c.id, null, null, null, `@${c.username}`, c.text.slice(0, 1000), c.timestamp).changes;
@@ -110,7 +114,12 @@ ${EXTRAS_RULE}`,
 // 5分ごとの取り込みから呼ぶ
 export async function syncComments(): Promise<number> {
   if (getSettings().killSwitch) return 0;
-  const n = (await fetchThreads().catch(() => 0)) + (await fetchBluesky().catch(() => 0));
+  // 片方が失敗しても、もう片方は取り込む。失敗は sns-comments-error として残す（0件として黙らない）
+  const run = (label: string, fn: () => Promise<number>) => fn().catch((e) => {
+    logEvent(null, "system", "sns-comments-error", `コメントの取り込みでエラー（${label}）: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`);
+    return 0;
+  });
+  const n = (await run("Threads", fetchThreads)) + (await run("Bluesky", fetchBluesky));
   if (n) logEvent(null, "system", "sns-comments", `SNSの投稿に新しいコメントが${n}件つきました`);
   await draftReplies();
   return n;
