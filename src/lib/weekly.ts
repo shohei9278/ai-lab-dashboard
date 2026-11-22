@@ -131,9 +131,7 @@ export async function createWeeklyMeeting(): Promise<number> {
   // 2. だれの案かを伏せて、自分以外の案を採点し合う
   // 今回の案と、この週に提案箱に入った提案・まだ点のない返事待ちの提案（あなたが入れたもの・会議の案は除く）を一緒に採点する
   // 点のない提案は、入った週の会議で採点されないと、いつまでも返事待ちに残っていた（運営者が、明らかに不要なものは自動で見送りにするか尋ね、おすすめを選んだ）
-  // Claude Code に頼んだ提案は採点しない（PR ができる前に低評価で見送りになると、マージしても「やった」にならない。PR #126 の ai-review の指摘）
-  const existing = (db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source != 'human' AND (source != 'meeting' OR scene LIKE '臨時会議%') AND (created_at >= datetime('now', '-8 days') OR score IS NULL) AND ai_fix_at IS NULL").all() as RequestRow[])
-    .map((r) => ({ title: r.title, how: r.how ?? "", why: r.why ?? "", target: r.target, proposer: r.proposer ?? "", existingId: r.id as number | undefined }));
+  const existing = scoringExisting().map((r) => ({ title: r.title, how: r.how ?? "", why: r.why ?? "", target: r.target, proposer: r.proposer ?? "", existingId: r.id as number | undefined }));
   const pool = [...got.flatMap((m) => m.proposals.map((p) => ({ ...p, proposer: m.modelId, existingId: undefined as number | undefined }))), ...existing];
   const order = pool.map((_, i) => i).sort(() => Math.random() - 0.5);
   const label = (i: number) => `P${order.indexOf(i) + 1}`;
@@ -237,6 +235,15 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
 
 // 採点者ごとの甘さ・辛さをならす: 採点者が付けた点から、その採点者の平均を引き、全体の平均を足す（採点者ごとの点を1〜10に収めてから、提案ごとに平均する）
 // 3件以上採点した採点者だけならす（少ないと、平均がその採点者の甘さを表さない）。点のない案は0点
+// 定例会議で、今回の案と一緒に採点する、提案箱の返事待ちの提案（この週に入ったもの・まだ点のないもの）
+// 採点しないもの:
+// - 運営者が入れたもの・会議の案（臨時会議の案は採点する）
+// - Claude Code に頼んだもの（PR ができる前に低評価で見送りになると、マージしても「やった」にならない。PR #126 の ai-review の指摘）
+// - コードの見直しのルーティンが入れたもの（採点の観点が「訪問・登録・利用に効くか」なので、コードの直しは低い点になりやすく、運営者が見る前に見送りや、まとめての消し込みになっていた。見直しのルーティンの1回目が見つけた）
+export function scoringExisting(): RequestRow[] {
+  return db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source NOT IN ('human', 'review') AND (source != 'meeting' OR scene LIKE '臨時会議%') AND (created_at >= datetime('now', '-8 days') OR score IS NULL) AND ai_fix_at IS NULL").all() as RequestRow[];
+}
+
 export function adjustScores(items: { who: string; score: number }[][]): number[] {
   const all = items.flat();
   if (!all.length) return items.map(() => 0);

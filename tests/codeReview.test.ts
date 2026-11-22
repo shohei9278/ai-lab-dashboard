@@ -4,6 +4,8 @@ import { test } from "node:test";
 import { db } from "../src/lib/db";
 import { REVIEW_MAX, addReviewFindings, reviewContext, reviewTokenOk } from "../src/lib/codeReview";
 import { GET, POST } from "../src/app/api/code-review/route";
+import { mergeSimilarOpen } from "../src/lib/voices";
+import { scoringExisting } from "../src/lib/weekly";
 
 const TOKEN = "r".repeat(40);
 process.env.LAB_REVIEW_TOKEN = TOKEN;
@@ -90,6 +92,26 @@ test("コードの見直し: 上限に達したあとも、同じ趣旨の提案
   assert.match(r.skipped[0], /同じ題か同じ趣旨/);
   assert.match(r.skipped[1], /5件を超えた/);
   assert.equal((db().prepare("SELECT repeats FROM plan_requests WHERE id = ?").get(target) as { repeats: number }).repeats, 1);
+});
+
+test("コードの見直し: 入れた提案は、定例会議で採点しない（運営者が見る前に低い点で見送りにならないように）", () => {
+  clear();
+  const [reviewId] = addReviewFindings([item(1)]).added;
+  const sceneId = Number(db().prepare("INSERT INTO plan_requests (title, how, source, target) VALUES ('仕組みの提案', 'h', 'scene', 'system')").run().lastInsertRowid);
+  const ids = scoringExisting().map((r) => r.id);
+  assert.ok(ids.includes(sceneId));
+  assert.ok(!ids.includes(reviewId));
+});
+
+test("コードの見直し: 入れた提案は、似た提案をまとめるときに消さない", () => {
+  clear();
+  const [reviewId] = addReviewFindings([item(1)]).added;
+  // 似た提案が、ふだんの作業の途中で先に入っていた（点も付いている）
+  const other = Number(db().prepare("INSERT INTO plan_requests (title, how, source, target, score) VALUES (?, ?, 'scene', 'system', 9)").run("来訪者の案件の画面で、下書きの版が見える", item(1).how).lastInsertRowid);
+  assert.equal(mergeSimilarOpen(true), 1);
+  const left = (db().prepare("SELECT id, repeats FROM plan_requests ORDER BY id").all() as { id: number; repeats: number }[]);
+  assert.deepEqual(left, [{ id: reviewId, repeats: 1 }]);
+  assert.ok(other);
 });
 
 test("コードの見直し: 読む提案は件数で切らない", () => {
