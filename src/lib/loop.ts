@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { autoSettings } from "./autopilot";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { PLAY_HOOK_MAX, PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublish, parseGivenPlay, replacePlayScript } from "./playVideo";
 import { heldToRoutine, toolRoutineConfigured } from "./toolRoutine";
@@ -384,7 +385,7 @@ export function spreadMadeToday(): number {
 // ねらいごとの、新しい案件を作れない理由（作れるねらいは入らない）
 // 「広がる」は、同時に集客中の上限と、毎日の自動アイデア出しのときだけ1日の上限を見る（人が頼んだときは1日の上限で止めない）。ほかのねらいは、集客中の上限
 export function aimBlocks({ daily = false } = {}): Partial<Record<Aim, string>> {
-  const s = getSettings();
+  const s = autoSettings(); // 「広がる」の1日の数は、予算の自動運転で絞ることがある
   const c = liveCounts();
   const out: Partial<Record<Aim, string>> = {};
   if (c.normal >= s.maxLive) for (const a of AIM_KEYS) if (a !== "spread") out[a] = `集客中の案件（「広がる」以外）が${c.normal}件で、上限（${s.maxLive}件）に達しています`;
@@ -395,7 +396,7 @@ export function aimBlocks({ daily = false } = {}): Partial<Record<Aim, string>> 
 
 // 今回案件にしてよい「広がる」の件数（同時の上限まで。毎日の自動のときは、1日の上限まで）
 export function spreadRoom({ daily = false } = {}): number {
-  const s = getSettings();
+  const s = autoSettings();
   const byLive = Math.max(0, s.spreadMaxLive - liveCounts().spread);
   return daily ? Math.min(byLive, Math.max(0, s.spreadPerDay - spreadMadeToday())) : byLive;
 }
@@ -2821,7 +2822,7 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     if (busy) return { ran: false, message: `いま「${busy}」が動いているため、終わってから実行します`, projectIds: [] };
     const exclude = Object.keys(blocks) as Aim[];
     if (exclude.length) logEvent(null, "system", "daily", `毎日の自動実行: 今日は ${exclude.map((a) => AIMS[a].label).join("・")} を出しません（${[...new Set(Object.values(blocks))].join("。")}）`);
-    const { candidates, kept } = await withIdeaLock("毎日のアイデア出し", () => gatherAndScoreIdeas(s.dailyIdeaCount, b.newToday, false, { exclude, spreadRoom: spreadRoom({ daily: true }), champion: true }));
+    const { candidates, kept } = await withIdeaLock("毎日のアイデア出し", () => gatherAndScoreIdeas(autoSettings().dailyIdeaCount, b.newToday, false, { exclude, spreadRoom: spreadRoom({ daily: true }), champion: true }));
     if (!candidates.length) return skip("どのAIからもアイデアを得られなかったため休みました");
     const ids: number[] = [];
     const gate = createGate({ daily: true });

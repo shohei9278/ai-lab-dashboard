@@ -1,5 +1,6 @@
 import { callJson, isObj, isStr } from "./ai";
-import { db, getSettings } from "./db";
+import { autoSettings } from "./autopilot";
+import { db } from "./db";
 import { TOOL_DATA_MAX, TOOL_DATA_ROWS_MAX } from "../../lp-site/src/lp/content";
 
 // じっくり案件: 大きなデータ・Google Fonts・見た目を磨く段を使ってよい、時間とお金をかける枠
@@ -16,7 +17,7 @@ export const DEEP_ROWS_PER_GROUP = 60; // 1つのグループで出す件数の�
 const PARALLEL = 6;
 
 // 直近7日に作ったじっくり案件の数から、あと何件作ってよいか
-export function deepAllowance(s = getSettings()): number {
+export function deepAllowance(s = autoSettings()): number {
   // 人の作業待ち（まだない仕組みが要るもの）は、週の上限に数えない（別に、同時に何件までと数える）
   // 人の作業待ちから作り始めたものは、作った日ではなく「済み」にした日から数える（長く待ったものも、作り始めた週に数える）
   const n = (db().prepare("SELECT COUNT(*) AS n FROM projects p WHERE p.deep = 1 AND p.demo = 0 AND COALESCE(p.needs_done_at, p.created_at) >= datetime('now', '-7 days') AND NOT (p.needs IS NOT NULL AND p.needs_done = 0 AND p.stage = 'idea')").get() as { n: number }).n;

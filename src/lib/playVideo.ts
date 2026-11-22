@@ -1,9 +1,10 @@
 import crypto from "node:crypto";
+import { autoSettings } from "./autopilot";
 import fs from "node:fs";
 import path from "node:path";
 import type { Frame, Locator } from "playwright-core";
 import { callClaude, callJson, claudeModelId, isObj, isStr } from "./ai";
-import { dataDir, db, getSettings, type ProjectRow } from "./db";
+import { dataDir, db, type ProjectRow } from "./db";
 import { launch } from "./freePage";
 import { external } from "./untrusted";
 import { getProject, logEvent } from "./loop";
@@ -504,7 +505,7 @@ async function makeOnce(projectId: number): Promise<number> {
 // 公開したときに、ねらいが「広がる」の案件は、裏で遊ぶ様子の動画を作っておく（投稿に使う。失敗しても公開は止めない）
 // 設定の「公開したときに動画を自動で作る」がオンのときだけ（運営者が、必要なときだけ作れればよいと決めた。案件の画面のボタンからはいつでも作れる）
 export function makePlayVideoOnPublish(p: Pick<ProjectRow, "id" | "kind" | "aim">) {
-  const s = getSettings();
+  const s = autoSettings(); // 予算の自動運転で止めることがある
   if (!s.playVideoOnPublish || p.kind !== "tool" || p.aim !== "spread" || s.killSwitch || pending.has(p.id)) return;
   void makePlayVideo(p.id).catch((e) => logEvent(p.id, "system", "play-video-error", `遊ぶ様子の動画を作れませんでした: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
 }
