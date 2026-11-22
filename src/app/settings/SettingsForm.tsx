@@ -500,7 +500,7 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
           <input type="checkbox" className="mt-1" checked={v.budgetAutopilot} onChange={(e) => set("budgetAutopilot", e.target.checked)} />
           <span>
             予算の自動運転（いまは「{v.budgetAutopilot ? AUTOPILOT_LABEL[autopilotNow] ?? "ふつう" : "オフ"}」）
-            <span className="block text-xs text-muted">月末の見込みが上限を超えそうなら「控えめ」（アイデアの数を半分・じっくり案件は週1件まで・公開のときの動画を止める）、2割以上超えそうなら「節約」（アイデアは1社1件・「広がる」は1日1件まで・イラスト・動画・じっくり案件を止める）にします。この画面の値より増やすことはありません。新しく作る案件の数は、オフでも予算のペースで決まります。</span>
+            <span className="block text-xs text-muted">月末の見込みが上限を超えそうなら「控えめ」（アイデアの数を半分・じっくり案件は週1件まで・公開のときの動画を止める）、2割以上超えそうなとき、または予算のうち新しく作る分（85%）を使い切ったときは「節約」（アイデアは1社1件・「広がる」は1日1件まで・イラスト・動画・じっくり案件を止める）にします。月の初めの2日は、見込みがぶれやすいので「ふつう」のままです（使い切ったときは除く）。この画面の値より増やすことはありません。新しく作る案件の数は、オフでも予算のペースで決まります。</span>
           </span>
         </label>
       </section>
