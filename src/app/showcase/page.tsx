@@ -34,11 +34,12 @@ const STACK: [string, string][] = [
   ["AI", "Anthropic・OpenAI・Google の各SDK（Claude・GPT・Gemini）"],
   ["公開サイト", "Next.js を Vercel に。登録とページ内の動きは Supabase に送り、5分ごとに取り込む"],
   ["自動化", "Playwright（公開前の画面撮影・ツールの自動テスト）、Threads・Bluesky・X の API"],
-  ["クラウドの開発", "Claude Code のルーティン（ダッシュボードから API で起動。改善の PR と、案件のツールづくり）"],
+  ["クラウドの開発", "Claude Code のルーティン（ダッシュボードから API で起動。改善の PR・案件のツールづくり・週1回のコードの見直し）"],
   ["運用", "Railway（Docker）・GitHub Actions"],
 ];
 // 自分で直して、自分で作る流れ（クラウドの Claude Code に頼むところ）
 const FIX_FLOW = ["AIの社員が気づく", "提案箱で3社が採点", "運営者が「AIに直させる」", "クラウドの Claude Code が直して PR", "別のAI（GPT）がレビュー", "人がマージ", "自動で「やった」", "会議で前後の数字を振り返る"];
+const REVIEW_FLOW = ["週に1回、クラウドの Claude Code がコードを読む", "根拠のあるものを5件まで提案箱へ", "運営者が選んで「AIに直させる」", "別のルーティンが PR にする"];
 const BUILD_FLOW = ["AIが設計書を書く", "クラウドの Claude Code がブラウザで確かめながら作る", "ダッシュボードに入れる", "チェック・自動テスト", "公開（止まったら Claude Code が直す）"];
 const COLOR = { anthropic: "var(--series-anthropic)", openai: "var(--series-openai)", google: "var(--series-google)" } as const;
 const NOTES = 3; // 気づいたことは新しい順に3件だけ出す（残りは資料のページで見る）
@@ -149,7 +150,7 @@ export default async function Showcase() {
               <li>コードは主に Claude Code で書き、人は問題の発見・方針の決定・動作の確認を受け持つ</li>
               <li>変更はすべてPRで、型チェック・lint・テストのCIと、別のAI（GPT）のレビューを通してから本番に出す</li>
               <li>本番に出たあとは、主要ページと閲覧専用の守りを30分ごとに自動で確かめる</li>
-              <li>AIの社員が提案した仕組みの改善は、運営者が押すとクラウドの Claude Code が PR にする（下の「自分で直して、自分で作る」）</li>
+              <li>AIの社員が提案した仕組みの改善と、週に1回 Claude Code がコードを見直して出した提案は、運営者が押すとクラウドの Claude Code が PR にする（下の「自分で直して、自分で作る」）</li>
               <li>人が手を入れたところは「改善の記録」に残している</li>
             </ul>
             <a href={REPO} target="_blank" rel="noreferrer" className="inline-block text-accent underline">ソースコード（GitHub）↗</a>
@@ -168,6 +169,12 @@ export default async function Showcase() {
             {routine.asked > 0 && <p className="num text-xs text-muted">これまでに頼んだ改善 {routine.asked}件・マージされた PR {routine.merged}件</p>}
           </article>
           <article className="card space-y-2 p-4 text-sm">
+            <h3 className="font-bold">コードを、中から見直す</h3>
+            <Chips items={REVIEW_FLOW} />
+            <p className="text-ink-2">提案箱に入るのは、AIの社員が運営の中で気づいたこと（外から見たこと）です。それとは別に、週に1回、クラウドの Claude Code がリポジトリを読み、動いていなさそうな機能・来訪者に見えてはいけないものが見える道・費用の上限を通らない道・気づけない失敗などを探して、どの行で確かめたかを添えて提案箱に入れます。コードは直さず、直すかは運営者が選びます。最初の回は、見直しの提案が会議の採点で見送りになってしまう、この仕組み自体の穴を見つけ、その場で直しました。</p>
+            {routine.reviewed > 0 && <p className="num text-xs text-muted">見直しで入った提案 {routine.reviewed}件・Claude Code に頼んだ {routine.reviewAsked}件・マージされた PR {routine.reviewMerged}件</p>}
+          </article>
+          <article className="card space-y-2 p-4 text-sm">
             <h3 className="font-bold">作り込むツールを、Claude Code が作る</h3>
             <Chips items={BUILD_FLOW} />
             <p className="text-ink-2">AIが1回で書くと長さで切れやすい作り込むツールは、AIが設計書を書き、クラウドの Claude Code が本物のブラウザで動かして確かめながら作ります。通常のツールも、書く担当（Claude Opus・Claude Sonnet・GPT）の交代に4つ目として入り、「1回で書くAI」と「直しながら作る Claude Code」を、同じチェックと公開の結果で比べています。公開前のチェックで止まったツールは、まず Claude Code が直します。</p>
@@ -176,7 +183,8 @@ export default async function Showcase() {
           <article className="card space-y-2 p-4 text-sm">
             <h3 className="font-bold">任せすぎないための決まり</h3>
             <ul className="list-disc space-y-1 pl-5 text-ink-2">
-              <li>ルーティンは役割ごとに分け、リポジトリを直すほうは本番に触れられない。ツールを作るほうだけが、合言葉で、ツールを読む・入れる入口にだけ入れる</li>
+              <li>ルーティンは役割ごとに分け、リポジトリを直すほうは本番に触れられない。ツールを作るほうは、合言葉で、ツールを読む・入れる入口にだけ入れる</li>
+              <li>コードを見直すほうは、提案箱に入れるだけでコードは直さない。入れるのは6日に5件まで、専用の合言葉で、その入口にだけ入れる</li>
               <li>頼む数は、同時に何件・1日に何件まで、と運営者が設定で決める（サブスクの使用量で動くため）</li>
               <li>チェックで止まったツールを Claude Code に直させるのは、同じ案件で7日に1回だけ。それでも直らなければ人の判断に回す</li>
               <li>ルーティンが作業中の間は「作業中」に出し、本番に新しい版を出すのを待つ（取り込みの途中で入れ替わって止まったことから決めた）</li>

@@ -6,6 +6,7 @@ import { REVIEW_MAX, addReviewFindings, reviewContext, reviewTokenOk } from "../
 import { GET, POST } from "../src/app/api/code-review/route";
 import { mergeSimilarOpen } from "../src/lib/voices";
 import { scoringExisting } from "../src/lib/weekly";
+import { showcaseRoutineStats } from "../src/lib/showcase";
 
 const TOKEN = "r".repeat(40);
 process.env.LAB_REVIEW_TOKEN = TOKEN;
@@ -112,6 +113,17 @@ test("コードの見直し: 入れた提案は、似た提案をまとめると
   const left = (db().prepare("SELECT id, repeats FROM plan_requests ORDER BY id").all() as { id: number; repeats: number }[]);
   assert.deepEqual(left, [{ id: reviewId, repeats: 1 }]);
   assert.ok(other);
+});
+
+test("コードの見直し: 概要ページに、見直しで入った数・頼んだ数・マージされた数を出す", () => {
+  clear();
+  const [a, b] = addReviewFindings([item(1), item(2)]).added;
+  db().prepare("INSERT INTO plan_requests (title, how, source, target, ai_fix_at, ai_fix_pr_state) VALUES ('仕組みの提案', 'h', 'scene', 'system', datetime('now'), 'merged')").run();
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_pr_state = 'merged' WHERE id = ?").run(a);
+  const r = showcaseRoutineStats();
+  assert.deepEqual([r.reviewed, r.reviewAsked, r.reviewMerged], [2, 1, 1]);
+  assert.deepEqual([r.asked, r.merged], [2, 2]);
+  assert.ok(b);
 });
 
 test("コードの見直し: 読む提案は件数で切らない", () => {
