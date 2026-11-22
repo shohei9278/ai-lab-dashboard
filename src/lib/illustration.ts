@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { autoSettings } from "./autopilot";
 import OpenAI from "openai";
 import { gemini } from "./gemini";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
@@ -75,7 +76,7 @@ export async function withIllustration(p: ProjectRow, lp: Lp, version: number, o
   const s = getSettings();
   if (!lp.design) return { lp, note: null };
   if (lp.design.illustration && !opts.force) return { lp, note: null };
-  if (!s.illustrations && !opts.force) return { lp, note: null };
+  if (!autoSettings().illustrations && !opts.force) return { lp, note: null }; // 予算の自動運転で止めることがある
   const model = pickModel();
   if (!model) return { lp, note: "画像を描けるAIのキーがないため、イラストなし" };
   if (!publishingConfigured()) return { lp, note: "Supabase の設定がないため、イラストなし" };
