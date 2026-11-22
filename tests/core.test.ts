@@ -5,7 +5,7 @@ import { db, saveSettings } from "../src/lib/db";
 import { addIntervention, aiImprovements, editIntervention, hideIntervention, isRealDay, listInterventions, monthlyImprovements } from "../src/lib/interventions";
 import { getProject, holdProject, jstToday, newProjectBlock, resumeDueHolds, trafficCapacity } from "../src/lib/loop";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
-import { CANVAS_HELPERS_JS } from "../src/lib/toolParts";
+import { CANVAS_HELPERS_JS, TWEEN_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
 import { PLAN_MODELS, answerRequest, editAnswer, createPlan, planModelStats, standupMembers, type PlanContent } from "../src/lib/plan";
 import { isGoogleFonts, pageSystem, staticPageIssues } from "../src/lib/freePage";
@@ -212,6 +212,36 @@ test("canvasの部品: 角丸は半径を収め、文字は幅に収まるまで
   assert.deepEqual(h.wrapLines(ctx, "あいうえおかきく", 30), ["あいう", "えおか", "きく"]);
   assert.deepEqual(h.wrapLines(ctx, "あい\nう", 30), ["あい", "う"]);
   assert.deepEqual(h.wrapLines(ctx, "あいうえおかきく", 30, 2), ["あいう", "えお…"]);
+});
+
+test("tweenの部品: 終わりまで進めば onDone を1回呼び、途中で止めれば次のフレームも onDone も呼ばない", () => {
+  // 手で進める偽物の requestAnimationFrame
+  let queue = new Map<number, (t: number) => void>(), next = 1;
+  const raf = (f: (t: number) => void) => { queue.set(next, f); return next++; };
+  const caf = (id: number) => { queue.delete(id); };
+  const frame = (t: number) => { const fs = [...queue.values()]; queue = new Map(); fs.forEach((f) => f(t)); };
+  const tween = new Function("requestAnimationFrame", "cancelAnimationFrame", `${TWEEN_JS}; return tween;`)(raf, caf);
+  const ks: number[] = [];
+  let done = 0;
+  tween(100, (k: number) => ks.push(k), () => done++);
+  frame(1000); frame(1050); frame(1100); frame(1150);
+  assert.deepEqual(ks, [0, 0.5, 1]);
+  assert.equal(done, 1);
+  // リセットで止めると、そのあとは何も呼ばない（何度止めてもよい）
+  const ks2: number[] = [];
+  const cancel = tween(100, (k: number) => ks2.push(k), () => done++);
+  frame(2000);
+  cancel(); cancel();
+  frame(2100);
+  assert.deepEqual(ks2, [0]);
+  assert.equal(done, 1);
+  assert.equal(queue.size, 0);
+  // 毎フレームの処理の中で止めても、終わりの処理は呼ばない
+  let stop = () => {};
+  stop = tween(100, () => stop(), () => done++);
+  frame(3000); frame(3200);
+  assert.equal(done, 1);
+  assert.equal(queue.size, 0);
 });
 
 test("ツールの枠: hidden を付けた要素は、クラスで display を決めていても消える", () => {

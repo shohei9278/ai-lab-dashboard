@@ -39,3 +39,28 @@ function wrapLines(ctx, text, maxWidth, maxLines) {
   kept[maxLines - 1] = last + "…";
   return kept;
 }`;
+
+// requestAnimationFrame で短く動かす（数字が増える・バーが伸びる など）ときの部品
+// リセットや読み込み完了のあとに、前の動きの終わりの処理（onDone）が走って、戻した状態が書き換わる不具合が起きていた（提案箱 #81: アニメ中断の共通部品）
+// - tween(ms, onFrame, onDone): ms ミリ秒かけて onFrame(0〜1) を毎フレーム呼び、最後に onDone を呼ぶ。止める関数（cancel）を返す
+// - cancel を呼ぶと、次のフレームは描かず、onDone も呼ばない（何度呼んでもよい）
+export const TWEEN_JS = `function tween(ms, onFrame, onDone) {
+  var id = 0, start = null, stopped = false;
+  function step(now) {
+    id = 0;
+    if (stopped) return;
+    if (start === null) start = now;
+    var k = ms > 0 ? Math.min(1, (now - start) / ms) : 1;
+    onFrame(k);
+    if (stopped) return;
+    if (k < 1) { id = requestAnimationFrame(step); return; }
+    stopped = true;
+    if (onDone) onDone();
+  }
+  id = requestAnimationFrame(step);
+  return function cancel() {
+    stopped = true;
+    if (id) cancelAnimationFrame(id);
+    id = 0;
+  };
+}`;

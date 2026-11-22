@@ -21,7 +21,7 @@ import { buildPage, judgePages, pageTexts, type PageCheck } from "./freePage";
 import { funnelText } from "./funnel";
 import { planIdeaNote, planPausesNew } from "./plan";
 import { EXTRAS_RULE, addProposal, takeExtras } from "./voices";
-import { CANVAS_HELPERS_JS } from "./toolParts";
+import { CANVAS_HELPERS_JS, TWEEN_JS } from "./toolParts";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { notifyEvent, notifyHuman } from "./liveNotify";
 import { researchText } from "./research";
@@ -1124,6 +1124,10 @@ ${short ? `${FIT_SCREEN_RULE}\n` : ""}- 日本語。開いた瞬間に使い方�
 \`\`\`js
 ${CANVAS_HELPERS_JS}
 \`\`\`
+- requestAnimationFrame で短く動かす（数字が増える・バーが伸びる・位置が動く など）ときは、自分で書かずに次の確かめ済みの関数をそのまま貼って使う（中身は変えない）。tween(ミリ秒, 毎フレームの処理(0〜1), 終わりの処理) は止める関数を返すので、必ず変数に持つ。同じものをまた動かす前・リセット・やり直し・読み込みの完了・エラーのときは、先にその止める関数を呼ぶ（止めないと、戻したあとに前の動きの終わりの処理が走って、状態が書き換わる）:
+\`\`\`js
+${TWEEN_JS}
+\`\`\`
 `;
 }
 
@@ -1189,7 +1193,7 @@ async function reviewTool(p: ProjectRow, html: string, instruction?: string): Pr
 - ツールの目的や今回の修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）を、初期値・プリセット・選択肢・入力例・便利な機能などの形でコードに書いている（「例で試す」のボタンで、例だと分かるように示した値をまとめて入れるのは問題にしない。ただし料金・手数料率など、使う人ごとに違い、間違えると損をする値を例のボタンで入れていたら問題にする）
 - canvas などで画像を作るとき、入力できる最大の文字数でも、本文とロゴ・ハッシュタグなどが重ならない作りになっていない（本文を描く範囲の下端が決まっていない）
 - 入力欄の上限・下限（min・max）と、エラー文・注意書き・説明の中の数字が食い違っている（max が 600 なのにエラー文が「300cm以下」など）
-- setInterval・setTimeout の繰り返し・requestAnimationFrame で再生やアニメーションを続けるツールで、リセット・やり直し・エラーのときにタイマーやアニメーションを止めていない（clearInterval・clearTimeout・cancelAnimationFrame がない・呼ばれない道がある。リセットのあとも再生が続く、エラーが繰り返し出る など）
+- setInterval・setTimeout の繰り返し・requestAnimationFrame で再生やアニメーションを続けるツールで、リセット・やり直し・エラーのときにタイマーやアニメーションを止めていない（clearInterval・clearTimeout・cancelAnimationFrame がない・呼ばれない道がある。tween の止める関数を持っていない・呼んでいない。リセットのあとも再生が続く、リセットや読み込みの完了のあとに前の動きの終わりの処理が走って状態が書き換わる、エラーが繰り返し出る など）
 - 「最小です」「ゼロにできます」のように理論上のことを言い切る表示が、小さな条件（人数が少ない・値が0や1など）で実際に手計算すると成り立たない
 - 使う前と後・改善前と後などの比較を出すとき、利用者が条件を変えても、比較の基準（前の値）が同じ条件で計算されていない（条件によって改善率がマイナスになる・表示が崩れる など）
 問題がなければ {"ok":true,"issues":[]}。
