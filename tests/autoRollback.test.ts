@@ -68,4 +68,14 @@ test("巻き戻し: 公開できなかったら、手元の版も元に戻して
   assert.deepEqual([after.lp_version, after.public_version, JSON.parse(after.lp!).headline], [2, 2, "第2版"]);
   assert.match(events(id, "rollback-error")[0], /公開できませんでした: つながらない/);
   assert.deepEqual(events(id, "auto-rollback"), []);
+  // 取り下げの印は付けない
+  assert.doesNotMatch((conn().prepare("SELECT note FROM lp_versions WHERE project_id = ? AND version = 2").get(id) as { note: string }).note, /取り下げ/);
 });
+
+test("巻き戻し: 7日の数え始めは、来た人がいた最初の日（来た人が0人の日は数えない）", () => {
+  const id = setup({ newErrors: 3, newVisits: 5 });
+  // 第2版を出した日に、来た人0人の記録が先にあった（10日前）
+  conn().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source, lp_version) VALUES (?, ?, 0, 0, 0, 'real', 2)").run(id, daysAgo(10));
+  assert.equal(rollbackPlan(project(id))?.to, 1);
+});
+

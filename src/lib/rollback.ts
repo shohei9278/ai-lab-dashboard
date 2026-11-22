@@ -26,7 +26,8 @@ export function rollbackPlan(p: ProjectRow): RollbackPlan | null {
   if (p.lp_version !== p.public_version || buildingNow(p.id)) return null;
   const v = p.public_version;
   // 新しい版に来た人が、まだ7日たっていないこと
-  const first = (db().prepare("SELECT MIN(day) AS d FROM metrics WHERE project_id = ? AND source = 'real' AND lp_version = ?").get(p.id, v) as { d: string | null }).d;
+  // 来た人が0人の日は数えない（来た人がいた最初の日から数える。PR #151 の ai-review の指摘）
+  const first = (db().prepare("SELECT MIN(day) AS d FROM metrics WHERE project_id = ? AND source = 'real' AND lp_version = ? AND visits > 0").get(p.id, v) as { d: string | null }).d;
   if (!first || first < (db().prepare("SELECT date('now', '+9 hours', ?) AS d").get(`-${ROLLBACK_WINDOW_DAYS} days`) as { d: string }).d) return null;
   // 前に来た人に見せていた版（公開中の版より前で、来た人の記録がある、いちばん新しい版）
   const prev = (db().prepare("SELECT MAX(lp_version) AS v FROM metrics WHERE project_id = ? AND source = 'real' AND lp_version < ? AND visits > 0").get(p.id, v) as { v: number | null }).v;
@@ -49,7 +50,6 @@ export async function autoRollback(p: ProjectRow, publish: (p: ProjectRow) => Pr
   if (!plan) return false;
   const live = db().prepare("SELECT lp FROM lp_versions WHERE project_id = ? AND version = ?").get(p.id, plan.to) as { lp: string };
   const conn = db();
-  conn.prepare("UPDATE lp_versions SET note = COALESCE(note, '') || '（来た人の画面のエラーが増えたため、自動で取り下げ）' WHERE project_id = ? AND version = ?").run(p.id, plan.from);
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(live.lp, plan.to, p.id);
   const back = conn.prepare("SELECT * FROM projects WHERE id = ?").get(p.id) as ProjectRow;
   try {
@@ -60,6 +60,8 @@ export async function autoRollback(p: ProjectRow, publish: (p: ProjectRow) => Pr
     logEvent(p.id, "system", "rollback-error", `第${plan.from}版を第${plan.to}版に戻そうとしましたが、公開できませんでした: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
     return false;
   }
+  // 取り下げの印は、公開し直せたあとに付ける（公開に失敗したのに、取り下げたように見えないように。PR #151 の ai-review の指摘）
+  conn.prepare("UPDATE lp_versions SET note = COALESCE(note, '') || '（来た人の画面のエラーが増えたため、自動で取り下げ）' WHERE project_id = ? AND version = ?").run(p.id, plan.from);
   logEvent(p.id, "system", "auto-rollback",
     `第${plan.from}版で、来た人の画面のエラーが増えたため（${plan.visits}人中${plan.errors}人。前の第${plan.to}版は${plan.prevVisits}人中${plan.prevErrors}人）、第${plan.to}版に自動で戻しました。直すのは、いつもの改善の流れに任せます`);
   return true;
