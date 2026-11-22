@@ -1,5 +1,5 @@
 import { db, getSettings, monthAdSpendJpy, monthSpendBreakdownUsd, type ApprovalKind, type EventRow, type ProjectRow, type Stage } from "./db";
-import { NO_EXPIRE_KINDS, STUCK_SQL, buildingNow, projectTotals } from "./loop";
+import { NO_EXPIRE_KINDS, PUBLISH_FAILING_SQL, STUCK_SQL, buildingNow, projectTotals } from "./loop";
 import { maskEvents } from "./views";
 import { NEEDS_WAIT_SQL } from "./needs";
 
@@ -19,7 +19,7 @@ export type WaitItem = {
   projectId: number;
   title: string;
   demo: boolean;
-  kind: ApprovalKind | "stuck" | "notify" | "review" | "comment";
+  kind: ApprovalKind | "stuck" | "publishFail" | "notify" | "review" | "comment";
   stage: Stage;
   since: string; // UTC の datetime
   daysWaiting: number;
@@ -61,6 +61,11 @@ export function waitingItems(): WaitItem[] {
       key: `s${p.id}`, projectId: p.id, title: p.title, demo: !!p.demo, kind: "stuck", stage: p.stage,
       since: p.updated_at, daysWaiting: daysSince(p.updated_at), daysLeft: null,
     });
+  }
+  // 公開・受付終了に失敗し、1時間ごとのやり直しでも失敗が続いているもの（提案箱 #84）
+  const publishFail = db().prepare(`SELECT * FROM projects p WHERE ${PUBLISH_FAILING_SQL}`).all() as ProjectRow[];
+  for (const p of publishFail) {
+    items.push({ key: `f${p.id}`, projectId: p.id, title: p.title, demo: !!p.demo, kind: "publishFail", stage: p.stage, since: p.updated_at, daysWaiting: daysSince(p.updated_at), daysLeft: null });
   }
   // 撤退した案件で、事前登録してくれた人への連絡がまだのもの
   const notify = db().prepare("SELECT * FROM projects WHERE notify_status = 'pending'").all() as ProjectRow[];

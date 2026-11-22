@@ -2545,11 +2545,47 @@ async function closePublic(projectId: number) {
     db().prepare("UPDATE projects SET notify_status = 'pending' WHERE id = ?").run(projectId);
     logEvent(projectId, "system", "notify-pending", "事前登録してくれた人への連絡と、メールアドレスの削除が必要です");
   }
+  await closeLpLogged(p);
+}
+
+async function closeLpLogged(p: ProjectRow) {
   try {
-    if (await closeLp(p)) logEvent(projectId, "system", "close", "公開中のLPの受付を終了しました");
+    if (await closeLp(p)) logEvent(p.id, "system", "close", "公開中のLPの受付を終了しました");
   } catch (e) {
-    logEvent(projectId, "system", "publish-error", (e instanceof Error ? e.message : String(e)).slice(0, 300));
+    logEvent(p.id, "system", "publish-error", (e instanceof Error ? e.message : String(e)).slice(0, 300));
   }
+}
+
+// 公開・受付終了に失敗したまま残った案件（提案箱 #84）
+// - 集客中・保留中なのに、公開用サイトに載っていない（全自動の公開や承認のあと、announcePublish が失敗した）
+// - 撤退したのに、最後に公開したあと受付を終えられていない（closePublic の closeLp が失敗した）
+const LAST_PUBLISH_ID = "COALESCE((SELECT MAX(e2.id) FROM events e2 WHERE e2.project_id = p.id AND e2.kind = 'publish'), 0)";
+export const UNPUBLISHED_SQL = "p.demo = 0 AND p.lp IS NOT NULL AND p.public_slug IS NULL AND p.stage IN ('live', 'hold')";
+export const UNCLOSED_SQL = `p.demo = 0 AND p.public_slug IS NOT NULL AND p.stage = 'killed' AND NOT EXISTS (SELECT 1 FROM events e WHERE e.project_id = p.id AND e.kind = 'close' AND e.id > ${LAST_PUBLISH_ID})`;
+// やり直しても失敗が続くもの（最後に公開してからの失敗が2回以上。最初の失敗と、1回のやり直し）。運営者の確認・対応に出す
+export const PUBLISH_FAILING_SQL = `(${UNPUBLISHED_SQL} OR ${UNCLOSED_SQL}) AND (SELECT COUNT(*) FROM events e WHERE e.project_id = p.id AND e.kind = 'publish-error' AND e.id > ${LAST_PUBLISH_ID}) >= 2`;
+
+const PUBLISH_RETRY_MS = 60 * 60 * 1000;
+const gRetry = globalThis as unknown as { __aiLabPublishRetryAt?: number };
+
+// 公開・受付終了に失敗した案件を、1時間に1回やり直す（スケジューラから呼ぶ。公開用サイトの設定があるときだけ）
+export async function retryFailedPublishing(force = false): Promise<{ published: number; closed: number }> {
+  if (!force && Date.now() - (gRetry.__aiLabPublishRetryAt ?? 0) < PUBLISH_RETRY_MS) return { published: 0, closed: 0 };
+  gRetry.__aiLabPublishRetryAt = Date.now();
+  let published = 0;
+  let closed = 0;
+  const unpublished = db().prepare(`SELECT id FROM projects p WHERE ${UNPUBLISHED_SQL} ORDER BY id`).all() as { id: number }[];
+  for (const { id } of unpublished) {
+    if (buildingNow(id)) continue; // 作り直しの途中は、終わってから公開される
+    await announcePublish(id);
+    if (getProject(id)?.public_slug) published++;
+  }
+  const unclosed = db().prepare(`SELECT * FROM projects p WHERE ${UNCLOSED_SQL} ORDER BY id`).all() as ProjectRow[];
+  for (const p of unclosed) {
+    await closeLpLogged(p);
+    if (!(db().prepare(`SELECT 1 FROM projects p WHERE p.id = ? AND ${UNCLOSED_SQL}`).get(p.id))) closed++;
+  }
+  return { published, closed };
 }
 
 // 本物の訪問・登録を取り込み、基準に達した案件はAIに判断させる

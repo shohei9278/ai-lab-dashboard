@@ -1,4 +1,4 @@
-import { callClaude, callJson, isObj, isStr, type ClaudeContent } from "./ai";
+import { GuardError, aiPaused, callClaude, callJson, isObj, isStr, type ClaudeContent } from "./ai";
 import { hasKey } from "./models";
 import { db, getSettings, saveSettings } from "./db";
 import { jstToday, logEvent } from "./loop";
@@ -56,11 +56,15 @@ async function processQueue() {
   g.__aiLabViralQueue = true;
   try {
     for (;;) {
+      // 緊急停止・予算の上限の間は始めない（待ちのまま残し、解けたあとの見回りで続ける）
+      if (aiPaused()) break;
       const r = db().prepare("SELECT * FROM viral_posts WHERE status = 'queued' ORDER BY id LIMIT 1").get() as ViralPost | undefined;
       if (!r) break;
       try {
         await analyze(r);
       } catch (e) {
+        // 途中で緊急停止・予算の上限になったときも、失敗にせず待ちのまま抜ける
+        if (e instanceof GuardError && aiPaused()) break;
         db().prepare("UPDATE viral_posts SET status = 'error', error = ? WHERE id = ?").run((e instanceof Error ? e.message : String(e)).slice(0, 300), r.id);
       }
     }
@@ -294,6 +298,8 @@ export function searchedToday(last: string, today = jstToday(), now = Date.now()
 export async function drainQueue(ms: number) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
+    // 緊急停止・予算の上限の間は、まとめが進まないので待たない
+    if (aiPaused()) return;
     if (!g.__aiLabViralQueue) {
       if (!db().prepare("SELECT 1 FROM viral_posts WHERE status = 'queued' LIMIT 1").get()) return;
       // まとめ1回分（AIの呼び出し）が止まっても長く待ちすぎないよう、残りの時間で区切る（まとめは裏で続ける）
@@ -324,6 +330,8 @@ export async function searchBeforeIdeas(): Promise<void> {
 
 // 「どんなアプリか」を分析に足す前に取り込んだ投稿に、保存してある本文から後付けする（安いモデルで、1回に20件まで。5分ごとの見回りから呼ぶ）
 export async function backfillViralApps(): Promise<number> {
+  // 緊急停止・予算の上限の間は呼ばない（5分ごとにエラーの記録を残さないように）
+  if (aiPaused()) return 0;
   const rows = db().prepare("SELECT id, text, analysis FROM viral_posts WHERE status = 'ok' AND analysis IS NOT NULL AND json_extract(analysis, '$.app') IS NULL ORDER BY id DESC LIMIT 20").all() as { id: number; text: string | null; analysis: string }[];
   if (!rows.length) return 0;
   const out = await callJson<{ apps: { id: number; app: string }[] }>({
