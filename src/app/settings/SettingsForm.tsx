@@ -225,7 +225,7 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <input type="checkbox" className="mt-1" checked={v.illustrations} onChange={(e) => set("illustrations", e.target.checked)} />
           <span>
             LPにAIが描いたイラストを入れる
-            <span className="block text-xs text-muted">最初の版を作るときに、見出しの横に置くイラストを画像生成AIで1枚描きます（1枚 約12円）。文字・ロゴ・実在の人物は描かせません。公開する前にプレビューで確かめてください。</span>
+            <span className="block text-xs text-muted">最初の版を作るときに、見出しの横に置くイラストを画像生成AIで1枚描きます（1枚 約26円）。画風は案件の世界観に合わせてAIが選び、主役の物を1つ描きます。手・人物・画面・文字・ロゴは描かせません。公開する前にプレビューで確かめてください。</span>
           </span>
         </label>
         <label className="flex items-start gap-2 text-sm">

@@ -17,6 +17,16 @@ export type IconName = (typeof ICONS)[number];
 
 export const PREVIEW_KINDS = ["list", "table", "chat", "form"] as const;
 
+// 紹介イラストの画風。1つに固定すると世界観に合わない案件が出るので、ページを書くAIが案件ごとに選ぶ
+export const ILLUSTRATION_STYLES = {
+  photo: "写真のような静物",
+  soft3d: "やわらかい立体",
+  flat: "平らなイラスト",
+  papercut: "切り絵",
+  watercolor: "水彩",
+} as const;
+export type IllustrationStyle = keyof typeof ILLUSTRATION_STYLES;
+
 // 見た目の部品。AIはこの中から組み合わせを選ぶ（自由なHTMLは書かせない）
 export const DESIGN_OPTIONS = {
   layout: { center: "中央寄せ", split: "左に文章・右に画像や画面", band: "テーマ色の帯に白い文字", left: "左寄せの大きな見出し" },
@@ -52,6 +62,7 @@ export type Lp = {
   // ここから下は見た目を豊かにするための任意の要素（古いLPには無い）
   design?: Design;
   illustrationPrompt?: string; // イラストを描くAIへの指示（英語）。画像を作ったあとも残す
+  illustrationStyle?: IllustrationStyle; // イラストの画風（古いLPには無い。無ければ平らなイラスト）
   preview?: { title: string; kind: (typeof PREVIEW_KINDS)[number]; columns?: string[]; rows: string[][] };
   steps?: { title: string; body: string }[];
   beforeAfter?: { before: string[]; after: string[] };
@@ -153,6 +164,7 @@ export function normalizeLp(raw: unknown): Lp {
     };
   }
   if (isStr(v.illustrationPrompt)) lp.illustrationPrompt = cut(v.illustrationPrompt, 600);
+  if (isStr(v.illustrationStyle) && Object.hasOwn(ILLUSTRATION_STYLES, v.illustrationStyle)) lp.illustrationStyle = v.illustrationStyle as IllustrationStyle;
   if (isObj(v.preview) && isStr(v.preview.title) && PREVIEW_KINDS.includes(v.preview.kind as never) && Array.isArray(v.preview.rows)) {
     const rows = v.preview.rows.filter((r) => Array.isArray(r)).slice(0, 6).map((r) => (r as unknown[]).map((c) => cut(String(c ?? ""), 40)).slice(0, 4));
     if (rows.length) {
