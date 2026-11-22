@@ -21,14 +21,15 @@ export function nextAutoAsk(): { row: Row; why: string } | null {
   // 提案を見送ったあとも、PR が開いている間は数える（PR #154 の ai-review の指摘）。PR の状態は、開いている間は提案の返事に関係なく読み直す（aiFix.ts の syncAiFixPrs）
   const busy = db().prepare("SELECT 1 FROM plan_requests WHERE ai_fix_at IS NOT NULL AND (ai_fix_pr_state = 'open' OR (ai_fix_pr IS NULL AND ai_fix_at >= datetime('now', '-1 day')))").get();
   if (busy) return null;
-  // 自動で頼んだ回数は、上書きされない記録（events の auto-ask）から数える（人が頼み直すと提案の欄は上書きされるため。PR #154 の ai-review の指摘）
-  const asked = (kind: "守り" | "攻め", days: number) => (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-ask' AND message LIKE ? AND at >= datetime('now', ?)").get(`%${kind}の提案%`, `-${days} days`) as { n: number }).n;
-  if (asked("守り", 1) === 0) {
+  // 自動で頼んだ回数は、上書きされない記録（events の auto-ask-fix・auto-ask-growth）の種類で数える
+  // （人が頼み直すと提案の欄は上書きされる。記録の文で見分けると、題の言葉で取り違える。PR #154 の ai-review の指摘）
+  const asked = (kind: "fix" | "growth", days: number) => (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = ? AND at >= datetime('now', ?)").get(`auto-ask-${kind}`, `-${days} days`) as { n: number }).n;
+  if (asked("fix", 1) === 0) {
     const fix = db().prepare("SELECT id, title, scene, score FROM plan_requests WHERE source = 'review' AND scene = ? AND target = 'system' AND status = 'open' AND ai_fix_at IS NULL AND created_at <= datetime('now', ?) ORDER BY repeats DESC, id LIMIT 1").get(REVIEW_SCENE, WAIT) as Row | undefined;
     if (fix) return { row: fix, why: "自動: コードの見直しの守りの提案で、1日たっても見送られなかった" };
   }
   // 攻めは、3社の採点で決める（入ってからの待ちは付けない。PR #154 の ai-review の指摘）
-  if (asked("攻め", 7) === 0) {
+  if (asked("growth", 7) === 0) {
     const grow = db().prepare("SELECT id, title, scene, score FROM plan_requests WHERE source = 'review' AND scene = ? AND target = 'system' AND status = 'open' AND ai_fix_at IS NULL AND score >= ? ORDER BY score DESC, id LIMIT 1").get(GROWTH_SCENE, GROWTH_MIN_SCORE) as Row | undefined;
     if (grow) return { row: grow, why: `自動: コードの見直しの攻めの提案で、定例会議で3社の平均${grow.score!.toFixed(1)}点` };
   }
@@ -45,7 +46,7 @@ export async function maybeAutoAsk(fetchImpl: Fetch = fetch, force = false): Pro
   const next = nextAutoAsk();
   if (!next) return false;
   try {
-    await startAiFix(next.row.id, next.why, fetchImpl, "auto");
+    await startAiFix(next.row.id, next.why, fetchImpl, next.row.scene === GROWTH_SCENE ? "auto-growth" : "auto-fix");
     return true;
   } catch (e) {
     logEvent(null, "system", "auto-ask-error", `提案箱の「${next.row.title}」を自動で頼めませんでした: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);

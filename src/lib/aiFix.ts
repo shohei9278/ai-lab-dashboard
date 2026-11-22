@@ -42,8 +42,8 @@ export function aiFixText(r: RequestRow, note: string): string {
 
 
 // 運営者が「AIに直させる」を押したとき。ルーティンを起動し、作業の画面の URL を覚える
-// by: 運営者が押したか、自動で頼んだか（autoAsk.ts。記録の書き方だけが変わる）
-export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fetch, by: "human" | "auto" = "human"): Promise<{ sessionUrl: string | null }> {
+// by: 運営者が押したか、自動で頼んだか（autoAsk.ts。自動のときは守り・攻めごとに記録の種類を分ける。記録の書き方だけが変わる）
+export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fetch, by: "human" | "auto-fix" | "auto-growth" = "human"): Promise<{ sessionUrl: string | null }> {
   if (!aiFixConfigured()) throw new Error("Claude Code のルーティンがまだつながっていません（docs/SETUP-AI-FIX.md）");
   const r = db().prepare("SELECT * FROM plan_requests WHERE id = ?").get(id) as RequestRow | undefined;
   if (!r || r.status !== "open" || r.target !== "system") throw new Error("まだ答えていない「仕組みの改善」だけ頼めます");
@@ -52,7 +52,7 @@ export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fe
   const url = await fireRoutine("CLAUDE_ROUTINE_FIRE_URL", "CLAUDE_ROUTINE_TOKEN", aiFixText(r, clean), fetchImpl);
   // 頼み直したときは、前の PR の番号と状態を消す（新しい PR が見つかるまで「PR はまだ見つかっていません」と出す。PR #126 の ai-review の指摘）
   db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_url = ?, ai_fix_note = ?, ai_fix_pr = NULL, ai_fix_pr_state = NULL WHERE id = ?").run(url, clean || null, id);
-  if (by === "auto") logEvent(null, "system", "auto-ask", `提案箱の「${r.title}」を、自動で Claude Code に直してもらうよう頼みました（${clean}）`);
+  if (by !== "human") logEvent(null, "system", `auto-ask-${by === "auto-fix" ? "fix" : "growth"}`, `提案箱の「${r.title}」を、自動で Claude Code に直してもらうよう頼みました（${clean}）`);
   else logEvent(null, "human", "plan-request-ai-fix", `提案箱の「${r.title}」を、Claude Code に直してもらうよう頼んだ（PR ができたら、見てマージする）`);
   return { sessionUrl: url };
 }

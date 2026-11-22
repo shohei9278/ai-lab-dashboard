@@ -51,14 +51,14 @@ test("自動の依頼: 守りは1日たってから、攻めは7点以上だけ�
   clear();
   const [f] = addReviewFindings([fix("守りA")]).added;
   const [g] = addReviewFindings([grow("攻めA")]).added;
-  db().prepare("DELETE FROM events WHERE kind = 'auto-ask'").run();
+  db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
   // 守りは、入ったばかりは頼まない（運営者が見送れるように）。攻めは点がまだない
   assert.equal(nextAutoAsk(), null);
   old(f);
   assert.equal(nextAutoAsk()?.row.id, f);
   // 守りを頼んで PR が開いている間は、攻めも頼まない。提案を見送っても、PR が開いていれば数える
   db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_note = '自動: x', ai_fix_pr = 1, ai_fix_pr_state = 'open', status = 'declined' WHERE id = ?").run(f);
-  db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (NULL, 'system', 'auto-ask', '提案箱の「守りA」を、自動で頼みました（自動: コードの見直しの守りの提案で、1日たっても見送られなかった）')").run();
+  db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (NULL, 'system', 'auto-ask-fix', '提案箱の「攻めの提案を見直す」を、自動で頼みました')").run();
   assert.equal(nextAutoAsk(), null);
   // PR がマージされたら、次は攻め（攻めは入ってからの待ちなし）。ただし7点未満は頼まない
   db().prepare("UPDATE plan_requests SET ai_fix_pr_state = 'merged', status = 'done' WHERE id = ?").run(f);
@@ -76,7 +76,7 @@ test("自動の依頼: 守りは1日たってから、攻めは7点以上だけ�
 
 test("自動の依頼: 設定でオフ・緊急停止・ルーティンがつながっていないときは頼まない。頼んだら記録する", async () => {
   clear();
-  db().prepare("DELETE FROM events WHERE kind = 'auto-ask'").run();
+  db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
   const [f] = addReviewFindings([fix("守りC")]).added;
   old(f);
   process.env.CLAUDE_ROUTINE_FIRE_URL = FIRE;
@@ -97,7 +97,8 @@ test("自動の依頼: 設定でオフ・緊急停止・ルーティンがつな
   const r = db().prepare("SELECT ai_fix_note, ai_fix_url FROM plan_requests WHERE id = ?").get(f) as { ai_fix_note: string; ai_fix_url: string };
   assert.match(r.ai_fix_note, /^自動: /);
   assert.equal(r.ai_fix_url, "https://claude.ai/code/session_x");
-  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-ask'").get() as { n: number }).n, 1);
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-ask-fix'").get() as { n: number }).n, 1);
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-ask-growth'").get() as { n: number }).n, 0);
   saveSettings({ autoAskReview: keep.autoAskReview, killSwitch: keep.killSwitch });
   delete process.env.CLAUDE_ROUTINE_TOKEN;
 });
@@ -107,7 +108,7 @@ test("自動の依頼: 見送った提案でも、PR が開いている間は次
   const [f] = addReviewFindings([fix("守りA")]).added;
   const [f2] = addReviewFindings([fix("守りB")]).added;
   old(f2);
-  db().prepare("DELETE FROM events WHERE kind = 'auto-ask'").run();
+  db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
   // 40日前に頼み、PR が開いたまま、提案は見送った
   db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now', '-40 days'), ai_fix_pr = 3, ai_fix_pr_state = 'open', status = 'declined' WHERE id = ?").run(f);
   assert.equal(nextAutoAsk(), null);

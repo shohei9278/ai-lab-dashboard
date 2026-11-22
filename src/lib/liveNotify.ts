@@ -16,7 +16,7 @@ const ICON: Record<NotifyKind, string> = { plan: "🗓️", post: "📣", build:
 const EVENT_KIND: Record<string, NotifyKind> = {
   plan: "plan", "plan-task": "plan", "plan-cap": "plan",
   "sns-post": "post",
-  select: "build", publish: "build", "auto-publish": "build", "auto-improve": "build", close: "build", revert: "build", "auto-ask": "build", hold: "build", resume: "build",
+  select: "build", publish: "build", "auto-publish": "build", "auto-improve": "build", close: "build", revert: "build", "auto-ask-fix": "build", "auto-ask-growth": "build", hold: "build", resume: "build",
   judge: "decision", "auto-decision": "decision", grow: "decision", "auto-blocked": "decision",
   "outside-voice": "outside", research: "outside", "voice-effect": "outside",
   meeting: "meeting", proposal: "meeting",
