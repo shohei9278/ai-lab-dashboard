@@ -3,7 +3,6 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { db, getSettings } from "@/lib/db";
 import { CONV, KIND_LABEL, STAGE_LABEL } from "@/lib/loop";
-import { costEfficiency } from "@/lib/cost";
 import { publicUrl } from "@/lib/publish";
 import { NOTE_CERTAINTY, NOTE_TOPICS, type NoteRow } from "@/lib/notes";
 import { listReports, type Report } from "@/lib/report";
@@ -13,6 +12,7 @@ import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, recentPlans } from "@/lib/p
 import { jstDay } from "@/lib/sns";
 import { INTERVENTION_KIND, listInterventions } from "@/lib/interventions";
 import { showcaseOfficeSnapshot } from "@/lib/office";
+import { showcaseNumbers } from "@/lib/showcaseNumbers";
 import { memberMaker, memberProfiles, reachText, showcaseLearnings, showcaseProjects, showcaseRoutineStats, type MemberProfile, type ShowcaseProject } from "@/lib/showcase";
 import { checkEvalOverview } from "@/lib/checkEval";
 import { OfficeView } from "@/app/office/OfficeView";
@@ -57,10 +57,8 @@ export default async function Showcase() {
   const interventions = listInterventions();
   const projects = showcaseProjects();
   const members = memberProfiles();
-  const all = db().prepare("SELECT COUNT(*) AS n FROM projects WHERE demo = 0").get() as { n: number };
-  const ideas = db().prepare("SELECT COUNT(*) AS n FROM idea_candidates").get() as { n: number };
-  const cost = costEfficiency().all;
-  const aiTotal = (db().prepare("SELECT COALESCE(SUM(cost_usd),0) AS s FROM ai_calls").get() as { s: number }).s * s.usdJpy;
+  // 上の数字のタイルは、ポートフォリオが読む /api/showcase/numbers と同じ数え方
+  const n = showcaseNumbers().totals;
   const notes = db().prepare("SELECT * FROM notes WHERE is_public = 1 ORDER BY at DESC").all() as NoteRow[];
   const latest = listReports()[0];
   const report = latest ? (JSON.parse(latest.content) as Report) : null;
@@ -89,12 +87,12 @@ export default async function Showcase() {
       </header>
 
       <section className="grid grid-cols-3 gap-2 sm:gap-3 lg:grid-cols-6" aria-label="これまでの数字">
-        <Tile label="AIが出したアイデア" value={`${ideas.n}件`} />
-        <Tile label="進めた案件" value={`${all.n}件`} />
-        <Tile label="公開した案件" value={`${projects.filter((p) => p.published).length}件`} />
-        <Tile label="訪問（累計）" value={`${cost.visits}人`} />
-        <Tile label="登録・利用（累計）" value={`${cost.conversions}件`} />
-        <Tile label="AI費用（累計）" value={yen(aiTotal)} sub={cost.perConversion === null ? undefined : `成果1件 ${yen(cost.perConversion)}`} />
+        <Tile label="AIが出したアイデア" value={`${n.ideas}件`} />
+        <Tile label="進めた案件" value={`${n.projects}件`} />
+        <Tile label="公開した案件" value={`${n.published}件`} />
+        <Tile label="訪問（累計）" value={`${n.visits}人`} />
+        <Tile label="登録・利用（累計）" value={`${n.conversions}件`} />
+        <Tile label="AI費用（累計）" value={yen(n.aiCostJpy)} sub={n.perConversionJpy === null ? undefined : `成果1件 ${yen(n.perConversionJpy)}`} />
       </section>
 
       {/* 採用担当の人などが最初に読む要点。数字はいまの記録から入る */}
