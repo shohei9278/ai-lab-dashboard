@@ -78,3 +78,23 @@ test("コードの見直し: 入口は合言葉がないと 401。読むと仕�
   assert.equal((await POST(new Request("http://x/api/code-review", { method: "POST", headers: auth, body: JSON.stringify({ items: "x" }) }))).status, 400);
   assert.equal(reviewContext().length, 2);
 });
+
+test("コードの見直し: 上限に達したあとも、同じ趣旨の提案が返事待ちなら「何回出たか」を数える", () => {
+  clear();
+  const first = addReviewFindings([1, 2, 3, 4, 5].map(item));
+  assert.equal(first.added.length, 5);
+  const target = first.added[0];
+  const near = { ...item(1), title: "来訪者の案件の画面で、下書きの版が見えてしまう" };
+  const r = addReviewFindings([near, item(6)]);
+  assert.equal(r.added.length, 0);
+  assert.match(r.skipped[0], /同じ題か同じ趣旨/);
+  assert.match(r.skipped[1], /5件を超えた/);
+  assert.equal((db().prepare("SELECT repeats FROM plan_requests WHERE id = ?").get(target) as { repeats: number }).repeats, 1);
+});
+
+test("コードの見直し: 読む提案は件数で切らない", () => {
+  clear();
+  const ins = db().prepare("INSERT INTO plan_requests (title, how, source, target) VALUES (?, 'h', 'scene', 'system')");
+  for (let i = 0; i < 90; i++) ins.run(`仕組みの提案 ${i}`);
+  assert.equal(reviewContext().length, 90);
+});

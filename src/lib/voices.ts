@@ -49,17 +49,21 @@ function similarOf(p: { title: string; how?: string; target: string }): Near | u
   return rows.find((r) => similarity(r, p) >= SIMILAR);
 }
 
+// 同じ題・同じ趣旨の提案がすでにあるか。あれば true（同じ趣旨のものが返事待ちなら「何回出たか」を数える。何度も出る提案は、優先して見る価値がある）
+// 新しく入れられないとき（コードの見直しの上限に達したときなど）も、回数だけは数えられるよう、addProposal から分けた（PR #141 の ai-review の指摘）
+export function countRepeat(p: Pick<NewProposal, "title" | "how" | "target" | "source">): boolean {
+  const title = p.title.trim().slice(0, 80);
+  if (duplicate(title)) return true;
+  if (p.source === "human") return false;
+  const near = similarOf({ title, how: p.how, target: p.target });
+  if (!near) return false;
+  if (near.status === "open") db().prepare("UPDATE plan_requests SET repeats = repeats + 1 WHERE id = ?").run(near.id);
+  return true;
+}
+
 export function addProposal(p: NewProposal): number | null {
   const title = p.title.trim().slice(0, 80);
-  if (!title || duplicate(title)) return null;
-  // 同じ趣旨の提案がすでにあれば、新しく入れない。返事待ちなら「何回出たか」を数える（何度も出る提案は、優先して見る価値がある）
-  if (p.source !== "human") {
-    const near = similarOf({ title, how: p.how, target: p.target });
-    if (near) {
-      if (near.status === "open") db().prepare("UPDATE plan_requests SET repeats = repeats + 1 WHERE id = ?").run(near.id);
-      return null;
-    }
-  }
+  if (!title || countRepeat({ ...p, title })) return null;
   if (CAPPED.includes(p.source)) {
     const today = (db().prepare(`SELECT COUNT(*) AS n FROM plan_requests WHERE source IN (${CAPPED.map(() => "?").join(",")}) AND created_at >= datetime('now', '-1 day')`).get(...CAPPED) as { n: number }).n;
     if (today >= SCENE_CAP_PER_DAY) return null;

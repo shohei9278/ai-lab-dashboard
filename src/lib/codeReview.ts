@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { db } from "./db";
-import { addProposal } from "./voices";
+import { addProposal, countRepeat } from "./voices";
 
 // コードの見直しのルーティン（クラウドの Claude Code。週に1回）が、見つけたことを提案箱の「仕組みの改善」に入れる入口（docs/routine-code-review.md）
 // 提案箱が「運営の中で困ったこと（外側）」から出るのに対して、こちらは「コードの中身（内側）」から出す。直しはしない（直すのは、運営者が選んで「AIに直させる」を押したときの、提案箱のルーティン）
@@ -41,7 +41,9 @@ export function addReviewFindings(raw: unknown): { added: number[]; skipped: str
       return;
     }
     if (room <= 0) {
-      skipped.push(`${label}: 6日のあいだに入れられる${REVIEW_MAX}件を超えた`);
+      // 上限に達していても、同じ趣旨の提案が返事待ちなら「何回出たか」は数える（PR #141 の ai-review の指摘）
+      const p = { title: x.title, how: x.how, target: "system" as const, source: "review" as const };
+      skipped.push(countRepeat(p) ? `${label}: 同じ題か同じ趣旨の提案がすでにある` : `${label}: 6日のあいだに入れられる${REVIEW_MAX}件を超えた`);
       return;
     }
     const id = addProposal({ title: x.title, how: x.how, why: x.why, target: "system", source: "review", scene: REVIEW_SCENE, proposer: null });
@@ -56,8 +58,9 @@ export function addReviewFindings(raw: unknown): { added: number[]; skipped: str
 }
 
 // 見直しの前に読む、いまの「仕組みの改善」（返事待ちと、60日のあいだに返事をしたもの）。同じことを出さないため
+// 件数で切らない（切ると古いものが抜けて、同じ提案をまた出すため。PR #141 の ai-review の指摘）
 export function reviewContext(): { id: number; title: string; how: string | null; status: string; source: string; note: string | null }[] {
   return db().prepare(
-    "SELECT id, title, how, status, source, note FROM plan_requests WHERE target = 'system' AND (status = 'open' OR decided_at >= datetime('now', '-60 days')) ORDER BY id DESC LIMIT 80",
+    "SELECT id, title, how, status, source, note FROM plan_requests WHERE target = 'system' AND (status = 'open' OR decided_at >= datetime('now', '-60 days')) ORDER BY id DESC",
   ).all() as { id: number; title: string; how: string | null; status: string; source: string; note: string | null }[];
 }
