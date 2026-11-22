@@ -30,7 +30,8 @@ function pickModel(): ImageModel | null {
 // 画風ごとの描き方（ILLUSTRATION_STYLES と同じ名前）
 const STYLE_PROMPTS: Record<IllustrationStyle, string> = {
   photo: "Style: high-quality photographic still life, natural soft light, shallow depth of field, realistic materials and textures.",
-  soft3d: "Style: soft 3D render, smooth matte materials, gentle studio lighting, subtle shadows, slightly rounded shapes.",
+  // やわらかい立体は、写真に近く描かれやすかった（PR #136 の試し描き）。作った立体のイラストだと分かるよう、形と質感をはっきり崩させる
+  soft3d: "Style: stylized 3D illustration that looks like a handmade clay or soft vinyl toy: simplified, chunky, rounded shapes with exaggerated proportions, smooth matte pastel materials, soft studio lighting with gentle shadows, on a plain softly colored backdrop. It must clearly look like a 3D illustration, not a photograph: no realistic textures, no fine photographic detail, no depth-of-field blur.",
   flat: "Style: polished flat vector illustration, clean simple shapes, soft gradients, consistent line weight.",
   papercut: "Style: layered paper-cut craft, real paper textures, soft drop shadows between layers.",
   watercolor: "Style: refined watercolor painting, soft washes and visible paper grain, delicate edges.",
@@ -42,9 +43,11 @@ export function buildPrompt(lp: Lp, title: string): string {
   return [
     scene,
     STYLE_PROMPTS[lp.illustrationStyle ?? "flat"],
-    `Composition: one clear main subject, large and centered with some breathing room, on a simple uncluttered background. It must still read clearly when shown as a small thumbnail.`,
+    // 指示に物を2つ以上書くと、そのまま並べて描かれた（PR #136 の試し描き）。最初に書かれた物だけを描かせる
+    // 「いちばん大事な物」と書くと、開いた冊子がノートPCに置き換わった（soft3d の試し描き）。選ばせず、別の物に変えさせない
+    `Composition: exactly one main object, large and centered with some breathing room, on a simple uncluttered background. The main object is the first object named in the description; leave out the other objects it mentions (at most one tiny supporting detail), and do not swap it for a different object. It must still read clearly when shown as a small thumbnail.`,
     `Color: harmonize with ${theme.accent[0]} and ${theme.soft[0]}.`,
-    `Strictly no hands, no people, no faces, no body parts, no phone or computer screens, no user interface, no text, no letters, no numbers, no logos, no watermarks, no brand names.`,
+    `Strictly no hands, no people, no faces, no body parts, no phones, no laptops, no computers, no screens or monitors of any kind, no user interface, no text, no letters, no numbers, no logos, no watermarks, no brand names.`,
     `Landscape composition (3:2).`,
   ].join(" ");
 }
