@@ -7,6 +7,8 @@ import { dataDir, db, getSettings, type ProjectRow } from "./db";
 import { attributePosts } from "./sns";
 import { channelStats, hostOf } from "./channels";
 import { checkToolErrors } from "./funnel";
+import { autoRollback } from "./rollback";
+import { logEvent } from "./loop";
 import { classifySiteCategory, isSiteCategory, type SiteCategory } from "./siteCategory";
 
 // 公開用LPサイト（Vercel）とデータ（Supabase）をつなぐ部分。
@@ -238,6 +240,9 @@ export async function syncRealMetrics(): Promise<{ projects: number; visits: num
     conn.prepare("UPDATE projects SET index_visits = ?, index_uses = ? WHERE id = ?").run(fromIndex.visits, fromIndex.uses, p.id);
     const funnelEvents = await syncFunnel(p.id, slug, views);
     checkToolErrors(p);
+    // 新しく出した版でエラーが増えていたら、前の版に自動で戻す（rollback.ts）
+    await autoRollback(db().prepare("SELECT * FROM projects WHERE id = ?").get(p.id) as ProjectRow, publishLp)
+      .catch((e) => logEvent(p.id, "system", "rollback-error", `自動の巻き戻しの確かめに失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
     syncChannels(p, views, funnelEvents, conv);
     visits += views.length;
     signups += conv.length;
