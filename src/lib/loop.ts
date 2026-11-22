@@ -8,7 +8,7 @@ import { fixInstruction, pageOnlyIssues } from "./fixText";
 import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
-import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
+import { DESIGN_OPTIONS, ICONS, ILLUSTRATION_STYLES, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
 import { toolAssets, toolImages } from "./toolAssets";
 import { TOOL_STORE_MAX } from "../../lp-site/src/lp/toolStore";
 import { hasResultsTag, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
@@ -910,13 +910,14 @@ async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, mo
 ${(Object.keys(DESIGN_OPTIONS) as (keyof typeof DESIGN_OPTIONS)[]).map((k) => `- design.${k}: ${Object.entries(DESIGN_OPTIONS[k]).map(([v, l]) => `${v}=${l}`).join(" / ")}`).join("\n")}
 - design.order: ${SECTIONS.join(" / ")} を、読んでほしい順に並べたもの（pains=困りごと, beforeAfter=使う前後, features=できること, steps=使い方, faq=よくある質問）
 - design.badge: 見出しの上に出す短いラベル（15文字以内。例「飲食店のシフト集めに」）
-- illustrationPrompt: 見出しの横に置くイラストを描くAIへの指示（英語で2〜3文）。サービスを使っている場面や、困りごとが解決した場面を、人物の顔をはっきり描かない形で。文字・ロゴ・実在の人物や商品は描かせない
+- illustrationStyle: 紹介イラストの画風。題材とページの世界観に合うものを1つ選ぶ（${Object.entries(ILLUSTRATION_STYLES).map(([k, l]) => `${k}=${l}`).join(" / ")}）。いつも同じものにしない
+- illustrationPrompt: 紹介イラストを描くAIへの指示（英語で1〜2文）。この案件を象徴する主役の物を1つ（食べ物・道具・小物・景色の一部など）と、その置き方だけを書く。画風は書かない（illustrationStyle で選ぶ）。手・顔・人物・体の一部、スマホやPCの画面、文字・ロゴ・実在の商品は描かせない。このイラストは、ページの見出しの横、一覧の小さなカード、シェア画像に使われる
 - preview: 完成したら使う画面のイメージ。kind は ${PREVIEW_KINDS.join(" / ")} のどれか。rows は1行あたり最大4つの短い文字列で3〜5行（list は [項目, 状態]、table は columns と各行、chat は [話し手, 発言]、form は [項目名, 入力例]）。人名は「山田さん」程度の仮名にし、実在の会社名や効果の数字は入れない
 - features[].icon: ${ICONS.join(" / ")} から内容に合うもの
 - steps: 使い方を2〜4ステップ（任意）
 - pains・features・faq・steps の数は中身に合わせて決める（pains 2〜4、features 2〜5、faq 0〜4、steps 2〜4）。いつも同じ数にそろえない。形式の例の数は、例にすぎない
 - beforeAfter: 使う前の状態と、使ったあとに目指す状態を各2〜3個（任意。効果を断言しない）${isTool ? "\n- shareText: X でシェアするときの文（60文字以内。ハッシュタグは1つまで。誇張しない）" : ""}
-形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明","icon":"clock"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2],"design":{"theme":"trust","layout":"split","font":"gothic","pattern":"none","corners":"round","painStyle":"cards","featureStyle":"cards","order":["pains","features","steps","faq"],"badge":"ラベル"},"illustrationPrompt":"A calm scene of ...","preview":{"title":"画面の名前","kind":"list","columns":[],"rows":[["項目","状態"]]},"steps":[{"title":"手順","body":"説明"}×3],"beforeAfter":{"before":["今の状態"],"after":["目指す状態"]}${isTool ? ',"shareText":"シェアの文"' : ""}}`,
+形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明","icon":"clock"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2],"design":{"theme":"trust","layout":"split","font":"gothic","pattern":"none","corners":"round","painStyle":"cards","featureStyle":"cards","order":["pains","features","steps","faq"],"badge":"ラベル"},"illustrationStyle":"soft3d","illustrationPrompt":"A single ... placed ...","preview":{"title":"画面の名前","kind":"list","columns":[],"rows":[["項目","状態"]]},"steps":[{"title":"手順","body":"説明"}×3],"beforeAfter":{"before":["今の状態"],"after":["目指す状態"]}${isTool ? ',"shareText":"シェアの文"' : ""}}`,
     user: `サービス名: ${p.title}\n対象: ${p.target}\n課題: ${p.problem}\n解決策: ${p.solution}\n仮説: ${p.hypothesis}${prev}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`,
     validate: isLp,
   });
