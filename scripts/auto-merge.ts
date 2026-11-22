@@ -1,12 +1,16 @@
-// 自動マージ（.github/workflows/auto-merge.yml から呼ぶ。決まりは scripts/auto-merge-rules.ts）
+// 自動マージ（.github/workflows/auto-merge.yml から、必ず main のコードで動く。決まりは scripts/auto-merge-rules.ts）
 // ルーティンが作った PR（claude/proposal-<番号>）を見回り、次のどれかをする（運営者が決めた）
-// - マージ: CI が通り、GPT と Gemini のどちらも直すべき指摘（🔴・🟡）なし・自動で触れない所に触れていない・本番が止まっている・本番の確認が通っている
+// - マージ: CI が通り、自動で触れない所に触れておらず、本番が作業中でなく、本番の確認が通っていて、この見回りが自分で呼んだ GPT と Gemini のどちらも直すべき指摘（🔴・🟡）なし
 // - 直させる: 直すべき指摘があれば、提案箱のルーティンに、同じブランチで直させる（3回まで）
-// - 人に回す: 3回直しても残る・自動で触れない所に触れている・CI が落ちた・レビューがそろわない
-// したことは PR にコメントし、Discord に知らせる。PR のコードは動かさない（GitHub の API で読むだけ）
-import { AUTO_BRANCH, HUMAN_MARK, changedPaths, decide, fixText, fixMarker, fixRequested, fixRounds, handedToHuman, reviewMarks, type Decision, type PrComment } from "./auto-merge-rules";
+// - 人に回す: 3回直しても残る・自動で触れない所に触れている・CI が落ちた・レビューを読めない など
+// したことは PR にコメントし、Discord に知らせる
+// PR のコードは動かさない（差分は git で取り出して、レビューの材料として読むだけ）。PR のコメントの「指摘なし」は信じない（誰でもボットとして書けるため）
+import { execFileSync } from "node:child_process";
+import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, type Decision, type PrComment } from "./auto-merge-rules";
+import { REVIEWERS, askReviewer, blocking, parseReview, reviewComment, reviewInput, reviewInstructions, type Review, type Reviewer } from "./ai-review-core";
+import { OMITTED } from "./ai-review-omitted";
 
-const { GITHUB_REPOSITORY, GITHUB_TOKEN, AUTO_MERGE_TOKEN, NOTIFY_WEBHOOK_URL, CLAUDE_ROUTINE_FIRE_URL, CLAUDE_ROUTINE_TOKEN } = process.env;
+const { GITHUB_REPOSITORY, GITHUB_TOKEN, AUTO_MERGE_TOKEN, NOTIFY_WEBHOOK_URL, CLAUDE_ROUTINE_FIRE_URL, CLAUDE_ROUTINE_TOKEN, OPENAI_API_KEY, GEMINI_API_KEY } = process.env;
 const DASHBOARD = "https://ai-lab-dashboard-production-fc9e.up.railway.app";
 const API = `https://api.github.com/repos/${GITHUB_REPOSITORY}`;
 // 起動の URL は、決まった送り先（Anthropic のルーティンの起動）だけ（src/lib/routine.ts と同じ）
@@ -61,8 +65,6 @@ async function smokeOk(): Promise<boolean | null> {
   return last ? last.conclusion === "success" : null;
 }
 
-// ルーティンに渡す文（ルーティンの側では、外から来た信用しない文として受け取る。docs/routine-proposal-fix.md の「レビューの指摘を直す」）
-
 // 起動が届いていないと分かるとき（設定がない・起動先がはっきり断った）。時間切れ・通信の失敗は、届いたか分からないので別に扱う
 class FireRejected extends Error {}
 
@@ -78,65 +80,97 @@ async function fireFix(text: string) {
   if (!res.ok) throw new FireRejected(`ルーティンを起動できませんでした（${res.status}）`);
 }
 
-type Pull = { number: number; title: string; draft: boolean; html_url: string; head: { ref: string; sha: string; repo: { full_name: string } | null } };
+type Pull = { number: number; title: string; body: string | null; draft: boolean; html_url: string; head: { ref: string; sha: string; repo: { full_name: string } | null } };
 type CheckRun = { name: string; status: string; conclusion: string | null };
 
+// 100件ずつ全部読む。上限のページまで埋まっていたら、読みきれていないとして complete=false
+async function pages<T>(path: string, max: number): Promise<{ items: T[]; complete: boolean }> {
+  const items: T[] = [];
+  for (let page = 1; page <= max; page++) {
+    const got = await gh<T[]>(`${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`);
+    items.push(...got);
+    if (got.length < 100) return { items, complete: true };
+  }
+  return { items, complete: false };
+}
+
+// この版の差分を git で取り出す（PR のコードは動かさない）。取り出した先頭が、確かめている版と違えば止める
+function diffOf(pr: Pull): string {
+  execFileSync("git", ["fetch", "--quiet", "origin", "main", `+refs/heads/${pr.head.ref}:refs/remotes/origin/${pr.head.ref}`]);
+  const head = execFileSync("git", ["rev-parse", `refs/remotes/origin/${pr.head.ref}`], { encoding: "utf8" }).trim();
+  if (head !== pr.head.sha) throw new Error("確かめている間に、PR に新しい push があった");
+  return execFileSync("git", ["diff", `origin/main...${pr.head.sha}`, "--", ".", ...OMITTED.map((f) => `:!${f}`)], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+}
+
+// GPT と Gemini に、この見回りの中でレビューを頼む（答えは、この中でだけ使う）。過去のコメントは渡さない（誰でも書けるため）
+async function reviewBoth(pr: Pull): Promise<Partial<Record<Reviewer, Review>>> {
+  const { input, cut } = reviewInput({ prBody: pr.body ?? "", diff: diffOf(pr) });
+  const instructions = reviewInstructions({ autoPr: true, withHistory: false });
+  const out: Partial<Record<Reviewer, Review>> = {};
+  await Promise.all(REVIEWERS.map(async (r) => {
+    try {
+      out[r] = parseReview(r, await askReviewer(r, instructions, input, { openai: OPENAI_API_KEY, gemini: GEMINI_API_KEY }), cut);
+    } catch (e) {
+      console.error(`#${pr.number}: ${r} のレビューに失敗: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }));
+  return out;
+}
+
+async function toHuman(pr: Pull, link: string, why: string): Promise<Decision> {
+  await comment(pr.number, `🙋 自動ではマージしません: ${why}。人が見て判断してください。\n\n${HUMAN_MARK}`);
+  await notify(`🙋 人の判断が要る PR: ${link}\n${why}`);
+  return { action: "human", reason: why };
+}
+
 async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Promise<Decision> {
-  // コメントを全部読む（100件ずつ。印やレビューが後ろにあっても見落とさない。PR #153 の ai-review の指摘）
-  const comments: (PrComment & { body: string })[] = [];
-  for (let page = 1; page <= 20; page++) {
-    const got = await gh<(PrComment & { body: string })[]>(`/issues/${pr.number}/comments?per_page=100&page=${page}`);
-    comments.push(...got);
-    if (got.length < 100) break;
-  }
+  // コメントは、止める方向の印（人に回した・この版の直しは頼んだ・直させた回数）にだけ使う
+  const { items: comments, complete: commentsComplete } = await pages<PrComment & { body: string }>(`/issues/${pr.number}/comments`, 20);
   if (handedToHuman(comments)) return { action: "wait", reason: "人に回したまま" };
-  const checks = (await gh<{ check_runs: CheckRun[] }>(`/commits/${pr.head.sha}/check-runs?per_page=50`)).check_runs;
-  // CI とレビューが終わるまで待つ（終わったら、CI の完了でもう一度呼ばれる）
-  if (!checks.length || checks.some((c) => c.status !== "completed")) return { action: "wait", reason: "CI とレビューが終わっていない" };
-  // 変えたファイルを全部読む（100件ずつ。GitHub は1つの PR で3000件まで）。名前を変えたものは、前の名前も見る
-  const files: string[] = [];
-  for (let page = 1; page <= 30; page++) {
-    const got = await gh<{ filename: string; previous_filename?: string }[]>(`/pulls/${pr.number}/files?per_page=100&page=${page}`);
-    files.push(...changedPaths(got));
-    if (got.length < 100) break;
-  }
-  const d = decide({
-    branch: pr.head.ref, sameRepo: pr.head.repo?.full_name === GITHUB_REPOSITORY, draft: pr.draft,
-    ciOk: checks.find((c) => c.name === "check")?.conclusion === "success",
-    files, marks: reviewMarks(comments, pr.head.sha), fixes: fixRounds(comments), productionIdle: idle, smokeOk: smoke,
-  });
+  const checks = (await gh<{ check_runs: CheckRun[] }>(`/commits/${pr.head.sha}/check-runs?per_page=100`)).check_runs;
+  // 変えたファイルを全部読む（GitHub は1つの PR で3000件まで）。名前を変えたものは、前の名前も見る
+  const { items: files, complete: filesComplete } = await pages<{ filename: string; previous_filename?: string }>(`/pulls/${pr.number}/files`, 30);
   const link = `#${pr.number}「${pr.title}」 ${pr.html_url}`;
+  const pre = beforeReview({
+    branch: pr.head.ref, sameRepo: pr.head.repo?.full_name === GITHUB_REPOSITORY, draft: pr.draft,
+    checksDone: checks.length > 0 && checks.every((c) => c.status === "completed"),
+    ciOk: checks.find((c) => c.name === "check")?.conclusion === "success",
+    files: changedPaths(files), filesComplete, commentsComplete, fixRequestedNow: fixRequested(comments, pr.head.sha),
+    productionIdle: idle, smokeOk: smoke,
+  });
+  if (pre.action === "human") return toHuman(pr, link, pre.reason);
+  if (pre.action !== "review") return pre;
+  if (!AUTO_MERGE_TOKEN) return { action: "wait", reason: "AUTO_MERGE_TOKEN がない" };
+
+  const reviews = await reviewBoth(pr);
+  // 答えが返ってこなかった（通信の失敗など）ときは、次の見回りでもう一度頼む
+  if (REVIEWERS.some((r) => !reviews[r])) return { action: "wait", reason: "レビューを頼めなかった（次の見回りでもう一度）" };
+  // 人とルーティンが読めるよう、2社のレビューを PR に書く（ここに書いたものは、マージの判断には使わない）
+  for (const r of REVIEWERS) await comment(pr.number, reviewComment(reviews[r]!, "自動マージの見回りが頼んだレビューです（main のコードで動いています）。")).catch(() => undefined);
+  const d = afterReview(reviews, fixRounds(comments));
+
   if (d.action === "merge") {
-    if (!AUTO_MERGE_TOKEN) return { action: "wait", reason: "AUTO_MERGE_TOKEN がない" };
     // 確かめた版のままのときだけマージする（確かめたあとに push されていたら、GitHub が断る）
     await gh(`/pulls/${pr.number}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: "merge", sha: pr.head.sha }) }, AUTO_MERGE_TOKEN);
-    // マージできたら、コメントや知らせに失敗しても、マージしたとして返す（見回りを必ず終えて、続けてマージしない。PR #153 の ai-review の指摘）
+    // マージできたら、コメントや知らせに失敗しても、マージしたとして返す（見回りを必ず終えて、続けてマージしない）
     await comment(pr.number, `🤖 自動でマージしました（${d.reason}）。`).catch((e) => console.error(`#${pr.number}: マージのコメントに失敗: ${e instanceof Error ? e.message : String(e)}`));
     await notify(`🤖 自動でマージしました: ${link}\n${d.reason}`);
   } else if (d.action === "fix") {
-    if (fixRequested(comments, pr.head.sha)) return { action: "wait", reason: "この版の直しは頼んだ" };
-    const reviews = comments.filter((c) => c.user?.login === "github-actions[bot]" && c.body.includes(`"sha":"${pr.head.sha}"`)).map((c) => c.body);
-    const text = fixText(pr, reviews);
-    if (!text) {
-      const why = "直すべき指摘が長く、ルーティンに全部を渡せない";
-      await comment(pr.number, `🙋 自動ではマージしません: ${why}。人が見て判断してください。\n\n${HUMAN_MARK}`);
-      await notify(`🙋 人の判断が要る PR: ${link}\n${why}`);
-      return { action: "human", reason: why };
-    }
-    // 先に「頼む」という印を書いてから起動する（起動のあとに印を書けないと、次の見回りで同じ版の直しをもう一度頼んでしまうため。PR #153 の ai-review の指摘）
-        const mark = await gh<{ id: number }>(`/issues/${pr.number}/comments`, { method: "POST", body: JSON.stringify({ body: `🔧 ${d.reason}。提案箱のルーティンに、このブランチで直してもらうよう頼みます。\n\n${fixMarker(pr.head.sha)}` }) });
+    const text = fixText(pr, REVIEWERS.flatMap((r) => blocking(reviews[r]!)));
+    if (!text) return toHuman(pr, link, "直すべき指摘が長く、ルーティンに全部を渡せない");
+    // 先に「頼む」という印を書いてから起動する（起動のあとに印を書けないと、次の見回りで同じ版の直しをもう一度頼んでしまうため）
+    const mark = await gh<{ id: number }>(`/issues/${pr.number}/comments`, { method: "POST", body: JSON.stringify({ body: `🔧 ${d.reason}。提案箱のルーティンに、このブランチで直してもらうよう頼みます。\n\n${fixMarker(pr.head.sha)}` }) });
     try {
       await fireFix(text);
     } catch (e) {
-      // はっきり断られたときだけ印を消して、次の見回りで頼み直す。時間切れ・通信の失敗は届いたか分からないので、印を残す（同じ直しを二度頼まない。PR #153 の ai-review の指摘）
+      // はっきり断られたときだけ印を消して、次の見回りで頼み直す。時間切れ・通信の失敗は届いたか分からないので、印を残す（同じ直しを二度頼まない）
       if (e instanceof FireRejected) await gh(`/issues/comments/${mark.id}`, { method: "DELETE" }).catch(() => undefined);
       else await notify(`⚠️ ルーティンへの直しの依頼が届いたか分かりません（#${pr.number}）。作業が始まっていなければ、PR の「🔧」のコメントを消すと、次の見回りで頼み直します`);
       throw e;
     }
     await notify(`🔧 レビューの指摘を、ルーティンに直してもらいます: ${link}\n${d.reason}`);
   } else if (d.action === "human") {
-    await comment(pr.number, `🙋 自動ではマージしません: ${d.reason}。人が見て判断してください。\n\n${HUMAN_MARK}`);
-    await notify(`🙋 人の判断が要る PR: ${link}\n${d.reason}`);
+    return toHuman(pr, link, d.reason);
   }
   return d;
 }

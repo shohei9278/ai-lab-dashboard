@@ -61,6 +61,7 @@
 
 ## 自動マージ（ルーティンが作った PR）
 ルーティンが作った PR（`claude/proposal-<番号>`）は、`.github/workflows/auto-merge.yml` が CI の終わったときと30分ごとに見回り、次のどれかをします（決まりは `scripts/auto-merge-rules.ts`）。したことは PR にコメントし、Discord に知らせます。
+見回りは必ず main のコードで動き、ほかの条件がそろったときに、GPT と Gemini へのレビューを自分で頼み、その答えだけでマージするかを決めます（PR のコメントは誰でもボットとして書けるので、「指摘なし」のコメントは信じません）。ルーティンの PR には、CI の ai-review は動きません。
 - マージ: CI が通り、GPT と Gemini のどちらのレビューも直すべき指摘（🔴・🟡）なし・自動で触れない所（`.github/`・レビューと自動マージ・来訪者の入口・予算と緊急停止・合言葉・人の手の記録・依存・ルーティンへの指示 など）に触れていない・本番が作業中でない・本番の確認が通っている
 - 直させる: 直すべき指摘があれば、提案箱のルーティンに、同じブランチで直させる（3回まで。ルーティンへの指示の「レビューの指摘を直す」）
 - 人に回す: 3回直しても残る・自動で触れない所に触れている・CI が落ちた・レビューがそろわない
@@ -70,7 +71,7 @@ GitHub の Settings → Secrets and variables → Actions に、次を入れま�
 | 名前 | 値 |
 | --- | --- |
 | `AUTO_MERGE_TOKEN` | このリポジトリだけの fine-grained トークン（Contents と Pull requests を Read and write）。Actions の標準のトークンでマージすると、main の CI が動かず Railway が本番に出さないため、別に要ります |
-| `GEMINI_API_KEY` | Gemini のレビュー用（2つ目のレビュー） |
+| `GEMINI_API_KEY` | 見回りが頼む Gemini のレビュー用（GPT は、すでにある `OPENAI_API_KEY` を使う） |
 | `CLAUDE_ROUTINE_FIRE_URL` | 提案箱のルーティンの起動の URL（Railway と同じ値） |
 | `CLAUDE_ROUTINE_TOKEN` | 提案箱のルーティンのトークン（Railway と同じ値） |
 

@@ -52,8 +52,10 @@ jobs:
         run: npx tsc --noEmit
 
   # 別の会社のAIによるレビュー（PRだけ）。結果をコメントするだけで、失敗してもマージは止めない
+  # ルーティンが作った PR（claude/proposal-<番号>）は、自動マージの見回りが main のコードの中で GPT と Gemini にレビューを頼むので、ここではしない
+  # （PR の中のレビューのスクリプトを、秘密の値とコメントの権限つきで動かさないため。PR #153 の ai-review の指摘）
   ai-review:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'claude/proposal-')
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
@@ -76,32 +78,3 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_BODY: ${{ github.event.pull_request.body }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-
-  # 2つ目のレビュー（Gemini）。自動マージは、GPT と Gemini のどちらも直すべき指摘なしのときだけマージする（scripts/auto-merge.ts）
-  ai-review-gemini:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npx tsx scripts/ai-review.ts
-        env:
-          REVIEWER: gemini
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
