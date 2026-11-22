@@ -2,6 +2,7 @@ import { HIDDEN, isOwner } from "@/lib/viewer";
 import { getSettings } from "@/lib/db";
 import { MODELS, PROVIDER_ENV, PROVIDER_LABEL, hasKey, type Provider } from "@/lib/models";
 import { SettingsForm } from "./SettingsForm";
+import { autopilotLevel } from "@/lib/autopilot";
 import { AUTO_PLATFORMS } from "@/lib/snsApi";
 import { notifyConfigured } from "@/lib/notify";
 import { backupList, offsiteState } from "@/lib/backup";
@@ -18,7 +19,7 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-6">
       <PageIntro title="設定">AIが使えるお金の上限、案件を判断する基準、製品ループで使うAIを決めます。</PageIntro>
-      <SettingsForm initial={s} models={MODELS.map((m) => ({ id: m.id, label: m.label, ok: hasKey(m.provider) }))} publishing={publishingConfigured()} notifyReady={notifyConfigured()} backups={owner ? { files: backupList().slice(0, 3).map((b) => b.file), offsite: offsiteState() } : null} snsReady={Object.entries(AUTO_PLATFORMS).map(([key, d]) => ({ key, label: d.label, ok: d.configured(), free: d.costUsd === 0, promoYen: Math.round(d.costUsd * s.usdJpy), plainYen: Math.round(d.plainCostUsd * s.usdJpy) }))} />
+      <SettingsForm initial={s} autopilotNow={autopilotLevel().level} models={MODELS.map((m) => ({ id: m.id, label: m.label, ok: hasKey(m.provider) }))} publishing={publishingConfigured()} notifyReady={notifyConfigured()} backups={owner ? { files: backupList().slice(0, 3).map((b) => b.file), offsite: offsiteState() } : null} snsReady={Object.entries(AUTO_PLATFORMS).map(([key, d]) => ({ key, label: d.label, ok: d.configured(), free: d.costUsd === 0, promoYen: Math.round(d.costUsd * s.usdJpy), plainYen: Math.round(d.plainCostUsd * s.usdJpy) }))} />
 
       <section className="space-y-2">
         <h2 className="font-bold">APIキー</h2>
