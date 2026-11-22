@@ -109,14 +109,14 @@ export function planModelStats(): { modelId: string; days: number; goalRate: num
 
 export type RequestRow = {
   id: number; plan_id: number | null; created_at: string; title: string; how: string | null; why: string | null; status: "open" | "done" | "declined"; note: string | null; decided_at: string | null;
-  source: "plan" | "meeting" | "scene" | "error" | "revival" | "human" | "voice"; proposer: string | null; target: "human" | "system"; score: number | null; meeting_id: number | null;
+  source: "plan" | "meeting" | "scene" | "error" | "revival" | "human" | "voice" | "review"; proposer: string | null; target: "human" | "system"; score: number | null; meeting_id: number | null;
   scene: string | null; project_id: number | null; ref_id: number | null; ai_reply: string | null;
   ai_fix_at: string | null; ai_fix_url: string | null; ai_fix_note: string | null; ai_fix_pr: number | null; ai_fix_pr_state: "open" | "merged" | "closed" | null;
   repeats: number;
 };
 
 const REQUEST_SOURCE: Record<string, string> = {
-  plan: "朝会", meeting: "週の定例会議", scene: "作業の途中で", error: "エラーの見張り", revival: "敗者復活", human: "あなた", voice: "社員の声から",
+  plan: "朝会", meeting: "週の定例会議", scene: "作業の途中で", error: "エラーの見張り", revival: "敗者復活", human: "あなた", voice: "社員の声から", review: "コードの見直し（Claude Code）",
 };
 // どこで出た提案か。臨時会議の提案も source は meeting なので、場面の名前で見分ける
 export const sourceLabel = (r: { source: string; scene: string | null }) => (r.source === "meeting" && r.scene?.startsWith("臨時会議") ? r.scene : REQUEST_SOURCE[r.source] ?? r.source);

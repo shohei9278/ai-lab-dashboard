@@ -7,7 +7,7 @@ import { modelInfo } from "./models";
 // - 提案: 提案箱（plan_requests）に入れる。同じ題は入れない・作業の途中で入る提案は1日5件まで
 
 export type VoiceRow = { id: number; at: string; model_id: string | null; scene: string; project_id: number | null; text: string; request_id: number | null };
-export type ProposalSource = "plan" | "meeting" | "scene" | "error" | "revival" | "human" | "voice";
+export type ProposalSource = "plan" | "meeting" | "scene" | "error" | "revival" | "human" | "voice" | "review"; // review: コードの見直しのルーティン（codeReview.ts）
 export type NewProposal = {
   title: string; how?: string; why?: string; target: "human" | "system"; source: ProposalSource;
   proposer?: string | null; scene?: string; projectId?: number | null; refId?: number | null; score?: number | null; meetingId?: number | null; planId?: number | null;
