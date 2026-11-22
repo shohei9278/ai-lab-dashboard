@@ -1,6 +1,9 @@
+import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { importSiteFeedback } from "./outside";
 import { createClient } from "@supabase/supabase-js";
-import { db, getSettings, type ProjectRow } from "./db";
+import { dataDir, db, getSettings, type ProjectRow } from "./db";
 import { attributePosts } from "./sns";
 import { channelStats, hostOf } from "./channels";
 import { checkToolErrors } from "./funnel";
@@ -37,6 +40,8 @@ async function categoryFor(p: ProjectRow): Promise<SiteCategory | null> {
 // 今のLPの版を公開する（すでに公開中なら新しい版に差し替える）
 export async function publishLp(p: ProjectRow) {
   if (!publishingConfigured() || p.demo || !p.lp) return false;
+  // 動くツールは、一覧のカードとシェア画像に本物の画面を使う。上げられなくても公開は止めない（イラストのカードのまま）
+  const shot = await uploadToolShot(p, p.lp_version).catch(() => null);
   const { error } = await sb().from("lps").upsert({
     slug: slugOf(p.id),
     project_id: p.id,
@@ -44,7 +49,8 @@ export async function publishLp(p: ProjectRow) {
     title: p.title,
     // 公開サイトの一覧のカテゴリも、中身に入れて渡す（表の列は増やさない）
     // AIの判定に失敗しても公開は止めない（カテゴリなしで公開し、次に起動したときのそろえ直しで、また選ばせる）
-    content: { ...JSON.parse(p.lp), category: await categoryFor(p).catch(() => null) },
+    // shot は、ここで上げた写真だけにする（LPを書いたAIの出力に紛れたものは使わない）
+    content: { ...JSON.parse(p.lp), category: await categoryFor(p).catch(() => null), shot: shot ?? undefined },
     status: "published",
     updated_at: new Date().toISOString(),
   });
@@ -88,6 +94,48 @@ export async function eachSettled<T>(items: T[], fn: (item: T) => Promise<boolea
     }
   }
   return { changed, failed, firstError };
+}
+
+// ---- 動くツールの本物の画面（一覧のカードとシェア画像に使う） ----
+
+export type ToolShot = { url: string; width: number; height: number };
+
+// 版の自動テストで撮った、何も押す前の1画面（firstShot）のファイル名
+// 押したあとのページ全体の写真（screenshot）は、途中の画面が出ることがあるので使わない（運営者が決めた。最初の1画面を撮る前の版は、イラストのカードのまま）
+// 紹介ページの確かめ（kind = "page"）で上書きされた版は、ツールの写真がないので使わない
+export function toolShotFile(projectId: number, version: number): string | null {
+  const row = db().prepare("SELECT test FROM lp_versions WHERE project_id = ? AND version = ? ORDER BY id DESC LIMIT 1").get(projectId, version) as { test: string | null } | undefined;
+  if (!row?.test) return null;
+  try {
+    const t = JSON.parse(row.test) as { kind?: string; firstShot?: string };
+    if (t.kind === "page") return null;
+    const file = t.firstShot;
+    return file && /^[a-z0-9_-]+\.png$/i.test(file) ? file : null;
+  } catch {
+    return null;
+  }
+}
+
+// PNG の大きさ（先頭の IHDR から読む）。PNG でなければ null
+export function pngSize(b: Buffer): { width: number; height: number } | null {
+  if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47 || b.toString("ascii", 12, 16) !== "IHDR") return null;
+  return { width: b.readUInt32BE(16), height: b.readUInt32BE(20) };
+}
+
+// その版のツールの写真を公開用の保存領域に上げて、場所と大きさを返す。ツールでない・写真がないときは null
+// 同じ版でテストをやり直すと写真が変わるので、中身の短い要約を名前に入れて、古い写真が残って見えないようにする
+export async function uploadToolShot(p: Pick<ProjectRow, "id" | "kind">, version: number): Promise<ToolShot | null> {
+  if (p.kind !== "tool") return null;
+  const file = toolShotFile(p.id, version);
+  if (!file) return null;
+  const full = path.join(dataDir("screenshots"), file);
+  if (!fs.existsSync(full)) return null;
+  const bytes = fs.readFileSync(full);
+  const size = pngSize(bytes);
+  if (!size) return null;
+  const hash = crypto.createHash("sha1").update(bytes).digest("hex").slice(0, 8);
+  const url = await uploadImage(`p${p.id}/v${version}-shot-${hash}.png`, bytes, "image/png");
+  return { url, ...size };
 }
 
 // 公開したことのあるツールのページすべてのカテゴリをそろえる（サーバーを起動したあとに1回。件数は数十件まで）

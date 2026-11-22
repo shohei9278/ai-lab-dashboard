@@ -63,6 +63,8 @@ export type Lp = {
   design?: Design;
   illustrationPrompt?: string; // イラストを描くAIへの指示（英語）。画像を作ったあとも残す
   illustrationStyle?: IllustrationStyle; // イラストの画風（古いLPには無い。無ければ平らなイラスト）
+  // 動くツールの本物の画面（自動テストで撮った、何も押す前の1画面）。ダッシュボードが公開のときに入れる。一覧のカードとシェア画像に使う
+  shot?: { url: string; width: number; height: number };
   preview?: { title: string; kind: (typeof PREVIEW_KINDS)[number]; columns?: string[]; rows: string[][] };
   steps?: { title: string; body: string }[];
   beforeAfter?: { before: string[]; after: string[] };
@@ -165,6 +167,11 @@ export function normalizeLp(raw: unknown): Lp {
   }
   if (isStr(v.illustrationPrompt)) lp.illustrationPrompt = cut(v.illustrationPrompt, 600);
   if (isStr(v.illustrationStyle) && Object.hasOwn(ILLUSTRATION_STYLES, v.illustrationStyle)) lp.illustrationStyle = v.illustrationStyle as IllustrationStyle;
+  // 写真は、公開用の保存領域（Supabase）のものだけ受け取る
+  if (isObj(v.shot) && isStr(v.shot.url) && v.shot.url.length <= 500 && /^https:\/\/[a-z0-9-]+\.supabase\.co\/storage\/v1\/object\/public\//.test(v.shot.url)) {
+    const w = Number(v.shot.width), h = Number(v.shot.height);
+    if (Number.isInteger(w) && Number.isInteger(h) && w > 0 && h > 0 && w <= 10000 && h <= 40000) lp.shot = { url: v.shot.url, width: w, height: h };
+  }
   if (isObj(v.preview) && isStr(v.preview.title) && PREVIEW_KINDS.includes(v.preview.kind as never) && Array.isArray(v.preview.rows)) {
     const rows = v.preview.rows.filter((r) => Array.isArray(r)).slice(0, 6).map((r) => (r as unknown[]).map((c) => cut(String(c ?? ""), 40)).slice(0, 4));
     if (rows.length) {

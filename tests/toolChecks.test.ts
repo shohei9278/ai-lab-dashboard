@@ -166,3 +166,17 @@ test("本番のエラー: 記録の形を確かめ、案件ごとにまとめ、
   checkToolErrors(p());
   assert.equal(logged().length, 2);
 });
+
+test("公開前の自動テスト: 何も押す前の1画面を撮り、一覧のカードとシェア画像に使えるようにする", async (t) => {
+  const { default: fs } = await import("node:fs");
+  const { default: path } = await import("node:path");
+  const { dataDir } = await import("../src/lib/db");
+  const { pngSize } = await import("../src/lib/publish");
+  const r = await testTool(`<h1 id="h">はじめ</h1><button type="button" onclick="document.getElementById('h').textContent='おわり'">押す</button>`, "test-first-shot");
+  if (r.skipped) return t.skip(r.skipped);
+  assert.equal(r.firstShot, "test-first-shot-first.png");
+  assert.notEqual(r.firstShot, r.screenshot);
+  const size = pngSize(fs.readFileSync(path.join(dataDir("screenshots"), r.firstShot!)));
+  // スマホの1画面（375×812）を2倍で撮る
+  assert.deepEqual(size, { width: 750, height: 1624 });
+});

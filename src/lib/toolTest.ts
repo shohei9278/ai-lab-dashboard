@@ -27,7 +27,8 @@ export type ToolTest = {
   used?: boolean; // 「使った」の知らせが出たか（この確かめを足す前のテストの結果には無い）
   motion?: { idle: number; shake: number; ok: boolean }; // 振って遊ぶツールで、振らずに待ったとき・振ったときに変わった画面の割合（0〜1）
   offscreen?: string[]; // 短いページのツールで、決まった高さの画面の下に出ていた押す所の名前
-  screenshot?: string; // dataDir("screenshots") の中のファイル名
+  screenshot?: string; // dataDir("screenshots") の中のファイル名（押したあとのページ全体）
+  firstShot?: string; // 開いてすぐ、何も押す前の1画面（dataDir("screenshots") の中のファイル名）。一覧のカードとシェア画像に使う
   at: string;
 };
 
@@ -65,6 +66,9 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
     page.on("console", (m) => { if (m.type() === "error") errors.push(`コンソール: ${m.text()}`); });
     await page.setContent(wrapToolHtml(html, { data: opts.data, fonts: opts.fonts, images: opts.images }), { waitUntil: "load", timeout: 10_000 });
     await page.waitForTimeout(500);
+    // 一覧のカードとシェア画像に使う、何も押す前の1画面（撮れなくてもテストは続ける）
+    const firstShot = `${name.replace(/[^a-z0-9-]/gi, "_")}-first.png`;
+    const shotOk = await page.screenshot({ path: path.join(dataDir("screenshots"), firstShot), timeout: 10_000 }).then(() => true, () => false);
     const before = await page.evaluate(() => document.body.innerText);
     // 枠の中のスクリプトは、親の画面に「使った」を知らせる。テストでは枠に入れないので、自分あての知らせを受け取って数える
     // （setContent では addInitScript が効かないため、開いたあとに受け取り口を付ける。操作はこのあとに行う）
@@ -119,7 +123,7 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
     const motion = /labMotion|labmotion/.test(html) ? await motionCheck(ctx, html, opts) : undefined;
     return {
       ok: uniq.length === 0 && changed && !overflow && used && (motion?.ok ?? true) && off.length === 0,
-      errors: uniq, clicked, changed, overflow, used, ...(motion ? { motion } : {}), ...(opts.short ? { offscreen: off } : {}), screenshot: file, at,
+      errors: uniq, clicked, changed, overflow, used, ...(motion ? { motion } : {}), ...(opts.short ? { offscreen: off } : {}), screenshot: file, ...(shotOk ? { firstShot } : {}), at,
     };
   } catch (e) {
     return { ok: false, errors: [`テストの途中で失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`], clicked: 0, changed: false, overflow: false, at };
