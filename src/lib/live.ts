@@ -1,5 +1,5 @@
 import { routinesWorking } from "./toolRoutine";
-import { HIDDEN, maskEventMessage, maskHandles } from "./viewer";
+import { HIDDEN, maskCallError, maskEventMessage, maskHandles } from "./viewer";
 import { db, getSettings } from "./db";
 import { activityList, buildingList, ideaRunning, liveNotesList } from "./loop";
 import { modelInfo } from "./models";
@@ -179,7 +179,7 @@ export function liveSnapshot({ guest = false } = {}) {
       costTodayJpy: Math.round(costToday.s * s.usdJpy), callsToday: costToday.n, costMonthJpy: Math.round(costMonth * s.usdJpy),
       postsToday, live,
     },
-    calls: calls.map((c) => ({ id: c.id, at: c.at, purpose: c.purpose, model: label(c.model_id), provider: provider(c.model_id), jpy: c.cost_usd * s.usdJpy, error: c.error, project: c.title })),
+    calls: calls.map((c) => ({ id: c.id, at: c.at, purpose: c.purpose, model: label(c.model_id), provider: provider(c.model_id), jpy: c.cost_usd * s.usdJpy, error: maskCallError(c.error, !guest), project: c.title })),
     events: events.map((e) => ({ id: e.id, at: e.at, actor: e.actor, kind: e.kind, message: guest ? maskEventMessage(e.kind, e.message) : e.message, project: e.title })),
     feed: liveFeed({ guest }),
   };

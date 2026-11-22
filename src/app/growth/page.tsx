@@ -84,7 +84,7 @@ export default async function GrowthPage() {
                 <div className="num text-xs text-muted">{a.free ? "無料" : `今月の費用 ${Math.round(a.costJpy).toLocaleString("ja-JP")}円（1件 約30円）`}</div>
                 {a.lastError && (
                   <p className="rounded-lg bg-surface-2 p-2 text-xs" style={{ color: "var(--critical)" }}>
-                    ! 最後の投稿が失敗しました（{jstUtc(a.lastError.at)}）: {a.lastError.error}
+                    ! 最後の投稿が失敗しました（{jstUtc(a.lastError.at)}）{owner && `: ${a.lastError.error}`}
                     <span className="block text-ink-2">2時間あけてから、自動で試し直します。</span>
                   </p>
                 )}

@@ -19,5 +19,7 @@ export function maskEventMessage(kind: string, message: string): string {
 export function maskEventsForGuest<T extends { kind: string; message: string }>(rows: T[], owner: boolean): T[] {
   return owner ? rows : rows.map((e) => ({ ...e, message: maskEventMessage(e.kind, e.message) }));
 }
+// AI・SNSの呼び出しの失敗の文（APIの応答がそのまま入ることがある）は、来た人には中身を伏せる。失敗したことだけは分かるようにする
+export const maskCallError = (error: string | null, owner: boolean): string | null => (error && !owner ? HIDDEN : error);
 // 文の中の @アカウント名 を伏せる
 export const maskHandles = (s: string) => s.replace(/@[A-Za-z0-9_.-]+/g, "@***");
