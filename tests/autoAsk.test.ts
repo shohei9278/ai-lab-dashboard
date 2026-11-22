@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
 import { addReviewFindings, GROWTH_SCENE, REVIEW_SCENE } from "../src/lib/codeReview";
 import { maybeAutoAsk, nextAutoAsk } from "../src/lib/autoAsk";
+import { syncAiFixPrs } from "../src/lib/aiFix";
 import { scoringExisting } from "../src/lib/weekly";
 
 // コードの見直しの攻めの提案と、見直しの提案の自動の依頼（運営者が決めた。人の出番を減らす4つ目）
@@ -100,3 +101,24 @@ test("自動の依頼: 設定でオフ・緊急停止・ルーティンがつな
   saveSettings({ autoAskReview: keep.autoAskReview, killSwitch: keep.killSwitch });
   delete process.env.CLAUDE_ROUTINE_TOKEN;
 });
+
+test("自動の依頼: 見送った提案でも、PR が開いている間は次を頼まず（日がたっても）、PR の状態は読み直す", async () => {
+  clear();
+  const [f] = addReviewFindings([fix("守りA")]).added;
+  const [f2] = addReviewFindings([fix("守りB")]).added;
+  old(f2);
+  db().prepare("DELETE FROM events WHERE kind = 'auto-ask'").run();
+  // 40日前に頼み、PR が開いたまま、提案は見送った
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now', '-40 days'), ai_fix_pr = 3, ai_fix_pr_state = 'open', status = 'declined' WHERE id = ?").run(f);
+  assert.equal(nextAutoAsk(), null);
+  // GitHub で閉じられたら、それを読み直して、次を頼めるようになる（返事は見送りのまま）
+  const gh = async (url: string) => {
+    const head = decodeURIComponent(new URL(url).searchParams.get("head") ?? "");
+    return new Response(JSON.stringify(head.endsWith(`proposal-${f}`) ? [{ number: 3, state: "closed", merged_at: null }] : []), { status: 200 });
+  };
+  await syncAiFixPrs(gh, true);
+  const r = db().prepare("SELECT status, ai_fix_pr_state FROM plan_requests WHERE id = ?").get(f) as { status: string; ai_fix_pr_state: string };
+  assert.deepEqual(r, { status: "declined", ai_fix_pr_state: "closed" });
+  assert.equal(nextAutoAsk()?.row.id, f2);
+});
+

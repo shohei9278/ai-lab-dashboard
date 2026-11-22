@@ -874,7 +874,7 @@ export type Settings = {
   dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
   promoOff: string; // 宣伝の投稿（リンク付き）をしない場所（カンマ区切り。例: x）
   plainOff: string; // 普通の投稿（リンクなし）をしない場所（カンマ区切り）
-  autoAskReview: boolean; // コードの見直しの提案（守り・3社が7点以上を付けた攻め）を、運営者が押さなくても自動で提案箱のルーティンに頼む（autoAsk.ts）
+  autoAskReview: boolean; // コードの見直しの提案（守り・3社の採点の平均が7点以上の攻め）を、運営者が押さなくても自動で提案箱のルーティンに頼む（autoAsk.ts）
   postSafetyPerDay: number; // 毎日の計画で投稿するときの安全装置（場所ごと・直近24時間）。AIの目標ではなく、異常を止めるための値
 };
 

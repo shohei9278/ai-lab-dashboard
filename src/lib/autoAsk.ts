@@ -6,7 +6,7 @@ import type { Fetch } from "./routine";
 
 // コードの見直しの提案を、運営者が押さなくても、自動で提案箱のルーティンに頼む（運営者が決めた。人の出番を減らす4つ目）
 // - 守り（直すべき所）: 入ってから1日たったら頼む（その間に運営者が見送れば頼まない）。1日に1件まで
-// - 攻め（足すとよい機能）: 定例会議で3社が採点し、7点以上のものだけ、点の高い順に頼む。7日に1件まで
+// - 攻め（足すとよい機能）: 定例会議で3社が採点し、平均7点以上のものだけ、点の高い順に頼む。7日に1件まで
 // - 一度に頼むのは1件だけ（前に頼んだ PR がまだ開いている・PR ができていない間は頼まない）
 // - できた PR は、自動マージ（scripts/auto-merge.ts）が、CI と GPT・Gemini のレビューを見てマージする
 // - 設定の「見直しの提案を自動で頼む」で切れる。緊急停止の間は頼まない
@@ -18,8 +18,8 @@ type Row = { id: number; title: string; scene: string; score: number | null };
 // 次に自動で頼む提案（なければ null）と、その理由
 export function nextAutoAsk(): { row: Row; why: string } | null {
   // 頼んだ改善が進んでいる間は、次を頼まない（PR が開いている・頼んでから PR が見つかっていない）
-  // 提案を見送ったあとも PR が開いていれば数える（PR #154 の ai-review の指摘）。PR の状態は、返事待ちの提案しか読み直さないので、14日より前に頼んだものは数えない（ずっと止まらないように）
-  const busy = db().prepare("SELECT 1 FROM plan_requests WHERE ai_fix_at IS NOT NULL AND ((ai_fix_pr_state = 'open' AND ai_fix_at >= datetime('now', '-14 days')) OR (ai_fix_pr IS NULL AND ai_fix_at >= datetime('now', '-1 day')))").get();
+  // 提案を見送ったあとも、PR が開いている間は数える（PR #154 の ai-review の指摘）。PR の状態は、開いている間は提案の返事に関係なく読み直す（aiFix.ts の syncAiFixPrs）
+  const busy = db().prepare("SELECT 1 FROM plan_requests WHERE ai_fix_at IS NOT NULL AND (ai_fix_pr_state = 'open' OR (ai_fix_pr IS NULL AND ai_fix_at >= datetime('now', '-1 day')))").get();
   if (busy) return null;
   // 自動で頼んだ回数は、上書きされない記録（events の auto-ask）から数える（人が頼み直すと提案の欄は上書きされるため。PR #154 の ai-review の指摘）
   const asked = (kind: "守り" | "攻め", days: number) => (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-ask' AND message LIKE ? AND at >= datetime('now', ?)").get(`%${kind}の提案%`, `-${days} days`) as { n: number }).n;

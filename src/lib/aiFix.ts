@@ -66,7 +66,8 @@ type Pull = { number: number; state: string; merged_at: string | null; html_url:
 export async function syncAiFixPrs(fetchImpl: Fetch = fetch, force = false): Promise<number> {
   if (!force && gSync.__aiLabAiFixSync && Date.now() - gSync.__aiLabAiFixSync < 3_600_000) return 0;
   gSync.__aiLabAiFixSync = Date.now();
-  const rows = db().prepare("SELECT * FROM plan_requests WHERE ai_fix_at IS NOT NULL AND status = 'open' AND ai_fix_at >= datetime('now', '-30 days') ORDER BY id LIMIT 20").all() as RequestRow[];
+  // PR が開いているものは、提案の返事（見送りなど）や頼んだ日に関係なく読み直す（自動の依頼が「PR が開いている間は次を頼まない」を正しく判断できるように。autoAsk.ts）
+  const rows = db().prepare("SELECT * FROM plan_requests WHERE ai_fix_at IS NOT NULL AND ((status = 'open' AND ai_fix_at >= datetime('now', '-30 days')) OR ai_fix_pr_state = 'open') ORDER BY id LIMIT 20").all() as RequestRow[];
   const repo = REPO_URL.replace("https://github.com/", "");
   const owner = repo.split("/")[0];
   let done = 0;
