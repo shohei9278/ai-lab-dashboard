@@ -885,7 +885,8 @@ const DESIGN_DIRECTIONS = [
   "上品で大人っぽい（言葉を選び、装飾は控えめに）",
 ];
 
-async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, modelId?: string, purpose = "LP作成", direction?: string): Promise<Lp & { shareText?: string }> {
+// toolExceptions: ツールの案件で、tool.html から取り出した、うまくいかないときや代わりの動きの文言（toolExceptionTexts）
+async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, modelId?: string, purpose = "LP作成", direction?: string, toolExceptions?: string): Promise<Lp & { shareText?: string }> {
   const isTool = p.kind === "tool";
   const before = p.lp ? (JSON.parse(p.lp) as Lp) : null;
   // 自由に書いたページとツールのHTMLは長いので、文言の材料としては渡さない（書き返そうとして出力の上限で切れるため。ツールの修正は buildTool が担当）
@@ -918,7 +919,7 @@ ${(Object.keys(DESIGN_OPTIONS) as (keyof typeof DESIGN_OPTIONS)[]).map((k) => `-
 - pains・features・faq・steps の数は中身に合わせて決める（pains 2〜4、features 2〜5、faq 0〜4、steps 2〜4）。いつも同じ数にそろえない。形式の例の数は、例にすぎない
 - beforeAfter: 使う前の状態と、使ったあとに目指す状態を各2〜3個（任意。効果を断言しない）${isTool ? "\n- shareText: X でシェアするときの文（60文字以内。ハッシュタグは1つまで。誇張しない）" : ""}
 形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明","icon":"clock"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2],"design":{"theme":"trust","layout":"split","font":"gothic","pattern":"none","corners":"round","painStyle":"cards","featureStyle":"cards","order":["pains","features","steps","faq"],"badge":"ラベル"},"illustrationStyle":"soft3d","illustrationPrompt":"A single ... placed ...","preview":{"title":"画面の名前","kind":"list","columns":[],"rows":[["項目","状態"]]},"steps":[{"title":"手順","body":"説明"}×3],"beforeAfter":{"before":["今の状態"],"after":["目指す状態"]}${isTool ? ',"shareText":"シェアの文"' : ""}}`,
-    user: `サービス名: ${p.title}\n対象: ${p.target}\n課題: ${p.problem}\n解決策: ${p.solution}\n仮説: ${p.hypothesis}${prev}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`,
+    user: `サービス名: ${p.title}\n対象: ${p.target}\n課題: ${p.problem}\n解決策: ${p.solution}\n仮説: ${p.hypothesis}${prev}${toolExceptions ? `\n\nツールの中の、うまくいかないときや代わりの動きの文言（tool.html から取り出したもの）:\n${toolExceptions}\nよくある質問（faq）で、これらの場合にどうなるかに触れる。保存・センサー・カメラ・通知などが使えない環境があるなら、「残ります」「使えます」のように言い切らない` : ""}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`,
     validate: isLp,
   });
   // 知らない値や長すぎる文は落としてから保存する
@@ -998,6 +999,23 @@ export function toolFactsForReview(html: string, max = 3000): string {
   if (strings.length) lines.push(`スクリプトの中の文言: ${[...new Set(strings)].join(" / ")}`);
   const out = lines.join("\n");
   return out.length > max ? `${out.slice(0, Math.max(0, max - TOOL_FACTS_CUT.length))}${TOOL_FACTS_CUT}` : out;
+}
+
+// ツールの中の、エラーや代わりの動き（センサーが使えない・保存できない など）の文言を取り出す。LP作成に別枠で渡し、よくある質問で触れてもらう
+// （保存できない環境向けの文言がツールにあるのに、よくある質問が「残ります」と言い切っていたことがあった）
+const EXCEPTION_WORDS = /できません|できない|できなかった|使えません|使えない|失敗|エラー|対応していません|対応していない|非対応|許可|残りません|残らない|消えます|消えてしまう|見つかりません|お使いのブラウザ|代わりに|手動で|センサー|オフライン/;
+export function toolExceptionTexts(html: string, max = 800): string {
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join("\n");
+  const visible = html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, "").split(/<[^>]+>/);
+  const texts = [...visible, ...scriptStrings(scripts)].map((x) => x.replace(/\s+/g, " ").trim()).filter((x) => /[ぁ-んァ-ヶ一-龠]/.test(x) && EXCEPTION_WORDS.test(x));
+  const out: string[] = [];
+  let len = 0;
+  for (const t of new Set(texts)) {
+    if (len + t.length + 3 > max) break;
+    out.push(t);
+    len += t.length + 3;
+  }
+  return out.join(" / ");
 }
 
 // タグの属性を、名前ごとに読む（data-value や aria-checked を、value や checked と取り違えないように、名前が完全に同じものだけ）
@@ -1610,12 +1628,13 @@ export async function removePage(projectId: number) {
 }
 
 async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { instruction?: string; note: string; keepCore?: boolean; toolHtml?: string; keepTool?: boolean }) {
-  const { shareText, ...page } = await writeLp(p, opts.instruction, opts.keepCore);
   const version = nextVersion(p.id);
   // ツールを今のまま使うとき（紹介ページの指摘だけを直す）は、ツールのチェックに紹介ページへの指示を渡さない（ツールで直していないと誤って指摘しないように）
   // 人が入れた画像（素材）: ツールを今のまま使うときは前の版の一覧、入れ直したツールは今の一覧（じっくり案件だけ）
   const images = opts.keepTool ? before?.tool?.images : p.deep ? toolImages(p.id) : undefined;
   const tool = await buildTool(p, `p${p.id}-v${version}`, opts.keepTool ? undefined : opts.instruction, before?.tool?.html, opts.toolHtml, images);
+  // 紹介ページの文は、ツールができてから書く（ツールの中の、うまくいかないときの文言をよくある質問に反映するため）
+  const { shareText, ...page } = await writeLp(p, opts.instruction, opts.keepCore, undefined, "LP作成", undefined, toolExceptionTexts(tool.html) || undefined);
   const pageReview = await reviewLp(p, toolPageForReview(page), opts.keepCore ? before : undefined, tool.html);
   // 紹介ページの文の指摘には「紹介ページ: 」を付けて、ツールの指摘と分ける（じっくり案件で、紹介ページだけを直せるように）
   let review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues.map((x) => `紹介ページ: ${x}`)] };
