@@ -2,7 +2,7 @@ import { callJson, isObj } from "./ai";
 import { db, getSettings, type ProjectRow } from "./db";
 import { getProject, logEvent, type Lp } from "./loop";
 import { EXTRAS_RULE, takeExtras } from "./voices";
-import { AUTO_PLATFORMS, blueskySession, threadsPost, threadsToken } from "./snsApi";
+import { AUTO_PLATFORMS, blueskySession, threadsFetch, threadsPost, threadsToken } from "./snsApi";
 import { external } from "./untrusted";
 
 // 自分の投稿（Threads・Bluesky）についたコメントを取り込み、AIが返信の案を書く。返信するのは、人が「送る」を押したときだけ
@@ -25,15 +25,6 @@ const insert = () => db().prepare(
   `INSERT OR IGNORE INTO sns_comments (post_id, project_id, platform, ext_id, ext_cid, root_uri, root_cid, author, text, commented_at)
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
-
-// Threads のURLにはトークンが入るので、通信そのものの失敗（つながらない・時間切れ）は、元の例外の文を使わずに決まった文にする
-async function threadsFetch(url: string, what: string): Promise<Response> {
-  try {
-    return await fetch(url);
-  } catch {
-    throw new Error(`Threads の${what}を読めません（通信の失敗）`);
-  }
-}
 
 async function fetchThreads(): Promise<number> {
   const posts = recentPosts("threads");

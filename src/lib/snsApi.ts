@@ -58,6 +58,16 @@ export function threadsToken(): string {
 
 const gTok = globalThis as unknown as { __aiLabThreadsRefreshErrAt?: number };
 
+// Threads を読みに行く（URL にトークンが入る）。通信そのものの失敗（つながらない・時間切れ）は、例外の文に URL（トークン入り）が入ることがあるので、
+// 元の文を使わずに決まった文にして投げる。Threads を読みに行く所は、すべてここを通す（コメント・反応の取り込み。PR #148 の ai-review の指摘）
+export async function threadsFetch(url: string, what: string): Promise<Response> {
+  try {
+    return await fetch(url);
+  } catch {
+    throw new Error(`Threads の${what}を読めません（通信の失敗）`);
+  }
+}
+
 // 前に延長してから20日以上たっていたら、トークンを延長する（期限が切れる前に）
 async function refreshThreadsToken() {
   const at = savedThreads()?.at ?? 0;

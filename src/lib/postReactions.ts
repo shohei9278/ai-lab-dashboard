@@ -1,6 +1,6 @@
 import { db, getSettings } from "./db";
 import { logEvent } from "./loop";
-import { threadsToken } from "./snsApi";
+import { threadsFetch, threadsToken } from "./snsApi";
 import { X_READ_COST_USD, tweetMetrics, xConfigured } from "./xPost";
 
 // AIの投稿（宣伝・普通の投稿）についた反応（いいね・返信・リポスト）を取り込む。毎日の計画で「どの手が効いたか」を見るため
@@ -49,15 +49,6 @@ async function bluesky(targets: Target[]): Promise<number> {
     });
   }
   return n;
-}
-
-// Threads のURLにはトークンが入るので、通信そのものの失敗（つながらない・時間切れ）は、元の例外の文を使わずに決まった文にする
-async function threadsFetch(url: string, what: string): Promise<Response> {
-  try {
-    return await fetch(url);
-  } catch {
-    throw new Error(`Threads の${what}を読めません（通信の失敗）`);
-  }
 }
 
 async function threads(targets: Target[]): Promise<number> {
