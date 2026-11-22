@@ -56,7 +56,10 @@ async function threads(targets: Target[]): Promise<number> {
   if (!targets.length || (g.__aiLabThreadsInsightsOff && Date.now() - g.__aiLabThreadsInsightsOff < 86_400_000)) return 0;
   const token = encodeURIComponent(threadsToken());
   // 投稿のURLの最後の部分から、Threads の投稿のIDを引く
-  const mine = (await (await fetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink&limit=100&access_token=${token}`)).json()) as { data?: { id: string; permalink: string }[] };
+  const mineRes = await fetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink&limit=100&access_token=${token}`);
+  const mine = (await mineRes.json().catch(() => ({}))) as { data?: { id: string; permalink: string }[]; error?: { message?: string } };
+  // トークンが切れたときなどに、0件として黙らないように例外にする（syncReactions が reactions-error として記録する）
+  if (!mineRes.ok) throw new Error(`Threads の自分の投稿の一覧を読めません（${mineRes.status}）: ${(mine.error?.message ?? "").slice(0, 200)}`);
   const code = (u: string) => u.split("/post/")[1]?.replace(/[/?#].*$/, "");
   const byCode = new Map((mine.data ?? []).map((m) => [code(m.permalink), m.id]));
   let n = 0;
