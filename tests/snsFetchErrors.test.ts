@@ -99,3 +99,23 @@ test("トークンの延長: 通信そのものが失敗しても threads-token-
     delete process.env.THREADS_ACCESS_TOKEN;
   }
 });
+
+test("コメントの取り込み: Threads の通信そのものが失敗しても、sns-comments-error にトークンを書かない", async () => {
+  process.env.THREADS_ACCESS_TOKEN = "dummy-token-value";
+  db().prepare("DELETE FROM events WHERE kind = 'sns-comments-error'").run();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    throw new TypeError(`fetch failed: ${String(input)}`);
+  }) as typeof fetch;
+  try {
+    // 1つ目のテストで入れた Threads の投稿（14日以内）が対象になる
+    assert.equal(await syncComments(), 0);
+    const e = events("sns-comments-error");
+    assert.equal(e.length, 1);
+    assert.match(e[0].message, /Threads.*自分の投稿の一覧を読めません（通信の失敗）/);
+    assert.doesNotMatch(e[0].message, /dummy-token-value|access_token/);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.THREADS_ACCESS_TOKEN;
+  }
+});

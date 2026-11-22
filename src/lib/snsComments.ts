@@ -26,12 +26,21 @@ const insert = () => db().prepare(
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 );
 
+// Threads のURLにはトークンが入るので、通信そのものの失敗（つながらない・時間切れ）は、元の例外の文を使わずに決まった文にする
+async function threadsFetch(url: string, what: string): Promise<Response> {
+  try {
+    return await fetch(url);
+  } catch {
+    throw new Error(`Threads の${what}を読めません（通信の失敗）`);
+  }
+}
+
 async function fetchThreads(): Promise<number> {
   const posts = recentPosts("threads");
   if (!posts.length || !AUTO_PLATFORMS.threads.configured()) return 0;
   const token = encodeURIComponent(threadsToken());
   // 投稿のURLの最後の部分から、Threads の投稿のIDを引く
-  const mineRes = await fetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink,username&limit=50&access_token=${token}`);
+  const mineRes = await threadsFetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink,username&limit=50&access_token=${token}`, "自分の投稿の一覧");
   const mine = (await mineRes.json().catch(() => ({}))) as { data?: { id: string; permalink: string; username: string }[]; error?: { message?: string } };
   // トークンが切れたときなどに、0件として黙らないように例外にする（syncComments が記録する）
   if (!mineRes.ok) throw new Error(`Threads の自分の投稿の一覧を読めません（${mineRes.status}）: ${(mine.error?.message ?? "").slice(0, 200)}`);
@@ -40,7 +49,7 @@ async function fetchThreads(): Promise<number> {
   for (const p of posts) {
     const m = byCode.get(p.post_url.split("/post/")[1]?.replace(/\/$/, ""));
     if (!m) continue;
-    const res = await fetch(`https://graph.threads.net/v1.0/${m.id}/replies?fields=id,text,username,timestamp&access_token=${token}`);
+    const res = await threadsFetch(`https://graph.threads.net/v1.0/${m.id}/replies?fields=id,text,username,timestamp&access_token=${token}`, "投稿のコメント");
     const data = (await res.json().catch(() => ({}))) as { data?: { id: string; text?: string; username: string; timestamp: string }[]; error?: { message?: string } };
     if (!res.ok) throw new Error(`Threads の投稿のコメントを読めません（${res.status}）: ${(data.error?.message ?? "").slice(0, 200)}`);
     for (const c of data.data ?? []) {
