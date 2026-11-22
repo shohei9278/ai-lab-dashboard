@@ -79,3 +79,19 @@ test("巻き戻し: 7日の数え始めは、来た人がいた最初の日（�
   assert.equal(rollbackPlan(project(id))?.to, 1);
 });
 
+test("巻き戻し: 取り込みが2つ同時に動いても、二重には戻さない", async () => {
+  const id = setup({ newErrors: 3, newVisits: 5 });
+  const stale = project(id);
+  let calls = 0;
+  const publish = async (p: ProjectRow) => {
+    calls++;
+    conn().prepare("UPDATE projects SET public_version = ? WHERE id = ?").run(p.lp_version, p.id);
+    return true;
+  };
+  // 2つが同時に、戻す前の案件の行を持って来る（1つ目が公開を待っている間に、2つ目が確かめる）
+  const results = await Promise.all([autoRollback(stale, publish), autoRollback(stale, publish)]);
+  assert.deepEqual(results.sort(), [false, true]);
+  assert.equal(calls, 1);
+  assert.equal(events(id, "auto-rollback").length, 1);
+});
+

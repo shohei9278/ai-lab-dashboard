@@ -50,7 +50,9 @@ export async function autoRollback(p: ProjectRow, publish: (p: ProjectRow) => Pr
   if (!plan) return false;
   const live = db().prepare("SELECT lp FROM lp_versions WHERE project_id = ? AND version = ?").get(p.id, plan.to) as { lp: string };
   const conn = db();
-  conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(live.lp, plan.to, p.id);
+  // 確かめたときの版のままのときだけ書き換える（取り込みが2つ同時に動いても、二重に戻さない。PR #151 の ai-review の指摘）
+  const took = conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ? AND lp_version = ? AND public_version = ?").run(live.lp, plan.to, p.id, plan.from, plan.from).changes;
+  if (!took) return false;
   const back = conn.prepare("SELECT * FROM projects WHERE id = ?").get(p.id) as ProjectRow;
   try {
     if (!(await publish(back))) throw new Error("公開の設定がありません");
