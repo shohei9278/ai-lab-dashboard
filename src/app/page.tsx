@@ -203,8 +203,8 @@ export default async function Home() {
       {/* SNSの自動投稿が止まっているときだけ知らせる（一覧は集客のページ） */}
       {xLastError && (
             <p className="card p-3 text-xs" style={{ background: "var(--surface-2)", color: "var(--critical)" }}>
-              ! 最後の自動投稿が失敗しました（{jstDateTime(xLastError.at)}）: {xLastError.error}
-              <span className="block text-ink-2">{/credits depleted/.test(xLastError.error) ? "X の Developer Console でクレジットを購入してください。" : ""}2時間ごとに試し直します。</span>
+              ! 最後の自動投稿が失敗しました（{jstDateTime(xLastError.at)}）{owner && `: ${xLastError.error}`}
+              <span className="block text-ink-2">{owner && /credits depleted/.test(xLastError.error) ? "X の Developer Console でクレジットを購入してください。" : ""}2時間ごとに試し直します。</span>
             </p>
           )}
 

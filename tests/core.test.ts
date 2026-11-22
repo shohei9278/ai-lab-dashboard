@@ -13,7 +13,8 @@ import { factorSummary, listPromptTests, startPromptTest } from "../src/lib/prom
 import { TALK_GAP_SECONDS, officeNumbers, officeShops, officeSnapshot, officeTalks, roomOf, showcaseOfficeSnapshot, talkDoing } from "../src/lib/office";
 import { projectShot, reachText, showcaseProjectRows, showcaseShotFile } from "../src/lib/showcase";
 import { isOpenShop, stateAt, tallyAt, toMs } from "../src/lib/officeShared";
-import { liveFeed } from "../src/lib/live";
+import { liveFeed, liveSnapshot } from "../src/lib/live";
+import { HIDDEN } from "../src/lib/viewer";
 import { indexCounts } from "../src/lib/publish";
 import { numbersFromMaterial } from "../src/lib/recordVideo";
 import { skitHtml } from "../src/lib/recordSkit";
@@ -392,6 +393,16 @@ test("ライブ: AIの会話に、つぶやき・朝会の計画・調べ物の�
   // オフィスでは、つぶやきは吹き出し（voice）として別に取っているので、会話（talk）には入れない
   assert.equal(officeTalks().some((l) => l.text === "出力テストのつぶやき"), false);
   assert.ok(officeTalks().some((l) => l.about === "朝会で今日の計画" && l.text.startsWith("出力テストの方針")));
+});
+
+test("ライブ: 来た人には、AI・SNSの呼び出しの失敗の中身を伏せる（失敗したことは分かる）", () => {
+  const id = Number(db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd, error) VALUES ('伏せテスト', 'x-api', 0, 0, 0, '{\"detail\":\"内部の応答\"}')").run().lastInsertRowid);
+  const ok = Number(db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd) VALUES ('伏せテスト成功', 'x-api', 0, 0, 0)").run().lastInsertRowid);
+  const find = (guest: boolean, n: number) => liveSnapshot({ guest }).calls.find((c) => c.id === n);
+  assert.equal(find(false, id)?.error, '{"detail":"内部の応答"}');
+  assert.equal(find(true, id)?.error, HIDDEN);
+  assert.equal(find(true, ok)?.error, null);
+  assert.equal(JSON.stringify(liveSnapshot({ guest: true })).includes("内部の応答"), false);
 });
 
 test("オフィス: 上の帯の数字は、日本時間の今日の訪問と、デモでない案件だけを数える", () => {
