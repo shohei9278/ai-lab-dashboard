@@ -912,7 +912,7 @@ ${(Object.keys(DESIGN_OPTIONS) as (keyof typeof DESIGN_OPTIONS)[]).map((k) => `-
 - design.order: ${SECTIONS.join(" / ")} を、読んでほしい順に並べたもの（pains=困りごと, beforeAfter=使う前後, features=できること, steps=使い方, faq=よくある質問）
 - design.badge: 見出しの上に出す短いラベル（15文字以内。例「飲食店のシフト集めに」）
 - illustrationStyle: 紹介イラストの画風。題材とページの世界観に合うものを1つ選ぶ（${Object.entries(ILLUSTRATION_STYLES).map(([k, l]) => `${k}=${l}`).join(" / ")}）。いつも同じものにしない
-- illustrationPrompt: 紹介イラストを描くAIへの指示（英語で1〜2文）。この案件を象徴する主役の物を1つ（食べ物・道具・小物・景色の一部など）と、その置き方だけを書く。画風は書かない（illustrationStyle で選ぶ）。手・顔・人物・体の一部、スマホやPCの画面、文字・ロゴ・実在の商品は描かせない。このイラストは、ページの見出しの横、一覧の小さなカード、シェア画像に使われる
+- illustrationPrompt: 紹介イラストを描くAIへの指示（英語で1〜2文）。この案件を象徴する主役の物を1つだけ（食べ物・道具・小物・景色の一部など。ほかの物を並べない）と、その置き方だけを書く。画風は書かない（illustrationStyle で選ぶ）。手・顔・人物・体の一部、スマホやPCの画面、文字・ロゴ・実在の商品は描かせない。このイラストは、ページの見出しの横、一覧の小さなカード、シェア画像に使われる
 - preview: 完成したら使う画面のイメージ。kind は ${PREVIEW_KINDS.join(" / ")} のどれか。rows は1行あたり最大4つの短い文字列で3〜5行（list は [項目, 状態]、table は columns と各行、chat は [話し手, 発言]、form は [項目名, 入力例]）。人名は「山田さん」程度の仮名にし、実在の会社名や効果の数字は入れない
 - features[].icon: ${ICONS.join(" / ")} から内容に合うもの
 - steps: 使い方を2〜4ステップ（任意）

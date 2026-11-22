@@ -20,7 +20,7 @@ test("紹介イラスト: 選んだ画風の描き方と、崩れやすいもの
   assert.match(prompt, /photographic still life/);
   assert.doesNotMatch(prompt, /flat vector/);
   assert.match(prompt, /no hands, no people, no faces/);
-  assert.match(prompt, /no phone or computer screens/);
+  assert.match(prompt, /no screens or monitors of any kind/);
   assert.match(prompt, /small thumbnail/);
 });
 
@@ -28,4 +28,18 @@ test("紹介イラスト: 画風のない古いLPは、平らなイラストで�
   const prompt = buildPrompt(normalizeLp({ ...base, illustrationPrompt: "A calm scene." }), "t");
   assert.match(prompt, /flat vector illustration/);
   assert.match(prompt, /no hands/);
+});
+
+test("紹介イラスト: やわらかい立体は、写真ではなく作った立体のイラストとして描かせる", () => {
+  const prompt = buildPrompt(normalizeLp({ ...base, illustrationStyle: "soft3d", illustrationPrompt: "A small cup of matcha on a tray." }), "t");
+  assert.match(prompt, /stylized 3D illustration/);
+  assert.match(prompt, /not a photograph/);
+  assert.doesNotMatch(prompt, /photographic still life/);
+});
+
+test("紹介イラスト: 物が2つ以上書かれていても、いちばん大事な物を1つだけ描かせる", () => {
+  const prompt = buildPrompt(normalizeLp({ ...base, illustrationStyle: "flat", illustrationPrompt: "A teapot and two cups and a plate of sweets." }), "t");
+  assert.match(prompt, /exactly one main object/);
+  assert.match(prompt, /first object named in the description/);
+  assert.match(prompt, /no laptops/);
 });
