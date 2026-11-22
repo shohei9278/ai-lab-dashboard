@@ -1,0 +1,41 @@
+# 自動マージ: ルーティンが作った PR（claude/proposal-<番号>）を見回り、マージ・ルーティンに直させる・人に回す、のどれかをする（scripts/auto-merge.ts）
+# CI が終わるたびと、30分ごと（本番が作業中で待ったものを拾うため）に動く
+# 動かすのは main のスクリプトだけで、PR のコードは動かさない（PR の差分・コメント・チェックの結果を GitHub の API で読むだけ）
+# マージは AUTO_MERGE_TOKEN（このリポジトリだけの fine-grained トークン）で行う。Actions の標準のトークンでマージすると、main の CI が動かず、Railway が本番に出さないため
+name: 自動マージ
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: "15,45 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+  actions: read
+
+concurrency:
+  group: auto-merge
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx tsx scripts/auto-merge.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AUTO_MERGE_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+          NOTIFY_WEBHOOK_URL: ${{ secrets.NOTIFY_WEBHOOK_URL }}
+          CLAUDE_ROUTINE_FIRE_URL: ${{ secrets.CLAUDE_ROUTINE_FIRE_URL }}
+          CLAUDE_ROUTINE_TOKEN: ${{ secrets.CLAUDE_ROUTINE_TOKEN }}
