@@ -1,4 +1,5 @@
 import { getSettings } from "./db";
+import { autopilotTick } from "./autopilot";
 import { logEvent, resumeDueHolds, retryFailedPublishing, runDaily, syncAndJudge } from "./loop";
 import { publishingConfigured, syncSiteCategories } from "./publish";
 import { maybeWeeklyMeeting } from "./weekly";
@@ -108,6 +109,12 @@ async function tickNow() {
     await syncComments();
   } catch (e) {
     logEvent(null, "system", "sns-comments-error", `コメントの取り込みでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
+  }
+  // 予算の自動運転: 段階が変わったら記録して知らせる
+  try {
+    autopilotTick();
+  } catch (e) {
+    logEvent(null, "system", "autopilot-error", `予算の自動運転の確かめでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
   }
   // 同じエラーが続いていたら、提案箱に入れる（1時間に1回）
   try {

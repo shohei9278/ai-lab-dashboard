@@ -874,12 +874,16 @@ export type Settings = {
   dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
   promoOff: string; // 宣伝の投稿（リンク付き）をしない場所（カンマ区切り。例: x）
   plainOff: string; // 普通の投稿（リンクなし）をしない場所（カンマ区切り）
+  budgetAutopilot: boolean; // 予算の自動運転: 月の予算のペースに合わせて、費用のかかる設定を自動で絞る（autopilot.ts。人が決めた値より増やさない）
+  autopilotLevel: string; // 予算の自動運転のいまの段階（normal / careful / saving。変わったときに記録するため）
   postSafetyPerDay: number; // 毎日の計画で投稿するときの安全装置（場所ごと・直近24時間）。AIの目標ではなく、異常を止めるための値
 };
 
 export type ApprovalMode = "manual" | "auto" | "alternate" | "confidence";
 
 const DEFAULTS: Settings = {
+  budgetAutopilot: true,
+  autopilotLevel: "normal",
   monthlyBudgetJpy: 10000,
   usdJpy: 150,
   killSwitch: false,
@@ -955,8 +959,8 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish", "toolRoutineFixHeld", "toolRoutineNormal"]);
+const STRING_KEYS = new Set(["autopilotLevel", "loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
+const BOOL_KEYS = new Set(["budgetAutopilot", "killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish", "toolRoutineFixHeld", "toolRoutineNormal"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];
