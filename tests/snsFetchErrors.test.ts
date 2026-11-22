@@ -119,3 +119,24 @@ test("コメントの取り込み: Threads の通信そのものが失敗して�
     delete process.env.THREADS_ACCESS_TOKEN;
   }
 });
+
+test("反応の取り込み: Threads の通信そのものが失敗しても、reactions-error にトークンを書かない", async () => {
+  process.env.THREADS_ACCESS_TOKEN = "dummy-token-value";
+  // 1時間に1回の間引きを戻す。2つ目のテストで入れた Threads の投稿（まだ反応を読めていない）が対象になる
+  (globalThis as { __aiLabReactionsAt?: number }).__aiLabReactionsAt = undefined;
+  db().prepare("DELETE FROM events WHERE kind = 'reactions-error'").run();
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    throw new TypeError(`fetch failed: ${String(input)}`);
+  }) as typeof fetch;
+  try {
+    assert.equal(await syncReactions(), 0);
+    const e = events("reactions-error");
+    assert.equal(e.length, 1);
+    assert.match(e[0].message, /threads.*自分の投稿の一覧を読めません（通信の失敗）/);
+    assert.doesNotMatch(e[0].message, /dummy-token-value|access_token/);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.THREADS_ACCESS_TOKEN;
+  }
+});

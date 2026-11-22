@@ -51,12 +51,21 @@ async function bluesky(targets: Target[]): Promise<number> {
   return n;
 }
 
+// Threads のURLにはトークンが入るので、通信そのものの失敗（つながらない・時間切れ）は、元の例外の文を使わずに決まった文にする
+async function threadsFetch(url: string, what: string): Promise<Response> {
+  try {
+    return await fetch(url);
+  } catch {
+    throw new Error(`Threads の${what}を読めません（通信の失敗）`);
+  }
+}
+
 async function threads(targets: Target[]): Promise<number> {
   // 権限がないと分かったら、1日は試さない
   if (!targets.length || (g.__aiLabThreadsInsightsOff && Date.now() - g.__aiLabThreadsInsightsOff < 86_400_000)) return 0;
   const token = encodeURIComponent(threadsToken());
   // 投稿のURLの最後の部分から、Threads の投稿のIDを引く
-  const mineRes = await fetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink&limit=100&access_token=${token}`);
+  const mineRes = await threadsFetch(`https://graph.threads.net/v1.0/me/threads?fields=id,permalink&limit=100&access_token=${token}`, "自分の投稿の一覧");
   const mine = (await mineRes.json().catch(() => ({}))) as { data?: { id: string; permalink: string }[]; error?: { message?: string } };
   // トークンが切れたときなどに、0件として黙らないように例外にする（syncReactions が reactions-error として記録する）
   if (!mineRes.ok) throw new Error(`Threads の自分の投稿の一覧を読めません（${mineRes.status}）: ${(mine.error?.message ?? "").slice(0, 200)}`);
@@ -66,7 +75,7 @@ async function threads(targets: Target[]): Promise<number> {
   for (const t of targets) {
     const id = byCode.get(code(t.url));
     if (!id) continue;
-    const res = await fetch(`https://graph.threads.net/v1.0/${id}/insights?metric=likes,replies,reposts,quotes&access_token=${token}`);
+    const res = await threadsFetch(`https://graph.threads.net/v1.0/${id}/insights?metric=likes,replies,reposts,quotes&access_token=${token}`, "投稿の反応");
     const data = (await res.json().catch(() => ({}))) as { data?: { name: string; values?: { value: number }[]; total_value?: { value: number } }[]; error?: { message?: string } };
     if (!res.ok) {
       g.__aiLabThreadsInsightsOff = Date.now();
