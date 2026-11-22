@@ -1,5 +1,5 @@
 import { getSettings } from "./db";
-import { logEvent, resumeDueHolds, runDaily, syncAndJudge } from "./loop";
+import { logEvent, resumeDueHolds, retryFailedPublishing, runDaily, syncAndJudge } from "./loop";
 import { publishingConfigured, syncSiteCategories } from "./publish";
 import { maybeWeeklyMeeting } from "./weekly";
 import { maybeRefreshTrends } from "./trends";
@@ -71,6 +71,10 @@ async function tickNow() {
     if (n === 3 || (n > 3 && n % 12 === 0)) {
       logEvent(null, "system", "sync-error", `集客データの取り込みで、${n}回続けてエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 500));
     }
+  }
+  // 公開・受付終了に失敗したままの案件を、1時間に1回やり直す（提案箱 #84。失敗はそれぞれの案件に publish-error で残る）
+  if (publishingConfigured()) {
+    await retryFailedPublishing().catch((e) => logEvent(null, "system", "publish-retry-error", `公開・受付終了のやり直しでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   }
   // 世の中の話題は、アイデア出しより先に取っておく
   try {

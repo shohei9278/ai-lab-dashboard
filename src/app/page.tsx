@@ -144,6 +144,10 @@ export default async function Home() {
             {waiting.map((w) => {
               const label = w.kind === "stuck"
                 ? { title: "AIの作業が途中で停止", action: "案件の画面で、やり直す・作り直す" }
+                : w.kind === "publishFail"
+                  ? w.stage === "killed"
+                    ? { title: "受付を終えられない", action: "撤退したが、公開中のページの受付を終えられていません（1時間ごとにやり直し中）。案件の画面のエラーを確かめる" }
+                    : { title: "公開できていない", action: "集客中だが、公開用サイトに載っていません（1時間ごとにやり直し中）。案件の画面のエラーを確かめる" }
                 : w.kind === "notify"
                   ? { title: "登録者への連絡", action: "撤退を伝えて、メールアドレスを消す" }
                 : w.kind === "comment"
@@ -158,11 +162,11 @@ export default async function Home() {
                   <Link href={w.kind === "comment" ? "/growth#comments" : `/projects/${w.projectId}`} className="group flex flex-wrap items-center gap-x-4 gap-y-1 py-2.5 hover:bg-surface-2 sm:flex-nowrap">
                     <span
                       className="order-1 shrink-0 rounded px-1.5 py-0.5 text-center text-xs font-medium sm:w-36"
-                      style={w.kind === "stuck"
+                      style={w.kind === "stuck" || w.kind === "publishFail"
                         ? { background: "var(--surface-2)", color: "var(--critical)" }
                         : { background: "var(--surface-2)", color: "var(--accent)" }}
                     >
-                      {w.kind === "stuck" ? "! " : ""}{label.title}
+                      {w.kind === "stuck" || w.kind === "publishFail" ? "! " : ""}{label.title}
                     </span>
                     <span className="order-3 min-w-0 basis-full sm:order-2 sm:flex-1 sm:basis-auto">
                       <span className="font-medium">{w.title}</span>
