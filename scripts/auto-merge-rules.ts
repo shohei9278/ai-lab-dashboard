@@ -87,6 +87,8 @@ export function decide(x: {
     return { action: "fix", reason: `直すべき指摘（🔴・🟡）が${blocking}件ある（${x.fixes + 1}回目の直し）` };
   }
   if (x.smokeOk === false) return { action: "wait", reason: "本番の確認がいま失敗しているので、自動マージを止めている" };
+  // 本番の確認の結果が取れないときも待つ（分からないままマージしない。PR #153 の ai-review の指摘）
+  if (x.smokeOk !== true) return { action: "wait", reason: "本番の確認の結果が分からない" };
   if (x.productionIdle !== true) return { action: "wait", reason: x.productionIdle === false ? "本番が作業中" : "本番が止まっているか分からない" };
   return { action: "merge", reason: "CI が通り、GPT と Gemini のどちらも直すべき指摘なし" };
 }
@@ -105,3 +107,19 @@ export function blockingFindings(body: string): string[] {
   }
   return out.filter(Boolean);
 }
+
+// ルーティンに渡す文。指摘は1件ずつ丸ごと入れ、全部が入りきらないときは null（途中で切って渡さない。人に回す。PR #153 の ai-review の指摘）
+export const FIX_TEXT_MAX = 20_000;
+export function fixText(pr: { number: number; title: string; head: { ref: string; sha: string } }, reviews: string[]): string | null {
+  const findings = reviews.flatMap(blockingFindings);
+  const text = [
+    "レビューの指摘を直す",
+    `PR #${pr.number}: ${pr.title}`,
+    `ブランチ: ${pr.head.ref}`,
+    `直す版: ${pr.head.sha}`,
+    `直す指摘（この版へのレビューの 🔴・🟡。${findings.length}件）:`,
+    ...findings,
+  ].join("\n");
+  return text.length <= FIX_TEXT_MAX ? text : null;
+}
+

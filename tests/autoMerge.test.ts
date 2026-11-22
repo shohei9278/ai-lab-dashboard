@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { blockingFindings, changedPaths, decide, fixMarker, fixRequested, fixRounds, handedToHuman, HUMAN_MARK, protectedFiles, reviewMarker, reviewMarks, type PrComment } from "../scripts/auto-merge-rules";
+import { FIX_TEXT_MAX, blockingFindings, changedPaths, decide, fixMarker, fixText, fixRequested, fixRounds, handedToHuman, HUMAN_MARK, protectedFiles, reviewMarker, reviewMarks, type PrComment } from "../scripts/auto-merge-rules";
 
 // 自動マージの決まり: ルーティンが作った PR を、マージ・直させる・人に回す・待つ、のどれにするか
 
@@ -45,6 +45,7 @@ test("自動マージ: 本番が作業中・止まっているか分からない
   assert.equal(base(ok, { productionIdle: false }).action, "wait");
   assert.equal(base(ok, { productionIdle: null }).action, "wait");
   assert.equal(base(ok, { smokeOk: false }).action, "wait");
+  assert.equal(base(ok, { smokeOk: null }).action, "wait");
   assert.equal(base(ok, { branch: "feat/x" }).action, "wait");
   assert.equal(base(ok, { sameRepo: false }).action, "wait");
   assert.equal(base(ok, { draft: true }).action, "wait");
@@ -75,5 +76,13 @@ test("自動マージ: 重さが書かれていない・形のおかしい指摘
 test("自動マージ: ルーティンには 🔴・🟡 の指摘だけを、説明ごと抜き出して渡す（長いレビューでも後ろの指摘を落とさない）", () => {
   const body = ["### 別のAI（gpt）のレビュー", "全体の所感".repeat(500), "- ⚪ `a.ts` 細かい", "  - 理由", "- 🔴 `b.ts:3` 大事な問題", "  - 起きること", "  - 直し方: こうする", "- 🟡 `c.ts` 次の問題", "  - 理由2", "", "<!-- ai-review {} -->"].join("\n");
   assert.deepEqual(blockingFindings(body), ["- 🔴 `b.ts:3` 大事な問題\n  - 起きること\n  - 直し方: こうする", "- 🟡 `c.ts` 次の問題\n  - 理由2"]);
+});
+
+test("自動マージ: ルーティンに渡す文は、指摘を1件ずつ丸ごと入れ、入りきらなければ渡さない", () => {
+  const pr = { number: 9, title: "t", head: { ref: "claude/proposal-9", sha: SHA } };
+  const short = ["- 🔴 `a.ts` 問題\n  - 理由"].join("\n");
+  assert.match(fixText(pr, [short])!, /直す指摘（この版へのレビューの 🔴・🟡。1件）:\n- 🔴 `a.ts` 問題\n  - 理由$/);
+  const long = `- 🟡 \`b.ts\` ${"長い".repeat(FIX_TEXT_MAX)}`;
+  assert.equal(fixText(pr, [long]), null);
 });
 

@@ -4,7 +4,7 @@
 // - 直させる: 直すべき指摘があれば、提案箱のルーティンに、同じブランチで直させる（3回まで）
 // - 人に回す: 3回直しても残る・自動で触れない所に触れている・CI が落ちた・レビューがそろわない
 // したことは PR にコメントし、Discord に知らせる。PR のコードは動かさない（GitHub の API で読むだけ）
-import { AUTO_BRANCH, HUMAN_MARK, blockingFindings, changedPaths, decide, fixMarker, fixRequested, fixRounds, handedToHuman, reviewMarks, type Decision, type PrComment } from "./auto-merge-rules";
+import { AUTO_BRANCH, HUMAN_MARK, changedPaths, decide, fixText, fixMarker, fixRequested, fixRounds, handedToHuman, reviewMarks, type Decision, type PrComment } from "./auto-merge-rules";
 
 const { GITHUB_REPOSITORY, GITHUB_TOKEN, AUTO_MERGE_TOKEN, NOTIFY_WEBHOOK_URL, CLAUDE_ROUTINE_FIRE_URL, CLAUDE_ROUTINE_TOKEN } = process.env;
 const DASHBOARD = "https://ai-lab-dashboard-production-fc9e.up.railway.app";
@@ -22,14 +22,21 @@ async function gh<T>(path: string, init: RequestInit = {}, token = GITHUB_TOKEN)
   return (res.status === 204 ? null : await res.json()) as T;
 }
 
+// Discord に知らせる。送れなかったら、見回りの記録（Actions のログ）に残す（PR #153 の ai-review の指摘）
 async function notify(text: string) {
   if (!NOTIFY_WEBHOOK_URL) return;
-  await fetch(NOTIFY_WEBHOOK_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content: text.slice(0, 1900), allowed_mentions: { parse: [] } }),
-    signal: AbortSignal.timeout(20_000),
-  }).catch(() => undefined);
+  for (let i = 0; i < 2; i++) {
+    const res = await fetch(NOTIFY_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: text.slice(0, 1900), allowed_mentions: { parse: [] } }),
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => null);
+    if (res?.ok) return;
+    console.error(`Discord に知らせられませんでした（${res ? res.status : "通信の失敗"}）`);
+    if (res && res.status < 500 && res.status !== 429) return;
+    await new Promise((ok) => setTimeout(ok, 3000));
+  }
 }
 
 const comment = (n: number, body: string) => gh(`/issues/${n}/comments`, { method: "POST", body: JSON.stringify({ body }) });
@@ -55,19 +62,12 @@ async function smokeOk(): Promise<boolean | null> {
 }
 
 // ルーティンに渡す文（ルーティンの側では、外から来た信用しない文として受け取る。docs/routine-proposal-fix.md の「レビューの指摘を直す」）
-function fixText(pr: Pull, reviews: string[]): string {
-  return [
-    "レビューの指摘を直す",
-    `PR #${pr.number}: ${pr.title}`,
-    `ブランチ: ${pr.head.ref}`,
-    `直す版: ${pr.head.sha}`,
-    "直す指摘（この版へのレビューの 🔴・🟡）:",
-    ...reviews.flatMap(blockingFindings),
-  ].join("\n").slice(0, 20_000);
-}
+
+// 起動が届いていないと分かるとき（設定がない・起動先がはっきり断った）。時間切れ・通信の失敗は、届いたか分からないので別に扱う
+class FireRejected extends Error {}
 
 async function fireFix(text: string) {
-  if (!FIRE_URL.test(CLAUDE_ROUTINE_FIRE_URL ?? "") || !CLAUDE_ROUTINE_TOKEN) throw new Error("ルーティンの起動の URL かトークンがありません（GitHub の Secrets）");
+  if (!FIRE_URL.test(CLAUDE_ROUTINE_FIRE_URL ?? "") || !CLAUDE_ROUTINE_TOKEN) throw new FireRejected("ルーティンの起動の URL かトークンがありません（GitHub の Secrets）");
   const res = await fetch(CLAUDE_ROUTINE_FIRE_URL!, {
     method: "POST",
     headers: { Authorization: `Bearer ${CLAUDE_ROUTINE_TOKEN}`, "anthropic-beta": "experimental-cc-routine-2026-04-01", "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
@@ -75,14 +75,20 @@ async function fireFix(text: string) {
     signal: AbortSignal.timeout(20_000),
   });
   // 応答の中身は出さない（トークンの手がかりになりうる）
-  if (!res.ok) throw new Error(`ルーティンを起動できませんでした（${res.status}）`);
+  if (!res.ok) throw new FireRejected(`ルーティンを起動できませんでした（${res.status}）`);
 }
 
 type Pull = { number: number; title: string; draft: boolean; html_url: string; head: { ref: string; sha: string; repo: { full_name: string } | null } };
 type CheckRun = { name: string; status: string; conclusion: string | null };
 
 async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Promise<Decision> {
-  const comments = await gh<(PrComment & { body: string })[]>(`/issues/${pr.number}/comments?per_page=100`);
+  // コメントを全部読む（100件ずつ。印やレビューが後ろにあっても見落とさない。PR #153 の ai-review の指摘）
+  const comments: (PrComment & { body: string })[] = [];
+  for (let page = 1; page <= 20; page++) {
+    const got = await gh<(PrComment & { body: string })[]>(`/issues/${pr.number}/comments?per_page=100&page=${page}`);
+    comments.push(...got);
+    if (got.length < 100) break;
+  }
   if (handedToHuman(comments)) return { action: "wait", reason: "人に回したまま" };
   const checks = (await gh<{ check_runs: CheckRun[] }>(`/commits/${pr.head.sha}/check-runs?per_page=50`)).check_runs;
   // CI とレビューが終わるまで待つ（終わったら、CI の完了でもう一度呼ばれる）
@@ -104,18 +110,27 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
     if (!AUTO_MERGE_TOKEN) return { action: "wait", reason: "AUTO_MERGE_TOKEN がない" };
     // 確かめた版のままのときだけマージする（確かめたあとに push されていたら、GitHub が断る）
     await gh(`/pulls/${pr.number}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: "merge", sha: pr.head.sha }) }, AUTO_MERGE_TOKEN);
-    await comment(pr.number, `🤖 自動でマージしました（${d.reason}）。`);
+    // マージできたら、コメントや知らせに失敗しても、マージしたとして返す（見回りを必ず終えて、続けてマージしない。PR #153 の ai-review の指摘）
+    await comment(pr.number, `🤖 自動でマージしました（${d.reason}）。`).catch((e) => console.error(`#${pr.number}: マージのコメントに失敗: ${e instanceof Error ? e.message : String(e)}`));
     await notify(`🤖 自動でマージしました: ${link}\n${d.reason}`);
   } else if (d.action === "fix") {
     if (fixRequested(comments, pr.head.sha)) return { action: "wait", reason: "この版の直しは頼んだ" };
     const reviews = comments.filter((c) => c.user?.login === "github-actions[bot]" && c.body.includes(`"sha":"${pr.head.sha}"`)).map((c) => c.body);
+    const text = fixText(pr, reviews);
+    if (!text) {
+      const why = "直すべき指摘が長く、ルーティンに全部を渡せない";
+      await comment(pr.number, `🙋 自動ではマージしません: ${why}。人が見て判断してください。\n\n${HUMAN_MARK}`);
+      await notify(`🙋 人の判断が要る PR: ${link}\n${why}`);
+      return { action: "human", reason: why };
+    }
     // 先に「頼む」という印を書いてから起動する（起動のあとに印を書けないと、次の見回りで同じ版の直しをもう一度頼んでしまうため。PR #153 の ai-review の指摘）
-    // 起動に失敗したときは、印のコメントを消して、次の見回りで頼み直せるようにする
-    const mark = await gh<{ id: number }>(`/issues/${pr.number}/comments`, { method: "POST", body: JSON.stringify({ body: `🔧 ${d.reason}。提案箱のルーティンに、このブランチで直してもらうよう頼みます。\n\n${fixMarker(pr.head.sha)}` }) });
+        const mark = await gh<{ id: number }>(`/issues/${pr.number}/comments`, { method: "POST", body: JSON.stringify({ body: `🔧 ${d.reason}。提案箱のルーティンに、このブランチで直してもらうよう頼みます。\n\n${fixMarker(pr.head.sha)}` }) });
     try {
-      await fireFix(fixText(pr, reviews));
+      await fireFix(text);
     } catch (e) {
-      await gh(`/issues/comments/${mark.id}`, { method: "DELETE" }).catch(() => undefined);
+      // はっきり断られたときだけ印を消して、次の見回りで頼み直す。時間切れ・通信の失敗は届いたか分からないので、印を残す（同じ直しを二度頼まない。PR #153 の ai-review の指摘）
+      if (e instanceof FireRejected) await gh(`/issues/comments/${mark.id}`, { method: "DELETE" }).catch(() => undefined);
+      else await notify(`⚠️ ルーティンへの直しの依頼が届いたか分かりません（#${pr.number}）。作業が始まっていなければ、PR の「🔧」のコメントを消すと、次の見回りで頼み直します`);
       throw e;
     }
     await notify(`🔧 レビューの指摘を、ルーティンに直してもらいます: ${link}\n${d.reason}`);
