@@ -62,14 +62,23 @@ const gTok = globalThis as unknown as { __aiLabThreadsRefreshErrAt?: number };
 async function refreshThreadsToken() {
   const at = savedThreads()?.at ?? 0;
   if (Date.now() - at < 20 * 86_400_000) return;
-  const res = await fetch(`https://graph.threads.net/refresh_access_token?grant_type=th_refresh_token&access_token=${encodeURIComponent(threadsToken())}`);
+  // 延長できなくても、今のトークンが有効なら投稿はできる。ただ、切れる前に気づけるように、1日1回まで記録を残す
+  const failed = (why: string, detail = "") => {
+    if (gTok.__aiLabThreadsRefreshErrAt && Date.now() - gTok.__aiLabThreadsRefreshErrAt < 86_400_000) return;
+    gTok.__aiLabThreadsRefreshErrAt = Date.now();
+    logEvent(null, "system", "threads-token-error", `Threads のアクセストークンを延長できません（${why}）${detail ? `: ${detail}` : ""}。切れると投稿できなくなるので、THREADS_ACCESS_TOKEN を確かめてください`);
+  };
+  let res: Response;
+  try {
+    res = await fetch(`https://graph.threads.net/refresh_access_token?grant_type=th_refresh_token&access_token=${encodeURIComponent(threadsToken())}`);
+  } catch {
+    // 通信そのものの失敗（つながらない・時間切れ）も、記録して投稿は続ける。例外の文にはトークン入りの URL が入ることがあるので、そのまま書かない（PR #148 の ai-review の指摘）
+    failed("通信の失敗");
+    return;
+  }
   const data = (await res.json().catch(() => ({}))) as { access_token?: string; error?: { message?: string } };
   if (!res.ok || !data.access_token) {
-    // 延長できなくても、今のトークンが有効なら投稿はできる。ただ、切れる前に気づけるように、1日1回まで記録を残す
-    if (!gTok.__aiLabThreadsRefreshErrAt || Date.now() - gTok.__aiLabThreadsRefreshErrAt >= 86_400_000) {
-      gTok.__aiLabThreadsRefreshErrAt = Date.now();
-      logEvent(null, "system", "threads-token-error", `Threads のアクセストークンを延長できません（${res.status}）: ${(data.error?.message ?? "").slice(0, 200)}。切れると投稿できなくなるので、THREADS_ACCESS_TOKEN を確かめてください`);
-    }
+    failed(String(res.status), (data.error?.message ?? "").slice(0, 200));
     return;
   }
   db().prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")

@@ -72,3 +72,30 @@ test("トークンの延長: 失敗したら threads-token-error を残す（1�
     delete process.env.THREADS_ACCESS_TOKEN;
   }
 });
+
+test("トークンの延長: 通信そのものが失敗しても threads-token-error を残し、投稿は続ける（トークンは書かない）", async () => {
+  process.env.THREADS_ACCESS_TOKEN = "dummy-token-value";
+  // 前のテストの「1日1回まで」を戻し、延長してから20日以上たった形にする
+  (globalThis as { __aiLabThreadsRefreshErrAt?: number }).__aiLabThreadsRefreshErrAt = undefined;
+  db().prepare("DELETE FROM events WHERE kind = 'threads-token-error'").run();
+  const realFetch = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.includes("refresh_access_token")) throw new TypeError(`fetch failed: ${url}`);
+    return new Response(JSON.stringify({ error: { message: "stop here" } }), { status: 400 });
+  }) as typeof fetch;
+  try {
+    // 延長の通信が落ちても例外で止まらず、そのあとの投稿まで進む（投稿は 400 で失敗する）
+    await assert.rejects(threadsPost({ text: "試し" }), /Threads への投稿に失敗/);
+    assert.ok(calls.some((u) => !u.includes("refresh_access_token")));
+    const e = events("threads-token-error");
+    assert.equal(e.length, 1);
+    assert.match(e[0].message, /延長できません（通信の失敗）/);
+    assert.doesNotMatch(e[0].message, /dummy-token-value/);
+  } finally {
+    globalThis.fetch = realFetch;
+    delete process.env.THREADS_ACCESS_TOKEN;
+  }
+});
