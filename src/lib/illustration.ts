@@ -5,15 +5,18 @@ import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
 import { GuardError } from "./ai";
 import { hasKey } from "./models";
 import { publishingConfigured, uploadImage } from "./publish";
-import { THEMES, type Lp } from "../../lp-site/src/lp/content";
+import { THEMES, type IllustrationStyle, type Lp } from "../../lp-site/src/lp/content";
 
 // LPの見出しの横に置くイラストを、画像生成AIで描く
-// - 指示はLPを書いたAIが考え（illustrationPrompt）、ここで「文字・ロゴ・実在の人物を描かない」などの決まりとテーマの色を足す
+// - 何を描くか（主役の物）と画風は、LPを書いたAIが案件ごとに決める（illustrationPrompt・illustrationStyle）
+//   画風を1つに固定すると、写真に近い遊びや和の題材などで、ページやツールの世界観とずれるため
+// - ここで、崩れやすいもの（手・顔・人物・画面・文字）を描かない決まりと、小さなカードでも分かる構図、テーマの色を足す
 // - 保存先は Supabase の公開用の保存領域（公開サイトとダッシュボードの両方から見える）
 // - 費用は1枚あたりの目安で記録する（画像の料金は大きさと品質で変わるため）
 
 const MODELS = {
-  "gpt-image-2": { provider: "openai" as const, costUsd: 0.08 },
+  // high・1536x1024 の目安（外部の料金表で $0.165。予算を少なく見積もらないよう切り上げた）
+  "gpt-image-2": { provider: "openai" as const, costUsd: 0.17 },
   "gemini-3.1-flash-image": { provider: "google" as const, costUsd: 0.07 },
 };
 type ImageModel = keyof typeof MODELS;
@@ -24,14 +27,24 @@ function pickModel(): ImageModel | null {
   return null;
 }
 
-function buildPrompt(lp: Lp, title: string): string {
+// 画風ごとの描き方（ILLUSTRATION_STYLES と同じ名前）
+const STYLE_PROMPTS: Record<IllustrationStyle, string> = {
+  photo: "Style: high-quality photographic still life, natural soft light, shallow depth of field, realistic materials and textures.",
+  soft3d: "Style: soft 3D render, smooth matte materials, gentle studio lighting, subtle shadows, slightly rounded shapes.",
+  flat: "Style: polished flat vector illustration, clean simple shapes, soft gradients, consistent line weight.",
+  papercut: "Style: layered paper-cut craft, real paper textures, soft drop shadows between layers.",
+  watercolor: "Style: refined watercolor painting, soft washes and visible paper grain, delicate edges.",
+};
+
+export function buildPrompt(lp: Lp, title: string): string {
   const theme = THEMES[lp.design?.theme ?? "trust"];
-  const scene = lp.illustrationPrompt || `An illustration that represents a small web service called "${title}" being used happily.`;
+  const scene = lp.illustrationPrompt || `A single object that symbolizes a small web service called "${title}".`;
   return [
     scene,
-    `Style: modern flat vector illustration, simple shapes, soft gradients, generous empty space, friendly and calm.`,
-    `Color palette: mainly ${theme.accent[0]} and ${theme.soft[0]} with white and a few neutral grays.`,
-    `Strictly no text, no letters, no numbers, no logos, no watermarks, no brand names, no real people or celebrities, no detailed realistic faces.`,
+    STYLE_PROMPTS[lp.illustrationStyle ?? "flat"],
+    `Composition: one clear main subject, large and centered with some breathing room, on a simple uncluttered background. It must still read clearly when shown as a small thumbnail.`,
+    `Color: harmonize with ${theme.accent[0]} and ${theme.soft[0]}.`,
+    `Strictly no hands, no people, no faces, no body parts, no phone or computer screens, no user interface, no text, no letters, no numbers, no logos, no watermarks, no brand names.`,
     `Landscape composition (3:2).`,
   ].join(" ");
 }
@@ -39,7 +52,7 @@ function buildPrompt(lp: Lp, title: string): string {
 async function draw(model: ImageModel, prompt: string): Promise<{ bytes: Buffer; type: string }> {
   if (MODELS[model].provider === "openai") {
     // シェア画像の部品でも読めるよう JPEG にする
-    const r = await new OpenAI().images.generate({ model, prompt, size: "1536x1024", quality: "medium", output_format: "jpeg", output_compression: 85, n: 1 });
+    const r = await new OpenAI().images.generate({ model, prompt, size: "1536x1024", quality: "high", output_format: "jpeg", output_compression: 85, n: 1 });
     const b64 = r.data?.[0]?.b64_json;
     if (!b64) throw new Error("画像が返ってきませんでした");
     return { bytes: Buffer.from(b64, "base64"), type: "image/jpeg" };

@@ -19,7 +19,7 @@ export function IllustrationControls({ id, url, isPublic }: { id: number; url: s
         )}
         <div className="flex flex-col gap-2">
           <ActionButton disabled={!!busy} onClick={() => run("AIがイラストを描いています（30秒ほど）…", { action: "illustration", projectId: id, mode: "redraw" })}>
-            {url ? "描き直す（約12円）" : "イラストを描く（約12円）"}
+            {url ? "描き直す（約26円）" : "イラストを描く（約26円）"}
           </ActionButton>
           {url && (
             <ActionButton disabled={!!busy} onClick={() => run("外しています…", { action: "illustration", projectId: id, mode: "remove" })}>

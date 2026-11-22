@@ -29,7 +29,11 @@ export async function POST(req: Request) {
   if (typeof body.weeklyReport === "boolean") patch.weeklyReport = body.weeklyReport;
   if (typeof body.illustrations === "boolean") patch.illustrations = body.illustrations;
   if (typeof body.freePage === "boolean") patch.freePage = body.freePage;
+  if (typeof body.playVideoOnPublish === "boolean") patch.playVideoOnPublish = body.playVideoOnPublish;
   if (typeof body.fullAuto === "boolean") patch.fullAuto = body.fullAuto;
+  if (typeof body.toolRoutineAuto === "boolean") patch.toolRoutineAuto = body.toolRoutineAuto;
+  if (typeof body.toolRoutineFixHeld === "boolean") patch.toolRoutineFixHeld = body.toolRoutineFixHeld;
+  if (typeof body.toolRoutineNormal === "boolean") patch.toolRoutineNormal = body.toolRoutineNormal;
   if (typeof body.autoPost === "boolean") patch.autoPost = body.autoPost;
   if (typeof body.dailyPlan === "boolean") patch.dailyPlan = body.dailyPlan;
   if (typeof body.dailyReport === "boolean") patch.dailyReport = body.dailyReport;
@@ -94,6 +98,8 @@ export async function POST(req: Request) {
     ["staleDays", 1, 90],
     ["deepPerWeek", 0, 7],
     ["deepDevWaitMax", 1, 10],
+    ["toolRoutineConcurrent", 0, 5],
+    ["toolRoutinePerDay", 0, 20],
     ["needsWaitMax", 0, 20],
     ["aimSpread", 0, 10],
     ["aimUseful", 0, 10],

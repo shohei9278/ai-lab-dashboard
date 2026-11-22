@@ -16,6 +16,8 @@ function Item({ r, owner, aiFix = false }: { r: RequestRow; owner: boolean; aiFi
     <li className="space-y-1 rounded-lg border border-line p-3 text-sm">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {r.source === "revival" && <span className="rounded px-1.5 text-xs text-accent-ink" style={{ background: "var(--accent)" }}>敗者復活</span>}
+        {/* 番号を出す（「#66 をやった」など、運営者とAIのやり取りで指すため。運営者が、番号が画面にないと分からないと言った） */}
+        <span className="num text-xs text-muted">#{r.id}</span>
         <span className="font-medium">{r.title}</span>
         {r.score !== null && <span className="num rounded bg-surface-2 px-1.5 text-xs">ほかのAIの評価 {r.score.toFixed(1)}点</span>}
         {r.repeats > 0 && <span className="num rounded bg-surface-2 px-1.5 text-xs">同じ趣旨の提案 ほかに{r.repeats}回</span>}
@@ -106,7 +108,8 @@ export default async function ProposalsPage() {
             {answered.map((r) => (
               <li key={r.id}>
                 <span style={{ color: r.status === "done" ? "var(--good)" : "var(--muted)" }}>{r.status === "done" ? "✓ やった" : "– 見送り"}</span>
-                <span className="ml-2">{r.title}</span>
+                <span className="num ml-2 text-xs text-muted">#{r.id}</span>
+                <span className="ml-1">{r.title}</span>
                 <span className="ml-2 text-xs text-muted">{r.source === "human" ? "あなたの提案" : r.target === "system" ? "仕組み" : "あなたへ"}・{sourceLabel(r)}{r.score !== null ? `・${r.score.toFixed(1)}点` : ""}</span>
                 {r.note && <span className="ml-2 text-xs text-ink-2">（{r.note}）</span>}
               </li>

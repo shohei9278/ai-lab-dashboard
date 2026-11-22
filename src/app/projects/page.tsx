@@ -68,7 +68,7 @@ export default async function ProjectsPage() {
               {projects.filter((p) => p.stage === "hold").sort((a, b) => (a.hold_until ?? "").localeCompare(b.hold_until ?? "")).map((p) => (
                 <li key={p.id}>
                   <Link href={`/projects/${p.id}`} className="card block p-3 hover:border-accent">
-                    <div className="line-clamp-2 text-sm font-medium">{p.title}</div>
+                    <div className="line-clamp-2 text-sm font-medium"><span className="num mr-1 text-xs font-normal text-muted">#{p.id}</span>{p.title}</div>
                     <div className="num mt-1 text-xs text-ink-2">{p.hold_until ? `${p.hold_until} に再開` : "再開日なし（手で戻す）"}</div>
                   </Link>
                 </li>
@@ -106,7 +106,7 @@ function ProjectCard({ p, pending, target, owner }: { p: ProjectRow; pending: bo
   return (
     <Link href={`/projects/${p.id}`} className="card block space-y-1 p-3 hover:border-accent">
       {/* タイトルは幅いっぱいに使い、タグはその下に並べる（タグが多くてもタイトルが潰れないように） */}
-      <div className="line-clamp-2 text-sm font-medium">{p.title}</div>
+      <div className="line-clamp-2 text-sm font-medium"><span className="num mr-1 text-xs font-normal text-muted">#{p.id}</span>{p.title}</div>
       <div className="flex flex-wrap gap-1">
         {p.kind === "tool" && <span className="rounded border border-line px-1 text-[10px] text-ink-2">ツール</span>}
         <span className="rounded border border-line px-1 text-[10px] text-ink-2">{p.auto_published ? "AIだけで公開" : p.mode === "auto" ? "自動" : "承認"}</span>
@@ -144,6 +144,7 @@ function NeedsQueue() {
           <ul className="mt-1 space-y-1 text-sm">
             {g.projects.map((p) => (
               <li key={`${g.kind}-${p.id}`}>
+                <span className="num mr-1 text-xs text-muted">#{p.id}</span>
                 <Link href={`/projects/${p.id}`} className="text-accent underline">{p.title}</Link>
                 <span className="text-ink-2">: {p.what}{p.days >= NEEDS_STALE_DAYS ? <span style={{ color: "var(--warning)" }}>（{p.days}日手が付いていない・見送りの候補）</span> : null}</span>
               </li>

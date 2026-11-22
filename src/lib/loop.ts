@@ -1,13 +1,14 @@
 import fs from "node:fs";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { PLAY_HOOK_MAX, PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublish, parseGivenPlay, replacePlayScript } from "./playVideo";
+import { heldToRoutine, toolRoutineConfigured } from "./toolRoutine";
 import { hitsText } from "./hits";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
 import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
-import { DESIGN_OPTIONS, ICONS, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
+import { DESIGN_OPTIONS, ICONS, ILLUSTRATION_STYLES, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
 import { toolAssets, toolImages } from "./toolAssets";
 import { TOOL_STORE_MAX } from "../../lp-site/src/lp/toolStore";
 import { hasResultsTag, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
@@ -641,11 +642,12 @@ export const DEV_DESIGN_MAX = 6000;
 
 // 開発待ち（Claude Code で作るのを待っている）のじっくり案件の数
 export function devWaiting(): number {
-  return (db().prepare("SELECT COUNT(*) AS n FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND a.status = 'pending' AND p.demo = 0").get() as { n: number }).n;
+  // じっくり案件だけを数える（通常案件をルーティンで作る開発待ちで、じっくり案件の作成が止まらないように）
+  return (db().prepare("SELECT COUNT(*) AS n FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND a.status = 'pending' AND p.demo = 0 AND p.deep = 1").get() as { n: number }).n;
 }
 
 // 前の設計書（いちばん新しい開発待ちのもの）
-function lastDevDesign(projectId: number): string | null {
+export function lastDevDesign(projectId: number): string | null {
   const r = db().prepare("SELECT payload FROM approvals WHERE project_id = ? AND kind = 'dev' ORDER BY id DESC LIMIT 1").get(projectId) as { payload: string | null } | undefined;
   return r?.payload ? ((JSON.parse(r.payload) as { design?: string }).design ?? null) : null;
 }
@@ -712,9 +714,9 @@ async function writeDevDesign(p: ProjectRow, comment?: string, prev?: string | n
 出力はJSONのみ: {"design":"設計書（Markdown）","idea":null または {"title":"","problem":"","solution":"","deep_plan":"","hypothesis":""}（変える項目だけ）}`
     : `\n出力はJSONのみ: {"design":"設計書（Markdown）"}`;
   const out = await callJson<{ design: string; idea?: unknown }>({
-    purpose: "じっくり案件の設計",
+    purpose: p.deep ? "じっくり案件の設計" : "ツールの設計",
     projectId: p.id,
-    system: `あなたは小さなWebツールの設計担当です。じっくり案件のツールの設計書を書きます。ツールは開発担当（Claude Code）が、この設計書をもとに、ブラウザで確かめながら作ります。
+    system: `あなたは小さなWebツールの設計担当です。${p.deep ? "じっくり案件の" : ""}ツールの設計書を書きます。ツールは開発担当（Claude Code）が、この設計書をもとに、ブラウザで確かめながら作ります。
 ツールは、紹介ページの中の枠に埋め込まれる1つのHTMLの断片で、外部との通信・保存の領域は使えません（作る側の決まりは別に渡します）。
 設計書には、次の見出しで書く（Markdown。全体で${DEV_DESIGN_MAX.toLocaleString("en-US")}文字以内）:
 ## 一言で（何をするツールか。1〜2文）
@@ -750,7 +752,8 @@ export function saveDevRequest(projectId: number, design: string, idea: IdeaRevi
         : `次の指示で直します: ${instruction ?? comment ?? "（指示なし）"}。依頼文を Claude Code に貼って直し、できたHTMLをここから入れてください。入れるまでは、今の版のままです。`,
       { design, instruction: instruction ?? null },
     );
-    logEvent(projectId, "ai", "dev-design", first || comment ? `じっくり案件のツールの設計書を書き、開発待ちにしました（Claude Code で作ります）${comment ? "・指示を反映" : ""}` : `じっくり案件のツールを直すため、開発待ちにしました（Claude Code で直します）: ${(instruction ?? "").slice(0, 120)}`);
+    const kindLabel = p.deep ? "じっくり案件の" : "";
+    logEvent(projectId, "ai", "dev-design", first || comment ? `${kindLabel}ツールの設計書を書き、開発待ちにしました（Claude Code で作ります）${comment ? "・指示を反映" : ""}` : `${kindLabel}ツールを直すため、開発待ちにしました（Claude Code で直します）: ${(instruction ?? "").slice(0, 120)}`);
   })();
 }
 
@@ -792,8 +795,9 @@ export function devRequestText(projectId: number, design: string, instruction: s
     rules = `（作るときの決まりを出せませんでした: ${e instanceof Error ? e.message : String(e)}）`;
   }
   return [
-    `ai-lab の案件 #${p.id}「${p.title}」の、じっくり案件のツールを${p.lp ? "直して" : "作って"}ください。`,
-    p.lp && instruction ? `直す指示: ${instruction}\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。${/^\d+\. 紹介ページ: /m.test(instruction) ? "\n「紹介ページ:」で始まる指摘は、ツールではなくAIが書く紹介ページのもの。ツールを入れたあとに、AIが紹介ページを作り直すときに直すので、ツールでは直さない。" : ""}` : "",
+    `ai-lab の案件 #${p.id}「${p.title}」の、${p.deep ? "じっくり案件の" : ""}ツールを${p.lp ? "直して" : "作って"}ください。`,
+    // 直す指示は、今のツールの有無にかかわらず全文を入れる（チェックで止まったツールの指摘も、ここでルーティンに渡る。PR #132 の ai-review の指摘）
+    instruction ? `直す指示: ${instruction}${p.lp ? "\n今のツールのHTMLは、案件の画面の「今のツールを保存」から取れます。" : ""}${/^\d+\. 紹介ページ: /m.test(instruction) ? "\n「紹介ページ:」で始まる指摘は、ツールではなくAIが書く紹介ページのもの。ツールを入れたあとに、AIが紹介ページを作り直すときに直すので、ツールでは直さない。" : ""}` : "",
     `## 設計書\n${design}`,
     `## データ\n${dataNote}`,
     `## 画像（素材）\n${imagesNote(projectId)}`,
@@ -806,7 +810,8 @@ export function devRequestText(projectId: number, design: string, instruction: s
 
 // ここで作ったツールのHTMLを入れる。決まり（外部との通信・保存の領域など）に合わないものは、すぐ理由を返す（入れない）
 // 入れたら開発待ちを閉じ、いつもの流れ（チェック・動作の確かめ・紹介ページ・公開の判断）を始める（返すのは、その流れの Promise）
-export function startDevUpload(approvalId: number, html: string): Promise<void> {
+// by: 入れた人（経過に残す。運営者が画面から入れたときは「Claude Code」、ルーティンが入れたときは「Claude Code（ルーティン）」）
+export function startDevUpload(approvalId: number, html: string, by = "Claude Code"): Promise<void> {
   const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
   if (!a || a.kind !== "dev" || a.status !== "pending") throw new Error("ツールを入れられる開発待ちが見つかりません");
   // 遊ぶ様子の動画の台本（あれば）を取り出し、公開するツールからは除く。形が違う台本は、理由を返して入れない
@@ -828,10 +833,10 @@ export function startDevUpload(approvalId: number, html: string): Promise<void> 
   const issues = staticToolIssues(t);
   if (issues.length) throw new Error(`決まりに合わないため入れられません: ${issues.join(" / ")}`);
   const p = getProject(a.project_id)!;
-  db().prepare("UPDATE approvals SET status = 'approved', comment = ?, decided_at = datetime('now') WHERE id = ?").run("Claude Code で作ったツールを入れた", approvalId);
+  db().prepare("UPDATE approvals SET status = 'approved', comment = ?, decided_at = datetime('now') WHERE id = ?").run(`${by} で作ったツールを入れた`, approvalId);
   // 台本を入れ替える（台本なしで入れ直したら消す）。取り込みが失敗したら前の台本に戻す
   const undoPlay = replacePlayScript(p.id, t, given);
-  logEvent(p.id, "human", "dev-upload", `Claude Code で作ったツール（${(t.length / 1000).toFixed(1)}千文字）を入れました${given ? `。遊ぶ様子の動画の台本（手順${given.steps.length}つ）も入れました` : ""}`);
+  logEvent(p.id, by === "Claude Code" ? "human" : "ai", "dev-upload", `${by} で作ったツール（${(t.length / 1000).toFixed(1)}千文字）を入れました${given ? `。遊ぶ様子の動画の台本（手順${given.steps.length}つ）も入れました` : ""}`);
   const payload = JSON.parse(a.payload ?? "{}") as { design?: string; instruction?: string | null };
   const instruction = payload.instruction ?? undefined;
   // 取り込みの途中（紹介ページづくり・チェックなど）で失敗したら、開発待ちに戻す（同じHTMLをもう一度入れられるように。作り直しにはしない）
@@ -906,13 +911,14 @@ async function writeLp(p: ProjectRow, instruction?: string, keepCore = false, mo
 ${(Object.keys(DESIGN_OPTIONS) as (keyof typeof DESIGN_OPTIONS)[]).map((k) => `- design.${k}: ${Object.entries(DESIGN_OPTIONS[k]).map(([v, l]) => `${v}=${l}`).join(" / ")}`).join("\n")}
 - design.order: ${SECTIONS.join(" / ")} を、読んでほしい順に並べたもの（pains=困りごと, beforeAfter=使う前後, features=できること, steps=使い方, faq=よくある質問）
 - design.badge: 見出しの上に出す短いラベル（15文字以内。例「飲食店のシフト集めに」）
-- illustrationPrompt: 見出しの横に置くイラストを描くAIへの指示（英語で2〜3文）。サービスを使っている場面や、困りごとが解決した場面を、人物の顔をはっきり描かない形で。文字・ロゴ・実在の人物や商品は描かせない
+- illustrationStyle: 紹介イラストの画風。題材とページの世界観に合うものを1つ選ぶ（${Object.entries(ILLUSTRATION_STYLES).map(([k, l]) => `${k}=${l}`).join(" / ")}）。いつも同じものにしない
+- illustrationPrompt: 紹介イラストを描くAIへの指示（英語で1〜2文）。この案件を象徴する主役の物を1つ（食べ物・道具・小物・景色の一部など）と、その置き方だけを書く。画風は書かない（illustrationStyle で選ぶ）。手・顔・人物・体の一部、スマホやPCの画面、文字・ロゴ・実在の商品は描かせない。このイラストは、ページの見出しの横、一覧の小さなカード、シェア画像に使われる
 - preview: 完成したら使う画面のイメージ。kind は ${PREVIEW_KINDS.join(" / ")} のどれか。rows は1行あたり最大4つの短い文字列で3〜5行（list は [項目, 状態]、table は columns と各行、chat は [話し手, 発言]、form は [項目名, 入力例]）。人名は「山田さん」程度の仮名にし、実在の会社名や効果の数字は入れない
 - features[].icon: ${ICONS.join(" / ")} から内容に合うもの
 - steps: 使い方を2〜4ステップ（任意）
 - pains・features・faq・steps の数は中身に合わせて決める（pains 2〜4、features 2〜5、faq 0〜4、steps 2〜4）。いつも同じ数にそろえない。形式の例の数は、例にすぎない
 - beforeAfter: 使う前の状態と、使ったあとに目指す状態を各2〜3個（任意。効果を断言しない）${isTool ? "\n- shareText: X でシェアするときの文（60文字以内。ハッシュタグは1つまで。誇張しない）" : ""}
-形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明","icon":"clock"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2],"design":{"theme":"trust","layout":"split","font":"gothic","pattern":"none","corners":"round","painStyle":"cards","featureStyle":"cards","order":["pains","features","steps","faq"],"badge":"ラベル"},"illustrationPrompt":"A calm scene of ...","preview":{"title":"画面の名前","kind":"list","columns":[],"rows":[["項目","状態"]]},"steps":[{"title":"手順","body":"説明"}×3],"beforeAfter":{"before":["今の状態"],"after":["目指す状態"]}${isTool ? ',"shareText":"シェアの文"' : ""}}`,
+形式: {"headline":"見出し","subheadline":"補足の一文","pains":["悩み","悩み","悩み"],"features":[{"title":"特徴","body":"説明","icon":"clock"}×3],"cta":"ボタンの文言","faq":[{"q":"質問","a":"回答"}×2],"design":{"theme":"trust","layout":"split","font":"gothic","pattern":"none","corners":"round","painStyle":"cards","featureStyle":"cards","order":["pains","features","steps","faq"],"badge":"ラベル"},"illustrationStyle":"soft3d","illustrationPrompt":"A single ... placed ...","preview":{"title":"画面の名前","kind":"list","columns":[],"rows":[["項目","状態"]]},"steps":[{"title":"手順","body":"説明"}×3],"beforeAfter":{"before":["今の状態"],"after":["目指す状態"]}${isTool ? ',"shareText":"シェアの文"' : ""}}`,
     user: `サービス名: ${p.title}\n対象: ${p.target}\n課題: ${p.problem}\n解決策: ${p.solution}\n仮説: ${p.hypothesis}${prev}${toolExceptions ? `\n\nツールの中の、うまくいかないときや代わりの動きの文言（tool.html から取り出したもの）:\n${toolExceptions}\nよくある質問（faq）で、これらの場合にどうなるかに触れる。保存・センサー・カメラ・通知などが使えない環境があるなら、「残ります」「使えます」のように言い切らない` : ""}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`,
     validate: isLp,
   });
@@ -1201,6 +1207,7 @@ async function reviewTool(p: ProjectRow, html: string, instruction?: string): Pr
 - ツールの目的や今回の修正指示で、コードに書かない・利用者が自分で入れると決めた値（手数料率・料金など）を、初期値・プリセット・選択肢・入力例・便利な機能などの形でコードに書いている（「例で試す」のボタンで、例だと分かるように示した値をまとめて入れるのは問題にしない。ただし料金・手数料率など、使う人ごとに違い、間違えると損をする値を例のボタンで入れていたら問題にする）
 - canvas などで画像を作るとき、入力できる最大の文字数でも、本文とロゴ・ハッシュタグなどが重ならない作りになっていない（本文を描く範囲の下端が決まっていない）
 - 入力欄の上限・下限（min・max）と、エラー文・注意書き・説明の中の数字が食い違っている（max が 600 なのにエラー文が「300cm以下」など）
+- setInterval・setTimeout の繰り返し・requestAnimationFrame で再生やアニメーションを続けるツールで、リセット・やり直し・エラーのときにタイマーやアニメーションを止めていない（clearInterval・clearTimeout・cancelAnimationFrame がない・呼ばれない道がある。リセットのあとも再生が続く、エラーが繰り返し出る など）
 - 「最小です」「ゼロにできます」のように理論上のことを言い切る表示が、小さな条件（人数が少ない・値が0や1など）で実際に手計算すると成り立たない
 - 使う前と後・改善前と後などの比較を出すとき、利用者が条件を変えても、比較の基準（前の値）が同じ条件で計算されていない（条件によって改善率がマイナスになる・表示が崩れる など）
 問題がなければ {"ok":true,"issues":[]}。
@@ -1672,12 +1679,41 @@ function nextVersion(projectId: number): number {
   return (r.v ?? 0) + 1;
 }
 
+// 通常案件の新しいツールを、クラウドの Claude Code（ルーティン）に作ってもらう番か
+// ツールを書く担当（TOOL_MODELS）の交代に、4つ目として「Claude Code（ルーティン）」を入れる。1回で書くAIと、直しながら作る Claude Code を比べるため（運営者が決めた）
+// 比べるのは、この仕組みを入れた日（ROUTINE_NORMAL_SINCE）からあとに作り始めた通常案件だけ（前からの数で比べると、追いつくまでルーティンばかりになる）
+// ルーティンの番の数は、ルーティンに作ってもらうと決めた案件（tool_maker）で数える（作っている途中のものも数える）。同じ数なら、ルーティンを先にする
+export const ROUTINE_NORMAL_SINCE = "2026-11-21 00:00:00";
+// 一度ルーティンの番にした案件は、判定し直さずにルーティンのままにする（やり直したときに AI が書いて、担当の記録とずれないように。PR #134 の ai-review の指摘）
+// 入れた日より前に作り始めた案件は、番にしない（数えない案件を番にすると、ルーティンの数が増えないまま番が続くため。PR #134 の ai-review の指摘）
+export function routineTurnForNew(p: Pick<ProjectRow, "id" | "kind" | "deep" | "lp" | "tool_maker" | "created_at">): boolean {
+  if (p.kind !== "tool" || p.deep || p.lp) return false;
+  // いまの版が空でも、過去にツールの版がある案件は「新しいツール」ではない（PR #134 の ai-review の指摘）
+  if (db().prepare("SELECT 1 FROM lp_versions WHERE project_id = ?").get(p.id)) return false;
+  // 番にした案件は、設定・緊急停止・ルーティンのつながりが変わっても、ルーティンのまま（開発待ちのまま、ルーティンが戻るのを待つか、人が手元の Claude Code で作る。PR #134 の ai-review の指摘）
+  if (p.tool_maker === "claude-code") return true;
+  const s = getSettings();
+  if (!s.toolRoutineNormal || s.killSwitch || !toolRoutineConfigured()) return false;
+  if (p.created_at < ROUTINE_NORMAL_SINCE) return false;
+  const usable = TOOL_MODELS.filter((id) => hasKey(modelInfo(id).provider));
+  if (!usable.length) return true;
+  const ai = new Map((db().prepare(`SELECT v.tool_model AS m, COUNT(DISTINCT v.project_id) AS n FROM lp_versions v JOIN projects p ON p.id = v.project_id
+    WHERE v.tool_model IS NOT NULL AND p.deep = 0 AND p.demo = 0 AND p.tool_maker IS NULL AND p.created_at >= ? GROUP BY v.tool_model`).all(ROUTINE_NORMAL_SINCE) as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  const mine = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE tool_maker = 'claude-code' AND deep = 0 AND demo = 0 AND created_at >= ?").get(ROUTINE_NORMAL_SINCE) as { n: number }).n;
+  return mine <= Math.min(...usable.map((id) => ai.get(id) ?? 0));
+}
+
 // keepTool: じっくり案件のツールを今のまま使い、紹介ページだけを作り直す（紹介ページの指摘だけを直すとき）
 export async function prepareLp(projectId: number, instruction?: string, opts: { keepCore?: boolean; byHuman?: boolean; auto?: boolean; toolHtml?: string; keepTool?: boolean } = {}) {
   const p = getProject(projectId)!;
   const current = opts.keepTool && p.lp ? (JSON.parse(p.lp) as Lp).tool?.html : undefined;
   // じっくり案件のツールは、AIが1回で書かずに、ここ（Claude Code）で作る・直す。AIは設計書を書き、開発待ちにする
   if (p.kind === "tool" && p.deep && opts.toolHtml === undefined && current === undefined) return requestDev(projectId, instruction);
+  // 通常案件の新しいツールも、交代の番ならルーティンに作ってもらう（AIは設計書を書き、開発待ちにする。ルーティンが作って入れる）
+  if (opts.toolHtml === undefined && current === undefined && routineTurnForNew(p)) {
+    db().prepare("UPDATE projects SET tool_maker = 'claude-code' WHERE id = ?").run(projectId);
+    return requestDev(projectId, instruction);
+  }
   const toolHtml = opts.toolHtml ?? current;
   const note = !instruction ? "最初の版" : opts.byHuman ? `あなたの指示: ${instruction}` : `指示: ${instruction}`;
   const made = current !== undefined ? "（ツールは今のまま、紹介ページだけ直した）" : toolHtml !== undefined ? "（ツールは Claude Code で作った）" : "";
@@ -1692,6 +1728,8 @@ export async function prepareLp(projectId: number, instruction?: string, opts: {
     await announcePublish(projectId);
     return;
   }
+  // チェックで問題が残ったツールは、まずクラウドの Claude Code（ルーティン）に直してもらう（1回だけ。運営者が決めた）
+  if (!review.ok && heldToRoutine(projectId, review.issues)) return;
   if (opts.auto && getSettings().fullAuto) logEvent(projectId, "system", "auto-blocked", `${blocked}、公開は人の承認に回します`);
   // すでに公開中なら、承認されるまでは前の版が公開されたまま
   const replacing = !!p.public_slug && p.public_version !== null;
@@ -2211,8 +2249,9 @@ async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutco
     if (!t || (!t.skipped && !t.ok)) review = { ok: false, issues: [...review.issues, ...(t ? testIssues(t) : ["ブラウザでの自動テストの結果がない"])] };
   }
   if (!review.ok) {
-    // チェックを通らない改善は公開せず、人に回す
+    // チェックを通らない改善は公開しない。ツールは、まずクラウドの Claude Code（ルーティン）に直してもらう（1回だけ）。それ以外は人に回す
     setStage(projectId, "lp");
+    if (heldToRoutine(projectId, review.issues)) return { kind: "held", detail: `第${version}版を作ったが、チェックで問題が残ったため公開せず、クラウドの Claude Code（ルーティン）に直してもらうことにした: ${review.issues.join(" / ").slice(0, 200)}` };
     addApproval(projectId, "publish", getProject(projectId)!.kind === "tool" ? "改善したツールを公開する" : "改善したLPを公開する", `AIのチェックで問題が残ったため、自動公開を止めました: ${review.issues.join(" / ")}`, { review });
     return { kind: "held", detail: `第${version}版を作ったが、チェックで問題が残ったため公開せず承認待ちにした: ${review.issues.join(" / ").slice(0, 200)}` };
   }

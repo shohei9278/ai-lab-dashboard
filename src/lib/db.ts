@@ -641,6 +641,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["shadow_judgments", "round_id", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "idea_model", "TEXT"], // アイデアを考えたAI（LPなど以降の作業は設定のAIが行う）
   ["projects", "public_slug", "TEXT"], // 公開用LPサイトでのURLの一部（実際に公開したものだけ）
+  ["approvals", "routine_at", "TEXT"], // 開発待ちを、クラウドの Claude Code（ルーティン）に頼んだ日時と、作業の画面の URL（toolRoutine.ts）
+  ["approvals", "routine_url", "TEXT"],
   ["approvals", "initial_choice", "TEXT"], // 判断: AIの意見を見る前に人が選んだもの
   ["approvals", "final_choice", "TEXT"], // 判断: AIの意見と議論を見たあとに人が確定したもの
   ["projects", "kind", "TEXT NOT NULL DEFAULT 'lp'"],
@@ -723,6 +725,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   // 「広がる」の判定の起点の、遊んだ人（利用）とシェアの累計（判断・再開のたびに今の累計にする。判定はこの差だけで見る）
   ["projects", "spread_base_plays", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "spread_base_shares", "INTEGER NOT NULL DEFAULT 0"],
+  ["projects", "tool_maker", "TEXT"], // 通常案件の最初のツールを、クラウドの Claude Code（ルーティン）に作ってもらうと決めたとき 'claude-code'（loop.ts の routineTurnForNew）
   ["projects", "tool_errors_seen", "TEXT"], // 本番のツールのエラーを、どの版で何人まで知らせたか（{"v":版,"n":人数} の JSON。増えたときだけ知らせる）
   ["projects", "spread_hit", "INTEGER"], // 「広がる」の判定の結果（1 当たり / 0 当たらず。判定前は空）
   ["projects", "needs", "TEXT"], // じっくり案件で、作るのに要るもの（保存の場所・外部のAPI・AIなど。needs.ts の Need の JSON）。なければ空
@@ -819,6 +822,13 @@ export type Settings = {
   deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）
   needsWaitMax: number; // 人の作業待ち（保存の場所・API・AIなど、まだない仕組みが要るじっくり案件）がこの件数以上なら、そういう案件を新しく作らない
   deepDevWaitMax: number; // 開発待ち（Claude Code で作るのを待っている）のじっくり案件がこの件数以上なら、新しいじっくり案件を作らない
+  // 開発待ちのじっくり案件を、クラウドの Claude Code（ルーティン）に自動で頼むか・同時に頼む数・1日（24時間）に頼む数（toolRoutine.ts）
+  // ルーティンはサブスクの使用量で動くので、頼む数は運営者が設定で決める（運営者が決めた）
+  toolRoutineAuto: boolean;
+  toolRoutineConcurrent: number;
+  toolRoutinePerDay: number;
+  toolRoutineFixHeld: boolean;
+  toolRoutineNormal: boolean; // 通常案件の新しいツールも、ツールを書く担当の交代の1つとしてルーティンに作ってもらうか（loop.ts の routineTurnForNew） // 公開の前のチェックで止まったツールを、ルーティンに直してもらうか（toolRoutine.ts の heldToRoutine）
   // アイデア出しのねらいの配分（重み。0〜10）。広がる・役に立つ・また来てもらう・需要を確かめる
   aimSpread: number;
   aimUseful: number;
@@ -843,6 +853,8 @@ export type Settings = {
   snsAccount: string; // LP・ツールを紹介する X のアカウント（@なし）
   illustrations: boolean; // LPの見出しの横に、AIが描いたイラストを置く
   freePage: boolean; // 事前登録LPのページ全体と、新しく作るツールのまわりのページを、部品ではなくAIに自由にデザインさせる
+  // ねらいが「広がる」の案件を初めて公開したときに、遊ぶ様子の動画を自動で作るか（運営者が、必要なときだけ作れればよいと決めた。最初はオフ。案件の画面のボタンからはいつでも作れる）
+  playVideoOnPublish: boolean;
   fullAuto: boolean; // 自動モードの案件は、公開・撤退も人の承認なしで行う（人はあとから見て印を付ける）
   autoPublishPerWeek: number; // 人の承認なしで新しく公開してよい件数（直近7日）
   autoPost: boolean; // 集客中の案件を、AIが X に自動で投稿する（X のAPIキーが必要）
@@ -889,6 +901,7 @@ const DEFAULTS: Settings = {
   snsAccount: "",
   illustrations: true,
   freePage: true,
+  playVideoOnPublish: false,
   fullAuto: false,
   autoPublishPerWeek: 3,
   autoPost: false,
@@ -924,6 +937,11 @@ const DEFAULTS: Settings = {
   staleDays: 7,
   deepPerWeek: 3,
   deepDevWaitMax: 2,
+  toolRoutineAuto: true,
+  toolRoutineConcurrent: 1,
+  toolRoutinePerDay: 3,
+  toolRoutineFixHeld: true,
+  toolRoutineNormal: true,
   needsWaitMax: 5,
   aimSpread: 4,
   aimUseful: 3,
@@ -938,7 +956,7 @@ const DEFAULTS: Settings = {
 };
 
 const STRING_KEYS = new Set(["loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
-const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive"]);
+const BOOL_KEYS = new Set(["killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish", "toolRoutineFixHeld", "toolRoutineNormal"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];
@@ -1040,7 +1058,8 @@ export type ProjectRow = {
   spread_base_plays: number; // 「広がる」の判定の起点の累計（遊んだ人・シェア）
   spread_base_shares: number;
   spread_hit: number | null; // 「広がる」の判定の結果（1 当たり / 0 当たらず）
-  tool_errors_seen: string | null; // 本番のツールのエラーを、どの版で何人まで知らせたか
+  tool_errors_seen: string | null;
+  tool_maker: string | null; // 本番のツールのエラーを、どの版で何人まで知らせたか
   needs: string | null; // 作るのに要るもの（Need[] の JSON）
   needs_done: number; // 要るものを人が用意した（「済み」）か
   needs_done_at: string | null; // 「済み」にして作り始めた日時
@@ -1073,6 +1092,8 @@ export type ApprovalRow = {
   initial_choice: string | null;
   final_choice: string | null;
   lp_version: number;
+  routine_at: string | null;
+  routine_url: string | null;
 };
 
 export type EventRow = { id: number; at: string; project_id: number | null; actor: "ai" | "human" | "system"; kind: string; message: string };

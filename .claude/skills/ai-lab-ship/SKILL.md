@@ -21,6 +21,7 @@ description: ai-lab の PR をマージして本番に出すまでの手順。�
    ```bash
    curl -fsS --max-time 20 https://ai-lab-dashboard-production-fc9e.up.railway.app/api/live | jq -e '(.activities|type=="array" and length==0) and (.building|type=="array" and length==0)' >/dev/null && echo idle
    ```
+   - `building` には、クラウドの Claude Code（ツールを作るルーティン）が作業中の開発待ち（頼んでから3時間以内で、まだツールが入っていないもの）も入る。ルーティンは作業の最後にツールを入れ、そのあとダッシュボードが数分かけて取り込むので、その途中で本番が入れ替わると取り込みが止まる（#131 のマージで #65 が止まった）
    - 何か動いている（`idle` と出ず、エラーもない）なら、終わるまで待つよう運営者に伝える
    - 取れない・エラーになる（通信の失敗、500、ログインの画面、JSON でない など）ときは、止まっているかが分からないので、マージせずに止まって運営者に伝える
 4. 人が見つけた不具合や人の判断の入った変更なら、`src/lib/interventions.ts` の `FIRST` に人の手の記録が入っているか

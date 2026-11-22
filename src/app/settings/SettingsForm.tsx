@@ -153,6 +153,38 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <Field label="じっくり案件の開発待ちの上限" note="Claude Code で作るのを待っているじっくり案件がこの件数以上なら、新しいじっくり案件を作りません（手で頼んだ分は止めません）。"><input type="number" min={1} max={10} {...num("deepDevWaitMax")} className={input} /></Field>
         </div>
         <div className="space-y-2 border-t border-line pt-3">
+          <h3 className="text-sm font-bold">ツールを作るルーティン（クラウドの Claude Code）</h3>
+          <p className="text-xs text-muted">
+            開発待ちのツール（じっくり案件と、ルーティンの番になった通常案件）を、クラウドの Claude Code（ルーティン「案件のツールを作る」）に頼みます。できたツールは、人が入れたときと同じく、チェック・動作の確かめ・紹介ページづくりをして、公開の判断に進みます。
+            ルーティンは claude.ai のプランの使用量で動くので（ふだん使う Claude Code と同じ枠）、頼む数をここで決めます。開発待ちのカードからは、数に関係なく手で頼めます。
+          </p>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={v.toolRoutineAuto} onChange={(e) => set("toolRoutineAuto", e.target.checked)} />
+            <span>
+              開発待ちを自動でルーティンに頼む
+              <span className="block text-xs text-muted">見回り（5分ごと）のたびに、古い開発待ちから順に、下の数の範囲で頼みます。一度頼んだものは、自動では頼み直しません。</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={v.toolRoutineFixHeld} onChange={(e) => set("toolRoutineFixHeld", e.target.checked)} />
+            <span>
+              公開の前のチェックで止まったツールを、ルーティンに直してもらう
+              <span className="block text-xs text-muted">チェックで問題が残ったツール（新しく作ったもの・直したもの）は、公開の判断待ちにする前に、指摘を「直す指示」にしてルーティンに頼みます（同じ案件は7日に1回だけ。それでも問題が残れば、判断待ちに出します）。頼む数は、下の数の範囲です。</span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={v.toolRoutineNormal} onChange={(e) => set("toolRoutineNormal", e.target.checked)} />
+            <span>
+              通常案件の新しいツールも、ルーティンに作ってもらう
+              <span className="block text-xs text-muted">ツールを書く担当（Claude Opus・Claude Sonnet・GPT）の交代に、4つ目として「Claude Code（ルーティン）」を入れます。作った数が一番少ない担当の番に、ルーティンが作ります（AIが設計書を書き、開発待ちにします）。1回で書くAIと、直しながら作る Claude Code を、テストの通りやすさ・遊ばれ方で比べられます。頼む数は、じっくり案件と合わせて下の数の範囲です。</span>
+            </span>
+          </label>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="同時に頼む数" note="頼んでから3時間以内で、まだツールが入っていないものを、作業中として数えます。0 で自動では頼みません。"><input type="number" min={0} max={5} {...num("toolRoutineConcurrent")} className={input} /></Field>
+            <Field label="1日（24時間）に頼む数" note="手で頼んだ分も数えます。0 で自動では頼みません。"><input type="number" min={0} max={20} {...num("toolRoutinePerDay")} className={input} /></Field>
+          </div>
+        </div>
+        <div className="space-y-2 border-t border-line pt-3">
           <h3 className="text-sm font-bold">ねらいの配分</h3>
           <p className="text-xs text-muted">
             アイデアを出すときと、案件にする案を選ぶときの配分です（数の比。0 にしたねらいは出しません）。ねらいごとに、考える順番と採点の観点が変わります。手でアイデアを出すときは、ねらいを1つに絞ることもできます。
@@ -193,7 +225,14 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
           <input type="checkbox" className="mt-1" checked={v.illustrations} onChange={(e) => set("illustrations", e.target.checked)} />
           <span>
             LPにAIが描いたイラストを入れる
-            <span className="block text-xs text-muted">最初の版を作るときに、見出しの横に置くイラストを画像生成AIで1枚描きます（1枚 約12円）。文字・ロゴ・実在の人物は描かせません。公開する前にプレビューで確かめてください。</span>
+            <span className="block text-xs text-muted">最初の版を作るときに、見出しの横に置くイラストを画像生成AIで1枚描きます（1枚 約26円）。画風は案件の世界観に合わせてAIが選び、主役の物を1つ描きます。手・人物・画面・文字・ロゴは描かせません。公開する前にプレビューで確かめてください。</span>
+          </span>
+        </label>
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={v.playVideoOnPublish} onChange={(e) => set("playVideoOnPublish", e.target.checked)} />
+          <span>
+            公開したときに、遊ぶ様子の動画を自動で作る
+            <span className="block text-xs text-muted">オンにすると、ねらいが「広がる」の案件を初めて公開したときに、投稿に使う縦長の動画を裏で作ります（1本 約20円）。オフのときは、案件の画面の「動画を作る」から、必要なときだけ作ります。</span>
           </span>
         </label>
         <label className="flex items-start gap-2 text-sm">

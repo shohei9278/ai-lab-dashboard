@@ -17,6 +17,16 @@ export type IconName = (typeof ICONS)[number];
 
 export const PREVIEW_KINDS = ["list", "table", "chat", "form"] as const;
 
+// 紹介イラストの画風。1つに固定すると世界観に合わない案件が出るので、ページを書くAIが案件ごとに選ぶ
+export const ILLUSTRATION_STYLES = {
+  photo: "写真のような静物",
+  soft3d: "やわらかい立体",
+  flat: "平らなイラスト",
+  papercut: "切り絵",
+  watercolor: "水彩",
+} as const;
+export type IllustrationStyle = keyof typeof ILLUSTRATION_STYLES;
+
 // 見た目の部品。AIはこの中から組み合わせを選ぶ（自由なHTMLは書かせない）
 export const DESIGN_OPTIONS = {
   layout: { center: "中央寄せ", split: "左に文章・右に画像や画面", band: "テーマ色の帯に白い文字", left: "左寄せの大きな見出し" },
@@ -52,6 +62,9 @@ export type Lp = {
   // ここから下は見た目を豊かにするための任意の要素（古いLPには無い）
   design?: Design;
   illustrationPrompt?: string; // イラストを描くAIへの指示（英語）。画像を作ったあとも残す
+  illustrationStyle?: IllustrationStyle; // イラストの画風（古いLPには無い。無ければ平らなイラスト）
+  // 動くツールの本物の画面（自動テストで撮った、何も押す前の1画面）。ダッシュボードが公開のときに入れる。一覧のカードとシェア画像に使う
+  shot?: { url: string; width: number; height: number };
   preview?: { title: string; kind: (typeof PREVIEW_KINDS)[number]; columns?: string[]; rows: string[][] };
   steps?: { title: string; body: string }[];
   beforeAfter?: { before: string[]; after: string[] };
@@ -153,6 +166,12 @@ export function normalizeLp(raw: unknown): Lp {
     };
   }
   if (isStr(v.illustrationPrompt)) lp.illustrationPrompt = cut(v.illustrationPrompt, 600);
+  if (isStr(v.illustrationStyle) && Object.hasOwn(ILLUSTRATION_STYLES, v.illustrationStyle)) lp.illustrationStyle = v.illustrationStyle as IllustrationStyle;
+  // 写真は、公開用の保存領域（Supabase）のものだけ受け取る
+  if (isObj(v.shot) && isStr(v.shot.url) && v.shot.url.length <= 500 && /^https:\/\/[a-z0-9-]+\.supabase\.co\/storage\/v1\/object\/public\//.test(v.shot.url)) {
+    const w = Number(v.shot.width), h = Number(v.shot.height);
+    if (Number.isInteger(w) && Number.isInteger(h) && w > 0 && h > 0 && w <= 10000 && h <= 40000) lp.shot = { url: v.shot.url, width: w, height: h };
+  }
   if (isObj(v.preview) && isStr(v.preview.title) && PREVIEW_KINDS.includes(v.preview.kind as never) && Array.isArray(v.preview.rows)) {
     const rows = v.preview.rows.filter((r) => Array.isArray(r)).slice(0, 6).map((r) => (r as unknown[]).map((c) => cut(String(c ?? ""), 40)).slice(0, 4));
     if (rows.length) {

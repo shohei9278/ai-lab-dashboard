@@ -21,7 +21,7 @@ export type ApprovalView = {
   // error: 下書きに失敗したとき（id は null）。owner: 運営者が見ているか（データを自分で入れられる）
   data?: { id: number | null; count: number; groups: number; note: string; fields: { key: string; label: string; kind: "fact" | "view" }[]; sample?: Record<string, unknown>[]; error?: string; owner: boolean };
   // じっくり案件の開発待ち（Claude Code で作る）。設計書と依頼文は運営者にだけ入る
-  dev?: { owner: boolean; design: string; request: string; instruction: string | null; hasData: boolean; hasTool: boolean; assets: { name: string; url: string; bytes: number }[] };
+  dev?: { owner: boolean; design: string; request: string; instruction: string | null; hasData: boolean; hasTool: boolean; assets: { name: string; url: string; bytes: number }[]; routine: { configured: boolean; at: string | null; url: string | null; working: boolean; retryable: boolean } };
   conv: { noun: string; rate: string }; // 成果の呼び方（事前登録LPは登録、動くツールは利用）
   decision?: { confidence: number; nextAction: string };
   review?: { ok: boolean; issues: string[] };
@@ -75,7 +75,7 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
         <span className="rounded border border-line px-1.5 py-0.5 text-ink-2">{k.label}</span>
         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-ink-2">{a.project.kind === "tool" ? "動くツール" : "事前登録LP"}</span>
         {a.project.deep && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-ink-2">じっくり案件</span>}
-        <Link href={`/projects/${a.project.id}`} className="text-accent underline">{a.project.title}</Link>
+        <Link href={`/projects/${a.project.id}`} className="text-accent underline"><span className="num">#{a.project.id}</span> {a.project.title}</Link>
         {a.project.demo && <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5">デモ</span>}
         <span className="num">{jstDateTime(a.createdAt)}</span>
       </div>
@@ -313,8 +313,24 @@ function DevBox({ d, approvalId, projectId }: { d: NonNullable<ApprovalView["dev
   const [copied, setCopied] = useState(false);
   const [done, setDone] = useState(false);
   if (!d.owner) return <p className="text-sm text-ink-2">開発担当（Claude Code）が、AIの設計書をもとにツールを作っています。</p>;
+  const r = d.routine;
   return (
     <div className="space-y-2 text-sm">
+      {r.configured && (
+        <div className="rounded-lg border border-line p-2">
+          <p>
+            {r.at
+              ? <>クラウドの Claude Code（ルーティン）に頼みました（{jstDateTime(r.at)}）。{r.working ? "作業中です。できると、ここに入れて、チェック・紹介ページづくりに進みます。" : "3時間たっても入っていません。作業の様子を見て、頼み直すか、手で作って入れてください。"}</>
+              : "クラウドの Claude Code（ルーティン）が作ります。設定の数の範囲で、順に自動で頼みます。"}
+            {r.url && <> <a href={r.url} target="_blank" rel="noreferrer" className="underline">作業の様子</a></>}
+          </p>
+          {r.retryable && (
+            <button type="button" disabled={!!busy} onClick={() => run("頼んでいます…", { action: "tool-routine", approvalId })} className="mt-1 rounded-lg border border-line px-3 py-1">
+              {r.at ? "ルーティンにもう一度頼む" : "いまルーティンに頼む"}
+            </button>
+          )}
+        </div>
+      )}
       {d.instruction && <p><span className="text-muted">直す指示:</span> {d.instruction}</p>}
       <details>
         <summary className="cursor-pointer">AIの設計書を読む</summary>
