@@ -12,6 +12,9 @@ const PORT = 3459;
 const BASE = `http://localhost:${PORT}`;
 const PASSWORD = "e2e-only";
 const SECRET_ARTICLE = "E2Eの記事の本文";
+const SNS_DRAFT = "E2EのSNSの下書き";
+const SNS_POSTED = "E2EのSNSの投稿済み";
+let projectId = 0;
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-lab-e2e-"));
 process.env.AI_LAB_DB = path.join(dir, "e2e.db");
 process.env.AI_LAB_SCHEDULER = "off";
@@ -24,6 +27,10 @@ async function seed() {
   saveSettings({ showcaseEnabled: true });
   const report = { summary: "E2Eのまとめ", numbers: [], highlights: [], noteIdeas: [], xPosts: ["E2Eの投稿の下書き"], next: [], article: SECRET_ARTICLE };
   db().prepare("INSERT INTO reports (period_start, period_end, model_id, content) VALUES ('2026-01-01', '2026-01-08', 'test', ?)").run(JSON.stringify(report));
+  // SNSの投稿: AIの下書き1件と投稿済み1件（下書きは来訪者に送らない）
+  projectId = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, public_slug) VALUES ('E2Eの案件', 't', 'p', 's', 'h', 'r', 'live', 'test', 'tool', 'e2e-tool')").run().lastInsertRowid);
+  db().prepare("INSERT INTO sns_posts (project_id, platform, code, angle, text, author, status) VALUES (?, 'x', 'e2edr1', 'E2Eの切り口', ?, 'ai', 'draft')").run(projectId, SNS_DRAFT);
+  db().prepare("INSERT INTO sns_posts (project_id, platform, code, text, author, status, posted_at) VALUES (?, 'x', 'e2eps1', ?, 'ai', 'posted', datetime('now'))").run(projectId, SNS_POSTED);
 }
 
 before(async () => {
@@ -99,4 +106,21 @@ test("投稿前の下書きは、来訪者のHTMLに含まれず、運営者に�
   assert.ok(!guest.includes(SECRET_ARTICLE) && !guest.includes("E2Eの投稿の下書き"));
   const owner = await fetch(`${BASE}/reports`, { headers: { authorization: `Basic ${Buffer.from(`admin:${PASSWORD}`).toString("base64")}` } }).then((r) => r.text());
   assert.ok(owner.includes(SECRET_ARTICLE) && owner.includes("E2Eの投稿の下書き"));
+});
+
+test("SNSの投稿前の下書きは、来訪者のHTMLに含まれず、運営者には出る（SNSの管理・案件の画面）", async () => {
+  const auth = { authorization: `Basic ${Buffer.from(`admin:${PASSWORD}`).toString("base64")}` };
+  for (const r of ["/growth", `/projects/${projectId}`]) {
+    const res = await fetch(BASE + r);
+    assert.equal(res.status, 200, `${r} が開けません`);
+    const guest = await res.text();
+    assert.ok(!guest.includes(SNS_DRAFT) && !guest.includes("E2Eの切り口"), `${r} で来訪者に下書きが送られています`);
+    const owner = await fetch(BASE + r, { headers: auth }).then((x) => x.text());
+    assert.ok(owner.includes(SNS_DRAFT), `${r} で運営者に下書きが出ません`);
+  }
+  // 投稿済みは来訪者にも出る（案件の画面）
+  const project = await fetch(`${BASE}/projects/${projectId}`).then((x) => x.text());
+  assert.ok(project.includes(SNS_POSTED), "案件の画面で来訪者に投稿済みが出ません");
+  const growth = await fetch(`${BASE}/growth`).then((x) => x.text());
+  assert.ok(growth.includes("投稿前の下書きは、運営者だけに表示しています。"));
 });

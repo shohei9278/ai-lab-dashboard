@@ -20,12 +20,13 @@ const jstUtc = (s: string) => jst(s.replace(" ", "T") + "Z");
 export default async function GrowthPage() {
   const s = getSettings();
   const acc = accounts();
+  const owner = await isOwner();
   const posts = snsPosts();
-  const drafts = posts.filter((p) => p.status === "draft" && p.author === "ai");
+  // 投稿前の下書きは運営者だけに渡す（画面で隠すのではなく、来訪者にはデータごと送らない）
+  const drafts = owner ? posts.filter((p) => p.status === "draft" && p.author === "ai") : [];
   const posted = posts.filter((p) => p.status === "posted");
   const projects = projectSns();
   const shown = acc.filter((a) => a.configured);
-  const owner = await isOwner();
   const fromIndex = db().prepare("SELECT id, title, index_visits, index_uses FROM projects WHERE demo = 0 AND index_visits > 0 ORDER BY index_visits DESC").all() as { id: number; title: string; index_visits: number; index_uses: number }[];
   // 来た人には、コメントの相手と本文を伏せる（AIの返信の案は、@アカウント名を伏せて出す）
   const comments = listComments().map((c) => (owner ? c : { ...c, author: "（デモ表示）", text: HIDDEN, draft: c.draft ? maskHandles(c.draft) : c.draft, reply_url: null }));
@@ -178,7 +179,10 @@ export default async function GrowthPage() {
         )}
       </section>
 
-      {/* これから出る下書き */}
+      {/* これから出る下書き（運営者だけ） */}
+      {!owner ? (
+        <p className="card p-4 text-sm text-ink-2">投稿前の下書きは、運営者だけに表示しています。</p>
+      ) : (
       <section className="space-y-2">
         <div>
           <h2 className="font-bold">これから投稿される下書き（{drafts.length}件）</h2>
@@ -202,6 +206,7 @@ export default async function GrowthPage() {
           </ul>
         )}
       </section>
+      )}
 
       {/* AIだけで出した投稿の見直し（毎日の計画から移した） */}
       <section id="posts" className="card scroll-mt-4 space-y-3 p-4">

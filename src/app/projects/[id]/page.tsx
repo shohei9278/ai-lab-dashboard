@@ -377,7 +377,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           ready={!!publicUrl(p.id)}
           account={s.snsAccount}
           imageUrl={publicUrl(p.id) ? `${publicUrl(p.id)}/opengraph-image?v=${p.public_version ?? p.lp_version}` : null}
-          posts={listPosts(p.id).map((x) => ({
+          // 投稿前の下書きは運営者だけに渡す（来訪者には投稿済みだけを、データごと絞って送る）
+          posts={listPosts(p.id).filter((x) => owner || x.status === "posted").map((x) => ({
             id: x.id, code: x.code, platform: x.platform, angle: x.angle, text: x.text, author: x.author, status: x.status === "posted" ? "posted" : "draft", postedAt: x.posted_at,
             postUrl: x.post_url, impressions: x.impressions, visits: x.visits, conversions: x.conversions, link: postLink(p.id, x.code),
           }))}
