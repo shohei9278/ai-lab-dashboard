@@ -50,29 +50,32 @@ test("自動の依頼: 守りは1日たってから、攻めは7点以上だけ�
   clear();
   const [f] = addReviewFindings([fix("守りA")]).added;
   const [g] = addReviewFindings([grow("攻めA")]).added;
-  // 入ったばかりは頼まない（運営者が見送れるように）
+  db().prepare("DELETE FROM events WHERE kind = 'auto-ask'").run();
+  // 守りは、入ったばかりは頼まない（運営者が見送れるように）。攻めは点がまだない
   assert.equal(nextAutoAsk(), null);
   old(f);
-  old(g);
   assert.equal(nextAutoAsk()?.row.id, f);
-  // 守りを頼んで PR が開いている間は、攻めも頼まない
-  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_note = '自動: x', ai_fix_pr = 1, ai_fix_pr_state = 'open' WHERE id = ?").run(f);
+  // 守りを頼んで PR が開いている間は、攻めも頼まない。提案を見送っても、PR が開いていれば数える
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_note = '自動: x', ai_fix_pr = 1, ai_fix_pr_state = 'open', status = 'declined' WHERE id = ?").run(f);
+  db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (NULL, 'system', 'auto-ask', '提案箱の「守りA」を、自動で頼みました（自動: コードの見直しの守りの提案で、1日たっても見送られなかった）')").run();
   assert.equal(nextAutoAsk(), null);
-  // PR がマージされて「やった」になったら、次は攻め。ただし7点未満は頼まない
+  // PR がマージされたら、次は攻め（攻めは入ってからの待ちなし）。ただし7点未満は頼まない
   db().prepare("UPDATE plan_requests SET ai_fix_pr_state = 'merged', status = 'done' WHERE id = ?").run(f);
   db().prepare("UPDATE plan_requests SET score = 6.5 WHERE id = ?").run(g);
   assert.equal(nextAutoAsk(), null);
   db().prepare("UPDATE plan_requests SET score = 7.4 WHERE id = ?").run(g);
   assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [g, "自動: コードの見直しの攻めの提案で、定例会議で3社の平均7.4点"]);
-  // 守りは1日に1件まで
+  // 守りは1日に1件まで（人が頼み直して提案の欄が上書きされても、記録から数える）
   const [f2] = addReviewFindings([fix("守りB")]).added;
   old(f2);
+  db().prepare("UPDATE plan_requests SET ai_fix_note = '人が頼み直した' WHERE id = ?").run(f);
   assert.equal(nextAutoAsk()?.row.id, g);
   assert.ok(REVIEW_SCENE);
 });
 
 test("自動の依頼: 設定でオフ・緊急停止・ルーティンがつながっていないときは頼まない。頼んだら記録する", async () => {
   clear();
+  db().prepare("DELETE FROM events WHERE kind = 'auto-ask'").run();
   const [f] = addReviewFindings([fix("守りC")]).added;
   old(f);
   process.env.CLAUDE_ROUTINE_FIRE_URL = FIRE;
