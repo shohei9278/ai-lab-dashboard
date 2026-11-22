@@ -725,6 +725,22 @@ test("LPのチェックに渡すツールの中身: 選択肢・最初の値・�
   assert.match(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp, undefined, toolFactsForReview(html, 20)).user, /途中までしか渡していない/);
 });
 
+test("LP作成に渡すツールの例外の文言: エラーや代わりの動きの文だけを、画面とスクリプトの両方から取り出す", async () => {
+  const { toolExceptionTexts } = await import("../src/lib/loop");
+  const html = `<style>.e{color:red}</style><h2>記録する</h2><p class="err" hidden>この環境では保存できません。閉じると記録は消えます</p><button>はかる</button><script>try { x() } catch { msg.textContent = "センサーが使えないため、手動で入力してください"; } const ok = "記録しました"; console.log("error");</script>`;
+  const t = toolExceptionTexts(html);
+  assert.match(t, /この環境では保存できません。閉じると記録は消えます/);
+  assert.match(t, /センサーが使えないため、手動で入力してください/);
+  assert.doesNotMatch(t, /記録しました|はかる|記録する|color|error/);
+  assert.equal(toolExceptionTexts(`<button>はかる</button>`), "");
+  // 長いときは、文の途中で切らずに入る分だけ
+  const many = Array.from({ length: 20 }, (_, i) => `<p>${i}番目の場合は保存できません</p>`).join("");
+  const cut = toolExceptionTexts(many, 60);
+  assert.ok(cut.length <= 60);
+  assert.match(cut, /^0番目の場合は保存できません/);
+  assert.match(cut, /保存できません$/);
+});
+
 test("最初の届け方の実施: 公開のときに提案箱へ入れたお願いの返事を、そのまま記録として読む", async () => {
   const { firstChannelState, firstChannelLabel } = await import("../src/lib/loop");
   const { addProposal } = await import("../src/lib/voices");
