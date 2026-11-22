@@ -4,7 +4,7 @@
 // - 直させる: 直すべき指摘があれば、提案箱のルーティンに、同じブランチで直させる（3回まで）
 // - 人に回す: 3回直しても残る・自動で触れない所に触れている・CI が落ちた・レビューがそろわない
 // したことは PR にコメントし、Discord に知らせる。PR のコードは動かさない（GitHub の API で読むだけ）
-import { AUTO_BRANCH, HUMAN_MARK, decide, fixMarker, fixRequested, fixRounds, handedToHuman, reviewMarks, type Decision, type PrComment } from "./auto-merge-rules";
+import { AUTO_BRANCH, HUMAN_MARK, blockingFindings, changedPaths, decide, fixMarker, fixRequested, fixRounds, handedToHuman, reviewMarks, type Decision, type PrComment } from "./auto-merge-rules";
 
 const { GITHUB_REPOSITORY, GITHUB_TOKEN, AUTO_MERGE_TOKEN, NOTIFY_WEBHOOK_URL, CLAUDE_ROUTINE_FIRE_URL, CLAUDE_ROUTINE_TOKEN } = process.env;
 const DASHBOARD = "https://ai-lab-dashboard-production-fc9e.up.railway.app";
@@ -48,7 +48,8 @@ async function productionIdle(): Promise<boolean | null> {
 
 // main の本番の確認（smoke.yml）の、いちばん新しい結果
 async function smokeOk(): Promise<boolean | null> {
-  const r = await gh<{ workflow_runs: { conclusion: string | null }[] }>("/actions/workflows/smoke.yml/runs?status=completed&per_page=10").catch(() => null);
+  // main の結果だけを見る（ほかのブランチの結果で決めない。PR #153 の ai-review の指摘）
+  const r = await gh<{ workflow_runs: { conclusion: string | null }[] }>("/actions/workflows/smoke.yml/runs?branch=main&status=completed&per_page=10").catch(() => null);
   const last = r?.workflow_runs.find((x) => x.conclusion && x.conclusion !== "skipped" && x.conclusion !== "cancelled");
   return last ? last.conclusion === "success" : null;
 }
@@ -60,9 +61,9 @@ function fixText(pr: Pull, reviews: string[]): string {
     `PR #${pr.number}: ${pr.title}`,
     `ブランチ: ${pr.head.ref}`,
     `直す版: ${pr.head.sha}`,
-    "指摘（この版へのレビュー。🔴・🟡 を直す。⚪ は直さなくてよい）:",
-    ...reviews.map((b) => b.replace(/<!--[\s\S]*?-->/g, "").slice(0, 3000)),
-  ].join("\n");
+    "直す指摘（この版へのレビューの 🔴・🟡）:",
+    ...reviews.flatMap(blockingFindings),
+  ].join("\n").slice(0, 20_000);
 }
 
 async function fireFix(text: string) {
@@ -86,7 +87,13 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   const checks = (await gh<{ check_runs: CheckRun[] }>(`/commits/${pr.head.sha}/check-runs?per_page=50`)).check_runs;
   // CI とレビューが終わるまで待つ（終わったら、CI の完了でもう一度呼ばれる）
   if (!checks.length || checks.some((c) => c.status !== "completed")) return { action: "wait", reason: "CI とレビューが終わっていない" };
-  const files = (await gh<{ filename: string }[]>(`/pulls/${pr.number}/files?per_page=100`)).map((f) => f.filename);
+  // 変えたファイルを全部読む（100件ずつ。GitHub は1つの PR で3000件まで）。名前を変えたものは、前の名前も見る
+  const files: string[] = [];
+  for (let page = 1; page <= 30; page++) {
+    const got = await gh<{ filename: string; previous_filename?: string }[]>(`/pulls/${pr.number}/files?per_page=100&page=${page}`);
+    files.push(...changedPaths(got));
+    if (got.length < 100) break;
+  }
   const d = decide({
     branch: pr.head.ref, sameRepo: pr.head.repo?.full_name === GITHUB_REPOSITORY, draft: pr.draft,
     ciOk: checks.find((c) => c.name === "check")?.conclusion === "success",
@@ -102,8 +109,15 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   } else if (d.action === "fix") {
     if (fixRequested(comments, pr.head.sha)) return { action: "wait", reason: "この版の直しは頼んだ" };
     const reviews = comments.filter((c) => c.user?.login === "github-actions[bot]" && c.body.includes(`"sha":"${pr.head.sha}"`)).map((c) => c.body);
-    await fireFix(fixText(pr, reviews));
-    await comment(pr.number, `🔧 ${d.reason}。提案箱のルーティンに、このブランチで直してもらうよう頼みました。\n\n${fixMarker(pr.head.sha)}`);
+    // 先に「頼む」という印を書いてから起動する（起動のあとに印を書けないと、次の見回りで同じ版の直しをもう一度頼んでしまうため。PR #153 の ai-review の指摘）
+    // 起動に失敗したときは、印のコメントを消して、次の見回りで頼み直せるようにする
+    const mark = await gh<{ id: number }>(`/issues/${pr.number}/comments`, { method: "POST", body: JSON.stringify({ body: `🔧 ${d.reason}。提案箱のルーティンに、このブランチで直してもらうよう頼みます。\n\n${fixMarker(pr.head.sha)}` }) });
+    try {
+      await fireFix(fixText(pr, reviews));
+    } catch (e) {
+      await gh(`/issues/comments/${mark.id}`, { method: "DELETE" }).catch(() => undefined);
+      throw e;
+    }
     await notify(`🔧 レビューの指摘を、ルーティンに直してもらいます: ${link}\n${d.reason}`);
   } else if (d.action === "human") {
     await comment(pr.number, `🙋 自動ではマージしません: ${d.reason}。人が見て判断してください。\n\n${HUMAN_MARK}`);

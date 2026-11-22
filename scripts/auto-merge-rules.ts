@@ -20,14 +20,17 @@ export const PROTECTED: RegExp[] = [
   /^CLAUDE\.md$/, /^AGENTS\.md$/,
 ];
 export const protectedFiles = (files: string[]) => files.filter((f) => PROTECTED.some((re) => re.test(f)));
+// PR の変えたファイル（GitHub の files API の1件）。名前を変えたときは、前の名前も見る（危ない所から外へ名前を変えて、見張りをすり抜けないように。PR #153 の ai-review の指摘）
+export const changedPaths = (files: { filename: string; previous_filename?: string }[]) => files.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]));
 
 // レビューのコメントの最後に付ける印（自動マージが読む）
 export type ReviewMark = { reviewer: Reviewer; sha: string; parsed: boolean; cut: boolean; high: number; medium: number; low: number };
 const MARK = "<!-- ai-review ";
-export function reviewMarker(r: { reviewer: Reviewer; sha: string; parsed: boolean; cut: boolean; findings: { severity?: string }[] }): string {
-  const n = (s: string) => r.findings.filter((f) => (f.severity ?? "low") === s).length;
-  // 知らない重さは、いちばん重いものとして数える（読み違えて見逃さないように）
-  const unknown = r.findings.filter((f) => !["high", "medium", "low"].includes(f.severity ?? "low")).length;
+export function reviewMarker(r: { reviewer: Reviewer; sha: string; parsed: boolean; cut: boolean; findings: unknown[] }): string {
+  const sev = (f: unknown) => (typeof f === "object" && f !== null ? (f as { severity?: unknown }).severity : undefined);
+  const n = (s: string) => r.findings.filter((f) => sev(f) === s).length;
+  // 重さが書かれていない・知らない重さ・形のおかしい指摘は、いちばん重いものとして数える（読み違えて見逃さないように。PR #153 の ai-review の指摘）
+  const unknown = r.findings.filter((f) => !["high", "medium", "low"].includes(String(sev(f)))).length;
   const m: ReviewMark = { reviewer: r.reviewer, sha: r.sha, parsed: r.parsed, cut: r.cut, high: n("high") + unknown, medium: n("medium"), low: n("low") };
   return `${MARK}${JSON.stringify(m)} -->`;
 }
@@ -86,4 +89,19 @@ export function decide(x: {
   if (x.smokeOk === false) return { action: "wait", reason: "本番の確認がいま失敗しているので、自動マージを止めている" };
   if (x.productionIdle !== true) return { action: "wait", reason: x.productionIdle === false ? "本番が作業中" : "本番が止まっているか分からない" };
   return { action: "merge", reason: "CI が通り、GPT と Gemini のどちらも直すべき指摘なし" };
+}
+
+// 指摘は、🔴・🟡 の行とその下の説明だけを抜き出して渡す（前は先頭3000文字で切っていて、後ろの指摘が渡らないことがあった。PR #153 の ai-review の指摘）
+export function blockingFindings(body: string): string[] {
+  const out: string[] = [];
+  let cur: string[] | null = null;
+  for (const line of body.replace(/<!--[\s\S]*?-->/g, "").split("\n")) {
+    if (/^- [🔴🟡⚪]/u.test(line)) {
+      cur = /^- [🔴🟡]/u.test(line) ? [line] : null;
+      if (cur) out.push("");
+    } else if (cur && /^\s+- /.test(line)) cur.push(line);
+    else cur = null;
+    if (cur) out[out.length - 1] = cur.join("\n");
+  }
+  return out.filter(Boolean);
 }

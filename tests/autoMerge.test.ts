@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decide, fixMarker, fixRequested, fixRounds, handedToHuman, HUMAN_MARK, protectedFiles, reviewMarker, reviewMarks, type PrComment } from "../scripts/auto-merge-rules";
+import { blockingFindings, changedPaths, decide, fixMarker, fixRequested, fixRounds, handedToHuman, HUMAN_MARK, protectedFiles, reviewMarker, reviewMarks, type PrComment } from "../scripts/auto-merge-rules";
 
 // 自動マージの決まり: ルーティンが作った PR を、マージ・直させる・人に回す・待つ、のどれにするか
 
@@ -58,3 +58,22 @@ test("自動マージ: レビューの印は、ボットのコメントだけを
   assert.equal(handedToHuman([bot(`人に回します ${HUMAN_MARK}`)]), true);
   assert.equal(handedToHuman([{ body: HUMAN_MARK, user: { login: "someone" } }]), false);
 });
+
+test("自動マージ: 名前を変えたファイルは前の名前も見る（危ない所から外へ名前を変えて、すり抜けない）", () => {
+  const paths = changedPaths([{ filename: "src/lib/helper.ts", previous_filename: "src/lib/ai.ts" }, { filename: "src/lib/loop.ts" }]);
+  assert.deepEqual(paths, ["src/lib/helper.ts", "src/lib/ai.ts", "src/lib/loop.ts"]);
+  assert.equal(base([review("gpt", []), review("gemini", [])], { files: paths }).action, "human");
+});
+
+test("自動マージ: 重さが書かれていない・形のおかしい指摘は 🔴 として数える", () => {
+  const m = (findings: unknown[]) => reviewMarks([bot(reviewMarker({ reviewer: "gpt", sha: SHA, parsed: true, cut: false, findings }))], SHA).gpt!;
+  assert.equal(m([{}]).high, 1);
+  assert.equal(m(["文字だけ"]).high, 1);
+  assert.equal(m([{ severity: "low" }]).high, 0);
+});
+
+test("自動マージ: ルーティンには 🔴・🟡 の指摘だけを、説明ごと抜き出して渡す（長いレビューでも後ろの指摘を落とさない）", () => {
+  const body = ["### 別のAI（gpt）のレビュー", "全体の所感".repeat(500), "- ⚪ `a.ts` 細かい", "  - 理由", "- 🔴 `b.ts:3` 大事な問題", "  - 起きること", "  - 直し方: こうする", "- 🟡 `c.ts` 次の問題", "  - 理由2", "", "<!-- ai-review {} -->"].join("\n");
+  assert.deepEqual(blockingFindings(body), ["- 🔴 `b.ts:3` 大事な問題\n  - 起きること\n  - 直し方: こうする", "- 🟡 `c.ts` 次の問題\n  - 理由2"]);
+});
+

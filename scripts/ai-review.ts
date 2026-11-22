@@ -85,13 +85,14 @@ async function main() {
   try {
     const out = JSON.parse(outputText.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")) as { summary?: string; findings?: Finding[] };
     summary = String(out.summary ?? "");
-    findings = Array.isArray(out.findings) ? out.findings.slice(0, 8) : [];
+    // 形のおかしい指摘も落とさず、重さの分からないものとして載せる（自動マージは 🔴 として数える）
+    findings = Array.isArray(out.findings) ? out.findings.slice(0, 8).map((f) => (typeof f === "object" && f !== null ? f : ({ file: "?", issue: String(f), why: "" } as unknown as Finding))) : [];
     parsed = Array.isArray(out.findings);
   } catch {
     summary = outputText.slice(0, 3000);
   }
   const mark = { high: "🔴", medium: "🟡", low: "⚪" } as const;
-  const lines = findings.map((f) => `- ${mark[f.severity] ?? "⚪"} \`${f.file}${f.line ? `:${f.line}` : ""}\` ${f.issue}\n  - ${f.why}${f.fix ? `\n  - 直し方: ${f.fix}` : ""}`);
+  const lines = findings.map((f) => `- ${mark[f.severity] ?? "🔴"} \`${f.file}${f.line ? `:${f.line}` : ""}\` ${f.issue}\n  - ${f.why}${f.fix ? `\n  - 直し方: ${f.fix}` : ""}`);
   await comment([
     `### 別のAI（${MODEL}）のレビュー`,
     "参考意見です。デプロイは止めません。採用するかは人が判断します。",
