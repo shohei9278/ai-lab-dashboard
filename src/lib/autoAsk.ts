@@ -1,0 +1,51 @@
+import { aiFixConfigured, startAiFix } from "./aiFix";
+import { GROWTH_SCENE, REVIEW_SCENE } from "./codeReview";
+import { db, getSettings } from "./db";
+import { logEvent } from "./loop";
+import type { Fetch } from "./routine";
+
+// コードの見直しの提案を、運営者が押さなくても、自動で提案箱のルーティンに頼む（運営者が決めた。人の出番を減らす4つ目）
+// - 守り（直すべき所）: 入ってから1日たったら頼む（その間に運営者が見送れば頼まない）。1日に1件まで
+// - 攻め（足すとよい機能）: 定例会議で3社が採点し、7点以上のものだけ。入ってから1日たったら、点の高い順に頼む。7日に1件まで
+// - 一度に頼むのは1件だけ（前に頼んだ PR がまだ開いている・PR ができていない間は頼まない）
+// - できた PR は、自動マージ（scripts/auto-merge.ts）が、CI と GPT・Gemini のレビューを見てマージする
+// - 設定の「見直しの提案を自動で頼む」で切れる。緊急停止の間は頼まない
+export const GROWTH_MIN_SCORE = 7;
+const WAIT = "-1 day";
+
+type Row = { id: number; title: string; scene: string; score: number | null };
+
+// 次に自動で頼む提案（なければ null）と、その理由
+export function nextAutoAsk(): { row: Row; why: string } | null {
+  // 頼んだ改善が進んでいる間は、次を頼まない（PR が開いている・頼んでから PR が見つかっていない）
+  const busy = db().prepare("SELECT 1 FROM plan_requests WHERE status = 'open' AND ai_fix_at IS NOT NULL AND (ai_fix_pr_state = 'open' OR (ai_fix_pr IS NULL AND ai_fix_at >= datetime('now', '-1 day')))").get();
+  if (busy) return null;
+  const asked = (scene: string, days: number) => (db().prepare("SELECT COUNT(*) AS n FROM plan_requests WHERE source = 'review' AND scene = ? AND ai_fix_note LIKE '自動%' AND ai_fix_at >= datetime('now', ?)").get(scene, `-${days} days`) as { n: number }).n;
+  if (asked(REVIEW_SCENE, 1) === 0) {
+    const fix = db().prepare("SELECT id, title, scene, score FROM plan_requests WHERE source = 'review' AND scene = ? AND target = 'system' AND status = 'open' AND ai_fix_at IS NULL AND created_at <= datetime('now', ?) ORDER BY repeats DESC, id LIMIT 1").get(REVIEW_SCENE, WAIT) as Row | undefined;
+    if (fix) return { row: fix, why: "自動: コードの見直しの守りの提案で、1日たっても見送られなかった" };
+  }
+  if (asked(GROWTH_SCENE, 7) === 0) {
+    const grow = db().prepare("SELECT id, title, scene, score FROM plan_requests WHERE source = 'review' AND scene = ? AND target = 'system' AND status = 'open' AND ai_fix_at IS NULL AND score >= ? AND created_at <= datetime('now', ?) ORDER BY score DESC, id LIMIT 1").get(GROWTH_SCENE, GROWTH_MIN_SCORE, WAIT) as Row | undefined;
+    if (grow) return { row: grow, why: `自動: コードの見直しの攻めの提案で、定例会議で3社の平均${grow.score!.toFixed(1)}点` };
+  }
+  return null;
+}
+
+// 定期の処理から呼ぶ（1時間に1回）。頼んだら true
+const g = globalThis as unknown as { __aiLabAutoAskAt?: number };
+export async function maybeAutoAsk(fetchImpl: Fetch = fetch, force = false): Promise<boolean> {
+  if (!force && g.__aiLabAutoAskAt && Date.now() - g.__aiLabAutoAskAt < 3_600_000) return false;
+  g.__aiLabAutoAskAt = Date.now();
+  const s = getSettings();
+  if (!s.autoAskReview || s.killSwitch || !aiFixConfigured()) return false;
+  const next = nextAutoAsk();
+  if (!next) return false;
+  try {
+    await startAiFix(next.row.id, next.why, fetchImpl, "auto");
+    return true;
+  } catch (e) {
+    logEvent(null, "system", "auto-ask-error", `提案箱の「${next.row.title}」を自動で頼めませんでした: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
+    return false;
+  }
+}

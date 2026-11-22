@@ -8,7 +8,10 @@ import { addProposal, countRepeat } from "./voices";
 // - 入れられるのは、6日のあいだに5件まで（毎回たまって、選ぶ手間が増えないように）
 
 export const REVIEW_SCENE = "コードの見直し";
+// 攻め: 直すべき所（守り）ではなく、実験を伸ばすために足すとよい機能。定例会議で3社が採点し、点の高いものを自動でルーティンに頼む（autoAsk.ts）
+export const GROWTH_SCENE = "コードの見直し（攻め）";
 export const REVIEW_MAX = 5;
+export const GROWTH_MAX = 2; // 5件のうち、攻めは2件まで
 const REVIEW_WINDOW = "-6 days";
 const TITLE_MAX = 80;
 const HOW_MAX = 600;
@@ -30,7 +33,9 @@ const isText = (v: unknown, max: number): v is string => typeof v === "string" &
 export function addReviewFindings(raw: unknown): { added: number[]; skipped: string[] } {
   if (!Array.isArray(raw)) throw new Error("items は配列にしてください");
   const recent = (db().prepare("SELECT COUNT(*) AS n FROM plan_requests WHERE source = 'review' AND created_at >= datetime('now', ?)").get(REVIEW_WINDOW) as { n: number }).n;
+  const recentGrowth = (db().prepare("SELECT COUNT(*) AS n FROM plan_requests WHERE source = 'review' AND scene = ? AND created_at >= datetime('now', ?)").get(GROWTH_SCENE, REVIEW_WINDOW) as { n: number }).n;
   let room = Math.max(0, REVIEW_MAX - recent);
+  let growthRoom = Math.max(0, GROWTH_MAX - recentGrowth);
   const added: number[] = [];
   const skipped: string[] = [];
   raw.slice(0, REVIEW_MAX).forEach((item, i) => {
@@ -40,17 +45,27 @@ export function addReviewFindings(raw: unknown): { added: number[]; skipped: str
       skipped.push(`${label}: title（${TITLE_MAX}文字まで）・how（${HOW_MAX}文字まで）・why（${WHY_MAX}文字まで）がそろっていない`);
       return;
     }
+    const growth = x.kind === "growth";
+    if (x.kind !== undefined && x.kind !== "fix" && !growth) {
+      skipped.push(`${label}: kind は fix（守り）か growth（攻め）にしてください`);
+      return;
+    }
+    if (growth && growthRoom <= 0) {
+      skipped.push(`${label}: 6日のあいだに入れられる攻めの${GROWTH_MAX}件を超えた`);
+      return;
+    }
     if (room <= 0) {
       // 上限に達していても、同じ趣旨の提案が返事待ちなら「何回出たか」は数える（PR #141 の ai-review の指摘）
       const p = { title: x.title, how: x.how, target: "system" as const, source: "review" as const };
       skipped.push(countRepeat(p) ? `${label}: 同じ題か同じ趣旨の提案がすでにある` : `${label}: 6日のあいだに入れられる${REVIEW_MAX}件を超えた`);
       return;
     }
-    const id = addProposal({ title: x.title, how: x.how, why: x.why, target: "system", source: "review", scene: REVIEW_SCENE, proposer: null });
+    const id = addProposal({ title: x.title, how: x.how, why: x.why, target: "system", source: "review", scene: growth ? GROWTH_SCENE : REVIEW_SCENE, proposer: null });
     if (id === null) skipped.push(`${label}: 同じ題か同じ趣旨の提案がすでにある`);
     else {
       added.push(id);
       room--;
+      if (growth) growthRoom--;
     }
   });
   if (raw.length > REVIEW_MAX) skipped.push(`${REVIEW_MAX}件を超えた分（${raw.length - REVIEW_MAX}件）は読んでいない`);
@@ -59,8 +74,8 @@ export function addReviewFindings(raw: unknown): { added: number[]; skipped: str
 
 // 見直しの前に読む、いまの「仕組みの改善」（返事待ちと、60日のあいだに返事をしたもの）。同じことを出さないため
 // 件数で切らない（切ると古いものが抜けて、同じ提案をまた出すため。PR #141 の ai-review の指摘）
-export function reviewContext(): { id: number; title: string; how: string | null; status: string; source: string; note: string | null }[] {
+export function reviewContext(): { id: number; title: string; how: string | null; status: string; source: string; scene: string | null; score: number | null; note: string | null }[] {
   return db().prepare(
-    "SELECT id, title, how, status, source, note FROM plan_requests WHERE target = 'system' AND (status = 'open' OR decided_at >= datetime('now', '-60 days')) ORDER BY id DESC",
-  ).all() as { id: number; title: string; how: string | null; status: string; source: string; note: string | null }[];
+    "SELECT id, title, how, status, source, scene, score, note FROM plan_requests WHERE target = 'system' AND (status = 'open' OR decided_at >= datetime('now', '-60 days')) ORDER BY id DESC",
+  ).all() as { id: number; title: string; how: string | null; status: string; source: string; scene: string | null; score: number | null; note: string | null }[];
 }

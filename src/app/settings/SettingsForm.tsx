@@ -179,6 +179,13 @@ export function SettingsForm({ initial, models, publishing, snsReady, notifyRead
               <span className="block text-xs text-muted">ツールを書く担当（Claude Opus・Claude Sonnet・GPT）の交代に、4つ目として「Claude Code（ルーティン）」を入れます。作った数が一番少ない担当の番に、ルーティンが作ります（AIが設計書を書き、開発待ちにします）。1回で書くAIと、直しながら作る Claude Code を、テストの通りやすさ・遊ばれ方で比べられます。頼む数は、じっくり案件と合わせて下の数の範囲です。</span>
             </span>
           </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={v.autoAskReview} onChange={(e) => set("autoAskReview", e.target.checked)} />
+            <span>
+              コードの見直しの提案を、自動で提案箱のルーティンに頼む
+              <span className="block text-xs text-muted">守り（直すべき所）は、入ってから1日たっても見送らなければ頼みます（1日1件まで）。攻め（足すとよい機能）は、定例会議で3社が7点以上を付けたものだけ、点の高い順に頼みます（7日に1件まで）。一度に頼むのは1件だけです。できた PR は、CI と GPT・Gemini のレビューで直すべき指摘がなければ自動でマージされます。</span>
+            </span>
+          </label>
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="同時に頼む数" note="頼んでから3時間以内で、まだツールが入っていないものを、作業中として数えます。0 で自動では頼みません。"><input type="number" min={0} max={5} {...num("toolRoutineConcurrent")} className={input} /></Field>
             <Field label="1日（24時間）に頼む数" note="手で頼んだ分も数えます。0 で自動では頼みません。"><input type="number" min={0} max={20} {...num("toolRoutinePerDay")} className={input} /></Field>

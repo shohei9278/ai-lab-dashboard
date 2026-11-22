@@ -34,6 +34,7 @@ export async function POST(req: Request) {
   if (typeof body.toolRoutineAuto === "boolean") patch.toolRoutineAuto = body.toolRoutineAuto;
   if (typeof body.toolRoutineFixHeld === "boolean") patch.toolRoutineFixHeld = body.toolRoutineFixHeld;
   if (typeof body.toolRoutineNormal === "boolean") patch.toolRoutineNormal = body.toolRoutineNormal;
+  if (typeof body.autoAskReview === "boolean") patch.autoAskReview = body.autoAskReview;
   if (typeof body.autoPost === "boolean") patch.autoPost = body.autoPost;
   if (typeof body.dailyPlan === "boolean") patch.dailyPlan = body.dailyPlan;
   if (typeof body.dailyReport === "boolean") patch.dailyReport = body.dailyReport;
