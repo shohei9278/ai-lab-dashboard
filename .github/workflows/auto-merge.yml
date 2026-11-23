@@ -1,0 +1,50 @@
+# 自動マージ: ルーティンが作った PR（claude/proposal-<番号>）を見回り、マージ・ルーティンに直させる・人に回す、のどれかをする（scripts/auto-merge.ts）
+# CI が終わるたびと、30分ごと（本番が作業中で待ったものを拾うため）に動く
+# 動かすのは main のスクリプトだけで、PR のコードは動かさない（PR の差分は git で取り出してレビューの材料にするだけ。レビューは、この見回りの中で GPT と Gemini に頼む）
+# マージは AUTO_MERGE_TOKEN（このリポジトリだけの fine-grained トークン）で行う。Actions の標準のトークンでマージすると、main の CI が動かず、Railway が本番に出さないため
+name: 自動マージ
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  schedule:
+    - cron: "15,45 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+  checks: read
+  actions: read
+
+concurrency:
+  group: auto-merge
+  cancel-in-progress: false
+
+jobs:
+  auto-merge:
+    # 手で動かすときも、main からだけ（ほかのブランチで書き換えたスクリプトを、マージ用のトークン付きで動かさない。PR #153 の ai-review の指摘）
+    if: github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          # PR の差分を取り出すため（PR のコードは動かさない）
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx tsx scripts/auto-merge.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AUTO_MERGE_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+          NOTIFY_WEBHOOK_URL: ${{ secrets.NOTIFY_WEBHOOK_URL }}
+          CLAUDE_ROUTINE_FIRE_URL: ${{ secrets.CLAUDE_ROUTINE_FIRE_URL }}
+          CLAUDE_ROUTINE_TOKEN: ${{ secrets.CLAUDE_ROUTINE_TOKEN }}
+          # レビューは、この見回りの中で GPT と Gemini に頼む（PR のコメントの「指摘なし」は信じない）
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

@@ -19,7 +19,7 @@
 3. 同じ画面にある起動の URL（`https://api.anthropic.com/v1/claude_code/routines/trig_…/fire`）も控えます
 
 ## 3. Railway に入れる
-ダッシュボードの Railway の Variables に、次の2つを入れます。ほかの場所（会話・コード・GitHub）には置きません。
+ダッシュボードの Railway の Variables に、次の2つを入れます。会話・コードには置きません（自動マージがレビューの指摘を直させるために、GitHub の Secrets にも同じ値を入れます。下の「自動マージ」）。
 
 | 名前 | 値 |
 | --- | --- |
@@ -58,3 +58,23 @@
 | `LAB_REVIEW_TOKEN` | 見直しのルーティンがダッシュボードに入る合言葉（32文字以上。`openssl rand -hex 32` などで作る。ルーティンの環境の変数と同じ値） |
 
 入れた提案は、提案箱で出どころが「コードの見直し（Claude Code）」になります。直すときは、ほかの提案と同じく「AIに直させる」を押します。
+
+## 自動マージ（ルーティンが作った PR）
+ルーティンが作った PR（`claude/proposal-<番号>`）は、`.github/workflows/auto-merge.yml` が CI の終わったときと30分ごとに見回り、次のどれかをします（決まりは `scripts/auto-merge-rules.ts`）。したことは PR にコメントし、Discord に知らせます。
+見回りは必ず main のコードで動き、ほかの条件がそろったときに、GPT と Gemini へのレビューを自分で頼み、その答えだけでマージするかを決めます（PR のコメントは誰でもボットとして書けるので、「指摘なし」のコメントは信じません）。ルーティンの PR には、CI の ai-review は動きません。
+2回目からのレビューには、見回りが書いた前の版へのレビューを「直ったかを確かめる項目」として渡します（直っていない指摘を見落とさないように）。対象は main 向けの PR だけで、マージの直前に、本番が作業中でないか・本番の確認が通っているかを見直します。
+- マージ: CI が通り、GPT と Gemini のどちらのレビューも直すべき指摘（🔴・🟡）なし・自動で触れない所（`.github/`・レビューと自動マージ・来訪者の入口・予算と緊急停止・合言葉・人の手の記録・依存・ルーティンへの指示 など）に触れていない・本番が作業中でない・本番の確認が通っている
+- 直させる: 直すべき指摘があれば、提案箱のルーティンに、同じブランチで直させる（3回まで。ルーティンへの指示の「レビューの指摘を直す」）
+- 人に回す: 3回直しても残る・自動で触れない所に触れている・CI が落ちた・レビューの答えを読めない・同じ版で3回レビューを頼めない・レビューを頼む API キーがない
+
+GitHub の Settings → Secrets and variables → Actions に、次を入れます。
+
+| 名前 | 値 |
+| --- | --- |
+| `AUTO_MERGE_TOKEN` | このリポジトリだけの fine-grained トークン（Contents と Pull requests を Read and write）。Actions の標準のトークンでマージすると、main の CI が動かず Railway が本番に出さないため、別に要ります |
+| `GEMINI_API_KEY` | 見回りが頼む Gemini のレビュー用（GPT は、すでにある `OPENAI_API_KEY` を使う） |
+| `CLAUDE_ROUTINE_FIRE_URL` | 提案箱のルーティンの起動の URL（Railway と同じ値） |
+| `CLAUDE_ROUTINE_TOKEN` | 提案箱のルーティンのトークン（Railway と同じ値） |
+
+止めるときは、GitHub の Actions の画面で「自動マージ」の workflow を Disable にするか、`AUTO_MERGE_TOKEN` を消します（消すと、マージだけをせずに待ちます）。人に回した PR は、自動マージはもう触りません。
+
