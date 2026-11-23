@@ -97,6 +97,9 @@ test("自動マージ: 見回りが書いた前の版へのレビューを、次
   assert.equal(reviewPosted([mine], "gemini", "old1"), false);
   assert.match(reviewInstructions({ autoPr: true, withHistory: false, recheck: true }), /直っているかを1件ずつ確かめ/);
   assert.doesNotMatch(reviewInstructions({ autoPr: true, withHistory: false }), /前の版へのレビュー/);
+  // 予算の中なら費用が増えてもよいが、緊急停止と予算の上限を確かめずにAIを呼ぶ変更は 🔴（運営者が決めた）
+  assert.match(reviewInstructions({ autoPr: true, withHistory: false }), /予算の上限を確かめずにAIを呼ぶ変更.*high にする/);
+  assert.doesNotMatch(reviewInstructions({ autoPr: false, withHistory: false }), /予算の上限を確かめずに/);
 });
 
 test("自動マージ: ルーティンの起動ではっきり断られたのは 4xx だけ（408・429・5xx は届いたか分からないので、直しの印を残す）", () => {
