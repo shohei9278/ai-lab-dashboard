@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FIX_TEXT_MAX, HUMAN_MARK, afterReview, beforeReview, changedPaths, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, protectedFiles, type PrComment } from "../scripts/auto-merge-rules";
-import { parseReview, type Review } from "../scripts/ai-review-core";
+import { FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, protectedFiles, reviewHistory, reviewMarker, reviewPosted, type PrComment } from "../scripts/auto-merge-rules";
+import { parseReview, reviewInstructions, type Review } from "../scripts/ai-review-core";
 
 // 自動マージの決まり: ルーティンが作った PR を、マージ・直させる・人に回す・待つ、のどれにするか
 // マージに進む判断は、見回りが自分で呼んだレビューの答えだけで決める（PR のコメントの「指摘なし」は信じない）
@@ -9,8 +9,8 @@ import { parseReview, type Review } from "../scripts/ai-review-core";
 const SHA = "abc123";
 const bot = (body: string): PrComment => ({ body, user: { login: "github-actions[bot]" } });
 const pre = (o: Partial<Parameters<typeof beforeReview>[0]> = {}) => beforeReview({
-  branch: "claude/proposal-90", sameRepo: true, draft: false, checksDone: true, ciOk: true, files: ["src/lib/loop.ts"],
-  filesComplete: true, commentsComplete: true, fixRequestedNow: false, productionIdle: true, smokeOk: true, ...o,
+  branch: "claude/proposal-90", sameRepo: true, baseMain: true, draft: false, checksDone: true, ciOk: true, files: ["src/lib/loop.ts"],
+  filesComplete: true, commentsComplete: true, historyOk: true, fixRequestedNow: false, productionIdle: true, smokeOk: true, ...o,
 });
 const rv = (reviewer: "gpt" | "gemini", severities: string[], o: { parsed?: boolean; cut?: boolean } = {}): Review =>
   o.parsed === false ? { reviewer, summary: "", findings: [], parsed: false, cut: !!o.cut }
@@ -40,13 +40,14 @@ test("自動マージ: 自動で触れない所・CI の失敗・全部を読め
   assert.equal(pre({ ciOk: false }).action, "human");
   assert.equal(pre({ filesComplete: false }).action, "human");
   assert.equal(pre({ commentsComplete: false }).action, "human");
+  assert.equal(pre({ historyOk: false }).action, "human");
   assert.equal(afterReview({ gpt: rv("gpt", []) }, 0).action, "human");
   assert.equal(afterReview({ gpt: rv("gpt", []), gemini: rv("gemini", [], { parsed: false }) }, 0).action, "human");
   assert.equal(afterReview({ gpt: rv("gpt", []), gemini: rv("gemini", [], { cut: true }) }, 0).action, "human");
 });
 
 test("自動マージ: CI が終わっていない・本番が作業中・止まっているか分からない・本番の確認が失敗か分からないときは待つ。ルーティンの PR でなければ何もしない", () => {
-  for (const o of [{ checksDone: false }, { productionIdle: false }, { productionIdle: null }, { smokeOk: false }, { smokeOk: null }, { branch: "feat/x" }, { sameRepo: false }, { draft: true }]) {
+  for (const o of [{ checksDone: false }, { productionIdle: false }, { productionIdle: null }, { smokeOk: false }, { smokeOk: null }, { branch: "feat/x" }, { sameRepo: false }, { baseMain: false }, { draft: true }]) {
     assert.equal(pre(o).action, "wait", JSON.stringify(o));
   }
 });
@@ -74,4 +75,23 @@ test("自動マージ: ルーティンに渡す文は、指摘を1件ずつ丸�
 test("自動マージ: 人に回した印は、ボットのコメントだけを読む（止める方向にだけ使う）", () => {
   assert.equal(handedToHuman([bot(`人に回します ${HUMAN_MARK}`)]), true);
   assert.equal(handedToHuman([{ body: HUMAN_MARK, user: { login: "someone" } }]), false);
+});
+
+test("自動マージ: 見回りが書いた前の版へのレビューを、次のレビューに「直ったかを確かめる項目」として渡す。多すぎるときは渡せないとする", () => {
+  const mine = bot(`### レビュー\n- 🔴 a.ts 問題\n\n${reviewMarker("gpt", "old1")}`);
+  const h = reviewHistory([mine, { body: reviewMarker("gpt", "x"), user: { login: "someone" } }, bot("ほかのコメント")]);
+  assert.equal(h.ok, true);
+  assert.match(h.text, /^前の版へのレビュー（直ったかを確かめる項目）:\n\n### レビュー\n- 🔴 a.ts 問題/);
+  assert.doesNotMatch(h.text, /reviewMarker|ほかのコメント/);
+  assert.deepEqual(reviewHistory([]), { text: "", ok: true });
+  assert.equal(reviewHistory(Array.from({ length: HISTORY_MAX_COMMENTS + 1 }, (_, i) => bot(reviewMarker("gpt", `s${i}`)))).ok, false);
+  assert.equal(reviewPosted([mine], "gpt", "old1"), true);
+  assert.equal(reviewPosted([mine], "gemini", "old1"), false);
+  assert.match(reviewInstructions({ autoPr: true, withHistory: false, recheck: true }), /直っているかを1件ずつ確かめ/);
+  assert.doesNotMatch(reviewInstructions({ autoPr: true, withHistory: false }), /前の版へのレビュー/);
+});
+
+test("自動マージ: ルーティンの起動ではっきり断られたのは 4xx だけ（408・429・5xx は届いたか分からないので、直しの印を残す）", () => {
+  for (const s of [400, 401, 403, 404, 422]) assert.equal(fireRejected(s), true, String(s));
+  for (const s of [408, 429, 500, 502, 503]) assert.equal(fireRejected(s), false, String(s));
 });

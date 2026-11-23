@@ -39,22 +39,44 @@ export const fixRequested = (comments: PrComment[], sha: string) => comments.som
 export const HUMAN_MARK = "<!-- auto-merge human -->";
 export const handedToHuman = (comments: PrComment[]) => comments.some((c) => bot(c) && c.body!.includes(HUMAN_MARK));
 
+// 見回りが書いたレビューの印。次の版のレビューに「前の版への指摘（直ったかを確かめる項目）」として渡す（PR #153 の ai-review の指摘）
+// 偽物が混じっても、確かめる項目が増えるだけで、マージに進む方向には働かない（「直った」「判断済み」の言葉は根拠にしないよう AI に伝える）
+// 本物は、直させるのが3回までなので、2社×3回の6件まで。それより多い・長いときは、全部を渡せないので人に回す（偽物で本物を押し出させない）
+const REVIEW_MARK = "<!-- auto-merge review ";
+export const reviewMarker = (reviewer: string, sha: string) => `${REVIEW_MARK}${reviewer} ${sha} -->`;
+// 同じ版のレビューは1回だけ書く（マージの直前の見直しで待ったときなど、同じ版をもう一度レビューしても、記録を増やさない）
+export const reviewPosted = (comments: PrComment[], reviewer: string, sha: string) => comments.some((c) => bot(c) && c.body!.includes(reviewMarker(reviewer, sha)));
+export const HISTORY_MAX_COMMENTS = 2 * MAX_FIX_ROUNDS;
+export const HISTORY_MAX_CHARS = 30_000;
+export function reviewHistory(comments: PrComment[]): { text: string; ok: boolean } {
+  const past = comments.filter((c) => bot(c) && c.body!.includes(REVIEW_MARK)).map((c) => c.body!);
+  const text = past.length ? `前の版へのレビュー（直ったかを確かめる項目）:\n\n${past.join("\n\n---\n\n")}` : "";
+  return { text, ok: past.length <= HISTORY_MAX_COMMENTS && text.length <= HISTORY_MAX_CHARS };
+}
+
+// ルーティンの起動の応答のうち、「届いていない」とはっきり分かるもの（4xx。ただし 408・429 は、届いたか分からない側）
+// 5xx・408・429 は、受け付けたあとに失敗したこともありうるので、印を残して、人に確かめてもらう（PR #153 の ai-review の指摘）
+export const fireRejected = (status: number) => status >= 400 && status < 500 && status !== 408 && status !== 429;
+
 export type Decision = { action: "merge" | "fix" | "human" | "wait" | "review"; reason: string };
 
 // レビューの前に決められること。"review" なら、レビューしてから afterReview で決める
 // レビューは、ほかの条件が全部そろってから1回だけ呼ぶ（AIの費用を、マージできない間に使わない）
 export function beforeReview(x: {
-  branch: string; sameRepo: boolean; draft: boolean; checksDone: boolean; ciOk: boolean;
-  files: string[]; filesComplete: boolean; commentsComplete: boolean; fixRequestedNow: boolean;
+  branch: string; sameRepo: boolean; baseMain: boolean; draft: boolean; checksDone: boolean; ciOk: boolean;
+  files: string[]; filesComplete: boolean; commentsComplete: boolean; historyOk: boolean; fixRequestedNow: boolean;
   productionIdle: boolean | null; smokeOk: boolean | null;
 }): Decision {
   if (!AUTO_BRANCH.test(x.branch) || !x.sameRepo) return { action: "wait", reason: "ルーティンが作った PR ではない" };
+  // main 向けの PR だけ（レビューは main との差分で見るので、ほかのブランチへのマージはしない。PR #153 の ai-review の指摘）
+  if (!x.baseMain) return { action: "wait", reason: "main 向けの PR ではない" };
   if (x.draft) return { action: "wait", reason: "下書きの PR" };
   if (!x.checksDone) return { action: "wait", reason: "CI が終わっていない" };
   if (x.fixRequestedNow) return { action: "wait", reason: "この版の直しは頼んだ" };
   // 変えたファイル・コメントを全部読めなかったときは、見落としがありうるので人に回す（PR #153 の ai-review の指摘）
   if (!x.filesComplete) return { action: "human", reason: "変えたファイルが多すぎて、全部を確かめられない" };
   if (!x.commentsComplete) return { action: "human", reason: "コメントが多すぎて、全部を読めない" };
+  if (!x.historyOk) return { action: "human", reason: "前の版へのレビューが多すぎて、次のレビューに全部を渡せない" };
   const prot = protectedFiles(x.files);
   if (prot.length) return { action: "human", reason: `自動ではマージしない所に触れている（${prot.slice(0, 5).join("・")}）` };
   if (!x.ciOk) return { action: "human", reason: "CI が通っていない" };

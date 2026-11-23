@@ -6,7 +6,7 @@
 // したことは PR にコメントし、Discord に知らせる
 // PR のコードは動かさない（差分は git で取り出して、レビューの材料として読むだけ）。PR のコメントの「指摘なし」は信じない（誰でもボットとして書けるため）
 import { execFileSync } from "node:child_process";
-import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, type Decision, type PrComment } from "./auto-merge-rules";
+import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, reviewHistory, reviewMarker, reviewPosted, type Decision, type PrComment } from "./auto-merge-rules";
 import { REVIEWERS, askReviewer, blocking, parseReview, reviewComment, reviewInput, reviewInstructions, type Review, type Reviewer } from "./ai-review-core";
 import { OMITTED } from "./ai-review-omitted";
 
@@ -65,7 +65,7 @@ async function smokeOk(): Promise<boolean | null> {
   return last ? last.conclusion === "success" : null;
 }
 
-// 起動が届いていないと分かるとき（設定がない・起動先がはっきり断った）。時間切れ・通信の失敗は、届いたか分からないので別に扱う
+// 起動が届いていないと分かるとき（設定がない・起動先がはっきり断った）。時間切れ・通信の失敗・5xx・408・429 は、届いたか分からないので別に扱う
 class FireRejected extends Error {}
 
 async function fireFix(text: string) {
@@ -77,10 +77,10 @@ async function fireFix(text: string) {
     signal: AbortSignal.timeout(20_000),
   });
   // 応答の中身は出さない（トークンの手がかりになりうる）
-  if (!res.ok) throw new FireRejected(`ルーティンを起動できませんでした（${res.status}）`);
+  if (!res.ok) throw fireRejected(res.status) ? new FireRejected(`ルーティンを起動できませんでした（${res.status}）`) : new Error(`ルーティンの起動の応答が失敗でした（${res.status}）。届いたかは分かりません`);
 }
 
-type Pull = { number: number; title: string; body: string | null; draft: boolean; html_url: string; head: { ref: string; sha: string; repo: { full_name: string } | null } };
+type Pull = { number: number; title: string; body: string | null; draft: boolean; html_url: string; head: { ref: string; sha: string; repo: { full_name: string } | null }; base: { ref: string; repo: { full_name: string } | null } };
 type CheckRun = { name: string; status: string; conclusion: string | null };
 
 // 100件ずつ全部読む。上限のページまで埋まっていたら、読みきれていないとして complete=false
@@ -102,10 +102,11 @@ function diffOf(pr: Pull): string {
   return execFileSync("git", ["diff", `origin/main...${pr.head.sha}`, "--", ".", ...OMITTED.map((f) => `:!${f}`)], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
-// GPT と Gemini に、この見回りの中でレビューを頼む（答えは、この中でだけ使う）。過去のコメントは渡さない（誰でも書けるため）
-async function reviewBoth(pr: Pull): Promise<Partial<Record<Reviewer, Review>>> {
-  const { input, cut } = reviewInput({ prBody: pr.body ?? "", diff: diffOf(pr) });
-  const instructions = reviewInstructions({ autoPr: true, withHistory: false });
+// GPT と Gemini に、この見回りの中でレビューを頼む（答えは、この中でだけ使う）
+// 渡す過去のものは、見回りが書いた前の版へのレビューだけで、直ったかを確かめる項目として使う（指摘を消す根拠にはさせない）
+async function reviewBoth(pr: Pull, history: string): Promise<Partial<Record<Reviewer, Review>>> {
+  const { input, cut } = reviewInput({ prBody: pr.body ?? "", history, diff: diffOf(pr) });
+  const instructions = reviewInstructions({ autoPr: true, withHistory: false, recheck: !!history });
   const out: Partial<Record<Reviewer, Review>> = {};
   await Promise.all(REVIEWERS.map(async (r) => {
     try {
@@ -131,25 +132,34 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   // 変えたファイルを全部読む（GitHub は1つの PR で3000件まで）。名前を変えたものは、前の名前も見る
   const { items: files, complete: filesComplete } = await pages<{ filename: string; previous_filename?: string }>(`/pulls/${pr.number}/files`, 30);
   const link = `#${pr.number}「${pr.title}」 ${pr.html_url}`;
+  const history = reviewHistory(comments);
   const pre = beforeReview({
-    branch: pr.head.ref, sameRepo: pr.head.repo?.full_name === GITHUB_REPOSITORY, draft: pr.draft,
+    branch: pr.head.ref, sameRepo: pr.head.repo?.full_name === GITHUB_REPOSITORY,
+    baseMain: pr.base.ref === "main" && pr.base.repo?.full_name === GITHUB_REPOSITORY, draft: pr.draft,
     checksDone: checks.length > 0 && checks.every((c) => c.status === "completed"),
     ciOk: checks.find((c) => c.name === "check")?.conclusion === "success",
-    files: changedPaths(files), filesComplete, commentsComplete, fixRequestedNow: fixRequested(comments, pr.head.sha),
+    files: changedPaths(files), filesComplete, commentsComplete, historyOk: history.ok, fixRequestedNow: fixRequested(comments, pr.head.sha),
     productionIdle: idle, smokeOk: smoke,
   });
   if (pre.action === "human") return toHuman(pr, link, pre.reason);
   if (pre.action !== "review") return pre;
   if (!AUTO_MERGE_TOKEN) return { action: "wait", reason: "AUTO_MERGE_TOKEN がない" };
+  // APIキーがないと、いつまでもレビューできないので、人に回す（通信の一時的な失敗は、次の見回りでもう一度頼む。PR #153 の ai-review の指摘）
+  const noKey = REVIEWERS.filter((r) => !(r === "gpt" ? OPENAI_API_KEY : GEMINI_API_KEY));
+  if (noKey.length) return toHuman(pr, link, `レビューを頼む API キーがない（${noKey.join("・")}。GitHub の Secrets）`);
 
-  const reviews = await reviewBoth(pr);
+  const reviews = await reviewBoth(pr, history.text);
   // 答えが返ってこなかった（通信の失敗など）ときは、次の見回りでもう一度頼む
   if (REVIEWERS.some((r) => !reviews[r])) return { action: "wait", reason: "レビューを頼めなかった（次の見回りでもう一度）" };
-  // 人とルーティンが読めるよう、2社のレビューを PR に書く（ここに書いたものは、マージの判断には使わない）
-  for (const r of REVIEWERS) await comment(pr.number, reviewComment(reviews[r]!, "自動マージの見回りが頼んだレビューです（main のコードで動いています）。")).catch(() => undefined);
+  // 人とルーティンが読めるよう、2社のレビューを PR に書く（ここに書いたものは、マージに進む判断には使わない）
+  // 印を付けて、次の版のレビューに「直ったかを確かめる項目」として渡す
+  for (const r of REVIEWERS) if (!reviewPosted(comments, r, pr.head.sha)) await comment(pr.number, `${reviewComment(reviews[r]!, "自動マージの見回りが頼んだレビューです（main のコードで動いています）。")}\n\n${reviewMarker(r, pr.head.sha)}`).catch(() => undefined);
   const d = afterReview(reviews, fixRounds(comments));
 
   if (d.action === "merge") {
+    // レビューには数分かかるので、マージの直前に、本番が作業中でないか・本番の確認が通っているかを見直す（PR #153 の ai-review の指摘）
+    const [idleNow, smokeNow] = await Promise.all([productionIdle(), smokeOk()]);
+    if (idleNow !== true || smokeNow !== true) return { action: "wait", reason: "マージの直前に見直したら、本番が作業中か、本番の確認が通っていない（次の見回りでもう一度）" };
     // 確かめた版のままのときだけマージする（確かめたあとに push されていたら、GitHub が断る）
     await gh(`/pulls/${pr.number}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: "merge", sha: pr.head.sha }) }, AUTO_MERGE_TOKEN);
     // マージできたら、コメントや知らせに失敗しても、マージしたとして返す（見回りを必ず終えて、続けてマージしない）
@@ -177,7 +187,10 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
 
 async function main() {
   if (!GITHUB_REPOSITORY || !GITHUB_TOKEN) throw new Error("GITHUB_REPOSITORY と GITHUB_TOKEN が要ります");
-  const pulls = (await gh<Pull[]>("/pulls?state=open&per_page=50")).filter((p) => AUTO_BRANCH.test(p.head.ref));
+  // 開いている PR を全部読む（PR #153 の ai-review の指摘）
+  const open = await pages<Pull>("/pulls?state=open", 10);
+  if (!open.complete) await notify("⚠️ 開いている PR が多すぎて、自動マージの見回りが全部を見られていません");
+  const pulls = open.items.filter((p) => AUTO_BRANCH.test(p.head.ref));
   if (!pulls.length) return console.log("ルーティンが作った開いている PR はありません");
   const [idle, smoke] = await Promise.all([productionIdle(), smokeOk()]);
   for (const pr of pulls) {
