@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { activityList, buildingList, ideaRunning } from "@/lib/loop";
+import { routinesWorking } from "@/lib/toolRoutine";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,8 @@ export async function GET() {
   const items = [
     ...activityList().map((a) => ({ key: a.key, title: a.title, detail: Object.entries(a.steps).map(([who, st]) => `${who.split(" ")[0]}: ${st}`).join(" ／ "), since: a.since })),
     ...buildingList().map((b) => ({ key: `b${b.id}`, title: titles.get(b.id) ?? `#${b.id}`, detail: `AIが${b.what}`, since: b.since })),
+    // クラウドの Claude Code（ルーティン）が作っているツールも出す（/api/live の building と同じ。同じ案件が中でも作業中なら、中のほうを出す）
+    ...routinesWorking().filter((r) => !buildingList().some((b) => b.id === r.id)).map((r) => ({ key: `r${r.id}`, title: titles.get(r.id) ?? `#${r.id}`, detail: r.what, since: r.since })),
   ];
   // 画面を自動で新しくするための印。裏の作業（取り込み・AIのまとめ・作成・判断など）でデータが変わると、この値が変わる
   const v = db().prepare(

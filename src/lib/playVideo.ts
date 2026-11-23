@@ -7,7 +7,7 @@ import { callClaude, callJson, claudeModelId, isObj, isStr } from "./ai";
 import { dataDir, db, type ProjectRow } from "./db";
 import { launch } from "./freePage";
 import { external } from "./untrusted";
-import { getProject, logEvent } from "./loop";
+import { getProject, logEvent, withActivity } from "./loop";
 import { versionLp } from "./versions";
 import { recordToMp4 } from "./videoRender";
 import { limitTags, tagHints, tagRule } from "./hashtags";
@@ -454,12 +454,18 @@ export const playVideoPending = (projectId: number) => pending.has(projectId);
 export function makePlayVideo(projectId: number): Promise<number> {
   if (pending.has(projectId)) throw new Error("この案件の遊ぶ様子の動画は、いま作っています（順番待ちを含む）。できあがるまでお待ちください");
   pending.add(projectId);
-  const run = (g.__aiLabPlayQueue ?? Promise.resolve()).catch(() => undefined).then(() => makeOnce(projectId)).finally(() => pending.delete(projectId));
+  const before = (g.__aiLabPlayQueue ?? Promise.resolve()).catch(() => undefined);
+  // 順番待ちの間から「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように）
+  const run = withActivity({ key: `play-video-${projectId}`, title: `遊ぶ様子の動画「${getProject(projectId)?.title ?? `#${projectId}`}」`, model: claudeModelId(), room: "pr" }, async (step) => {
+    step("順番待ちです");
+    await before;
+    return makeOnce(projectId, step);
+  }).finally(() => pending.delete(projectId));
   g.__aiLabPlayQueue = run.catch(() => undefined);
   return run;
 }
 
-async function makeOnce(projectId: number): Promise<number> {
+async function makeOnce(projectId: number, step: (status: string) => void = () => {}): Promise<number> {
   const p = getProject(projectId);
   if (!p || p.kind !== "tool") throw new Error("動くツールの案件だけ、遊ぶ様子の動画を作れます");
   const lp = versionLp(p, p.lp_version);
@@ -473,6 +479,7 @@ async function makeOnce(projectId: number): Promise<number> {
     // Claude Code がツールと一緒に書いた台本があれば、その手順で録画する（AIは一言と投稿文の案だけを書く）
     const given = givenPlayScript(p.id, tool.html);
     if (given) logEvent(p.id, "system", "play-video", "ツールを作った人（Claude Code）が書いた台本の手順で録画します");
+    step("台本を書いています");
     let script = await writePlayScript(p, tool.html, [], given ? { given } : {});
     let file = "";
     let check: PlayCheck = { ok: false, issues: [] };
@@ -480,7 +487,9 @@ async function makeOnce(projectId: number): Promise<number> {
       // 同じ案件・同じ時刻でも重ならないよう、時刻のうしろに乱数を足す
       file = `play-${p.id}-${Date.now()}${String(Math.floor(Math.random() * 1e6)).padStart(6, "0")}.mp4`;
       made.push(file);
+      step(round === 0 ? "遊ぶ様子を録画しています" : "撮り直しています");
       const r = await renderPlay(script, tool.html, opts, p.title, playVideoPath(file)!);
+      if (r.done > 0) step("録画したコマを確かめています");
       const notes = [...r.failed, ...(r.done === 0 ? ["台本の操作が1つもできなかった（押す所の文字やセレクタが、HTMLと合っていない）"] : [])];
       check = r.done === 0 ? { ok: false, issues: notes } : await checkPlay(p, script, r.shots);
       if (r.done > 0 && notes.length) check = { ...check, ok: false, issues: [...notes, ...check.issues] };

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { autoSettings } from "./autopilot";
+import type { Room } from "./officeShared";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { PLAY_HOOK_MAX, PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublish, parseGivenPlay, replacePlayScript } from "./playVideo";
 import { heldToRoutine, toolRoutineConfigured } from "./toolRoutine";
@@ -152,7 +153,8 @@ const building = (gBuilding.__aiLabBuilding ??= new Map());
 
 // ライブ画面用: AIの途中経過（届いたアイデア・採点）を、DBに書く前からすぐ見せるためのメモと、いまの作業の進み具合
 export type LiveNote = { key: string; at: string; who: string; provider: string | null; kind: string; text: string; batch: string };
-export type Activity = { key: string; title: string; since: number; steps: Record<string, string> };
+// model・room: 担当のAIと、オフィスでその社員を座らせる部屋（office.ts の officeWorking）。ないときは、steps の名前（AIの名前）と題から決める
+export type Activity = { key: string; title: string; since: number; steps: Record<string, string>; model?: string; room?: Room };
 const gLive = globalThis as unknown as { __aiLabNotes?: LiveNote[]; __aiLabActivities?: Map<string, Activity> };
 const liveNotes = (gLive.__aiLabNotes ??= []);
 const activities = (gLive.__aiLabActivities ??= new Map());
@@ -180,6 +182,25 @@ export const liveStep = setStep;
 export const liveSay = liveNote;
 export function liveEnd(key: string) {
   activities.delete(key);
+}
+
+// 長くかかる裏の作業（動画づくり・評価・比較・調べものなど）を「いまAIがやっていること」に出す
+// 右下の「AIが作業中」・オフィス・ライブ・/api/live の activities に出る（/api/live に出ている間は、マージを待つ。運営者が決めた）
+// fn には、進み具合を書き換える step を渡す。終わったら（失敗しても）消す
+export async function withActivity<T>(a: { key: string; title: string; model?: string | null; room?: Room }, fn: (step: (status: string) => void) => Promise<T>): Promise<T> {
+  const who = a.model ? modelLabel(a.model) : "AI";
+  const step = (status: string) => {
+    setStep(a.key, a.title, who, status);
+    const act = activities.get(a.key)!;
+    if (a.model) act.model = a.model;
+    if (a.room) act.room = a.room;
+  };
+  step("始めました");
+  try {
+    return await fn(step);
+  } finally {
+    liveEnd(a.key);
+  }
 }
 
 export function buildingList(): { id: number; what: string; since: number }[] {
@@ -2878,7 +2899,9 @@ const AIM_KEYS_TOOL: Aim[] = AIM_KEYS.filter((a) => AIMS[a].kind === "tool");
 // ねらいの配分を守るために、点の低い案を案件にしない下限（平凡な案は5点前後）。下回るなら配分より点数を優先する
 const AIM_PICK_FLOOR = 5;
 
-const modelLabel = (id: string) => MODELS.find((m) => m.id === id)?.label ?? id;
+function modelLabel(id: string) {
+  return MODELS.find((m) => m.id === id)?.label ?? id;
+}
 
 // アイデア出しは、同時に1つだけ動かす（毎日の自動実行・ホームの入力欄・ライブ画面の「見るだけ」・仮テスト）
 // 同時に動くと、どちらも同じ「既にある案件・最近出た案」を見て似た案を出し、費用も予算の計算も重なるため

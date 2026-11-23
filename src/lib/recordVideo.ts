@@ -4,7 +4,7 @@ import { dataDir, db, getSettings } from "./db";
 import type { DiaryContent } from "./diary";
 import { headline } from "./experiment";
 import { launch } from "./freePage";
-import { logEvent } from "./loop";
+import { logEvent, withActivity } from "./loop";
 import { DASHBOARD_URL } from "../../lp-site/src/lib/site";
 import { modelInfo } from "./models";
 import { RECORD_VIDEO_KINDS, type RecordVideoKind } from "./recordVideoKinds";
@@ -246,10 +246,16 @@ export async function createRecordVideo(kind: RecordVideoKind, instruction?: str
   if (!RECORD_VIDEO_KINDS[kind]) throw new Error("動画の種類が正しくありません");
   if (g.__aiLabRecordVideo) throw new Error("いま別の動画を作っています。終わってから試してください");
   g.__aiLabRecordVideo = true;
+  // 作っている間は「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように）
+  return withActivity({ key: "record-video", title: `実験の記録の動画（${RECORD_VIDEO_KINDS[kind]}）`, model: kind === "tour" ? null : getSettings().loopModel, room: "pr" }, (step) => makeRecordVideo(kind, instruction, step));
+}
+
+async function makeRecordVideo(kind: RecordVideoKind, instruction: string | undefined, step: (status: string) => void): Promise<number> {
   try {
     if (kind === "tour") {
       const t = tourStops();
       const file = `record-${Date.now()}.mp4`;
+      step("画面を録画しています");
       await renderTour(t.stops, recordVideoPath(file)!);
       const id = Number(db().prepare("INSERT INTO record_videos (kind, title, caption, file, model_id, script) VALUES (?, ?, ?, ?, ?, ?)")
         .run(kind, t.hook, t.caption, file, "none", JSON.stringify({ stops: t.stops })).lastInsertRowid);
@@ -258,14 +264,17 @@ export async function createRecordVideo(kind: RecordVideoKind, instruction?: str
     }
     const mat = material(kind);
     if (kind === "debate") {
+      step("台本を書いています");
       const skit = await writeSkit(mat, instruction);
       const file = `record-${Date.now()}.mp4`;
+      step("録画しています");
       await renderSkit(skit, recordVideoPath(file)!);
       const id = Number(db().prepare("INSERT INTO record_videos (kind, title, caption, file, model_id, script) VALUES (?, ?, ?, ?, ?, ?)")
         .run(kind, skit.hook.slice(0, 60), skit.caption.slice(0, 200), file, getSettings().loopModel, JSON.stringify(skit)).lastInsertRowid);
       logEvent(null, "ai", "record-video", `実験の記録の動画を作りました（${RECORD_VIDEO_KINDS[kind]}）: ${skit.hook.slice(0, 40)}`);
       return id;
     }
+    step("台本を書いています");
     const script = await writeScript(kind, mat, instruction);
     const cards = [
       { big: script.hook.slice(0, 40) },
@@ -280,6 +289,7 @@ export async function createRecordVideo(kind: RecordVideoKind, instruction?: str
       }),
       { big: script.end.slice(0, 40) },
     ];
+    step("録画しています");
     const browser = await launch();
     if (typeof browser === "string") throw new Error(browser);
     const file = `record-${Date.now()}.mp4`;

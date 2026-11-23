@@ -1,13 +1,14 @@
 import { db, getSettings, monthSpendUsd } from "./db";
 import { ongoingCalls } from "./ai";
-import { jstToday } from "./loop";
+import { activityList, buildingList, jstToday } from "./loop";
+import { routinesWorking } from "./toolRoutine";
 import { waitingItems } from "./overview";
 import { openRequests } from "./plan";
 import { pendingCount } from "./views";
-import { modelInfo } from "./models";
+import { MODELS, modelInfo } from "./models";
 import { liveFeed } from "./live";
 import { showcaseProjectRows } from "./showcase";
-import type { Member, OfficeEvent, OfficeHappening, OfficeLine, OfficeShop, Room } from "./officeShared";
+import type { Member, OfficeEvent, OfficeHappening, OfficeLine, OfficeShop, OfficeWorking, Room } from "./officeShared";
 
 // オフィスの画面（試作）: AIの社員3人が、いま何をしているかを部屋の位置で見せる
 // - AIを呼んだ記録（ai_calls の目的）から、どの部屋で働いているかを決める
@@ -68,6 +69,41 @@ export function talkDoing(about: string): string {
   return doingOf(about);
 }
 
+const utc = (ms: number) => new Date(ms).toISOString().replace("T", " ").slice(0, 19);
+
+// いま動いている作業と、それをしている社員（オフィスの「いま」。officeShared.ts の liveStateAt）
+// 1. 呼んでいる途中のAI（呼んだ記録は終わってから書くので、ツールを書くような何分もかかる呼び出しは、ここで拾う）
+// 2. 作業中として登録した作業（動画づくり・会議・アイデア出しなど。担当のAIと、進み具合の欄に名前が出ているAI）
+// 3. 作っている途中の案件（いま呼んでいるAI。呼んでいない間（テスト・録画など）は、作り始めてから最後に呼んだAI）
+// 4. クラウドの Claude Code（ルーティン）が作っているツール（Claude が開発室で作る）
+export function officeWorking(): OfficeWorking[] {
+  const titleOf = db().prepare("SELECT title FROM projects WHERE id = ?");
+  const title = (id: number | null) => (id ? (titleOf.get(id) as { title: string } | undefined)?.title ?? null : null);
+  const out: OfficeWorking[] = [];
+  for (const c of ongoingCalls()) {
+    const member = memberOf(c.modelId);
+    if (member) out.push({ member, room: roomOf(c.purpose), doing: doingOf(c.purpose), project: title(c.projectId), projectId: c.projectId, since: utc(c.since) });
+  }
+  for (const a of activityList()) {
+    const members = new Set<Member>();
+    const own = memberOf(a.model ?? null);
+    if (own) members.add(own);
+    for (const name of Object.keys(a.steps)) {
+      const m = memberOf(MODELS.find((x) => x.label === name)?.id ?? null);
+      if (m) members.add(m);
+    }
+    for (const member of members) out.push({ member, room: a.room ?? roomOf(a.title), doing: doingOf(a.title), project: null, projectId: null, since: utc(a.since) });
+  }
+  const lastCall = db().prepare("SELECT model_id, purpose FROM ai_calls WHERE project_id = ? AND at >= ? ORDER BY id DESC LIMIT 1");
+  for (const b of buildingList()) {
+    const c = lastCall.get(b.id, utc(b.since)) as { model_id: string; purpose: string } | undefined;
+    const member = memberOf(c?.model_id ?? null);
+    if (c && member) out.push({ member, room: roomOf(c.purpose), doing: doingOf(b.what), project: title(b.id), projectId: b.id, since: utc(b.since) });
+  }
+  for (const r of routinesWorking()) out.push({ member: "anthropic", room: "dev", doing: "ツールを作る（Claude Code）", project: title(r.id), projectId: r.id, since: utc(r.since) });
+  return out;
+}
+
 // guest: 来た人の画面か（AIの会話の伏せ方をライブ画面とそろえる）
 export function officeSnapshot({ guest = false } = {}) {
   const calls = db().prepare(
@@ -79,16 +115,6 @@ export function officeSnapshot({ guest = false } = {}) {
     const member = memberOf(c.model_id);
     return member ? [{ at: c.at, member, room: roomOf(c.purpose), doing: doingOf(c.purpose), project: c.title, projectId: c.project_id, yen: Math.round(c.cost_usd * usdJpy * 10) / 10 }] : [];
   });
-  // いま呼んでいる途中のAI（ツールを書くなど、何分もかかる呼び出しの間も、その部屋にいるようにする）
-  // 呼んだ記録は終わってから書くので、途中の分は「いま」の時刻で足す（画面は数秒ごとに読み直すので、続く間は部屋にいる）
-  const nowAt = new Date().toISOString().replace("T", " ").slice(0, 19);
-  const titleOf = db().prepare("SELECT title FROM projects WHERE id = ?");
-  for (const c of ongoingCalls()) {
-    const member = memberOf(c.modelId);
-    if (!member) continue;
-    const title = c.projectId ? (titleOf.get(c.projectId) as { title: string } | undefined)?.title ?? null : null;
-    events.push({ at: nowAt, member, room: roomOf(c.purpose), doing: doingOf(c.purpose), project: title, projectId: c.projectId, yen: 0, talk: true });
-  }
   // 公開・撤退・続ける（会社全体の出来事）
   const happenings = (db().prepare(
     `SELECT e.at, e.kind, p.title FROM events e LEFT JOIN projects p ON p.id = e.project_id
@@ -111,7 +137,7 @@ export function officeSnapshot({ guest = false } = {}) {
     }),
     ...talks,
   ].sort((a, b) => a.at.localeCompare(b.at));
-  return { now: new Date().toISOString().replace("T", " ").slice(0, 19), events, lines, happenings, numbers: officeNumbers(), shops: officeShops() };
+  return { now: new Date().toISOString().replace("T", " ").slice(0, 19), events, working: officeWorking(), lines, happenings, numbers: officeNumbers(), shops: officeShops() };
 }
 
 export type OfficeSnapshot = ReturnType<typeof officeSnapshot>;
@@ -173,11 +199,13 @@ export function showcaseOfficeSnapshot() {
   const open = showcaseProjectRows();
   const ids = new Set(open.map((p) => p.id));
   const titles = new Set(open.map((p) => p.title));
-  const shown = (e: OfficeEvent) => (e.projectId !== null ? ids.has(e.projectId) : !!e.project && titles.has(e.project));
+  const shown = (e: Pick<OfficeEvent, "projectId" | "project">) => (e.projectId !== null ? ids.has(e.projectId) : !!e.project && titles.has(e.project));
   return {
     ...snap,
     // 会話から作った動きの言い方に案件名（「〜」）が残るときは、まとめた言い方にする
     events: snap.events.map((e) => ({ ...e, doing: e.doing.includes("「") ? "話し合い" : e.doing, ...(shown(e) ? {} : { project: null, projectId: null }) })),
+    // いまの作業も、まだ公開していない案件の名前は伏せる（作業の言い方の「」の中に案件名が入ることがある）
+    working: snap.working.map((w) => ({ ...w, doing: w.doing.replace(/「[^」]*」/g, "").trim() || "作業", ...(shown(w) ? {} : { project: null, projectId: null }) })),
     lines: s.showcaseVoices ? snap.lines.filter((l) => l.kind === "voice") : [],
     happenings: snap.happenings.filter((h) => !!h.title && titles.has(h.title)),
     shops: snap.shops.filter((x) => ids.has(x.id)),
