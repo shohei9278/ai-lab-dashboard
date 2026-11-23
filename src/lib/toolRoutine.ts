@@ -101,20 +101,21 @@ function firedSince(now: number): number {
 // まだ頼んでいないものを先に、頼み直しはそのあと
 export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } = {}): Promise<number> {
   const s = getSettings();
-  if (!s.toolRoutineAuto || s.killSwitch || !toolRoutineConfigured()) return 0;
   const now = opts.now ?? Date.now();
   const rows = db().prepare("SELECT a.* FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND p.demo = 0 AND (a.status = 'pending' OR a.routine_at IS NOT NULL) ORDER BY a.id").all() as ApprovalRow[];
-  const inFlight = rows.filter((a) => working(a, now)).length;
-  const today = firedSince(now);
-  let slots = Math.min(s.toolRoutineConcurrent - inFlight, s.toolRoutinePerDay - today);
-  let n = 0;
   // 頼み直しを使い切っても入らなかったものは、判断待ちに移ったことを人に1回だけ知らせる（AIの作業待ちから黙って移らないように。運営者が決めた）
+  // 自動で頼む設定をオフにした・止めるスイッチを入れたあとでも知らせるよう、頼むかどうかを決める前に見る（PR #167 の ai-review の指摘）
   for (const a of rows.filter((x) => x.status === "pending" && x.routine_at && x.routine_tries >= AUTO_TRIES && !working(x, now))) {
     const tag = `（開発待ち #${a.id}）`;
     if (db().prepare("SELECT 1 FROM events WHERE kind = 'tool-routine-gave-up' AND message LIKE ?").get(`%${tag}`)) continue;
     logEvent(a.project_id, "system", "tool-routine-gave-up", `ルーティンに${a.routine_tries}回頼みましたが、ツールが入らなかったので、判断待ちに出しました${tag}`);
     notifyHuman(`${projectTitle(a.project_id)}あなたの判断待ち: ルーティンに${a.routine_tries}回頼んでもツールが入りませんでした。作業の様子を見て、頼み直すか手で作ってください`);
   }
+  if (!s.toolRoutineAuto || s.killSwitch || !toolRoutineConfigured()) return 0;
+  const inFlight = rows.filter((a) => working(a, now)).length;
+  const today = firedSince(now);
+  let slots = Math.min(s.toolRoutineConcurrent - inFlight, s.toolRoutinePerDay - today);
+  let n = 0;
   const fresh = rows.filter((x) => x.status === "pending" && !x.routine_at);
   const retry = rows.filter((x) => x.status === "pending" && x.routine_at && x.routine_tries < AUTO_TRIES && !working(x, now));
   for (const a of [...fresh, ...retry]) {
