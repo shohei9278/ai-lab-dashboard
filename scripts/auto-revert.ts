@@ -3,7 +3,7 @@
 // - main に直接 push はしない。元に戻す PR は、AUTO_MERGE_TOKEN で作ってマージする（main の CI が動き、Railway が前の版に戻した main を出す）
 // - 1日1回まで。戻した・人に回したは Discord に知らせる
 import { execFileSync } from "node:child_process";
-import { REVERT_BRANCH, decideRevert, revertBranch, type MainTip, type SmokeRun } from "./auto-revert-rules";
+import { REVERT_BRANCH, decideRevert, mainSmokeRuns, revertBranch, type MainTip, type SmokeRun } from "./auto-revert-rules";
 
 const { GITHUB_REPOSITORY, GITHUB_TOKEN, AUTO_MERGE_TOKEN, NOTIFY_WEBHOOK_URL } = process.env;
 const API = `https://api.github.com/repos/${GITHUB_REPOSITORY}`;
@@ -35,9 +35,9 @@ const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
 
 async function main() {
   if (!GITHUB_REPOSITORY || !GITHUB_TOKEN) throw new Error("GITHUB_REPOSITORY と GITHUB_TOKEN が要ります");
-  // main の本番の確認の結果（新しい順。取り消し・飛ばしは結果ではないので除く）
-  const r = await gh<{ workflow_runs: SmokeRun[] }>("/actions/workflows/smoke.yml/runs?status=completed&per_page=20");
-  const runs = r.workflow_runs.filter((x) => x.conclusion && x.conclusion !== "skipped" && x.conclusion !== "cancelled");
+  // main の本番の確認の結果（新しい順。ほかのブランチの回・取り消し・飛ばしは除く）
+  const r = await gh<{ workflow_runs: SmokeRun[] }>("/actions/workflows/smoke.yml/runs?status=completed&per_page=30");
+  const runs = mainSmokeRuns(r.workflow_runs);
   git("fetch", "--quiet", "origin", "main");
   const sha = git("rev-parse", "origin/main");
   const tip: MainTip = { sha, parents: git("rev-list", "--parents", "-n", "1", sha).split(" ").slice(1), message: git("log", "-1", "--format=%B", sha) };
@@ -87,6 +87,10 @@ async function main() {
       break;
     }
   }
+  // CI を待つあいだに main が進んでいたら、マージしない（古い版をもとに作った戻しを、新しい main に重ねない。PR #166 の ai-review の指摘）
+  git("fetch", "--quiet", "origin", "main");
+  const now = git("rev-parse", "origin/main");
+  if (now !== d.merge) return notify(`🙋 PR #${d.pr} を元に戻す PR を作りましたが、CI を待つあいだに main が進んだ（${now.slice(0, 7)}）ので、マージしていません。人が見て判断してください: ${pr.html_url}`);
   if (state !== "success") return notify(`🙋 本番の確認が2回続けて失敗したので、PR #${d.pr} を元に戻す PR を作りましたが、CI が${state === "pending" ? "終わりません" : "通りません"}でした。人が見て判断してください: ${pr.html_url}`);
   await gh(`/pulls/${pr.number}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: "merge", sha: head }) }, AUTO_MERGE_TOKEN);
   await notify(`↩️ 本番の確認が2回続けて失敗したので、PR #${d.pr} を自動で元に戻しました: ${pr.html_url}\n${d.reason}`);

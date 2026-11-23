@@ -56,7 +56,7 @@ const str = (v: unknown) => typeof v === "string" && v.trim().length > 0;
 export function parseReview(reviewer: Reviewer, text: string, cut: boolean): Review {
   try {
     const out = JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")) as { summary?: unknown; findings?: unknown; prompt_changed?: unknown };
-    if (!Array.isArray(out.findings)) return { reviewer, summary: String(out.summary ?? "").slice(0, 3000), findings: [], parsed: false, cut };
+    if (!Array.isArray(out.findings)) return { reviewer, summary: String(out.summary ?? "").slice(0, 3000), findings: [], parsed: false, cut, promptChanged: null };
     const findings = out.findings.map((f): Finding => {
       const o = (typeof f === "object" && f !== null ? f : {}) as Record<string, unknown>;
       const ok = str(o.file) && str(o.issue) && str(o.why) && ["high", "medium", "low"].includes(String(o.severity))
@@ -72,7 +72,7 @@ export function parseReview(reviewer: Reviewer, text: string, cut: boolean): Rev
     });
     return { reviewer, summary: String(out.summary ?? ""), findings, parsed: true, cut, promptChanged: typeof out.prompt_changed === "boolean" ? out.prompt_changed : null };
   } catch {
-    return { reviewer, summary: text.slice(0, 3000), findings: [], parsed: false, cut };
+    return { reviewer, summary: text.slice(0, 3000), findings: [], parsed: false, cut, promptChanged: null };
   }
 }
 

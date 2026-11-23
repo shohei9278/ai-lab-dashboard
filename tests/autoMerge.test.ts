@@ -189,6 +189,9 @@ test("AIへの指示の変更: 2社とも「変えていない」と答えたと
   assert.equal(r(true).promptChanged, true);
   assert.equal(r(false).promptChanged, false);
   assert.equal(r("no").promptChanged, null);
+  // 答えを読めなかったときも null（安全側では「変えている」とみなす）
+  assert.equal(parseReview("gpt", "読めない", false).promptChanged, null);
+  assert.equal(parseReview("gpt", JSON.stringify({ summary: "s" }), false).promptChanged, null);
   const g = (pc: unknown) => ({ ...r(pc), reviewer: "gemini" as const });
   assert.equal(promptChanged({ gpt: r(false), gemini: g(false) }), false);
   assert.equal(promptChanged({ gpt: r(false), gemini: g(true) }), true);

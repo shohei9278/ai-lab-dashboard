@@ -5,7 +5,12 @@
 // - 1日1回まで。戻したら Discord に知らせる。戻しても直らなければ、それ以上は戻さずに人に回す
 // - main に直接 push はしない（戻すのも PR で）
 
-export type SmokeRun = { conclusion: string | null; head_sha: string };
+export type SmokeRun = { conclusion: string | null; head_sha: string; head_branch?: string | null; event?: string };
+
+// 本番の確認の結果のうち、main の本番のものだけ（定期の回・main で手で動かした回は head_branch が main。本番に出したときの回は deployment_status）
+// ほかのブランチで手で動かした回などを混ぜない（PR #166 の ai-review の指摘）。取り消し・飛ばしは結果ではないので除く
+export const mainSmokeRuns = (runs: SmokeRun[]) =>
+  runs.filter((x) => (x.head_branch === "main" || x.event === "deployment_status") && x.conclusion && x.conclusion !== "skipped" && x.conclusion !== "cancelled");
 export type MainTip = { sha: string; parents: string[]; message: string };
 
 export const REVERT_BRANCH = /^auto-revert\//;
@@ -27,7 +32,8 @@ export function decideRevert(x: { runs: SmokeRun[]; tip: MainTip; revertedToday:
     const firstTime = a.head_sha === x.tip.sha && b.head_sha === x.tip.sha && (!c || c.head_sha !== x.tip.sha);
     return firstTime ? { action: "human", reason: "自動で元に戻したあとも、本番の確認が2回続けて失敗している" } : { action: "none", reason: "戻したあとの失敗は、もう知らせた" };
   }
-  if (c && c.conclusion === "failure") return { action: "none", reason: "2回続けて失敗したときに、もう決めた" };
+  // 同じ版で失敗が3回以上続いているなら、2回目のときにもう決めた。3回前が別の版の失敗なら、ここが最初の判断の機会（PR #166 の ai-review の指摘）
+  if (c && c.conclusion === "failure" && a.head_sha === b.head_sha && b.head_sha === c.head_sha) return { action: "none", reason: "2回続けて失敗したときに、もう決めた" };
   // 失敗した2回が、どちらも main のいちばん新しい版のものか（古い版の失敗では戻さない）
   if (a.head_sha !== x.tip.sha || b.head_sha !== x.tip.sha) return { action: "human", reason: "失敗した本番の確認が、main のいちばん新しい版のものではない" };
   // いちばん新しい版が、PR のマージか（マージでないコミットは戻さない）

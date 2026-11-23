@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decideRevert, revertBranch, type MainTip, type SmokeRun } from "../scripts/auto-revert-rules";
+import { decideRevert, mainSmokeRuns, revertBranch, type MainTip, type SmokeRun } from "../scripts/auto-revert-rules";
 import { protectedFiles } from "../scripts/auto-merge-rules";
 
 // ダッシュボードの自動の戻し: マージの直後に本番の確認が2回続けて失敗し、その前の版で成功していたときだけ、元に戻す
@@ -43,4 +43,17 @@ test("自動の戻し: 戻したあとも失敗が続くなら、それ以上は
 
 test("自動の戻し: 戻しの仕組み自体は、自動マージで触れない所", () => {
   assert.deepEqual(protectedFiles(["scripts/auto-revert.ts", "scripts/auto-revert-rules.ts", ".github/workflows/auto-revert.yml"]), ["scripts/auto-revert.ts", "scripts/auto-revert-rules.ts", ".github/workflows/auto-revert.yml"]);
+});
+
+test("自動の戻し: main の本番の確認だけを読み、3回前が別の版の失敗なら、そこを最初の判断の機会にする", () => {
+  const runs = mainSmokeRuns([
+    { conclusion: "failure", head_sha: T, head_branch: "main", event: "schedule" },
+    { conclusion: "failure", head_sha: "o".repeat(40), head_branch: "feat/x", event: "workflow_dispatch" },
+    { conclusion: "cancelled", head_sha: T, head_branch: "main", event: "schedule" },
+    { conclusion: "failure", head_sha: T, head_branch: null, event: "deployment_status" },
+    { conclusion: "success", head_sha: P, head_branch: "main", event: "schedule" },
+  ]);
+  assert.deepEqual(runs.map((x) => x.head_sha), [T, T, P]);
+  // 3回前が別の版（P）の失敗: 2回目の判断の機会なので、何もしないではなく、直前の成功がないとして人に回す
+  assert.equal(decideRevert({ runs: [run("failure", T), run("failure", T), run("failure", P)], tip: tip(), revertedToday: false }).action, "human");
 });
