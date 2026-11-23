@@ -576,6 +576,13 @@ CREATE TABLE IF NOT EXISTS prompt_tests (
   cost_usd REAL,
   error TEXT
 );
+-- 毎日の計画に渡す東京の天気（Open-Meteo）。1日1行。day が一意なので、複数のプロセスでも、その日に読むのは最初に行を入れた1つだけ
+CREATE TABLE IF NOT EXISTS day_weather (
+  day TEXT PRIMARY KEY, -- 日本時間の日付 YYYY-MM-DD
+  status TEXT NOT NULL DEFAULT 'fetching', -- fetching = 読んでいる途中 / done = 読み終えた（読めなかった日も done で weather は []）
+  weather TEXT NOT NULL DEFAULT '[]', -- JSON（DayWeather[]）
+  at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS lessons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
