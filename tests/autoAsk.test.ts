@@ -123,3 +123,28 @@ test("自動の依頼: 見送った提案でも、PR が開いている間は次
   assert.equal(nextAutoAsk()?.row.id, f2);
 });
 
+
+test("PR の状態の読み直し: 閉じた PR の行が多くても、PR が開いている行を先に読む（自動の依頼が止まり続けない）", async () => {
+  clear();
+  const add = db().prepare("INSERT INTO plan_requests (title, target, source, status, ai_fix_at, ai_fix_pr, ai_fix_pr_state) VALUES (?, 'system', 'review', 'open', datetime('now', ?), ?, ?)");
+  for (let i = 0; i < 20; i++) add.run(`閉じた${i}`, "-1 days", 100 + i, "closed");
+  const open = Number(add.run("開いている", "-20 days", 7, "open").lastInsertRowid);
+  const heads: string[] = [];
+  const gh = async (url: string) => {
+    heads.push(decodeURIComponent(new URL(url).searchParams.get("head") ?? ""));
+    return new Response("[]", { status: 200 });
+  };
+  await syncAiFixPrs(gh, true);
+  assert.equal(heads.length, 20);
+  assert.ok(heads[0].endsWith(`proposal-${open}`), heads[0]);
+});
+
+test("攻めの提案: 攻めの上限に達していても、同じ趣旨の提案が返事待ちなら「何回出たか」は数える", () => {
+  clear();
+  const [g] = addReviewFindings([grow("届く先を増やす"), grow("シェアの導線を足す")]).added;
+  // 題は違うが、中身が同じ趣旨（同じ題のときは、数えずに入れないだけ）
+  const r = addReviewFindings([{ ...grow("届く先を増やす"), title: "検索から来られる入口を足す" }]);
+  assert.deepEqual(r.added, []);
+  assert.match(r.skipped.join("\n"), /同じ題か同じ趣旨の提案がすでにある/);
+  assert.equal((db().prepare("SELECT repeats FROM plan_requests WHERE id = ?").get(g) as { repeats: number }).repeats, 1);
+});

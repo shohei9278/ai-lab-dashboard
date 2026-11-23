@@ -50,14 +50,11 @@ export function addReviewFindings(raw: unknown): { added: number[]; skipped: str
       skipped.push(`${label}: kind は fix（守り）か growth（攻め）にしてください`);
       return;
     }
-    if (growth && growthRoom <= 0) {
-      skipped.push(`${label}: 6日のあいだに入れられる攻めの${GROWTH_MAX}件を超えた`);
-      return;
-    }
-    if (room <= 0) {
-      // 上限に達していても、同じ趣旨の提案が返事待ちなら「何回出たか」は数える（PR #141 の ai-review の指摘）
+    // 上限に達していても、同じ趣旨の提案が返事待ちなら「何回出たか」は数える（PR #141 の ai-review の指摘。攻めの上限のときも同じ。PR #154 の ai-review の指摘）
+    const full = growth && growthRoom <= 0 ? `6日のあいだに入れられる攻めの${GROWTH_MAX}件を超えた` : room <= 0 ? `6日のあいだに入れられる${REVIEW_MAX}件を超えた` : null;
+    if (full) {
       const p = { title: x.title, how: x.how, target: "system" as const, source: "review" as const };
-      skipped.push(countRepeat(p) ? `${label}: 同じ題か同じ趣旨の提案がすでにある` : `${label}: 6日のあいだに入れられる${REVIEW_MAX}件を超えた`);
+      skipped.push(countRepeat(p) ? `${label}: 同じ題か同じ趣旨の提案がすでにある` : `${label}: ${full}`);
       return;
     }
     const id = addProposal({ title: x.title, how: x.how, why: x.why, target: "system", source: "review", scene: growth ? GROWTH_SCENE : REVIEW_SCENE, proposer: null });

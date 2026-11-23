@@ -67,7 +67,8 @@ export async function syncAiFixPrs(fetchImpl: Fetch = fetch, force = false): Pro
   if (!force && gSync.__aiLabAiFixSync && Date.now() - gSync.__aiLabAiFixSync < 3_600_000) return 0;
   gSync.__aiLabAiFixSync = Date.now();
   // PR が開いているものは、提案の返事（見送りなど）や頼んだ日に関係なく読み直す（自動の依頼が「PR が開いている間は次を頼まない」を正しく判断できるように。autoAsk.ts）
-  const rows = db().prepare("SELECT * FROM plan_requests WHERE ai_fix_at IS NOT NULL AND ((status = 'open' AND ai_fix_at >= datetime('now', '-30 days')) OR ai_fix_pr_state = 'open') ORDER BY id LIMIT 20").all() as RequestRow[];
+  // 読む順は、PR が開いているもの → PR がまだ見つかっていないもの → 閉じたもの（閉じた PR の行が20件を占めて、開いている PR が読まれないままにならないように。PR #154 の ai-review の指摘）
+  const rows = db().prepare("SELECT * FROM plan_requests WHERE ai_fix_at IS NOT NULL AND ((status = 'open' AND ai_fix_at >= datetime('now', '-30 days')) OR ai_fix_pr_state = 'open') ORDER BY CASE WHEN ai_fix_pr_state = 'open' THEN 0 WHEN ai_fix_pr IS NULL THEN 1 ELSE 2 END, ai_fix_at DESC, id LIMIT 20").all() as RequestRow[];
   const repo = REPO_URL.replace("https://github.com/", "");
   const owner = repo.split("/")[0];
   let done = 0;
