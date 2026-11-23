@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
 import { addReviewFindings, GROWTH_SCENE, REVIEW_SCENE } from "../src/lib/codeReview";
 import { maybeAutoAsk, nextAutoAsk } from "../src/lib/autoAsk";
-import { syncAiFixPrs } from "../src/lib/aiFix";
+import { startAiFix, syncAiFixPrs } from "../src/lib/aiFix";
 import { scoringExisting } from "../src/lib/weekly";
 
 // コードの見直しの攻めの提案と、見直しの提案の自動の依頼（運営者が決めた。人の出番を減らす4つ目）
@@ -147,4 +147,30 @@ test("攻めの提案: 攻めの上限に達していても、同じ趣旨の提
   assert.deepEqual(r.added, []);
   assert.match(r.skipped.join("\n"), /同じ題か同じ趣旨の提案がすでにある/);
   assert.equal((db().prepare("SELECT repeats FROM plan_requests WHERE id = ?").get(g) as { repeats: number }).repeats, 1);
+});
+
+test("自動の依頼: 依頼を送っている間は、人の依頼も自動の依頼も、次を送らない（同時に2件動かさない）", async () => {
+  clear();
+  db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
+  const add = db().prepare("INSERT INTO plan_requests (title, how, why, target, source, scene, created_at) VALUES (?, 'h', 'w', 'system', 'review', ?, datetime('now', '-2 days'))");
+  const [a, b] = ["守りA", "守りB"].map((t) => Number(add.run(t, REVIEW_SCENE).lastInsertRowid));
+  process.env.CLAUDE_ROUTINE_FIRE_URL = FIRE;
+  process.env.CLAUDE_ROUTINE_TOKEN = "t";
+  let release!: () => void;
+  const wait = new Promise<void>((ok) => { release = ok; });
+  let calls = 0;
+  const slow = async () => {
+    calls++;
+    await wait;
+    return new Response(JSON.stringify({ claude_code_session_url: "https://claude.ai/code/session_y" }), { status: 200 });
+  };
+  const first = startAiFix(a, "人が頼んだ", slow);
+  await assert.rejects(startAiFix(b, "人がもう1件", slow), /送っている途中/);
+  assert.equal(await maybeAutoAsk(slow, true), false);
+  release();
+  await first;
+  assert.equal(calls, 1);
+  // 送り終わったら、次は頼める（ただし自動は、頼んだばかりの依頼があるので待つ）
+  assert.equal(nextAutoAsk(), null);
+  delete process.env.CLAUDE_ROUTINE_TOKEN;
 });

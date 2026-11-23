@@ -1,4 +1,4 @@
-import { aiFixConfigured, startAiFix } from "./aiFix";
+import { aiFixConfigured, aiFixSending, startAiFix } from "./aiFix";
 import { GROWTH_SCENE, REVIEW_SCENE } from "./codeReview";
 import { db, getSettings } from "./db";
 import { logEvent } from "./loop";
@@ -40,6 +40,8 @@ export function nextAutoAsk(): { row: Row; why: string } | null {
 const g = globalThis as unknown as { __aiLabAutoAskAt?: number };
 export async function maybeAutoAsk(fetchImpl: Fetch = fetch, force = false): Promise<boolean> {
   if (!force && g.__aiLabAutoAskAt && Date.now() - g.__aiLabAutoAskAt < 3_600_000) return false;
+  // 人の依頼を送っている途中なら、今回は見送る（次の見回りで、その依頼を数えて決める）
+  if (aiFixSending()) return false;
   g.__aiLabAutoAskAt = Date.now();
   const s = getSettings();
   if (!s.autoAskReview || s.killSwitch || !aiFixConfigured()) return false;

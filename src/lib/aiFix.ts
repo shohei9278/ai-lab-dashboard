@@ -43,18 +43,28 @@ export function aiFixText(r: RequestRow, note: string): string {
 
 // 運営者が「AIに直させる」を押したとき。ルーティンを起動し、作業の画面の URL を覚える
 // by: 運営者が押したか、自動で頼んだか（autoAsk.ts。自動のときは守り・攻めごとに記録の種類を分ける。記録の書き方だけが変わる）
+const gSend = globalThis as unknown as { __aiLabAiFixSending?: boolean };
+export const aiFixSending = () => !!gSend.__aiLabAiFixSending;
 export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fetch, by: "human" | "auto-fix" | "auto-growth" = "human"): Promise<{ sessionUrl: string | null }> {
   if (!aiFixConfigured()) throw new Error("Claude Code のルーティンがまだつながっていません（docs/SETUP-AI-FIX.md）");
   const r = db().prepare("SELECT * FROM plan_requests WHERE id = ?").get(id) as RequestRow | undefined;
   if (!r || r.status !== "open" || r.target !== "system") throw new Error("まだ答えていない「仕組みの改善」だけ頼めます");
   if (!aiFixRetryable(r)) throw new Error(r.ai_fix_pr_state === "open" ? "できた PR がレビュー待ちです。マージするか閉じてから頼めます" : "頼んだばかりです。1時間たってから、もう一度頼めます");
-  const clean = note.trim().slice(0, 300);
-  const url = await fireRoutine("CLAUDE_ROUTINE_FIRE_URL", "CLAUDE_ROUTINE_TOKEN", aiFixText(r, clean), fetchImpl);
-  // 頼み直したときは、前の PR の番号と状態を消す（新しい PR が見つかるまで「PR はまだ見つかっていません」と出す。PR #126 の ai-review の指摘）
-  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_url = ?, ai_fix_note = ?, ai_fix_pr = NULL, ai_fix_pr_state = NULL WHERE id = ?").run(url, clean || null, id);
-  if (by !== "human") logEvent(null, "system", `auto-ask-${by === "auto-fix" ? "fix" : "growth"}`, `提案箱の「${r.title}」を、自動で Claude Code に直してもらうよう頼みました（${clean}）`);
-  else logEvent(null, "human", "plan-request-ai-fix", `提案箱の「${r.title}」を、Claude Code に直してもらうよう頼んだ（PR ができたら、見てマージする）`);
-  return { sessionUrl: url };
+  // 依頼を送っている間（ルーティンの応答を待つ数秒）は、人の依頼も自動の依頼も、次を送らない（同時に2件動かさない。PR #154 の ai-review の指摘）
+  // 本番は1つの処理で動いているので、処理の中の印で防げる。確かめてから印を付けるまでに await をはさまない
+  if (gSend.__aiLabAiFixSending) throw new Error("ほかの依頼を送っている途中です。少し待ってから頼めます");
+  gSend.__aiLabAiFixSending = true;
+  try {
+    const clean = note.trim().slice(0, 300);
+    const url = await fireRoutine("CLAUDE_ROUTINE_FIRE_URL", "CLAUDE_ROUTINE_TOKEN", aiFixText(r, clean), fetchImpl);
+    // 頼み直したときは、前の PR の番号と状態を消す（新しい PR が見つかるまで「PR はまだ見つかっていません」と出す。PR #126 の ai-review の指摘）
+    db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_url = ?, ai_fix_note = ?, ai_fix_pr = NULL, ai_fix_pr_state = NULL WHERE id = ?").run(url, clean || null, id);
+    if (by !== "human") logEvent(null, "system", `auto-ask-${by === "auto-fix" ? "fix" : "growth"}`, `提案箱の「${r.title}」を、自動で Claude Code に直してもらうよう頼みました（${clean}）`);
+    else logEvent(null, "human", "plan-request-ai-fix", `提案箱の「${r.title}」を、Claude Code に直してもらうよう頼んだ（PR ができたら、見てマージする）`);
+    return { sessionUrl: url };
+  } finally {
+    gSend.__aiLabAiFixSending = false;
+  }
 }
 
 // ルーティンが作った PR の状態を GitHub から読み、提案箱に出す。マージされていたら「やった」にする（1時間に1回）
