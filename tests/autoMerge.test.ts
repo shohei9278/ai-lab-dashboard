@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
-import { parseReview, reviewInstructions, type Review } from "../scripts/ai-review-core";
+import { MAX_BODY, parseReview, reviewInput, reviewInstructions, type Review } from "../scripts/ai-review-core";
 import { OMITTED } from "../scripts/ai-review-omitted";
 
 // 自動マージの決まり: ルーティンが作った PR を、マージ・直させる・人に回す・待つ、のどれにするか
@@ -34,7 +34,7 @@ test("自動マージ: 直すべき指摘があれば直させ、3回直して�
 
 test("自動マージ: 自動で触れない所・CI の失敗・全部を読めないとき・レビューの答えを読めないとき・途中までのときは人に回す", () => {
   assert.match(pre({ files: ["src/lib/loop.ts", ".github/workflows/ci.yml"] }).reason, /\.github\/workflows\/ci\.yml/);
-  for (const f of ["src/proxy.ts", "src/lib/ai.ts", "src/lib/autopilot.ts", "src/lib/autoAsk.ts", "scripts/auto-merge-rules.ts", "scripts/ai-review-core.ts", "src/lib/interventions.ts", "package.json", "docs/routine-proposal-fix.md", "CLAUDE.md"]) {
+  for (const f of ["src/proxy.ts", "src/lib/ai.ts", "src/lib/autopilot.ts", "src/lib/autoAsk.ts", "scripts/auto-merge-rules.ts", "scripts/ai-review-core.ts", "src/lib/interventions.ts", "package.json", "docs/routine-proposal-fix.md", "CLAUDE.md", "src/app/login/LoginForm.tsx", "src/app/settings/SettingsForm.tsx", "src/app/api/settings/route.ts"]) {
     assert.equal(pre({ files: [f] }).action, "human", f);
   }
   assert.deepEqual(protectedFiles(["src/lib/loop.ts", "src/app/page.tsx", "tests/x.test.ts"]), []);
@@ -131,4 +131,11 @@ test("自動マージ: 本番の確認は、いちばん新しい回だけで決
 
 test("自動マージ: レビューの差分から外すファイルは、すべて自動で触れない所に入っている（外したファイルの中身を見ないままマージしない）", () => {
   assert.deepEqual(protectedFiles(OMITTED), OMITTED);
+});
+
+test("レビューの材料: PR の説明文が長すぎるときは、黙って切らずに途中まで（cut）とする", () => {
+  assert.equal(reviewInput({ prBody: "要件".repeat(100), diff: "d" }).cut, false);
+  const long = reviewInput({ prBody: "あ".repeat(MAX_BODY + 1), diff: "d" });
+  assert.equal(long.cut, true);
+  assert.match(long.input, /（長いため途中まで）/);
 });

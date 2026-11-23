@@ -17,6 +17,7 @@ export const PROTECTED: RegExp[] = [
   /^src\/lib\/viewer\.ts$/, // 来訪者に見せない仕組み
   /^src\/lib\/interventions\.ts$/, // 人の手の記録
   /^src\/app\/api\/(code-review|tool-jobs|login|settings)\//, // 合言葉の入口・ログイン・設定
+  /^src\/app\/(login|settings)\//, // ログインと設定の画面（入口の画面の側も。PR #153 の ai-review の指摘）
   /^package(-lock)?\.json$/, /^lp-site\/package(-lock)?\.json$/, // 依存の追加
   /^docs\/routine-/, // ルーティンへの指示
   /^CLAUDE\.md$/, /^AGENTS\.md$/,
@@ -113,7 +114,7 @@ export function beforeReview(x: {
 export function afterReview(reviews: Partial<Record<Reviewer, Review>>, fixes: number): Decision {
   const missing = REVIEWERS.filter((r) => !reviews[r]?.parsed);
   if (missing.length) return { action: "human", reason: `レビューの答えを読めなかった（${missing.join("・")}）` };
-  if (REVIEWERS.some((r) => reviews[r]!.cut)) return { action: "human", reason: "差分が長く、レビューが途中までしか読めていない" };
+  if (REVIEWERS.some((r) => reviews[r]!.cut)) return { action: "human", reason: "差分か説明文が長く、レビューが途中までしか読めていない" };
   const n = REVIEWERS.reduce((a, r) => a + blocking(reviews[r]!).length, 0);
   if (n > 0) {
     if (fixes >= MAX_FIX_ROUNDS) return { action: "human", reason: `${MAX_FIX_ROUNDS}回直しても、直すべき指摘（🔴・🟡）が${n}件残っている` };
