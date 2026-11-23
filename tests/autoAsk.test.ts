@@ -28,7 +28,7 @@ const TEXT: Record<string, [string, string]> = {
 const fix = (t: string) => ({ title: t, how: TEXT[t][0], why: TEXT[t][1] });
 const grow = (t: string) => ({ ...fix(t), kind: "growth" });
 
-test("攻めの提案: kind=growth は「攻め」として入り、6日に2件まで。知らない kind は入れない", () => {
+test("攻めの提案: kind=growth は「攻め」として入り、1回（2日のあいだ）に2件まで。知らない kind は入れない", () => {
   clear();
   const r = addReviewFindings([grow("届く先を増やす"), grow("シェアの導線を足す"), grow("通知を足す"), { ...fix("x"), kind: "other" }]);
   assert.equal(r.added.length, 2);

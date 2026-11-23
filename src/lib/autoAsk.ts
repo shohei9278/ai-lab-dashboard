@@ -6,7 +6,7 @@ import type { Fetch } from "./routine";
 
 // コードの見直しの提案を、運営者が押さなくても、自動で提案箱のルーティンに頼む（運営者が決めた。人の出番を減らす4つ目）
 // - 守り（直すべき所）: 入ってから1日たったら頼む（その間に運営者が見送れば頼まない）。1日に1件まで
-// - 攻め（足すとよい機能）: 定例会議で3社が採点し、平均7点以上のものだけ、点の高い順に頼む。7日に1件まで
+// - 攻め（足すとよい機能）: 定例会議で3社が採点し、平均7点以上のものだけ、点の高い順に頼む。3日に1件まで（見直しが週2回なので、それに合わせた）
 // - 一度に頼むのは1件だけ（前に頼んだ PR がまだ開いている・PR ができていない間は頼まない）
 // - できた PR は、自動マージ（scripts/auto-merge.ts）が、CI と GPT・Gemini のレビューを見てマージする
 // - 設定の「見直しの提案を自動で頼む」で切れる。緊急停止の間・PR の状態の読み直しに失敗している間は頼まない
@@ -29,7 +29,7 @@ export function nextAutoAsk(): { row: Row; why: string } | null {
     if (fix) return { row: fix, why: "自動: コードの見直しの守りの提案で、1日たっても見送られなかった" };
   }
   // 攻めは、3社の採点で決める（入ってからの待ちは付けない。PR #154 の ai-review の指摘）
-  if (asked("growth", 7) === 0) {
+  if (asked("growth", 3) === 0) {
     const grow = db().prepare("SELECT id, title, scene, score FROM plan_requests WHERE source = 'review' AND scene = ? AND target = 'system' AND status = 'open' AND ai_fix_at IS NULL AND score >= ? ORDER BY score DESC, id LIMIT 1").get(GROWTH_SCENE, GROWTH_MIN_SCORE) as Row | undefined;
     if (grow) return { row: grow, why: `自動: コードの見直しの攻めの提案で、定例会議で3社の平均${grow.score!.toFixed(1)}点` };
   }
