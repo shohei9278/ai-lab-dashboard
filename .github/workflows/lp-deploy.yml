@@ -1,0 +1,91 @@
+# 公開サイト（Hitoride。lp-site/）を、main に入ったら自動で Vercel に出す（運営者が決めた。人の出番を減らす続き）
+# - main の CI が通ったあとに動く（push で動かすと、Railway の Wait for CI に待たれるため、workflow_run にする）
+# - 出すのは、知らせの来た版ではなく、main で CI が成功したいちばん新しい版（同時に1つだけ動かす仕組みは、待っている実行を1つしか持たず、
+#   続けてマージされると途中の実行が取り消されるため。最後に動いた実行が最新に追いつく。PR #158 の ai-review の指摘）
+# - その版が、前に出した版（タグ lp-deployed）から lp-site/ が変わったときだけ出す。出せたらタグを進める（古い版を、新しい版の上に出さない）
+# - 手で動かす（workflow_dispatch。main からだけ）ときも、main で CI が成功したいちばん新しい版を出す
+# - VERCEL_TOKEN・VERCEL_ORG_ID・VERCEL_PROJECT_ID（GitHub の Secrets）がない間は、出さずに終える
+# - 出した・失敗したは Discord（NOTIFY_WEBHOOK_URL）に知らせる（わざと出さなかったとき以外は、手順の全部が成功したときだけ「出しました」）
+name: 公開サイトを出す
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write # 出した版の印（タグ lp-deployed）を進めるため
+  actions: read # main で CI が成功したいちばん新しい版を調べるため
+
+concurrency:
+  group: lp-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.conclusion == 'success')
+      || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      NOTIFY_WEBHOOK_URL: ${{ secrets.NOTIFY_WEBHOOK_URL }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: 出すかを決める
+        id: plan
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$VERCEL_ORG_ID" ] || [ -z "$VERCEL_PROJECT_ID" ]; then
+            echo "Vercel の Secrets がないため、出しません"; echo "go=0" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          # main で CI（push）が成功した、いちばん新しい版
+          target=$(gh run list -R "$GITHUB_REPOSITORY" --workflow CI --branch main --event push --status success --limit 1 --json headSha -q '.[0].headSha')
+          if [ -z "$target" ]; then echo "main で CI が成功した版が見つからない"; exit 1; fi
+          git fetch --quiet --tags --force origin
+          git merge-base --is-ancestor "$target" origin/main || { echo "CI が成功した版 $target が main にない"; exit 1; }
+          echo "sha=$target" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify refs/tags/lp-deployed >/dev/null; then
+            # 前に出した版より古い版は出さない
+            if ! git merge-base --is-ancestor refs/tags/lp-deployed "$target"; then
+              echo "前に出した版より新しくないため、出しません"; echo "go=0" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+            if git diff --quiet refs/tags/lp-deployed "$target" -- lp-site; then
+              echo "前に出した版から lp-site/ が変わっていないため、出しません"; echo "go=0" >> "$GITHUB_OUTPUT"; exit 0
+            fi
+          fi
+          git checkout --quiet "$target"
+          echo "go=1" >> "$GITHUB_OUTPUT"
+
+      - name: Vercel に出す
+        id: deploy
+        if: steps.plan.outputs.go == '1'
+        run: |
+          url=$(npx --yes vercel@66.6.0 deploy --prod --yes --token "$VERCEL_TOKEN" --cwd lp-site)
+          echo "出しました: $url"
+
+      - name: 出した版の印を進める
+        if: steps.plan.outputs.go == '1'
+        env:
+          SHA: ${{ steps.plan.outputs.sha }}
+        run: |
+          git tag -f lp-deployed "$SHA"
+          git push --force origin refs/tags/lp-deployed
+
+      # わざと出さなかったとき（go=0）以外は知らせる。準備の段階で失敗したとき（go が決まらない）も、失敗として知らせる
+      - name: Discord に知らせる
+        if: always() && steps.plan.outputs.go != '0' && env.NOTIFY_WEBHOOK_URL != ''
+        env:
+          SHA: ${{ steps.plan.outputs.sha }}
+          STATUS: ${{ job.status }}
+        run: |
+          short=$(echo "${SHA:-不明}" | cut -c1-7)
+          if [ "$STATUS" = "success" ]; then msg="🌐 公開サイト（Hitoride）を出しました（main の ${short}）"; else msg="⚠️ 公開サイト（Hitoride）を出せませんでした（main の ${short}）。Actions のログを見てください"; fi
+          jq -n --arg c "$msg" '{content: $c, allowed_mentions: {parse: []}}' | curl -sS -X POST -H "Content-Type: application/json" --data-binary @- "$NOTIFY_WEBHOOK_URL" -o /dev/null -w "Discord: %{http_code}\n" || true
