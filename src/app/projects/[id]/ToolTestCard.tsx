@@ -3,7 +3,7 @@
 import { ActionButton, BusyNote, useLoopAction } from "@/components/LoopAction";
 import { jstDateTime } from "@/lib/format";
 
-type Test = { ok: boolean; skipped?: string; errors: string[]; clicked: number; changed: boolean; overflow: boolean; used?: boolean; screenshot?: string; at: string };
+type Test = { ok: boolean; skipped?: string; errors: string[]; clicked: number; changed: boolean; overflow: boolean; used?: boolean; screenshot?: string; firstShotError?: string; at: string };
 
 // 動くツールの、ブラウザでの自動テストの結果（スマホ幅で開いて、ボタンなどを押してみる）
 export function ToolTestCard({ id, version, test, author }: { id: number; version: number; test: Test | null; author: { label: string; rewrites: number | null } | null }) {
@@ -36,6 +36,7 @@ export function ToolTestCard({ id, version, test, author }: { id: number; versio
               <span className="ml-2 text-xs text-muted">{test.clicked}か所を操作・{jstDateTime(test.at)}</span>
             </div>
             {issues.length > 0 && <ul className="list-disc space-y-0.5 pl-5 text-xs text-ink-2">{issues.map((x) => <li key={x}>{x}</li>)}</ul>}
+            {test.firstShotError && <p className="text-xs text-ink-2">何も押す前の1画面を撮れませんでした（一覧のカードとシェア画像はイラストのままになります）: {test.firstShotError}</p>}
           </div>
           {test.screenshot && (
             <a href={`/api/screenshots/${test.screenshot}`} target="_blank" rel="noreferrer" className="block">

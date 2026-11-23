@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { db } from "../src/lib/db";
 import { pngSize, toolShotFile, uploadToolShot } from "../src/lib/publish";
 import { normalizeLp } from "../lp-site/src/lp/content";
+import { firstShotNote } from "../src/lib/toolTest";
 
 const base = { headline: "見出し", subheadline: "補足", pains: ["悩み"], features: [{ title: "特徴", body: "説明" }], cta: "使う", faq: [] };
 const SB = "https://abcd1234.supabase.co/storage/v1/object/public/lp-images/p1/v1-shot-0a1b2c3d.png";
@@ -45,4 +46,12 @@ test("ツールの画面: PNG の大きさを読み、PNG でなければ null",
 
 test("ツールの画面: ツールでない案件は上げない", async () => {
   assert.equal(await uploadToolShot({ id: 1, kind: "lp" }, 1), null);
+});
+
+test("ツールの画面: 何も押す前の1画面を撮れなかった理由を、記録に残す一文にする（撮れたときは出さない）", () => {
+  const t = { ok: true, errors: [], clicked: 1, changed: true, overflow: false, at: "2026-11-23T00:00:00Z" };
+  assert.equal(firstShotNote({ ...t, firstShot: "p1-v1-first.png" }), null);
+  assert.equal(firstShotNote({ ...t, skipped: "ブラウザがない" }), null);
+  const note = firstShotNote({ ...t, firstShotError: "Timeout 10000ms exceeded" });
+  assert.ok(note?.includes("撮れませんでした") && note.includes("Timeout 10000ms exceeded"), note ?? "");
 });

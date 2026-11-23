@@ -29,6 +29,7 @@ export type ToolTest = {
   offscreen?: string[]; // 短いページのツールで、決まった高さの画面の下に出ていた押す所の名前
   screenshot?: string; // dataDir("screenshots") の中のファイル名（押したあとのページ全体）
   firstShot?: string; // 開いてすぐ、何も押す前の1画面（dataDir("screenshots") の中のファイル名）。一覧のカードとシェア画像に使う
+  firstShotError?: string; // 何も押す前の1画面を撮れなかったときの理由（撮れないとカードはイラストのままになるので、記録に残す。テストの合否には入れない）
   at: string;
 };
 
@@ -68,7 +69,10 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
     await page.waitForTimeout(500);
     // 一覧のカードとシェア画像に使う、何も押す前の1画面（撮れなくてもテストは続ける）
     const firstShot = `${name.replace(/[^a-z0-9-]/gi, "_")}-first.png`;
-    const shotOk = await page.screenshot({ path: path.join(dataDir("screenshots"), firstShot), timeout: 10_000 }).then(() => true, () => false);
+    const shotError = await page.screenshot({ path: path.join(dataDir("screenshots"), firstShot), timeout: 10_000 }).then(
+      () => null,
+      (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300),
+    );
     const before = await page.evaluate(() => document.body.innerText);
     // 枠の中のスクリプトは、親の画面に「使った」を知らせる。テストでは枠に入れないので、自分あての知らせを受け取って数える
     // （setContent では addInitScript が効かないため、開いたあとに受け取り口を付ける。操作はこのあとに行う）
@@ -123,7 +127,7 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
     const motion = /labMotion|labmotion/.test(html) ? await motionCheck(ctx, html, opts) : undefined;
     return {
       ok: uniq.length === 0 && changed && !overflow && used && (motion?.ok ?? true) && off.length === 0,
-      errors: uniq, clicked, changed, overflow, used, ...(motion ? { motion } : {}), ...(opts.short ? { offscreen: off } : {}), screenshot: file, ...(shotOk ? { firstShot } : {}), at,
+      errors: uniq, clicked, changed, overflow, used, ...(motion ? { motion } : {}), ...(opts.short ? { offscreen: off } : {}), screenshot: file, ...(shotError === null ? { firstShot } : { firstShotError: shotError }), at,
     };
   } catch (e) {
     return { ok: false, errors: [`テストの途中で失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`], clicked: 0, changed: false, overflow: false, at };
@@ -256,6 +260,11 @@ export function testIssues(t: ToolTest): string[] {
     ...(t.offscreen?.length ? [`高さ${PLAY_MIN_HEIGHT}pxの画面で、押す所（${t.offscreen.map((x) => `「${x}」`).join("・")}）が画面の下に出ていて、スクロールしないと押せない。絵や盤面を画面の高さにも合わせて縮め、遊ぶのに要るものを1画面に入れる`] : []),
     ...(t.clicked > 0 && t.used === false ? ["操作しても「使った」と数えられない（画面全体のクリック・入力の知らせを止めない（stopPropagation などを window や document に付けない）。押す所は button 要素にする）"] : []),
   ];
+}
+
+// 何も押す前の1画面を撮れなかったときの、記録に残す一文（撮れたとき・テストを飛ばしたときは null）
+export function firstShotNote(t: ToolTest): string | null {
+  return t.firstShotError ? `何も押す前の1画面を撮れませんでした（一覧のカードとシェア画像はイラストのままになります）: ${t.firstShotError}` : null;
 }
 
 const pct = (x: number) => `${Math.round(x * 1000) / 10}%`;
