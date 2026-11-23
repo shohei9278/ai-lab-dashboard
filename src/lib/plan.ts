@@ -18,6 +18,8 @@ import { maskHandles } from "./viewer";
 import { doneEffectsText } from "./effects";
 import { waitsText } from "./waits";
 import { decisionsText } from "./meetings";
+import { projectType } from "./aims";
+import { dayContextText, tokyoWeather, type DayWeather } from "./dayContext";
 
 // 毎日の計画: 毎朝AIが全案件を振り返り、今のネック（届かない・使われない など）を1つ決めて、今日やることを決める
 // - やること: 案件の宣伝の投稿 / 宣伝ではない普通の投稿 / ページを直す / 新しい案件づくりを休む / 次のアイデア出しに課題を伝える
@@ -229,7 +231,7 @@ export function platformCostText(): string {
   }).join(" / ")}`;
 }
 
-function planMaterial(): string {
+function planMaterial(weather: DayWeather[] = []): string {
   const s = getSettings();
   const now = jstNow();
   const live = liveProjects();
@@ -242,7 +244,7 @@ function planMaterial(): string {
     const posts = db().prepare("SELECT platform, COUNT(*) AS n, SUM(visits) AS v, MAX(posted_at) AS last FROM sns_posts WHERE project_id = ? AND status = 'posted' GROUP BY platform").all(p.id) as { platform: string; n: number; v: number; last: string }[];
     const pub = p.published_at ? Math.floor((Date.now() - Date.parse(p.published_at.replace(" ", "T") + "Z")) / 86_400_000) : null;
     const gate = improveBlocked(p);
-    return `- #${p.id} ${p.title}（${KIND_LABEL[p.kind]}・対象: ${p.target}${pub !== null ? `・公開${pub}日目` : ""}・ページの自動改善: ${gate ? `できない（${gate.reason}）` : "できる"}）直近7日: 訪問${p.v7} ${CONV[p.kind].noun}${p.c7} / 累計: 訪問${t.visits} ${CONV[p.kind].noun}${t.signups}
+    return `- #${p.id} ${p.title}（${KIND_LABEL[p.kind]}${projectType(p) === "play" ? "・遊ぶツール" : ""}・対象: ${p.target}${pub !== null ? `・公開${pub}日目` : ""}・ページの自動改善: ${gate ? `できない（${gate.reason}）` : "できる"}）直近7日: 訪問${p.v7} ${CONV[p.kind].noun}${p.c7} / 累計: 訪問${t.visits} ${CONV[p.kind].noun}${t.signups}
   投稿: ${posts.map((x) => `${AUTO_PLATFORMS[x.platform as AutoPlatform]?.label ?? x.platform} ${x.n}件（そこからの訪問${x.v ?? 0}）`).join("・") || "まだなし"}${p.growth_focus ? `\n  集客の方針: ${p.growth_focus}` : ""}${funnelText(p) ? `\n  ${funnelText(p).replace(/\n/g, "\n  ")}` : ""}`;
   });
   const recentPosts = (db().prepare(
@@ -262,6 +264,7 @@ function planMaterial(): string {
   const daily = days.map((d) => { const a = dayActuals(d); return `${d.slice(5)} 訪問${a.visits} 成果${a.conversions}`; }).join(" / ");
   return [
     `今: ${now.day} ${now.hm}（日本時間。以下の日時もすべて日本時間）`,
+    dayContextText(now.day, weather),
     `実験の累計: 案件${h.projects}件・公開${h.published}件・育てる段階${h.continued}件・撤退${h.killed}件 / 撤退の理由: ${ends.map((e) => `${e.label}${e.n}件`).join("・") || "まだなし"}`,
     `全案件の1日ごとの数字（直近7日）: ${daily}`,
     outsideText(),
@@ -351,7 +354,7 @@ export function opinionsText(opinions: PlanOpinion[]): string {
   return `\n\n朝会での、ほかの社員の意見（あなたが計画を書く前に出たもの。取り入れるかはあなたが決める。review に、どの意見を取り入れ、どれを取り入れなかったかと、その理由を一言ずつ書く）:\n${opinions.map((o) => `- ${modelInfo(o.modelId).label}: ${o.text.replace(/\n/g, " ")}`).join("\n")}`;
 }
 
-export async function createPlan({ force = false, ask = callJson }: { force?: boolean; ask?: Ask } = {}): Promise<number> {
+export async function createPlan({ force = false, ask = callJson, weather = tokyoWeather }: { force?: boolean; ask?: Ask; weather?: (today: string) => Promise<DayWeather[]> } = {}): Promise<number> {
   const s = getSettings();
   const now = jstNow();
   const existing = planFor(now.day);
@@ -361,7 +364,8 @@ export async function createPlan({ force = false, ask = callJson }: { force?: bo
   // 作り直すときは、同じAIに作り直させる（比べ合いを公平にするため）
   const model = existing && PLAN_MODELS.includes(existing.model_id) && hasKey(modelInfo(existing.model_id).provider) ? existing.model_id : planModelFor();
   // 朝会: 先にほかの社員の意見を聞き、担当はそれを読んでから計画を書く
-  const material = planMaterial();
+  // 東京の天気（1日1回だけ読む。読めなければ省く）
+  const material = planMaterial(await weather(now.day).catch(() => []));
   const standup = { key: `standup-${Date.now()}`, title: `${now.day.slice(5).replace("-", "/")}の朝会` };
   let opinions: PlanOpinion[] = [];
   let out: PlanOut;
@@ -374,7 +378,7 @@ export async function createPlan({ force = false, ask = callJson }: { force?: bo
       system: `あなたは「AIが自動でプロダクトを作る実験」の運営責任者です。毎朝、公開中の全案件と最近の結果を振り返り、今いちばんのネックを1つ決めて、今日1日にやることを決めます。決めたことは、そのまま自動で実行されます。
 ネック（bottleneck）は次から1つ: reach（届かない・訪問が少ない）/ use（訪問はあるが登録・利用されない）/ spread（使われるがシェアされない）/ pace（作るペースが合っていない）/ other
 今日できること（tasks）:
-- promo: 公開中の案件の宣伝の投稿（リンク付き）。project_id・platform・angle（切り口）を決める。宣伝は、直近7日の訪問か利用が多い上位3案件に集中する（薄く広く投稿すると、どの案件も判断できる量に届かないため）。それ以外の案件は週1件まで。ただし公開7日未満の案件は、まだ数字がないので例外として1〜2件出してよい。上位3案件は、反応が出ている場所を中心に、まだ試していない切り口を混ぜる。「すぐ使える文例・チェックリスト」（freebie）は、投稿の中で対象の人がそのまま使える文例・チェックリストを見せ、続きはツールやページで、とつなぐ切り口
+- promo: 公開中の案件の宣伝の投稿（リンク付き）。project_id・platform・angle（切り口）を決める。宣伝は、直近7日の訪問か利用が多い上位3案件に集中する（薄く広く投稿すると、どの案件も判断できる量に届かないため）。それ以外の案件は週1件まで。ただし公開7日未満の案件は、まだ数字がないので例外として1〜2件出してよい。材料の「今日と明日がどんな日か」（曜日・祝日・天気）も宣伝する案件の選び方に使う: 雨・雪の日や土日・祝日など、家にいる人が多い日は、すでに公開している遊ぶツール（材料に「遊ぶツール」とある案件）の宣伝を優先する（新しく作るためではなく、今あるものの宣伝の選び方に使う。天気がない日は曜日・祝日だけで考える）。上位3案件は、反応が出ている場所を中心に、まだ試していない切り口を混ぜる。「すぐ使える文例・チェックリスト」（freebie）は、投稿の中で対象の人がそのまま使える文例・チェックリストを見せ、続きはツールやページで、とつなぐ切り口
 - plain: 宣伝ではない普通の投稿（リンクなし。運営アカウント「Hitoride」の投稿）。platform と angle（話題）を決める。話題は次のどれか: 実験の記録（本物の数字）/ 作る裏側（実際にあった出来事）/ 案件の対象の人に役立つ小ネタ / そのまま使える文例・チェックリスト / 気軽な問いかけ
 - promo と plain には、切り口の型（type）も付ける: ${Object.entries(ANGLE_TYPES).map(([k, v]) => `${k}（${v}）`).join(" / ")}
 - improve: 集客中の案件のページ（ツールなら画面）を直す。project_id と angle（何をどう直すか、具体的に）を決める。1日1件まで。訪問がある程度あるのに登録・利用されない案件で、材料に「ページの自動改善: できる」とある案件だけ。結果が「held」（直したが承認待ちで未公開）の改善は、公開ページは変わっていないので、改善の効果として数字を読まない
