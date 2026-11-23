@@ -5,6 +5,7 @@ import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lesso
 import { endReasons, headline } from "./experiment";
 import { funnelText } from "./funnel";
 import { AUTO_PLATFORMS, X_PLAY_PROMO_PER_WEEK, autoPlatforms, postAllowed, xPlayPromoLeft, xPlayPromoOn, type AutoPlatform } from "./snsApi";
+import { unsupportedNumbers } from "./numberCheck";
 import { jstDay, postPromo, safetyQuota } from "./sns";
 import { viralHints } from "./viralPosts";
 import { budgetState } from "./budget";
@@ -510,13 +511,15 @@ export async function maybeCreatePlan() {
 
 // ---- 予定を実行する ----
 
-async function writePlain(platform: AutoPlatform, angle: string): Promise<string> {
+// 普通の投稿を書かせる。facts は、数字を照らすときの本物の材料（実験の累計・公開中の案件・最近の出来事。numberCheck.ts）
+async function writePlain(platform: AutoPlatform, angle: string): Promise<{ text: string; facts: string }> {
   const h = headline();
   const live = liveProjects();
   const events = (db().prepare("SELECT at, message FROM events WHERE actor IN ('ai', 'system') AND kind NOT LIKE '%error%' AND at >= datetime('now', '-3 days') ORDER BY id DESC LIMIT 40").all() as { at: string; message: string }[])
     .map((e) => `- ${e.message.slice(0, 120)}`).join("\n");
   const past = (db().prepare("SELECT result FROM plan_tasks WHERE kind = 'plain' AND status = 'done' ORDER BY id DESC LIMIT 8").all() as { result: string }[]).map((x) => `- ${x.result}`).join("\n");
   const def = AUTO_PLATFORMS[platform];
+  const facts = `実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n最近の出来事:\n${events || "（なし）"}`;
   const out = await callJson<{ text: string }>({
     purpose: "普通の投稿",
     system: `あなたは、AIにプロダクト作りを任せる実験をしている運営アカウント「Hitoride」として、${def.label}に宣伝ではない普通の投稿を1件書きます。
@@ -528,10 +531,10 @@ async function writePlain(platform: AutoPlatform, angle: string): Promise<string
 - 宣伝にしない（サービスへの誘導や「ぜひ使って」は書かない）。問いかけは、気軽に答えられるものにする
 - 最近の普通の投稿と、同じ話題・同じ書き出しにしない
 形式: {"text":"本文"}`,
-    user: `今日の話題: ${angle}${badPostsText("plain")}\n\n実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n最近の出来事:\n${events || "（なし）"}\n\n最近の普通の投稿:\n${past || "（なし）"}`,
+    user: `今日の話題: ${angle}${badPostsText("plain")}\n\n${facts}\n\n最近の普通の投稿:\n${past || "（なし）"}`,
     validate: (v): v is { text: string } => isObj(v) && isStr(v.text),
   });
-  return limitTags(out.text.trim(), def.plainTagMax);
+  return { text: limitTags(out.text.trim(), def.plainTagMax), facts };
 }
 
 async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string; url?: string }> {
@@ -561,7 +564,7 @@ async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string
   if (t.kind === "promo") {
     if (!t.project_id) return { status: "skipped", result: "案件が決まっていない" };
     const url = await postPromo(t.project_id, platform, t.angle ?? "");
-    if (!url) return { status: "skipped", result: "下書きが長すぎたため見送り" };
+    if (!url) return { status: "skipped", result: "下書きを使えなかったため見送り（長すぎた、または材料にない数字が入っていた）" };
     // 効いた手の集計のため、投稿にも切り口の型を付ける
     if (t.angle_type) db().prepare("UPDATE sns_posts SET angle_type = ? WHERE post_url = ?").run(t.angle_type, url);
     const text = (db().prepare("SELECT text FROM sns_posts WHERE post_url = ?").get(url) as { text: string } | undefined)?.text ?? "";
@@ -569,8 +572,12 @@ async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string
   }
   // 普通の投稿
   const def = AUTO_PLATFORMS[platform];
-  let text = await writePlain(platform, t.angle ?? "");
+  const written = await writePlain(platform, t.angle ?? "");
+  let text = written.text;
   if (/https?:\/\/|(^|\s)@\w/.test(text)) return { status: "skipped", result: `URLやアカウント名が入ったため見送り: ${text.slice(0, 60)}` };
+  // 材料にない、実績に見える数字（○人・○件・○% など）が入ったら出さない（numberCheck.ts。ハルシネーション対策）
+  const badNumbers = unsupportedNumbers(text, written.facts);
+  if (badNumbers.length) return { status: "skipped", result: `材料にない数字（${badNumbers.join("・")}）が入ったため見送り: ${text.slice(0, 60)}` };
   if (!def.plainFits(text)) text = [...text].slice(0, 120).join("");
   if (!def.plainFits(text)) return { status: "skipped", result: "長すぎたため見送り" };
   const record = (cost: number, error: string | null) =>
