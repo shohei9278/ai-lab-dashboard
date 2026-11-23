@@ -35,7 +35,7 @@ test("自動マージ: 直すべき指摘があれば直させ、3回直して�
 test("自動マージ: 自動で触れない所はレビューまで進め、CI の失敗・全部を読めないとき・レビューの答えを読めないとき・途中までのときは人に回す", () => {
   // 自動で触れない所に触れていても、レビューまでは進める（マージだけ人が決める。readyForHuman）
   assert.deepEqual(pre({ files: ["src/lib/loop.ts", ".github/workflows/ci.yml"] }).protectedFiles, [".github/workflows/ci.yml"]);
-  for (const f of ["src/proxy.ts", "src/lib/ai.ts", "src/lib/autopilot.ts", "src/lib/autoAsk.ts", "scripts/auto-merge-rules.ts", "scripts/ai-review-core.ts", "src/lib/interventions.ts", "package.json", "docs/routine-proposal-fix.md", "CLAUDE.md", "src/app/login/LoginForm.tsx", "src/app/settings/SettingsForm.tsx", "src/app/api/settings/route.ts"]) {
+  for (const f of ["src/proxy.ts", "src/lib/ai.ts", "src/lib/autopilot.ts", "src/lib/autoAsk.ts", "scripts/auto-merge-rules.ts", "scripts/ai-review-core.ts", "src/lib/interventions.ts", "src/data/interventions/x.json", "package.json", "docs/routine-proposal-fix.md", "CLAUDE.md", "src/app/login/LoginForm.tsx", "src/app/settings/SettingsForm.tsx", "src/app/api/settings/route.ts"]) {
     assert.deepEqual([pre({ files: [f] }).action, pre({ files: [f] }).protectedFiles], ["review", [f]], f);
   }
   assert.deepEqual(protectedFiles(["src/lib/loop.ts", "src/app/page.tsx", "tests/x.test.ts"]), []);

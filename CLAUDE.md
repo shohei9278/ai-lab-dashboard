@@ -16,7 +16,7 @@ Next.js の注意（`next dev` が自動で作り、消しても作り直す。N
 - マージは通常のマージ（スカッシュしない）。人の手の記録がコミットIDにリンクしているため
 - 提案箱のルーティンが作った PR（`claude/proposal-<番号>`）は、自動マージ（`.github/workflows/auto-merge.yml`・`scripts/auto-merge.ts`）が、CI と GPT・Gemini のレビューを見てマージする（運営者が決めた。手順は `docs/SETUP-AI-FIX.md`）。このセッションの Claude Code が作る PR は、これまでどおり運営者が言った範囲だけ
 - コミットの末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`、PR本文の末尾に `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
-- 人が見つけた不具合や、人の判断が入った変更の PR には、`src/lib/interventions.ts` の `FIRST` に「改善の記録」の人の記録を1件足す。人が実際に言ったこと・決めたことだけを書き、言っていない判断を書かない。自動のテストやCIが見つけた不具合には足さない。運営者が画面で直した記録は、`FIRST` を書き換えても上書きされない
+- 人が見つけた不具合や、人の判断が入った変更の PR には、`src/data/interventions/<key>.json` に「改善の記録」の人の記録を1件1ファイルで足す（`src/lib/interventions.ts` の `FIRST` には足さない。PR を並べたときにぶつからないように）。中身の形は、同じフォルダのほかのファイルに合わせる。人が実際に言ったこと・決めたことだけを書き、言っていない判断を書かない。自動のテストやCIが見つけた不具合には足さない。運営者が画面で直した記録は、`FIRST` を書き換えても上書きされない
 
 ## 確かめること
 - ダッシュボード: `npm run typecheck`、`npm run lint`、`npm test`（来訪者の画面は `npm run test:e2e`）

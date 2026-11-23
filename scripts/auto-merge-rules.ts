@@ -15,7 +15,7 @@ export const PROTECTED: RegExp[] = [
   /^src\/proxy\.ts$/, // 来訪者の入口
   /^src\/lib\/(ai|budget|autopilot|codeReview|routine|aiFix|toolRoutine|autoAsk)\.ts$/, // 予算・緊急停止・合言葉・ルーティンの起動
   /^src\/lib\/viewer\.ts$/, // 来訪者に見せない仕組み
-  /^src\/lib\/interventions\.ts$/, // 人の手の記録
+  /^src\/lib\/interventions\.ts$/, /^src\/data\/interventions\//, // 人の手の記録
   /^src\/app\/api\/(code-review|tool-jobs|login|settings)\//, // 合言葉の入口・ログイン・設定
   /^src\/app\/(login|settings)\//, // ログインと設定の画面（入口の画面の側も。PR #153 の ai-review の指摘）
   /^package(-lock)?\.json$/, /^lp-site\/package(-lock)?\.json$/, // 依存の追加
