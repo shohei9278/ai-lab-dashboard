@@ -8,7 +8,7 @@
 // したことは PR にコメントし、Discord に知らせる
 // PR のコードは動かさない（差分は git で取り出して、レビューの材料として読むだけ）。PR のコメントの「指摘なし」は信じない（誰でもボットとして書けるため）
 import { execFileSync } from "node:child_process";
-import { AUTO_BRANCH, HUMAN_MARK, afterDeliberation, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, readyForHuman, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type Decision, type PrComment } from "./auto-merge-rules";
+import { AUTO_BRANCH, HUMAN_MARK, afterDeliberation, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, promptChanged, TOKEN_WARN_DAYS, tokenDaysLeft, readyForHuman, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type Decision, type PrComment } from "./auto-merge-rules";
 import { REVIEWERS, askReviewer, blocking, deliberationComment, deliberationInput, deliberationInstructions, parseDeliberation, parseReview, reviewComment, reviewInput, reviewInstructions, type Deliberation, type Finding, type Review, type Reviewer } from "./ai-review-core";
 import { OMITTED } from "./ai-review-omitted";
 
@@ -199,11 +199,14 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
     });
   }
   const d = afterReview(reviews, fixRounds(comments));
+  // AIへの指示（プロンプト）を変えている PR も、マージに進める状態になったら、レビュー済みとして人に回す
+  const prompt = promptChanged(reviews);
+  const toPerson = prot.length > 0 || prompt;
   // マージも直しも、レビューを PR に書けたときだけ（書けないと、次の版のレビューに、この指摘が渡らない。PR #153 の ai-review の指摘）
   if (!recorded) return { action: "wait", reason: "レビューを PR に書けなかった（次の見回りでもう一度）" };
 
   if (d.action === "merge") {
-    return prot.length ? toHuman(pr, link, readyForHuman(d, prot).reason) : mergeNow(pr, link, d);
+    return toPerson ? toHuman(pr, link, readyForHuman(d, prot, prompt).reason) : mergeNow(pr, link, d);
   } else if (d.action === "deliberate") {
     // 残った 🟡 を2社で協議する。結果は PR に書いて、人があとから見直せるようにする
     const findings = REVIEWERS.flatMap((r) => blocking(reviews[r]!));
@@ -212,7 +215,7 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
     const posted = await comment(pr.number, deliberationComment(findings, results)).then(() => true, () => false);
     if (!posted) return { action: "wait", reason: "協議の結果を PR に書けなかった（次の見回りでもう一度）" };
     if (after.action !== "merge") return toHuman(pr, link, after.reason);
-    return prot.length ? toHuman(pr, link, readyForHuman(after, prot).reason) : mergeNow(pr, link, after);
+    return toPerson ? toHuman(pr, link, readyForHuman(after, prot, prompt).reason) : mergeNow(pr, link, after);
   } else if (d.action === "fix") {
     const text = fixText(pr, REVIEWERS.flatMap((r) => blocking(reviews[r]!)));
     if (!text) return toHuman(pr, link, "直すべき指摘が長く、ルーティンに全部を渡せない");
@@ -233,8 +236,20 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   return d;
 }
 
+// AUTO_MERGE_TOKEN の期限が近ければ知らせる。定期の見回りのうち、1日1回（UTC の0時台の回）だけ見る
+async function tokenExpiryNotice(now = new Date()) {
+  if (!AUTO_MERGE_TOKEN || process.env.GITHUB_EVENT_NAME !== "schedule" || now.getUTCHours() !== 0 || now.getUTCMinutes() >= 30) return;
+  const res = await fetch(API, { headers: { Authorization: `Bearer ${AUTO_MERGE_TOKEN}`, Accept: "application/vnd.github+json" }, signal: AbortSignal.timeout(20_000) }).catch(() => null);
+  if (!res) return;
+  if (res.status === 401) return notify("⚠️ AUTO_MERGE_TOKEN が使えません（期限切れか、消されています）。GitHub の Secrets に入れ直してください");
+  const exp = res.headers.get("github-authentication-token-expiration");
+  const days = tokenDaysLeft(exp, now);
+  if (days !== null && days <= TOKEN_WARN_DAYS) await notify(`⏳ AUTO_MERGE_TOKEN の期限まで、あと${Math.max(0, days)}日です（${exp}）。新しいトークンを作って、GitHub の Secrets に入れ直してください`);
+}
+
 async function main() {
   if (!GITHUB_REPOSITORY || !GITHUB_TOKEN) throw new Error("GITHUB_REPOSITORY と GITHUB_TOKEN が要ります");
+  await tokenExpiryNotice().catch((e) => console.error(`トークンの期限を確かめられませんでした: ${e instanceof Error ? e.message : String(e)}`));
   // 開いている PR を全部読む（PR #153 の ai-review の指摘）
   const open = await pages<Pull>("/pulls?state=open", 10);
   // 読みきれないときは、見回りを失敗にする（一部だけ見て進めない。失敗は Actions が知らせる）

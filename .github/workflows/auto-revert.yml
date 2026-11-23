@@ -1,0 +1,42 @@
+# ダッシュボードの自動の戻し: 本番の確認（smoke.yml）が失敗したときに、main のスクリプトで決める（scripts/auto-revert.ts）
+# マージして本番に出した直後に本番の確認が2回続けて失敗し、その前の版では成功していたときだけ、いちばん新しいマージを元に戻す PR を作り、
+# CI（check）が通ったらマージする。1日1回まで。戻しても直らなければ人に回す（運営者が決めた）
+# 元に戻す PR は AUTO_MERGE_TOKEN で作ってマージする（Actions の標準のトークンでマージすると、main の CI が動かず、Railway が出さないため）
+name: 自動の戻し
+
+on:
+  workflow_run:
+    workflows: [本番の確認]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: read
+  actions: read
+  checks: read
+
+concurrency:
+  group: auto-revert
+  cancel-in-progress: false
+
+jobs:
+  auto-revert:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+          # 元に戻すブランチは AUTO_MERGE_TOKEN で push する（標準のトークンを残さない）
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx tsx scripts/auto-revert.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AUTO_MERGE_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+          NOTIFY_WEBHOOK_URL: ${{ secrets.NOTIFY_WEBHOOK_URL }}

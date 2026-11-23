@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { afterDeliberation, FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, readyForHuman, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
+import { afterDeliberation, FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, promptChanged, TOKEN_WARN_DAYS, tokenDaysLeft, protectedFiles, readyForHuman, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
 import { deliberationComment, MAX_BODY, parseDeliberation, parseReview, reviewInput, reviewInstructions, type Review } from "../scripts/ai-review-core";
 import { OMITTED } from "../scripts/ai-review-omitted";
 
@@ -182,4 +182,33 @@ test("自動で触れない所: レビュー・直し・協議までは進め、
   const h = readyForHuman(d, p.protectedFiles!);
   assert.equal(h.action, "human");
   assert.match(h.reason, /^✅ レビュー済みで、マージしてよい状態（CI が通り、GPT と Gemini のどちらも直すべき指摘なし）。ただし、自動ではマージしない所（src\/app\/settings\/SettingsForm\.tsx）に触れている$/);
+});
+
+test("AIへの指示の変更: 2社とも「変えていない」と答えたときだけ、変えていないとする（答えがないときは変えているとする）", () => {
+  const r = (pc: unknown) => parseReview("gpt", JSON.stringify({ summary: "s", prompt_changed: pc, findings: [] }), false);
+  assert.equal(r(true).promptChanged, true);
+  assert.equal(r(false).promptChanged, false);
+  assert.equal(r("no").promptChanged, null);
+  const g = (pc: unknown) => ({ ...r(pc), reviewer: "gemini" as const });
+  assert.equal(promptChanged({ gpt: r(false), gemini: g(false) }), false);
+  assert.equal(promptChanged({ gpt: r(false), gemini: g(true) }), true);
+  assert.equal(promptChanged({ gpt: r(false), gemini: g(undefined) }), true);
+  // マージしてよい状態でも、指示を変えていればレビュー済みとして人に回す
+  const d = afterReview({ gpt: r(true), gemini: g(false) }, 0);
+  assert.equal(d.action, "merge");
+  assert.match(readyForHuman(d, [], true).reason, /ただし、AIへの指示（プロンプト）を変えている$/);
+  assert.match(readyForHuman(d, ["src/proxy.ts"], true).reason, /ただし、自動ではマージしない所（src\/proxy\.ts）に触れている・AIへの指示（プロンプト）を変えている$/);
+  // 自動マージのレビューにだけ、答えの形に prompt_changed を入れる
+  assert.match(reviewInstructions({ autoPr: true, withHistory: false }), /"prompt_changed"/);
+  assert.doesNotMatch(reviewInstructions({ autoPr: false, withHistory: false }), /prompt_changed/);
+});
+
+test("トークンの期限: GitHub の答えの期限の日付から、残りの日数を出す（期限なし・読めない形は null）", () => {
+  const now = new Date("2026-11-23T00:15:00Z");
+  assert.equal(tokenDaysLeft("2026-12-01 00:00:00 UTC", now), 7);
+  assert.equal(tokenDaysLeft("2027-11-23 00:00:00 UTC", now), 364);
+  assert.equal(tokenDaysLeft("2026-11-20 00:00:00 UTC", now)! < 0, true);
+  assert.equal(tokenDaysLeft(null, now), null);
+  assert.equal(tokenDaysLeft("いつか", now), null);
+  assert.equal(TOKEN_WARN_DAYS, 14);
 });

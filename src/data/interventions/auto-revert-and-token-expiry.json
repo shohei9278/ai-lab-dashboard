@@ -1,0 +1,11 @@
+{
+  "day": "2026-11-23",
+  "kind": "direction",
+  "title": "ダッシュボードを出したあと本番の確認が2回続けて失敗したら、そのマージを自動で元に戻し、AUTO_MERGE_TOKEN の期限が近ければ知らせるようにした",
+  "happened": "公開したツールは自動で前の版に戻るが、ダッシュボード（Railway）を出して本番の確認が失敗したときは、Discord に知らせるだけで、戻すのは人だった。AUTO_MERGE_TOKEN などの期限が切れても、切れる前に知らせる仕組みがなかった。",
+  "noticed": "運営者が、危ない所以外で人の手がいる所は残っているかと聞いた。Claude Code が、ダッシュボードの戻しとトークンの期限を挙げ、戻しは「マージの直後に本番の確認が2回続けて失敗し、その前の版では成功していたときだけ、元に戻す PR を作って自動でマージする。1日1回まで。戻しても直らなければ人に回す」形を勧めると、運営者が、自動の戻しはおすすめの形で、と決めた。運営者は、AUTO_MERGE_TOKEN を期限なしで作っていた。",
+  "decision": "Claude Code が、Actions の「自動の戻し」（.github/workflows/auto-revert.yml・scripts/auto-revert.ts・auto-revert-rules.ts）を作った。本番の確認が失敗するたびに main のスクリプトで決め、上の条件のときだけ、いちばん新しいマージを元に戻す PR を AUTO_MERGE_TOKEN で作り、CI が通ったらマージして Discord に知らせる。条件に合わないとき・1日に2回目・戻しても直らないときは、戻さずに Discord で人に回す。自動マージの見回りは、1日1回 AUTO_MERGE_TOKEN の期限を読み、14日を切ったら、または使えなくなったら Discord に知らせる。",
+  "result": null,
+  "found_by": "human",
+  "commit_sha": null
+}
