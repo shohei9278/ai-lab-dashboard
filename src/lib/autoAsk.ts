@@ -4,17 +4,20 @@ import { db, getSettings } from "./db";
 import { logEvent } from "./loop";
 import type { Fetch } from "./routine";
 
-// コードの見直しの提案を、運営者が押さなくても、自動で提案箱のルーティンに頼む（運営者が決めた。人の出番を減らす4つ目）
-// - 守り（直すべき所）: 入ってから1日たったら頼む（その間に運営者が見送れば頼まない）。1日に1件まで
-// - 攻め（足すとよい機能）: 定例会議で3社が採点し、平均7点以上のものだけ、点の高い順に頼む。3日に1件まで（見直しが週2回なので、それに合わせた）
-// - ほかの提案（AIの社員・会議・エラーの見張りなどから入ったもの）: 定例会議で3社が採点し、平均7点以上のものだけ、点の高い順に頼む。
-//   運営者が書いた提案は、入ってから1日たったら頼む（その間に運営者が見送れば頼まない）。合わせて1日に1件まで（運営者が「提案箱のやつは基本自動で良い」と決めた）
-//   頼まれたルーティンが「直さなくて良い」と判断したら、見送りにする（/api/code-review/skip。docs/routine-proposal-fix.md）
-// - 一度に頼むのは1件だけ（前に頼んだ PR がまだ開いている・PR ができていない間は頼まない）
+// 提案箱の「仕組みの改善」を、運営者が押さなくても、自動でルーティンに頼む（運営者が決めた。人の出番を減らす4つ目と、その続き）
+// - 一度に頼むのは1件だけ（前に頼んだ PR がまだ開いている・PR ができていない間は頼まない）。終わったら、次の見回り（1時間に1回）で次を頼む
+// - 全部合わせて1日（24時間）に DAILY_MAX 件まで（暴走したときの歯止め。種類ごとの上限はやめた。運営者が「1日1件だと遅い」と言い、決めた）
+// - 頼む順:
+//   1. コードの見直しの守り（直すべき所）: 入ってから1日たっても見送られなければ（その間に運営者が見送れば頼まない）
+//   2. 運営者が書いた提案: 入ってから1時間たっても見送られなければ（書いてすぐ頼まれると、取り消す間がないため）
+//   3. 3社の採点の平均が7点以上の提案（見直しの攻め・AIの社員・会議・エラーの見張りなど）: 点の高い順・入った日時の古い順
+// - 頼まれたルーティンが「直さなくて良い」と判断したら、見送りにする（/api/code-review/skip。docs/routine-proposal-fix.md）
 // - できた PR は、自動マージ（scripts/auto-merge.ts）が、CI と GPT・Gemini のレビューを見てマージする
 // - 設定の「提案箱の提案を自動で頼む」で切れる。緊急停止の間・PR の状態の読み直しに失敗している間は頼まない
 export const GROWTH_MIN_SCORE = 7;
-const WAIT = "-1 day";
+export const DAILY_MAX = 4;
+const FIX_WAIT = "-1 day";
+const HUMAN_WAIT = "-1 hour";
 
 type Row = { id: number; title: string; scene: string; score: number | null; source?: string };
 export type AutoKind = "auto-fix" | "auto-growth" | "auto-box";
@@ -26,23 +29,20 @@ export function nextAutoAsk(): { row: Row; why: string; kind: AutoKind } | null 
   // PR がまだないものは、返事待ちの間だけ数える（ルーティンが見送ったら、すぐ次を頼めるように。PR #155 の ai-review の指摘）
   const busy = db().prepare("SELECT 1 FROM plan_requests WHERE ai_fix_at IS NOT NULL AND (ai_fix_pr_state = 'open' OR (status = 'open' AND ai_fix_pr IS NULL AND ai_fix_at >= datetime('now', '-1 day')))").get();
   if (busy) return null;
-  // 自動で頼んだ回数は、上書きされない記録（events の auto-ask-fix・auto-ask-growth）の種類で数える
+  // 自動で頼んだ回数は、上書きされない記録（events の auto-ask-fix・auto-ask-growth・auto-ask-box）で数える
   // （人が頼み直すと提案の欄は上書きされる。記録の文で見分けると、題の言葉で取り違える。PR #154 の ai-review の指摘）
-  const asked = (kind: "fix" | "growth" | "box", days: number) => (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = ? AND at >= datetime('now', ?)").get(`auto-ask-${kind}`, `-${days} days`) as { n: number }).n;
-  if (asked("fix", 1) === 0) {
-    const fix = db().prepare("SELECT id, title, scene, score FROM plan_requests WHERE source = 'review' AND scene = ? AND target = 'system' AND status = 'open' AND ai_fix_at IS NULL AND created_at <= datetime('now', ?) ORDER BY repeats DESC, id LIMIT 1").get(REVIEW_SCENE, WAIT) as Row | undefined;
-    if (fix) return { row: fix, why: "自動: コードの見直しの守りの提案で、1日たっても見送られなかった", kind: "auto-fix" };
-  }
-  // 攻めは、3社の採点で決める（入ってからの待ちは付けない。PR #154 の ai-review の指摘）
-  if (asked("growth", 3) === 0) {
-    const grow = db().prepare("SELECT id, title, scene, score FROM plan_requests WHERE source = 'review' AND scene = ? AND target = 'system' AND status = 'open' AND ai_fix_at IS NULL AND score >= ? ORDER BY score DESC, id LIMIT 1").get(GROWTH_SCENE, GROWTH_MIN_SCORE) as Row | undefined;
-    if (grow) return { row: grow, why: `自動: コードの見直しの攻めの提案で、定例会議で3社の平均${grow.score!.toFixed(1)}点`, kind: "auto-growth" };
-  }
-  // ほかの提案: AIが出したものは3社の採点で、運営者が書いたものは1日待って（点の高い順・古い順）
-  if (asked("box", 1) === 0) {
-    const box = db().prepare(`SELECT id, title, scene, score, source FROM plan_requests WHERE source != 'review' AND target = 'system' AND status = 'open' AND ai_fix_at IS NULL
-      AND ((source != 'human' AND score >= ?) OR (source = 'human' AND created_at <= datetime('now', ?))) ORDER BY (source = 'human') DESC, score DESC, created_at, id LIMIT 1`).get(GROWTH_MIN_SCORE, WAIT) as Row | undefined;
-    if (box) return { row: box, why: box.source === "human" ? "自動: 運営者が書いた提案で、1日たっても見送られなかった" : `自動: 提案箱の提案で、定例会議で3社の平均${box.score!.toFixed(1)}点`, kind: "auto-box" };
+  const asked = (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind IN ('auto-ask-fix', 'auto-ask-growth', 'auto-ask-box') AND at >= datetime('now', '-1 day')").get() as { n: number }).n;
+  if (asked >= DAILY_MAX) return null;
+  const open = "target = 'system' AND status = 'open' AND ai_fix_at IS NULL";
+  const fix = db().prepare(`SELECT id, title, scene, score FROM plan_requests WHERE source = 'review' AND scene = ? AND ${open} AND created_at <= datetime('now', ?) ORDER BY repeats DESC, created_at, id LIMIT 1`).get(REVIEW_SCENE, FIX_WAIT) as Row | undefined;
+  if (fix) return { row: fix, why: "自動: コードの見直しの守りの提案で、1日たっても見送られなかった", kind: "auto-fix" };
+  const human = db().prepare(`SELECT id, title, scene, score FROM plan_requests WHERE source = 'human' AND ${open} AND created_at <= datetime('now', ?) ORDER BY created_at, id LIMIT 1`).get(HUMAN_WAIT) as Row | undefined;
+  if (human) return { row: human, why: "自動: 運営者が書いた提案で、1時間たっても見送られなかった", kind: "auto-box" };
+  // 採点で決めるもの（見直しの攻め・AIの社員・会議など）。見直しの守りは、採点されても上の待ちで頼む
+  const scored = db().prepare(`SELECT id, title, scene, score, source FROM plan_requests WHERE source != 'human' AND NOT (source = 'review' AND scene = ?) AND ${open} AND score >= ? ORDER BY score DESC, created_at, id LIMIT 1`).get(REVIEW_SCENE, GROWTH_MIN_SCORE) as Row | undefined;
+  if (scored) {
+    const growth = scored.source === "review" && scored.scene === GROWTH_SCENE;
+    return { row: scored, why: `自動: ${growth ? "コードの見直しの攻めの提案" : "提案箱の提案"}で、定例会議で3社の平均${scored.score!.toFixed(1)}点`, kind: growth ? "auto-growth" : "auto-box" };
   }
   return null;
 }

@@ -47,7 +47,7 @@ test("攻めの提案: 定例会議で3社が採点する（守りは採点し�
   assert.ok(!ids.includes(f));
 });
 
-test("自動の依頼: 守りは1日たってから、攻めは7点以上だけ。一度に1件で、進んでいる間は次を頼まない", () => {
+test("自動の依頼: 守りは1日たってから、攻めは7点以上だけ。一度に1件で、進んでいる間は次を頼まない。守りが先", () => {
   clear();
   const [f] = addReviewFindings([fix("守りA")]).added;
   const [g] = addReviewFindings([grow("攻めA")]).added;
@@ -66,11 +66,10 @@ test("自動の依頼: 守りは1日たってから、攻めは7点以上だけ�
   assert.equal(nextAutoAsk(), null);
   db().prepare("UPDATE plan_requests SET score = 7.4 WHERE id = ?").run(g);
   assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [g, "自動: コードの見直しの攻めの提案で、定例会議で3社の平均7.4点"]);
-  // 守りは1日に1件まで（人が頼み直して提案の欄が上書きされても、記録から数える）
+  // 種類ごとの上限はない。前の PR が終わっていれば、守りを攻めより先に頼む
   const [f2] = addReviewFindings([fix("守りB")]).added;
   old(f2);
-  db().prepare("UPDATE plan_requests SET ai_fix_note = '人が頼み直した' WHERE id = ?").run(f);
-  assert.equal(nextAutoAsk()?.row.id, g);
+  assert.equal(nextAutoAsk()?.row.id, f2);
   assert.ok(REVIEW_SCENE);
 });
 
@@ -181,22 +180,28 @@ test("自動の依頼: 依頼を送っている間は、人の依頼も自動の
   delete process.env.CLAUDE_ROUTINE_TOKEN;
 });
 
-test("提案箱の自動の依頼: AIの社員や会議の提案は3社の平均7点以上を、運営者の提案は1日たってから頼む（合わせて1日1件）", () => {
+test("提案箱の自動の依頼: AIの社員や会議の提案は3社の平均7点以上を、運営者の提案は1時間たってから頼む（全部で1日4件まで）", () => {
   clear();
   db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
   const add = db().prepare("INSERT INTO plan_requests (title, how, why, target, source, score, created_at) VALUES (?, 'h', 'w', ?, ?, ?, datetime('now', ?))");
   const low = Number(add.run("点が低い提案", "system", "scene", 6.9, "-2 days").lastInsertRowid);
   add.run("運営者へのお願い", "human", "meeting", 9, "-2 days");
-  const fresh = Number(add.run("運営者が書いたばかり", "system", "human", null, "-1 hours").lastInsertRowid);
+  const fresh = Number(add.run("運営者が書いたばかり", "system", "human", null, "-10 minutes").lastInsertRowid);
   assert.equal(nextAutoAsk(), null);
   const high = Number(add.run("点の高い提案", "system", "voice", 7.5, "-1 hours").lastInsertRowid);
   assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.kind, nextAutoAsk()?.why], [high, "auto-box", "自動: 提案箱の提案で、定例会議で3社の平均7.5点"]);
-  // 運営者が書いた提案は、1日たったら先に頼む
-  db().prepare("UPDATE plan_requests SET created_at = datetime('now', '-2 days') WHERE id = ?").run(fresh);
-  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [fresh, "自動: 運営者が書いた提案で、1日たっても見送られなかった"]);
-  // 1日に1件まで
-  db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (NULL, 'system', 'auto-ask-box', 'x')").run();
+  // 運営者が書いた提案は、1時間たったら、点の高い提案より先に頼む
+  db().prepare("UPDATE plan_requests SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(fresh);
+  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [fresh, "自動: 運営者が書いた提案で、1時間たっても見送られなかった"]);
+  // 種類に関係なく、全部で1日4件まで（3件なら、まだ頼める）
+  const ev = db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (NULL, 'system', ?, 'x')");
+  for (const k of ["auto-ask-box", "auto-ask-fix", "auto-ask-growth"]) ev.run(k);
+  assert.equal(nextAutoAsk()?.row.id, fresh);
+  ev.run("auto-ask-box");
   assert.equal(nextAutoAsk(), null);
+  // 1日より前のものは数えない
+  db().prepare("UPDATE events SET at = datetime('now', '-25 hours') WHERE kind LIKE 'auto-ask-%'").run();
+  assert.equal(nextAutoAsk()?.row.id, fresh);
   assert.ok(low);
 });
 
