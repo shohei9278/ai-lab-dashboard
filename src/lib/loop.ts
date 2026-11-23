@@ -154,8 +154,9 @@ const building = (gBuilding.__aiLabBuilding ??= new Map());
 
 // ライブ画面用: AIの途中経過（届いたアイデア・採点）を、DBに書く前からすぐ見せるためのメモと、いまの作業の進み具合
 export type LiveNote = { key: string; at: string; who: string; provider: string | null; kind: string; text: string; batch: string };
-// model・room: 担当のAIと、オフィスでその社員を座らせる部屋（office.ts の officeWorking）。ないときは、steps の名前（AIの名前）と題から決める
-export type Activity = { key: string; title: string; since: number; steps: Record<string, string>; model?: string; room?: Room };
+// models・room・doing・projectId: オフィス（office.ts の officeWorking）に出すときの、担当のAI・部屋・何をしているか（案件名を含まない言い方）・案件
+// models がないときは steps の名前（AIの名前）から、room・doing がないときは題から決める
+export type Activity = { key: string; title: string; since: number; steps: Record<string, string>; models?: string[]; room?: Room; doing?: string; projectId?: number | null };
 const gLive = globalThis as unknown as { __aiLabNotes?: LiveNote[]; __aiLabActivities?: Map<string, Activity> };
 const liveNotes = (gLive.__aiLabNotes ??= []);
 const activities = (gLive.__aiLabActivities ??= new Map());
@@ -188,13 +189,12 @@ export function liveEnd(key: string) {
 // 長くかかる裏の作業（動画づくり・評価・比較・調べものなど）を「いまAIがやっていること」に出す
 // 右下の「AIが作業中」・オフィス・ライブ・/api/live の activities に出る（/api/live に出ている間は、マージを待つ。運営者が決めた）
 // fn には、進み具合を書き換える step を渡す。終わったら（失敗しても）消す
-export async function withActivity<T>(a: { key: string; title: string; model?: string | null; room?: Room }, fn: (step: (status: string) => void) => Promise<T>): Promise<T> {
-  const who = a.model ? modelLabel(a.model) : "AI";
+// models: 担当のAI（複数のAIを比べる作業は、その全部）。doing: オフィスに出す、案件名を含まない言い方（公開ページで、非公開の案件名を出さないため。PR #168 の ai-review の指摘）
+export async function withActivity<T>(a: { key: string; title: string; models: string[]; room: Room; doing: string; projectId?: number | null }, fn: (step: (status: string) => void) => Promise<T>): Promise<T> {
+  const who = a.models.length === 1 ? modelLabel(a.models[0]) : "AI";
   const step = (status: string) => {
     setStep(a.key, a.title, who, status);
-    const act = activities.get(a.key)!;
-    if (a.model) act.model = a.model;
-    if (a.room) act.room = a.room;
+    Object.assign(activities.get(a.key)!, { models: a.models, room: a.room, doing: a.doing, projectId: a.projectId ?? null });
   };
   step("始めました");
   try {

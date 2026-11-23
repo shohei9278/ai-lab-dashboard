@@ -456,7 +456,7 @@ export function makePlayVideo(projectId: number): Promise<number> {
   pending.add(projectId);
   const before = (g.__aiLabPlayQueue ?? Promise.resolve()).catch(() => undefined);
   // 順番待ちの間から「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように）
-  const run = withActivity({ key: `play-video-${projectId}`, title: `遊ぶ様子の動画「${getProject(projectId)?.title ?? `#${projectId}`}」`, model: claudeModelId(), room: "pr" }, async (step) => {
+  const run = withActivity({ key: `play-video-${projectId}`, title: `遊ぶ様子の動画「${getProject(projectId)?.title ?? `#${projectId}`}」`, models: [claudeModelId() ?? "claude-opus-5-5"], room: "pr", doing: "遊ぶ様子の動画", projectId }, async (step) => {
     step("順番待ちです");
     await before;
     return makeOnce(projectId, step);

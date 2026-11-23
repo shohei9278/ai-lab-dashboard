@@ -63,7 +63,7 @@ export function startCheckEval(modelId: unknown): number {
     return Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash) VALUES (?, ?)").run(modelId, checkPromptHash()).lastInsertRowid);
   }).immediate();
   // 動いている間は「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように）
-  void withActivity({ key: `check-eval-${id}`, title: "公開前チェックの評価", model: modelId, room: "dev" }, () => runCheckEval(id, modelId)).catch((e) => finish(id, "error", e instanceof Error ? e.message : String(e)));
+  void withActivity({ key: `check-eval-${id}`, title: "公開前チェックの評価", models: [modelId], room: "dev", doing: "公開前チェックの評価" }, () => runCheckEval(id, modelId)).catch((e) => finish(id, "error", e instanceof Error ? e.message : String(e)));
   return id;
 }
 

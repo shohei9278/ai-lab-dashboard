@@ -488,7 +488,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
     const pid = Number(rq.project_id);
     const rid = addResearch({ planId: id, projectId: Number.isFinite(pid) && pid > 0 ? pid : null, question: rq.question, why: isStr(rq.why) ? rq.why : "", how: isStr(rq.how) ? rq.how : "", askedBy: model });
     // 調べている間は「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように。調べるのは research.ts の Claude）
-    void withActivity({ key: `research-${rid}`, title: "調べもの", model: "claude-sonnet-5-5", room: "meeting" }, () => runResearch(rid)).catch((e) => console.error("調べものに失敗しました", e));
+    void withActivity({ key: `research-${rid}`, title: "調べもの", models: ["claude-sonnet-5-5"], room: "meeting", doing: "調べもの" }, () => runResearch(rid)).catch((e) => console.error("調べものに失敗しました", e));
   }
   for (const r of Array.isArray(out.replies) ? out.replies : []) {
     if (isObj(r) && isStr(r.reply)) conn.prepare("UPDATE plan_requests SET ai_reply = ? WHERE id = ? AND source = 'human'").run(`${modelInfo(model).label}（${now.day}の朝会）: ${r.reply.slice(0, 400)}`, Number(r.id));

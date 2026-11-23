@@ -86,13 +86,16 @@ export function officeWorking(): OfficeWorking[] {
   }
   for (const a of activityList()) {
     const members = new Set<Member>();
-    const own = memberOf(a.model ?? null);
-    if (own) members.add(own);
+    for (const id of a.models ?? []) {
+      const m = memberOf(id);
+      if (m) members.add(m);
+    }
     for (const name of Object.keys(a.steps)) {
       const m = memberOf(MODELS.find((x) => x.label === name)?.id ?? null);
       if (m) members.add(m);
     }
-    for (const member of members) out.push({ member, room: a.room ?? roomOf(a.title), doing: doingOf(a.title), project: null, projectId: null, since: utc(a.since) });
+    const projectId = a.projectId ?? null;
+    for (const member of members) out.push({ member, room: a.room ?? roomOf(a.title), doing: a.doing ?? doingOf(a.title), project: title(projectId), projectId, since: utc(a.since) });
   }
   const lastCall = db().prepare("SELECT model_id, purpose FROM ai_calls WHERE project_id = ? AND at >= ? ORDER BY id DESC LIMIT 1");
   for (const b of buildingList()) {
@@ -204,8 +207,9 @@ export function showcaseOfficeSnapshot() {
     ...snap,
     // 会話から作った動きの言い方に案件名（「〜」）が残るときは、まとめた言い方にする
     events: snap.events.map((e) => ({ ...e, doing: e.doing.includes("「") ? "話し合い" : e.doing, ...(shown(e) ? {} : { project: null, projectId: null }) })),
-    // いまの作業も、まだ公開していない案件の名前は伏せる（作業の言い方の「」の中に案件名が入ることがある）
-    working: snap.working.map((w) => ({ ...w, doing: w.doing.replace(/「[^」]*」/g, "").trim() || "作業", ...(shown(w) ? {} : { project: null, projectId: null }) })),
+    // いまの作業も、まだ公開していない案件の名前は伏せる。言い方に「」が残るもの（題から作った言い方。案件名が入ることがある）は、まとめた言い方にする
+    // 一部だけ消すと、案件名に「」が入っているときに残りが漏れるため、言い方ごと置き換える（PR #168 の ai-review の指摘）
+    working: snap.working.map((w) => ({ ...w, doing: w.doing.includes("「") ? "作業" : w.doing, ...(shown(w) ? {} : { project: null, projectId: null }) })),
     lines: s.showcaseVoices ? snap.lines.filter((l) => l.kind === "voice") : [],
     happenings: snap.happenings.filter((h) => !!h.title && titles.has(h.title)),
     shops: snap.shops.filter((x) => ids.has(x.id)),
