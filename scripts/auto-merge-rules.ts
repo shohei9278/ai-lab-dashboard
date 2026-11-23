@@ -11,7 +11,7 @@ export const MAX_FIX_ROUNDS = 3; // ルーティンに直させるのは、こ�
 // 自動ではマージしない所（自動マージの仕組み自体を、AIが書き換えられないように・壊れたときの被害が大きい所）
 export const PROTECTED: RegExp[] = [
   /^\.github\//, // CI・本番の確認・自動マージ
-  /^scripts\/(ai-review|auto-merge)/, // レビューと自動マージ
+  /^scripts\/(ai-review|auto-merge|auto-revert)/, // レビューと自動マージ・自動の戻し
   /^src\/proxy\.ts$/, // 来訪者の入口
   /^src\/lib\/(ai|budget|autopilot|codeReview|routine|aiFix|toolRoutine|autoAsk)\.ts$/, // 予算・緊急停止・合言葉・ルーティンの起動
   /^src\/lib\/viewer\.ts$/, // 来訪者に見せない仕組み
@@ -113,9 +113,17 @@ export function beforeReview(x: {
   return { action: "review", reason: "GPT と Gemini にレビューを頼む" };
 }
 
-// 自動で触れない所に触れている PR が、レビュー（と協議）を通ってマージに進める状態になったとき。マージはせず、レビュー済みとして人に回す
-export function readyForHuman(d: Decision, prot: string[]): Decision {
-  return { action: "human", reason: `✅ レビュー済みで、マージしてよい状態（${d.reason}）。ただし、自動ではマージしない所（${prot.slice(0, 5).join("・")}${prot.length > 5 ? " ほか" : ""}）に触れている` };
+// AIへの指示（プロンプト）を変えている PR か。GPT と Gemini のどちらかが変えていると答えたら、変えているとする（答えがないときも、変えているとする）
+// プロンプトの変更は、出来が落ちても機械では気づけないので、マージは人が決める（運営者が決めた）
+export const promptChanged = (reviews: Partial<Record<Reviewer, Review>>) => REVIEWERS.some((r) => reviews[r]?.promptChanged !== false);
+
+// 自動で触れない所に触れている・AIへの指示を変えている PR が、レビュー（と協議）を通ってマージに進める状態になったとき。マージはせず、レビュー済みとして人に回す
+export function readyForHuman(d: Decision, prot: string[], prompt = false): Decision {
+  const why = [
+    prot.length ? `自動ではマージしない所（${prot.slice(0, 5).join("・")}${prot.length > 5 ? " ほか" : ""}）に触れている` : "",
+    prompt ? "AIへの指示（プロンプト）を変えている" : "",
+  ].filter(Boolean).join("・");
+  return { action: "human", reason: `✅ レビュー済みで、マージしてよい状態（${d.reason}）。ただし、${why}` };
 }
 
 export function afterReview(reviews: Partial<Record<Reviewer, Review>>, fixes: number): Decision {
@@ -156,4 +164,13 @@ export function fixText(pr: { number: number; title: string; head: { ref: string
     ...findings.map(findingLine),
   ].join("\n");
   return text.length <= FIX_TEXT_MAX ? text : null;
+}
+
+// AUTO_MERGE_TOKEN の期限まで、あと何日か（GitHub が API の答えに付ける GitHub-Authentication-Token-Expiration。例 "2026-12-31 00:00:00 UTC"）
+// 期限のないトークン・読めない形のときは null。切れる前に Discord で知らせるため（運営者が決めた）
+export const TOKEN_WARN_DAYS = 14;
+export function tokenDaysLeft(header: string | null, now = new Date()): number | null {
+  if (!header) return null;
+  const t = Date.parse(header.trim().replace(" UTC", "Z").replace(" ", "T"));
+  return Number.isFinite(t) ? Math.floor((t - now.getTime()) / 86_400_000) : null;
 }
