@@ -742,6 +742,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "human_review", "TEXT"], // 全自動で公開したものを、人があとから見た評価: ok = 問題なし / bad = 出すべきでなかった
   ["projects", "human_review_note", "TEXT"],
   ["projects", "human_review_at", "TEXT"],
+  ["projects", "explore", "INTEGER NOT NULL DEFAULT 0"], // 1 = アイデア出しの実験枠（過去の数字・効いた手・人気のジャンルを渡さずに出させた案。explore.ts）
+  ["idea_candidates", "explore", "INTEGER NOT NULL DEFAULT 0"], // 1 = 実験枠で出させた案
   ["projects", "mode_confidence", "REAL"], // モードを決めたときに使った自信（毎日の実行では他社の採点の平均、手動では自己申告）
 ];
 
@@ -1059,6 +1061,7 @@ export type ProjectRow = {
   site_category: string | null; // 公開サイトの一覧のカテゴリを運営者が選んだもの（空ならAIの判定を使う）
   site_category_auto: string | null; // 公開するときに軽いAIが選んだカテゴリ（合うものがなければ none）
   genre: string | null;
+  explore: number; // 1 = アイデア出しの実験枠の案（explore.ts）
   hold_until: string | null;
   resumed_at: string | null;
   rethink_count: number;
