@@ -59,7 +59,6 @@ export type Idea = {
   needs?: Need[]; // じっくり案件で、作るのに要るもの（保存の場所・外部のAPI・その場でAIを呼ぶ など。今はない仕組みが要るなら、人の作業待ちで止める）
   aim?: Aim; // ねらい（aims.ts）。形（kind）はねらいから決まる
   genre?: string; // ジャンル（短い言葉）
-  explore?: boolean; // 実験枠の案（explore.ts）。AIの答えではなく、頼んだ側が付ける
 };
 
 // 出し方ごとの呼び方と、成果の数え方
@@ -328,10 +327,11 @@ genre には、アイデアのジャンルを短い言葉で書く（例: ${GENR
   for (const d of dropped) {
     logEvent(null, "system", "idea-aim-skip", `${modelId ? modelInfo(modelId).label : "AI"}の案「${String(d.idea.title).slice(0, 60)}」は、頼んだねらい（${aims.map((a) => AIMS[a].label).join("・")}）にない、または件数を超えた「${AIMS[d.aim].label}」だったため、候補にしませんでした`);
   }
-  return (deepOnly ? ideas.filter((x) => isDeepIdea(x) && x.kind === "tool") : ideas).slice(0, count).map((x) => ({ ...x, explore: explore || undefined }));
+  return (deepOnly ? ideas.filter((x) => isDeepIdea(x) && x.kind === "tool") : ideas).slice(0, count);
 }
 
-function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confidence: number | null }, origin: ProjectRow["origin"], ideaModel: string): number {
+// explore: 実験枠の案か（explore.ts）。採点するAIに伝わらないように、Idea には入れず別に渡す
+function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confidence: number | null }, origin: ProjectRow["origin"], ideaModel: string, explore = false): number {
   const conf = typeof idea.confidence === "number" ? Math.max(0, Math.min(1, idea.confidence)) : null;
   const { mode } = choice;
   const id = Number(
@@ -345,10 +345,10 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
         typeof idea.want_id === "number" && getWant(idea.want_id)?.status === "ok" ? idea.want_id : null,
         isDeepIdea(idea) ? 1 : 0, isDeepIdea(idea) && isStr(idea.deep_data) && idea.deep_data.trim() ? idea.deep_data.slice(0, 500) : null,
         isDeepIdea(idea) ? idea.deep!.slice(0, 500) : null, aimOfIdea(idea), isStr(idea.genre) ? idea.genre.trim().slice(0, 30) : null,
-        isDeepIdea(idea) && needsOf(idea.needs).length ? JSON.stringify(needsOf(idea.needs)) : null, idea.explore ? 1 : 0)
+        isDeepIdea(idea) && needsOf(idea.needs).length ? JSON.stringify(needsOf(idea.needs)) : null, explore ? 1 : 0)
       .lastInsertRowid,
   );
-  logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${AIMS[aimOfIdea(idea)].label}${isStr(idea.genre) && idea.genre.trim() ? `・${idea.genre.trim().slice(0, 30)}` : ""}${isDeepIdea(idea) ? "・じっくり案件" : ""}${idea.explore ? `・${EXPLORE_LABEL}` : ""}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
+  logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${AIMS[aimOfIdea(idea)].label}${isStr(idea.genre) && idea.genre.trim() ? `・${idea.genre.trim().slice(0, 30)}` : ""}${isDeepIdea(idea) ? "・じっくり案件" : ""}${explore ? `・${EXPLORE_LABEL}` : ""}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
   return id;
 }
 
@@ -459,7 +459,7 @@ export async function generateIdeas(theme: string, count = 3, deep = false, aim?
       continue;
     }
     const conf = c.peerAvg !== null ? { value: c.peerAvg / 10, source: "他社のAIによる採点の平均" } : selfConfidence(c.idea);
-    const id = insertProject(c.idea, theme, { ...nextMode(conf), confidence: conf.value }, "manual", c.author);
+    const id = insertProject(c.idea, theme, { ...nextMode(conf), confidence: conf.value }, "manual", c.author, c.explore);
     db().prepare("UPDATE idea_candidates SET selected = 1, project_id = ? WHERE id = ?").run(id, c.id);
     logEvent(id, "ai", "select", `${candidates.length}件の候補から選ばれました（3社のAIによる採点の平均 ${c.avg.toFixed(1)}点 / 10点）`);
     ids.push(id);
@@ -2843,7 +2843,7 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
       // 承認するときに作者が分からないよう、ここでは作者名を出さない
       // 作者の自己申告は甘くなりがちなので、他社の採点の平均を自信として使う
       const conf = c.peerAvg !== null ? { value: c.peerAvg / 10, source: "他社のAIによる採点の平均" } : selfConfidence(c.idea);
-      const id = insertProject(c.idea, "", { ...nextMode(conf), confidence: conf.value }, "daily", c.author);
+      const id = insertProject(c.idea, "", { ...nextMode(conf), confidence: conf.value }, "daily", c.author, c.explore);
       db().prepare("UPDATE idea_candidates SET selected = 1, project_id = ? WHERE id = ?").run(id, c.id);
       logEvent(id, "ai", "select", c.pick === "champion"
         ? `${candidates.length}件の候補から、推し枠で選ばれました（作者ではない会社のAIが ${c.top}点 / 10点。平均は ${c.avg.toFixed(1)}点）`
@@ -2871,7 +2871,8 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
 // ---- 3社でアイデアを出し、作者を伏せて全員で採点する ----
 
 // top: 作者ではない会社のAIが付けた、いちばん高い点 / pick: どの枠で選ばれたか（champion = 推し枠。平均では選ばれない、1社が強く推した案）
-type Candidate = { id: number; label: string; author: string; idea: Idea; avg: number; peerAvg: number | null; top: number | null; pick?: "champion" };
+// explore: 実験枠の案か。採点するAIに伝わらないように、idea（採点の材料）とは分けて持つ
+type Candidate = { id: number; label: string; author: string; idea: Idea; explore: boolean; avg: number; peerAvg: number | null; top: number | null; pick?: "champion" };
 const AIM_KEYS_ALL: readonly Aim[] = AIM_KEYS;
 const AIM_KEYS_TOOL: Aim[] = AIM_KEYS.filter((a) => AIMS[a].kind === "tool");
 // ねらいの配分を守るために、点の低い案を案件にしない下限（平凡な案は5点前後）。下回るなら配分より点数を優先する
@@ -2943,9 +2944,9 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
         const ideas = await askIdeas(opts.theme ?? "", perModel, author, opts.alsoExisting, opts.deepOnly, aims, explore);
         setStep(act, title, modelLabel(author), `アイデア${ideas.length}件を出しました${explore ? `（${EXPLORE_LABEL}）` : ""}。ほかの社を待っています`);
         for (const idea of ideas) {
-          liveNote({ who: modelLabel(author), provider: prov(author), kind: `アイデアを提案（${idea.explore ? `${EXPLORE_LABEL}・` : ""}${AIMS[aimOfIdea(idea)].label}・${idea.kind === "tool" ? "動くツール" : "事前登録LP"}${idea.genre ? `・${idea.genre}` : ""}・${idea.season === "seasonal" ? "季節もの" : "1年中"}）`, text: `「${idea.title}」— ${idea.solution}${idea.channel ? `\n届け方: ${idea.channel}` : ""}`, batch: batchId });
+          liveNote({ who: modelLabel(author), provider: prov(author), kind: `アイデアを提案（${explore ? `${EXPLORE_LABEL}・` : ""}${AIMS[aimOfIdea(idea)].label}・${idea.kind === "tool" ? "動くツール" : "事前登録LP"}${idea.genre ? `・${idea.genre}` : ""}・${idea.season === "seasonal" ? "季節もの" : "1年中"}）`, text: `「${idea.title}」— ${idea.solution}${idea.channel ? `\n届け方: ${idea.channel}` : ""}`, batch: batchId });
         }
-        return ideas.map((idea) => ({ author, idea }));
+        return ideas.map((idea) => ({ author, idea, explore }));
       } catch (e) {
         setStep(act, title, modelLabel(author), "失敗しました");
         logEvent(null, "system", "idea-error", `${modelLabel(author)}のアイデア出し${explore ? `（${EXPLORE_LABEL}）` : ""}に失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
@@ -2959,8 +2960,8 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   const insert = db().prepare("INSERT INTO idea_candidates (batch_id, label, author_model, title, payload, practice, explore) VALUES (?, ?, ?, ?, ?, ?, ?)");
   const candidates: Candidate[] = pool.map((x, i) => {
     const label = String.fromCharCode(65 + i);
-    const id = Number(insert.run(batchId, label, x.author, x.idea.title, JSON.stringify(x.idea), practice ? 1 : 0, x.idea.explore ? 1 : 0).lastInsertRowid);
-    return { id, label, author: x.author, idea: x.idea, avg: 0, peerAvg: null, top: null };
+    const id = Number(insert.run(batchId, label, x.author, x.idea.title, JSON.stringify(x.idea), practice ? 1 : 0, x.explore ? 1 : 0).lastInsertRowid);
+    return { id, label, author: x.author, idea: x.idea, explore: x.explore, avg: 0, peerAvg: null, top: null };
   });
 
   // 3. 各社が、作者を伏せた全候補に点を付ける
@@ -3114,12 +3115,12 @@ function proposeRevival(losers: Candidate[]) {
 export async function reviveIdea(requestId: number): Promise<number> {
   const r = db().prepare("SELECT * FROM plan_requests WHERE id = ? AND source = 'revival' AND status = 'open'").get(requestId) as { ref_id: number | null; title: string } | undefined;
   if (!r?.ref_id) throw new Error("敗者復活の提案が見つかりません");
-  const row = db().prepare("SELECT * FROM idea_candidates WHERE id = ?").get(r.ref_id) as { id: number; author_model: string; payload: string; avg_score: number | null; selected: number } | undefined;
+  const row = db().prepare("SELECT * FROM idea_candidates WHERE id = ?").get(r.ref_id) as { id: number; author_model: string; payload: string; avg_score: number | null; selected: number; explore: number } | undefined;
   if (!row || row.selected) throw new Error("この案は、すでに案件になっています");
   const idea = JSON.parse(row.payload) as Idea;
   const peer = db().prepare("SELECT AVG(score) AS a FROM idea_scores WHERE candidate_id = ? AND scorer_model != ?").get(row.id, row.author_model) as { a: number | null };
   const conf = peer.a !== null ? { value: peer.a / 10, source: "他社のAIによる採点の平均" } : selfConfidence(idea);
-  const id = insertProject(idea, "", { ...nextMode(conf), confidence: conf.value }, "manual", row.author_model);
+  const id = insertProject(idea, "", { ...nextMode(conf), confidence: conf.value }, "manual", row.author_model, row.explore === 1);
   db().prepare("UPDATE idea_candidates SET selected = 1, project_id = ? WHERE id = ?").run(id, row.id);
   db().prepare("UPDATE plan_requests SET status = 'done', note = ?, decided_at = datetime('now') WHERE id = ?").run(`案件 #${id} を作った`, requestId);
   logEvent(id, "human", "select", `敗者復活: 提案箱から「${idea.title}」を案件にしました（平均 ${row.avg_score?.toFixed(1) ?? "—"}点）`);
