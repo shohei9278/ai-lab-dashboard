@@ -14,7 +14,7 @@ import { toolAssets, toolImages } from "./toolAssets";
 import { TOOL_STORE_MAX } from "../../lp-site/src/lp/toolStore";
 import { hasResultsTag, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
 import { MODELS, hasKey, modelInfo } from "./models";
-import { screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
+import { firstShotNote, screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
 import { trendsText } from "./trends";
 import { withIllustration } from "./illustration";
@@ -1357,6 +1357,8 @@ export async function retestTool(projectId: number): Promise<ToolTest> {
   db().prepare("UPDATE lp_versions SET test = ? WHERE project_id = ? AND version = ?").run(JSON.stringify(test), p.id, p.lp_version);
   const issues = testIssues(test);
   logEvent(p.id, "system", "tool-test", test.skipped ? test.skipped : issues.length ? `自動テストで問題: ${issues.join(" / ")}` : `自動テストで問題なし（${test.clicked}か所を操作）`);
+  const shot = firstShotNote(test);
+  if (shot) logEvent(p.id, "system", "tool-test", shot);
   return test;
 }
 
@@ -1663,6 +1665,8 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   conn.prepare("UPDATE projects SET lp = ?, lp_version = ?, updated_at = datetime('now') WHERE id = ?").run(JSON.stringify(lp), version, p.id);
   conn.prepare("INSERT INTO lp_versions (project_id, version, lp, note, review, author_model, test, tool_model, tool_rewrites) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     .run(p.id, version, JSON.stringify(lp), opts.note, JSON.stringify(review), getSettings().loopModel, JSON.stringify(tool.test), tool.model, tool.rewrites);
+  const shot = firstShotNote(tool.test);
+  if (shot) logEvent(p.id, "system", "tool-test", `第${version}版の${shot}`);
   logEvent(p.id, "ai", "lp", `ツールと紹介ページを作成（第${version}版・${(tool.html.length / 1000).toFixed(1)}千文字・コードは${modelLabel(tool.model)}${tool.rewrites ? "・1回直した" : ""}）: ${lp.headline}${review.ok ? "" : "（チェックで問題が残っています）"}`);
   return { lp, review, version };
 }
