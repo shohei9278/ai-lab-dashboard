@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { OfficeSnapshot } from "@/lib/office";
 import type { LiveSnapshot } from "@/lib/live";
 import { LivePanel } from "./LivePanel";
-import { HAPPENING, MEMBERS, ROOMS, isOpenShop, stateAt, tallyAt, toMs, type Member, type MemberState, type OfficeHappening, type OfficeLine, type OfficeShop, type Room } from "@/lib/officeShared";
+import { HAPPENING, MEMBERS, ROOMS, isOpenShop, liveStateAt, stateAt, tallyAt, toMs, type Member, type MemberState, type OfficeHappening, type OfficeLine, type OfficeShop, type Room } from "@/lib/officeShared";
 import { Icon, type IconName } from "./Icons";
 import { ROBOT_CSS, Robot, type RobotMood } from "./Robot";
 
@@ -13,7 +13,7 @@ import { ROBOT_CSS, Robot, type RobotMood } from "./Robot";
 // ロボット社員（動画と同じ絵をドット絵にしたもの）・吹き出し・案件の看板・押せる場所を重ねて「いま何をしているか」を見せる
 // - 位置はすべて背景の画像の中の％（背景を作り直したら、下の座標も合わせ直す）
 // - 社員は部屋ごとに決まった席に座る。部屋を移るときは、出入口と真ん中の廊下を通って歩く
-// - だれかが3分以内に動いていれば「いま」を映す。だれも動いていなければ、確認が必要なもののお知らせだけを出し、直近24時間の動きはボタンで再生する
+// - 「いま」は、いま動いている作業（呼んでいる途中のAI・作業中の作業・作っている途中の案件・ルーティン）で映す。終わったら20秒で休憩室に戻る。だれも動いていなければ、確認が必要なもののお知らせだけを出し、直近24時間の動きはボタンで再生する
 // - 部屋・家具・案件を押すと、その機能の画面に移る（メニューはそのまま残す）
 
 type Pt = { x: number; y: number };
@@ -198,12 +198,13 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
     return () => { document.removeEventListener("click", onClick, true); window.removeEventListener("hashchange", onHash); };
   }, [live]);
 
-  // 10秒ごとに新しい記録を読む
+  // 3秒ごとに新しい記録を読む（下のライブの欄・右下の「AIが作業中」と同じ間隔。見ていないタブでは読まない）
   useEffect(() => {
     const t = setInterval(async () => {
+      if (document.hidden) return;
       const r = await fetch(showcase ? "/api/showcase/office" : "/api/office", { cache: "no-store" }).catch(() => null);
       if (r?.ok) setSnap((await r.json()) as OfficeSnapshot);
-    }, 10_000);
+    }, 3_000);
     return () => clearInterval(t);
   }, [showcase]);
 
@@ -212,7 +213,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
     () => [...new Set([...snap.events.map((e) => e.at), ...snap.lines.map((l) => l.at), ...snap.happenings.map((h) => h.at)])].sort(),
     [snap],
   );
-  const liveNow = useMemo(() => Object.values(stateAt(snap.events, nowUtc())).some((s) => s.room !== "lounge"), [snap]);
+  const liveNow = useMemo(() => Object.values(liveStateAt(snap.events, snap.working, now)).some((s) => s.room !== "lounge"), [snap, now]);
   // 再生は、押したときだけ（だれも動いていないときに勝手に過去を流すと、いまと過去が混ざるため）。最後まで再生したら、いまに戻る
   const replaying = replayOn && times.length > 0;
   useEffect(() => {
@@ -239,7 +240,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
   const cur = times.length ? Math.min(step, times.length - 1) : 0;
   const at = replaying && times.length ? times[cur] : now;
 
-  const state = stateAt(snap.events, at);
+  const state = replaying ? stateAt(snap.events, at) : liveStateAt(snap.events, snap.working, at);
   const tally = tallyAt(snap.events, at);
   const t = toMs(at);
   // lineOf: いま話していること（表情を「話している」にする）/ bubbleOf: 吹き出しに出す短いもの（声・提案。AIの会話は長いので出さない）
@@ -256,7 +257,7 @@ export function OfficeView({ initial, owner = false, numbers = true, live, contr
   // 歩く: 部屋が変わったら、廊下の点を1つずつたどる
   // 最初は、開いた時点にいる部屋の席から始める（休憩室から始めると、ずっと作業していた社員まで、開くたびに歩いてくるように見えるため）
   const [startRooms] = useState(() => {
-    const st = stateAt(initial.events, initial.now);
+    const st = liveStateAt(initial.events, initial.working, initial.now);
     return Object.fromEntries(ORDER.map((m) => [m, st[m].room])) as Record<Member, Room>;
   });
   const [pos, setPos] = useState<Record<Member, Pt>>(() => Object.fromEntries(ORDER.map((m) => [m, seatOf(startRooms[m], m)])) as Record<Member, Pt>);

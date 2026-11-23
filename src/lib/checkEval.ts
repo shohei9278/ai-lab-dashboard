@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { db, getSettings, monthSpendUsd } from "./db";
 import { callJson, GuardError } from "./ai";
 import { MODELS, costUsd, getModel, hasKey } from "./models";
-import { isReview, lpReviewPrompt, type Review } from "./loop";
+import { isReview, lpReviewPrompt, withActivity, type Review } from "./loop";
 import { CHECK_EVAL_CASES, CHECK_EVAL_TYPE_LABEL, checkEvalInput, type CheckEvalCase, type CheckEvalType } from "./checkEvalCases";
 
 // 公開前チェックの評価。正解の決まった例を、本番と同じ指示（lpReviewPrompt）でチェックさせ、
@@ -62,7 +62,8 @@ export function startCheckEval(modelId: unknown): number {
     if (monthSpendUsd() * s.usdJpy + cost > s.monthlyBudgetJpy) throw new Error(`今月の予算の残りが、評価1回分（約${cost}円）に足りません`);
     return Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash) VALUES (?, ?)").run(modelId, checkPromptHash()).lastInsertRowid);
   }).immediate();
-  void runCheckEval(id, modelId).catch((e) => finish(id, "error", e instanceof Error ? e.message : String(e)));
+  // 動いている間は「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように）
+  void withActivity({ key: `check-eval-${id}`, title: "公開前チェックの評価", models: [modelId], room: "dev", doing: "公開前チェックの評価" }, () => runCheckEval(id, modelId)).catch((e) => finish(id, "error", e instanceof Error ? e.message : String(e)));
   return id;
 }
 

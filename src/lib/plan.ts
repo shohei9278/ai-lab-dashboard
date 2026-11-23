@@ -1,7 +1,7 @@
 import { callJson, isObj, isStr } from "./ai";
 import { limitTags } from "./hashtags";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
-import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, liveEnd, liveSay, liveStep, logEvent, planImprove, projectTotals, trafficCapacity } from "./loop";
+import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, liveEnd, liveSay, liveStep, logEvent, planImprove, projectTotals, trafficCapacity, withActivity } from "./loop";
 import { endReasons, headline } from "./experiment";
 import { funnelText } from "./funnel";
 import { AUTO_PLATFORMS, X_PLAY_PROMO_PER_WEEK, autoPlatforms, postAllowed, xPlayPromoLeft, xPlayPromoOn, type AutoPlatform } from "./snsApi";
@@ -487,7 +487,8 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   if (rq && isStr(rq.question)) {
     const pid = Number(rq.project_id);
     const rid = addResearch({ planId: id, projectId: Number.isFinite(pid) && pid > 0 ? pid : null, question: rq.question, why: isStr(rq.why) ? rq.why : "", how: isStr(rq.how) ? rq.how : "", askedBy: model });
-    void runResearch(rid);
+    // 調べている間は「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように。調べるのは research.ts の Claude）
+    void withActivity({ key: `research-${rid}`, title: "調べもの", models: ["claude-sonnet-5-5"], room: "meeting", doing: "調べもの" }, () => runResearch(rid)).catch((e) => console.error("調べものに失敗しました", e));
   }
   for (const r of Array.isArray(out.replies) ? out.replies : []) {
     if (isObj(r) && isStr(r.reply)) conn.prepare("UPDATE plan_requests SET ai_reply = ? WHERE id = ? AND source = 'human'").run(`${modelInfo(model).label}（${now.day}の朝会）: ${r.reply.slice(0, 400)}`, Number(r.id));

@@ -1,6 +1,6 @@
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
 import { claudeModelId } from "./ai";
-import { getProject } from "./loop";
+import { getProject, withActivity } from "./loop";
 import { judgePages, pageSystem, shootPage, staticPageIssues, writePageHtml, type PageCheck, type PageJudge } from "./freePage";
 import { pickRefs, type DesignRef } from "./designRefs";
 import { imgOriginsOf } from "../../lp-site/src/lp/pageHtml";
@@ -77,7 +77,8 @@ export function startPromptTest(projectId: number, factor: unknown): number {
   const refs = factor === "refs" ? pickRefs(p.target, 3) : [];
   if (factor === "refs" && refs.length < 3) throw new Error(`参考のLPが${refs.length}件しかないため、見本の比較はできません（3件必要）`);
   const id = Number(db().prepare("INSERT INTO prompt_tests (project_id, factor, model_id) VALUES (?, ?, ?)").run(p.id, factor, modelId).lastInsertRowid);
-  void runPromptTest(id, p, factor, modelId, refs).catch((e) => {
+  // 動いている間は「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように）
+  void withActivity({ key: `prompt-test-${id}`, title: `プロンプトの比較「${p.title}」`, models: [modelId], room: "dev", doing: "プロンプトの比較", projectId: p.id }, () => runPromptTest(id, p, factor, modelId, refs)).catch((e) => {
     // 途中で止まったと見なして閉じた比較は、上書きしない
     db().prepare("UPDATE prompt_tests SET status = 'error', error = ?, finished_at = datetime('now'), cost_usd = ? WHERE id = ? AND status = 'running'")
       .run((e instanceof Error ? e.message : String(e)).slice(0, 300), spentOn(id), id);

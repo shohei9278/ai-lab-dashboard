@@ -30,17 +30,35 @@ export const HAPPENING: Record<OfficeHappening["kind"], { label: string }> = {
 export type OfficeLine = { at: string; member: Member; kind: "voice" | "proposal" | "talk"; text: string; about?: string; project?: string | null };
 
 // ある時刻に、各社員がどの部屋にいて何をしているか（その時刻から3分以内に呼んだ記録があれば、その部屋。なければ休憩室）
+// 直近24時間の再生で使う。「いま」は、いま動いている作業（OfficeWorking）で映す（liveStateAt）
 export const ACTIVE_SECONDS = 180;
 export const toMs = (s: string) => Date.parse(s.replace(" ", "T") + "Z");
 export type MemberState = { room: Room; doing: string | null; project: string | null; projectId: number | null; since: string | null };
-export function stateAt(events: OfficeEvent[], at: string): Record<Member, MemberState> {
+export function stateAt(events: OfficeEvent[], at: string, seconds = ACTIVE_SECONDS): Record<Member, MemberState> {
   const t = toMs(at);
   const out = {} as Record<Member, MemberState>;
   for (const m of MEMBERS) {
     let last: OfficeEvent | undefined;
     for (const e of events) if (e.member === m.id && toMs(e.at) <= t) last = e;
-    const active = last && t - toMs(last.at) <= ACTIVE_SECONDS * 1000;
+    const active = last && t - toMs(last.at) <= seconds * 1000;
     out[m.id] = active && last ? { room: last.room, doing: last.doing, project: last.project, projectId: last.projectId, since: last.at } : { room: "lounge", doing: null, project: null, projectId: null, since: null };
+  }
+  return out;
+}
+
+// いま動いている作業（呼んでいる途中のAI・作業中として登録した作業・作っている途中の案件・クラウドのルーティン。office.ts の officeWorking）
+// オフィスの「いま」は、これで映す。作業が終わったら、すぐ休憩室に戻る（運営者が、オフィスが動きと連動していないと感じたため）
+export type OfficeWorking = { member: Member; room: Room; doing: string; project: string | null; projectId: number | null; since: string };
+// 「いま」で、終わったAIの呼び出しや発言を、その部屋に残しておく時間（一瞬で終わる呼び出しも、オフィスで見えるように）
+export const LIVE_LINGER_SECONDS = 20;
+export function liveStateAt(events: OfficeEvent[], working: OfficeWorking[], at: string): Record<Member, MemberState> {
+  const out = stateAt(events, at, LIVE_LINGER_SECONDS);
+  const seen = new Set<Member>();
+  // 1人が複数の作業をしているときは、先に並んでいるもの（いま呼んでいる途中のAI）を出す
+  for (const w of working) {
+    if (seen.has(w.member)) continue;
+    seen.add(w.member);
+    out[w.member] = { room: w.room, doing: w.doing, project: w.project, projectId: w.projectId, since: w.since };
   }
   return out;
 }

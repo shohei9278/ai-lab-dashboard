@@ -102,6 +102,13 @@ test("ツールのルーティン: 自動では、設定の同時に頼む数と
   assert.equal(gaveUp().length, 2);
   assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later2 + 50 * 3600_000 }), 0);
   assert.equal(gaveUp().length, 2, "知らせは1件に1回だけ");
+  // 2回目を頼んだあとに自動で頼む設定をオフにしても、入らなかったものは知らせる（PR #167 の ai-review の指摘）
+  const e = devCase("e").approvalId;
+  db().prepare("UPDATE approvals SET routine_at = datetime('now', '-5 hours'), routine_tries = ? WHERE id = ?").run(AUTO_TRIES, e);
+  saveSettings({ toolRoutineAuto: false });
+  assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls) }), 0);
+  assert.equal(gaveUp().length, 3);
+  saveSettings({ toolRoutineAuto: true });
   // 起動に失敗したら、経過に残して、その回は続けて頼まない（1日の数を空けてから試す）
   db().exec("DELETE FROM approvals; DELETE FROM events");
   devCase("e"); devCase("f");

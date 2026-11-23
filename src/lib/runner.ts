@@ -2,6 +2,7 @@ import { db, getSettings, monthSpendUsd, type RunRow } from "./db";
 import { costUsd, getModel, hasKey } from "./models";
 import { callModel } from "./providers";
 import { DATASETS, buildPrompt, grade, type PromptLang, type PromptVariant, type TaskType } from "./tasks";
+import { withActivity } from "./loop";
 
 export type RunConfig = {
   task: TaskType;
@@ -84,7 +85,8 @@ export function createRun(cfg: RunConfig): number {
     .run(cfg.task, JSON.stringify(cfg.models), cfg.reps, cfg.variant, cfg.lang, cfg.mock ? 1 : 0,
       ds.items.length * cfg.reps * cfg.models.length, est.usd, cfg.note ?? null);
   const id = Number(info.lastInsertRowid);
-  void executeRun(id).catch((e) => {
+  // 動いている間は「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように。比べるAIは全員、開発室にいる）
+  void withActivity({ key: `run-${id}`, title: "AIの比べ（実行）", models: cfg.models, room: "dev", doing: "AIの比べ" }, () => executeRun(id)).catch((e) => {
     db().prepare("UPDATE runs SET status = 'error', error = ?, finished_at = datetime('now') WHERE id = ?")
       .run(String(e).slice(0, 500), id);
   });
