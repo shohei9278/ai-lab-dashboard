@@ -21,8 +21,22 @@ test("数字の照らし合わせ: 中身の数字（つ・分など）と、0�
   assert.deepEqual(unsupportedNumbers("訪問12人から3人が使ってくれました", facts), []);
 });
 
-test("数字の照らし合わせ: 材料の数字は、カンマ・万・千もそろえて読む", () => {
-  const m = materialNumbers("1,234件・2万人・1.5千回");
-  for (const v of [1234, 2, 20000, 1.5, 1500]) assert.ok(m.has(v), String(v));
+test("数字の照らし合わせ: 材料の数字は、カンマ・万・千もそろえて読む。万・千が付いたものは直した値だけ", () => {
+  const m = materialNumbers("1,234件・2万人・1.5千回・1万2千人・3万4500回");
+  for (const v of [1234, 20000, 1500, 12000, 34500]) assert.ok(m.has(v), String(v));
+  // 「2万人」から「2」、「1.5千回」から「1.5」は材料に入れない（「2件」「1.5倍」を通さない）
+  for (const v of [2, 1.5]) assert.ok(!m.has(v), String(v));
+  assert.deepEqual(unsupportedNumbers("2件の新機能", "累計 2万人"), ["2件"]);
   assert.deepEqual(unsupportedNumbers("2万人が見た", "累計 20000人"), []);
+  // 「1万2千人」「1万2000人」は 12000 として読む
+  assert.deepEqual(claimNumbers("1万2千人・1万2000人").map((x) => x.value), [12000, 12000]);
+  assert.deepEqual(unsupportedNumbers("1万2千人が遊んだ", "累計 2000人"), ["1万2千人"]);
+  assert.deepEqual(unsupportedNumbers("1万2千人が遊んだ", "累計 12,000人"), []);
+  // 「2万 300人」は、20300 ではなく、300人として読む
+  assert.deepEqual(claimNumbers("2万 300人").map((x) => x.value), [300]);
+});
+
+test("数字の照らし合わせ: 1未満の実績の数字（0.5% など）も見る。0 と 1 だけは見ない", () => {
+  assert.deepEqual(unsupportedNumbers("満足度0.5%アップ、0.8倍の手間", "材料"), ["0.5%", "0.8倍"]);
+  assert.deepEqual(unsupportedNumbers("0人から始めて、1人でも", "材料"), []);
 });
