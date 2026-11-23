@@ -5,7 +5,7 @@ import { modelInfo } from "./models";
 import { problemLabel } from "./aims";
 import { toolAssets } from "./toolAssets";
 import { sampleRows, type DeepSpec } from "./deep";
-import { toolRoutineView } from "./toolRoutine";
+import { autoWork, toolRoutineView } from "./toolRoutine";
 
 // じっくり案件の開発待ちに出すもの。設計書と依頼文はAIの出力なので、運営者にだけ渡す
 function devView(projectId: number, payload: string | null, owner: boolean, a: Pick<ApprovalRow, "status" | "routine_at" | "routine_url">): ApprovalView["dev"] {
@@ -37,7 +37,8 @@ function dataView(payload: string | null, owner: boolean): ApprovalView["data"] 
 
 // 承認待ちを、カードに表示できる形にまとめる
 // owner: 運営者が見ているか（じっくり案件のデータの中身の例は、運営者にだけ出す）
-export function pendingApprovals(projectId?: number, owner = false): ApprovalView[] {
+// which: human = 人の判断が要るものだけ（判断待ち）・auto = AIが自動で進めている作業だけ（AIの作業待ち。toolRoutine.ts の autoWork）・all = 両方（案件のページ）
+export function pendingApprovals(projectId?: number, owner = false, which: "all" | "human" | "auto" = "all"): ApprovalView[] {
   const rows = db()
     .prepare(
       `SELECT a.*, p.title, p.target, p.problem, p.solution, p.hypothesis, p.ai_confidence, p.demo, p.kind AS product_kind, p.lp_version, p.public_version, p.deep, p.aim
@@ -45,7 +46,7 @@ export function pendingApprovals(projectId?: number, owner = false): ApprovalVie
        WHERE a.status = 'pending' ${projectId ? "AND a.project_id = ?" : ""}
        ORDER BY a.id`,
     )
-    .all(...(projectId ? [projectId] : [])) as (ApprovalRow & Pick<ProjectRow, "title" | "target" | "problem" | "solution" | "hypothesis" | "ai_confidence" | "demo" | "lp_version" | "public_version" | "deep" | "aim"> & { product_kind: ProjectRow["kind"] })[];
+    .all(...(projectId ? [projectId] : [])).filter((r) => which === "all" || autoWork(r as ApprovalRow) === (which === "auto")) as (ApprovalRow & Pick<ProjectRow, "title" | "target" | "problem" | "solution" | "hypothesis" | "ai_confidence" | "demo" | "lp_version" | "public_version" | "deep" | "aim"> & { product_kind: ProjectRow["kind"] })[];
   const s = getSettings();
   return rows.map((r) => {
     const d = r.kind === "decision" && r.payload ? (JSON.parse(r.payload) as Decision) : null;
@@ -121,6 +122,8 @@ export function maskEvents<T extends { project_id: number | null; kind: string; 
   );
 }
 
+// 人の判断が要る承認待ちの数（AIが自動で進めている作業は数えない。運営者が決めた）
 export function pendingCount(): number {
-  return (db().prepare("SELECT COUNT(*) AS n FROM approvals WHERE status = 'pending'").get() as { n: number }).n;
+  const rows = db().prepare("SELECT kind, status, routine_at, routine_tries FROM approvals WHERE status = 'pending'").all() as Pick<ApprovalRow, "kind" | "status" | "routine_at" | "routine_tries">[];
+  return rows.filter((r) => !autoWork(r)).length;
 }

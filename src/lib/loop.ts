@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { autoSettings } from "./autopilot";
 import { searchBeforeIdeas, viralHints } from "./viralPosts";
 import { PLAY_HOOK_MAX, PLAY_SECONDS_MAX, PLAY_STEP_RULES, makePlayVideoOnPublish, parseGivenPlay, replacePlayScript } from "./playVideo";
-import { heldToRoutine, toolRoutineConfigured } from "./toolRoutine";
+import { autoWork, heldToRoutine, toolRoutineConfigured } from "./toolRoutine";
 import { hitsText } from "./hits";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
@@ -125,7 +125,7 @@ export function logEvent(projectId: number | null, actor: "ai" | "human" | "syst
 }
 
 // 通知の頭に付ける案件の名前
-function projectTitle(id: number): string {
+export function projectTitle(id: number): string {
   const t = (db().prepare("SELECT title FROM projects WHERE id = ?").get(id) as { title: string } | undefined)?.title;
   return t ? `【${t}】` : "";
 }
@@ -136,7 +136,8 @@ function setStage(projectId: number, stage: Stage) {
 
 // どのLPの版について聞いたかも残す（人が却下した版で、AIが勝手に変えないようにするため）
 function addApproval(projectId: number, kind: ApprovalRow["kind"], proposal: string, reason: string, payload?: unknown): number {
-  notifyHuman(`${projectTitle(projectId)}あなたの判断待ち: ${proposal}（${reason.slice(0, 120)}）`);
+  // ルーティンが自動で作る開発待ちは、人の判断待ちではないので知らせない（AIの作業待ちに出る。運営者が決めた）
+  if (!autoWork({ kind, status: "pending", routine_at: null, routine_tries: 0 })) notifyHuman(`${projectTitle(projectId)}あなたの判断待ち: ${proposal}（${reason.slice(0, 120)}）`);
   return Number(
     db()
       .prepare(
