@@ -71,11 +71,24 @@ export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fe
 // 人がするのはマージだけ（運営者が決めた）。閉じた（マージしなかった）ときは、見送りにはせず、運営者の返事を待つ
 // リポジトリは公開なので、トークンなしで読める（GITHUB_TOKEN があれば使う。1時間に60回までの制限を避けるため）
 // 読むのは、頼んでから30日以内で、まだ返事のない提案だけ
-const gSync = globalThis as unknown as { __aiLabAiFixSync?: number };
+const gSync = globalThis as unknown as { __aiLabAiFixSync?: number; __aiLabAiFixSyncOk?: boolean };
+// いちばん最近の読み直しが成功したか（失敗している間は、PR を数えそこねるので、自動の依頼をしない。autoAsk.ts。PR #154 の ai-review の指摘）
+export const aiFixSyncOk = () => gSync.__aiLabAiFixSyncOk === true;
 type Pull = { number: number; state: string; merged_at: string | null; html_url: string; created_at?: string };
 export async function syncAiFixPrs(fetchImpl: Fetch = fetch, force = false): Promise<number> {
   if (!force && gSync.__aiLabAiFixSync && Date.now() - gSync.__aiLabAiFixSync < 3_600_000) return 0;
   gSync.__aiLabAiFixSync = Date.now();
+  try {
+    const n = await syncRows(fetchImpl);
+    gSync.__aiLabAiFixSyncOk = true;
+    return n;
+  } catch (e) {
+    gSync.__aiLabAiFixSyncOk = false;
+    throw e;
+  }
+}
+
+async function syncRows(fetchImpl: Fetch): Promise<number> {
   // PR が開いているものは、提案の返事（見送りなど）や頼んだ日に関係なく読み直す（自動の依頼が「PR が開いている間は次を頼まない」を正しく判断できるように。autoAsk.ts）
   // 読む順は、PR が開いているもの → PR がまだ見つかっていないもの → 閉じたもの（閉じた PR の行が20件を占めて、開いている PR が読まれないままにならないように。PR #154 の ai-review の指摘）
   const rows = db().prepare("SELECT * FROM plan_requests WHERE ai_fix_at IS NOT NULL AND ((status = 'open' AND ai_fix_at >= datetime('now', '-30 days')) OR ai_fix_pr_state = 'open') ORDER BY CASE WHEN ai_fix_pr_state = 'open' THEN 0 WHEN ai_fix_pr IS NULL THEN 1 ELSE 2 END, ai_fix_at DESC, id LIMIT 20").all() as RequestRow[];

@@ -1,4 +1,4 @@
-import { aiFixConfigured, aiFixSending, startAiFix } from "./aiFix";
+import { aiFixConfigured, aiFixSending, aiFixSyncOk, startAiFix } from "./aiFix";
 import { GROWTH_SCENE, REVIEW_SCENE } from "./codeReview";
 import { db, getSettings } from "./db";
 import { logEvent } from "./loop";
@@ -9,7 +9,7 @@ import type { Fetch } from "./routine";
 // - 攻め（足すとよい機能）: 定例会議で3社が採点し、平均7点以上のものだけ、点の高い順に頼む。7日に1件まで
 // - 一度に頼むのは1件だけ（前に頼んだ PR がまだ開いている・PR ができていない間は頼まない）
 // - できた PR は、自動マージ（scripts/auto-merge.ts）が、CI と GPT・Gemini のレビューを見てマージする
-// - 設定の「見直しの提案を自動で頼む」で切れる。緊急停止の間は頼まない
+// - 設定の「見直しの提案を自動で頼む」で切れる。緊急停止の間・PR の状態の読み直しに失敗している間は頼まない
 export const GROWTH_MIN_SCORE = 7;
 const WAIT = "-1 day";
 
@@ -42,6 +42,8 @@ export async function maybeAutoAsk(fetchImpl: Fetch = fetch, force = false): Pro
   if (!force && g.__aiLabAutoAskAt && Date.now() - g.__aiLabAutoAskAt < 3_600_000) return false;
   // 人の依頼を送っている途中なら、今回は見送る（次の見回りで、その依頼を数えて決める）
   if (aiFixSending()) return false;
+  // PR の状態の読み直しに失敗している間は頼まない（GitHub にある PR を数えそこねて、2件目を頼まないように。PR #154 の ai-review の指摘）
+  if (!aiFixSyncOk()) return false;
   g.__aiLabAutoAskAt = Date.now();
   const s = getSettings();
   if (!s.autoAskReview || s.killSwitch || !aiFixConfigured()) return false;

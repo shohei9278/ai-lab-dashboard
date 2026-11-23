@@ -87,6 +87,12 @@ test("自動の依頼: 設定でオフ・緊急停止・ルーティンがつな
     return new Response(JSON.stringify({ claude_code_session_url: "https://claude.ai/code/session_x" }), { status: 200 });
   };
   const keep = getSettings();
+  // PR の状態の読み直しに失敗している間は頼まない。成功したら頼める
+  db().prepare("INSERT INTO plan_requests (title, target, source, status, ai_fix_at) VALUES ('前に頼んだ改善', 'system', 'meeting', 'open', datetime('now', '-2 days'))").run();
+  const down = async () => new Response("", { status: 503 });
+  await assert.rejects(syncAiFixPrs(down, true));
+  assert.equal(await maybeAutoAsk(ok, true), false);
+  await syncAiFixPrs(async () => new Response("[]", { status: 200 }), true);
   saveSettings({ autoAskReview: false });
   assert.equal(await maybeAutoAsk(ok, true), false);
   saveSettings({ autoAskReview: true, killSwitch: true });
