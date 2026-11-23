@@ -45,7 +45,7 @@ export function aiFixText(r: RequestRow, note: string): string {
 // by: 運営者が押したか、自動で頼んだか（autoAsk.ts。自動のときは守り・攻めごとに記録の種類を分ける。記録の書き方だけが変わる）
 const gSend = globalThis as unknown as { __aiLabAiFixSending?: boolean };
 export const aiFixSending = () => !!gSend.__aiLabAiFixSending;
-export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fetch, by: "human" | "auto-fix" | "auto-growth" = "human"): Promise<{ sessionUrl: string | null }> {
+export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fetch, by: "human" | "auto-fix" | "auto-growth" | "auto-box" = "human"): Promise<{ sessionUrl: string | null }> {
   if (!aiFixConfigured()) throw new Error("Claude Code のルーティンがまだつながっていません（docs/SETUP-AI-FIX.md）");
   const r = db().prepare("SELECT * FROM plan_requests WHERE id = ?").get(id) as RequestRow | undefined;
   if (!r || r.status !== "open" || r.target !== "system") throw new Error("まだ答えていない「仕組みの改善」だけ頼めます");
@@ -59,7 +59,7 @@ export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fe
     const url = await fireRoutine("CLAUDE_ROUTINE_FIRE_URL", "CLAUDE_ROUTINE_TOKEN", aiFixText(r, clean), fetchImpl);
     // 頼み直したときは、前の PR の番号と状態を消す（新しい PR が見つかるまで「PR はまだ見つかっていません」と出す。PR #126 の ai-review の指摘）
     db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_url = ?, ai_fix_note = ?, ai_fix_pr = NULL, ai_fix_pr_state = NULL WHERE id = ?").run(url, clean || null, id);
-    if (by !== "human") logEvent(null, "system", `auto-ask-${by === "auto-fix" ? "fix" : "growth"}`, `提案箱の「${r.title}」を、自動で Claude Code に直してもらうよう頼みました（${clean}）`);
+    if (by !== "human") logEvent(null, "system", `auto-ask-${by.slice("auto-".length)}`, `提案箱の「${r.title}」を、自動で Claude Code に直してもらうよう頼みました（${clean}）`);
     else logEvent(null, "human", "plan-request-ai-fix", `提案箱の「${r.title}」を、Claude Code に直してもらうよう頼んだ（PR ができたら、見てマージする）`);
     return { sessionUrl: url };
   } finally {
@@ -127,3 +127,18 @@ export function aiFixPrLabel(r: Pick<RequestRow, "ai_fix_pr" | "ai_fix_pr_state"
   return `PR #${r.ai_fix_pr}（${r.ai_fix_pr_state === "merged" ? "マージ済み" : r.ai_fix_pr_state === "closed" ? "閉じた" : "レビュー待ち"}）`;
 }
 export const aiFixPrUrl = (n: number) => `${REPO_URL}/pull/${n}`;
+
+// 頼まれたルーティンが「直さなくて良い」と判断したとき、提案を見送りにする（運営者が決めた。/api/code-review/skip から）
+// 見送れるのは、ルーティンに頼んでから3日以内で、まだ PR ができていない、返事待ちの「仕組みの改善」だけ（合言葉で、ほかの提案を勝手に見送れないように）
+export const SKIP_REASON_MAX = 400;
+export function skipAiFix(id: unknown, reason: unknown): { ok: true } | { ok: false; error: string } {
+  if (!Number.isInteger(id)) return { ok: false, error: "id は提案箱の番号（整数）にしてください" };
+  if (typeof reason !== "string" || !reason.trim() || reason.length > SKIP_REASON_MAX) return { ok: false, error: `reason は${SKIP_REASON_MAX}文字までの理由にしてください` };
+  const r = db().prepare("SELECT title FROM plan_requests WHERE id = ? AND target = 'system' AND status = 'open' AND ai_fix_at >= datetime('now', '-3 days') AND ai_fix_pr IS NULL").get(id) as { title: string } | undefined;
+  if (!r) return { ok: false, error: "見送れるのは、ルーティンに頼んでから3日以内で、PR がまだない、返事待ちの提案だけです" };
+  const clean = reason.trim();
+  const n = db().prepare("UPDATE plan_requests SET status = 'declined', note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open' AND ai_fix_pr IS NULL").run(`Claude Code が見て、直さなくて良いと判断した: ${clean}`, id).changes;
+  if (!n) return { ok: false, error: "提案の状態が変わったため、見送りませんでした" };
+  logEvent(null, "system", "ai-fix-skip", `提案箱の「${r.title}」は、Claude Code が見て直さなくて良いと判断したので見送りました（${clean.slice(0, 120)}）`);
+  return { ok: true };
+}

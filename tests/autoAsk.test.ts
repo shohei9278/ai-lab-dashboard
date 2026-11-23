@@ -180,3 +180,51 @@ test("自動の依頼: 依頼を送っている間は、人の依頼も自動の
   assert.equal(nextAutoAsk(), null);
   delete process.env.CLAUDE_ROUTINE_TOKEN;
 });
+
+test("提案箱の自動の依頼: AIの社員や会議の提案は3社の平均7点以上を、運営者の提案は1日たってから頼む（合わせて1日1件）", () => {
+  clear();
+  db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
+  const add = db().prepare("INSERT INTO plan_requests (title, how, why, target, source, score, created_at) VALUES (?, 'h', 'w', ?, ?, ?, datetime('now', ?))");
+  const low = Number(add.run("点が低い提案", "system", "scene", 6.9, "-2 days").lastInsertRowid);
+  add.run("運営者へのお願い", "human", "meeting", 9, "-2 days");
+  const fresh = Number(add.run("運営者が書いたばかり", "system", "human", null, "-1 hours").lastInsertRowid);
+  assert.equal(nextAutoAsk(), null);
+  const high = Number(add.run("点の高い提案", "system", "voice", 7.5, "-1 hours").lastInsertRowid);
+  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.kind, nextAutoAsk()?.why], [high, "auto-box", "自動: 提案箱の提案で、定例会議で3社の平均7.5点"]);
+  // 運営者が書いた提案は、1日たったら先に頼む
+  db().prepare("UPDATE plan_requests SET created_at = datetime('now', '-2 days') WHERE id = ?").run(fresh);
+  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [fresh, "自動: 運営者が書いた提案で、1日たっても見送られなかった"]);
+  // 1日に1件まで
+  db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (NULL, 'system', 'auto-ask-box', 'x')").run();
+  assert.equal(nextAutoAsk(), null);
+  assert.ok(low);
+});
+
+test("ルーティンの見送り: 合言葉がないと 401。頼んでから3日以内・PR がまだない提案だけを見送りにする", async () => {
+  const { POST } = await import("../src/app/api/code-review/skip/route");
+  const TOKEN = "s".repeat(40);
+  process.env.LAB_REVIEW_TOKEN = TOKEN;
+  const auth = { authorization: `Bearer ${TOKEN}`, "content-type": "application/json" };
+  const call = (body: unknown, headers: Record<string, string> = auth) => POST(new Request("http://x/api/code-review/skip", { method: "POST", headers, body: JSON.stringify(body) }));
+  clear();
+  const add = db().prepare("INSERT INTO plan_requests (title, target, source, status, ai_fix_at, ai_fix_pr) VALUES (?, 'system', 'scene', 'open', datetime('now', ?), ?)");
+  const asked = Number(add.run("頼んだ提案", "-1 hours", null).lastInsertRowid);
+  const withPr = Number(add.run("PR がある提案", "-1 hours", 5).lastInsertRowid);
+  const old = Number(add.run("前に頼んだ提案", "-5 days", null).lastInsertRowid);
+  const notAsked = Number(db().prepare("INSERT INTO plan_requests (title, target, source) VALUES ('頼んでいない提案', 'system', 'scene')").run().lastInsertRowid);
+  assert.equal((await call({ id: asked, reason: "すでに入っている" }, { "content-type": "application/json" })).status, 401);
+  for (const id of [withPr, old, notAsked]) assert.equal((await call({ id, reason: "r" })).status, 400, String(id));
+  assert.equal((await call({ id: asked, reason: "" })).status, 400);
+  assert.equal((await call({ id: asked, reason: "すでに入っている（src/lib/x.ts の12行目）" })).status, 200);
+  const r = db().prepare("SELECT status, note FROM plan_requests WHERE id = ?").get(asked) as { status: string; note: string };
+  assert.deepEqual(r, { status: "declined", note: "Claude Code が見て、直さなくて良いと判断した: すでに入っている（src/lib/x.ts の12行目）" });
+  assert.equal((db().prepare("SELECT status FROM plan_requests WHERE id = ?").get(notAsked) as { status: string }).status, "open");
+  // 見送ったら、すぐ次を頼める（頼んで1日以内でも、作業中と数えない）。PR が開いているものは、今までどおり作業中
+  db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
+  db().prepare("UPDATE plan_requests SET ai_fix_at = NULL, ai_fix_pr = NULL WHERE id IN (?, ?)").run(withPr, old);
+  db().prepare("UPDATE plan_requests SET score = 8 WHERE id = ?").run(notAsked);
+  assert.equal(nextAutoAsk()?.row.id, notAsked);
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_pr = 9, ai_fix_pr_state = 'open', status = 'declined' WHERE id = ?").run(withPr);
+  assert.equal(nextAutoAsk(), null);
+  delete process.env.LAB_REVIEW_TOKEN;
+});

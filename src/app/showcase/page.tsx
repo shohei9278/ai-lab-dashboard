@@ -38,7 +38,7 @@ const STACK: [string, string][] = [
   ["運用", "Railway（Docker）・GitHub Actions"],
 ];
 // 自分で直して、自分で作る流れ（クラウドの Claude Code に頼むところ）
-const FIX_FLOW = ["AIの社員が気づく", "提案箱で3社が採点", "運営者が「AIに直させる」", "クラウドの Claude Code が直して PR", "GPT と Gemini がレビュー", "指摘がなければ自動でマージ（残れば直す・人へ）", "自動で「やった」", "会議で前後の数字を振り返る"];
+const FIX_FLOW = ["AIの社員が気づく", "提案箱で3社が採点", "7点以上は自動でルーティンに頼む", "クラウドの Claude Code が直して PR", "GPT と Gemini がレビュー", "指摘がなければ自動でマージ（残れば直す・協議・人へ）", "自動で「やった」", "会議で前後の数字を振り返る"];
 const REVIEW_FLOW = ["週に2回、クラウドの Claude Code がコードと画面・作ったもの・数字を見る", "守り（直すべき所）と攻め（足すとよい機能）を提案箱へ", "攻めは3社が採点", "自動でルーティンに頼む", "PR に。指摘がなければ自動でマージ"];
 const BUILD_FLOW = ["AIが設計書を書く", "クラウドの Claude Code がブラウザで確かめながら作る", "ダッシュボードに入れる", "チェック・自動テスト", "公開（止まったら Claude Code が直す）"];
 const COLOR = { anthropic: "var(--series-anthropic)", openai: "var(--series-openai)", google: "var(--series-google)" } as const;
@@ -149,7 +149,7 @@ export default async function Showcase() {
               <li>コードは主に Claude Code で書き、人は問題の発見・方針の決定・動作の確認を受け持つ</li>
               <li>変更はすべてPRで、型チェック・lint・テストのCIと、別のAI（GPT）のレビューを通してから本番に出す</li>
               <li>本番に出たあとは、主要ページと閲覧専用の守りを30分ごとに自動で確かめる</li>
-              <li>AIの社員が提案した仕組みの改善と、週に2回 Claude Code がコードを見直して出した提案は、運営者が押すとクラウドの Claude Code が PR にする（下の「自分で直して、自分で作る」）</li>
+              <li>AIの社員が提案した仕組みの改善と、週に2回 Claude Code が見直して出した提案は、条件を満たすと自動でクラウドの Claude Code に頼み、PR にする（AIの提案は3社の採点の平均が7点以上・見直しの守りは1日たっても見送られなければ。運営者が押して頼むこともできる。下の「自分で直して、自分で作る」）</li>
               <li>人が手を入れたところは「改善の記録」に残している</li>
             </ul>
             <a href={REPO} target="_blank" rel="noreferrer" className="inline-block text-accent underline">ソースコード（GitHub）↗</a>
@@ -159,12 +159,12 @@ export default async function Showcase() {
 
       {/* 自分で直して、自分で作る: ダッシュボードがクラウドの Claude Code（ルーティン）に仕事を頼む仕組みと、会議が過去から学ぶ仕組み */}
       <section className="space-y-3">
-        <SectionHead title="自分で直して、自分で作る" note="ダッシュボードが、クラウドの Claude Code（ルーティン）に仕事を頼みます。人が入るのは、主に、直す改善を選ぶこと・PR のマージ・止まったものの判断です。" />
+        <SectionHead title="自分で直して、自分で作る" note="ダッシュボードが、クラウドの Claude Code（ルーティン）に仕事を頼みます。頼むこと・直すこと・マージまで自動で進みます。人が入るのは、主に、自動では触れない所（来訪者の入口・予算・CI など）に触れる PR と、止まったものの判断です。" />
         <div className="grid gap-3 md:grid-cols-2">
           <article className="card space-y-2 p-4 text-sm">
             <h3 className="font-bold">仕組みの改善を、AIが PR にする</h3>
             <Chips items={FIX_FLOW} />
-            <p className="text-ink-2">朝会・会議・チェックの途中でAIの社員が気づいた改善は提案箱に入り、週の定例会議で3社が採点します（採点者ごとの甘さ・辛さをならし、言い方が違う同じ提案はまとめる）。運営者が押すと、クラウドの Claude Code がリポジトリを直して PR を作り、CI と2つの別の会社のAI（GPT・Gemini）のレビューを通ります。直すべき指摘があれば Claude Code が直し、なくなれば自動でマージされます。マージされると自動で「やった」になり、次の会議で、やる前とあとの数字を並べて効いたかを見ます。</p>
+            <p className="text-ink-2">朝会・会議・チェックの途中でAIの社員が気づいた改善は提案箱に入り、週の定例会議で3社が採点します（採点者ごとの甘さ・辛さをならし、言い方が違う同じ提案はまとめる）。3社の採点の平均が7点以上の提案は、運営者が押さなくても自動でクラウドの Claude Code に頼まれます（運営者が書いた提案は、1日たっても見送らなければ）。Claude Code はリポジトリを読み、直さなくて良いと判断したら見送りにし、直すときは PR を作って、CI と2つの別の会社のAI（GPT・Gemini）のレビューを通ります。直すべき指摘があれば Claude Code が直し、なくなれば自動でマージされます。3回直しても 🟡 だけが残ったときは、GPT と Gemini が1件ずつ協議し、2社ともマージしてよいとしたときだけマージします。マージされると自動で「やった」になり、次の会議で、やる前とあとの数字を並べて効いたかを見ます。</p>
             {routine.asked > 0 && <p className="num text-xs text-muted">これまでに頼んだ改善 {routine.asked}件・マージされた PR {routine.merged}件</p>}
           </article>
           <article className="card space-y-2 p-4 text-sm">
@@ -183,7 +183,7 @@ export default async function Showcase() {
             <h3 className="font-bold">任せすぎないための決まり</h3>
             <ul className="list-disc space-y-1 pl-5 text-ink-2">
               <li>ルーティンは役割ごとに分け、リポジトリを直すほうは本番に触れられない。ツールを作るほうは、合言葉で、ツールを読む・入れる入口にだけ入れる</li>
-              <li>ルーティンが作った PR は、CI が通り、GPT と Gemini のどちらも直すべき指摘なしのときだけ自動でマージする。指摘はルーティンに3回まで直させ、残れば人に回す。来訪者の入口・予算と緊急停止・合言葉・CI・自動マージの仕組み自体に触れる PR は、自動ではマージしない</li>
+              <li>ルーティンが作った PR は、CI が通り、GPT と Gemini のどちらも直すべき指摘なしのときだけ自動でマージする。指摘はルーティンに3回まで直させ、🔴 が残れば人に回す。🟡 だけが残ったら GPT と Gemini が協議し、1件でも「直すべき」とされたら人に回す。来訪者の入口・予算と緊急停止・合言葉・CI・自動マージの仕組み自体に触れる PR は、自動ではマージしない</li>
               <li>コードを見直すほうは、提案箱に入れるだけでコードは直さない。入れるのは1回に5件まで（攻めは2件まで）、専用の合言葉で、その入口にだけ入れる。自動で頼むのは一度に1件だけで、守りは1日1件・攻めは3日に1件まで</li>
               <li>頼む数は、同時に何件・1日に何件まで、と運営者が設定で決める（サブスクの使用量で動くため）</li>
               <li>チェックで止まったツールを Claude Code に直させるのは、同じ案件で7日に1回だけ。それでも直らなければ人の判断に回す</li>

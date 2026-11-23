@@ -2,12 +2,13 @@
 // ルーティンが作った PR（claude/proposal-<番号>）を見回り、次のどれかをする（運営者が決めた）
 // - マージ: CI が通り、自動で触れない所に触れておらず、本番が作業中でなく、本番の確認が通っていて、この見回りが自分で呼んだ GPT と Gemini のどちらも直すべき指摘（🔴・🟡）なし
 // - 直させる: 直すべき指摘があれば、提案箱のルーティンに、同じブランチで直させる（3回まで）
-// - 人に回す: 3回直しても残る・自動で触れない所に触れている・CI が落ちた・レビューを読めない など
+// - 協議: 3回直しても 🟡 だけが残ったら、GPT と Gemini に1件ずつ判断させ、2社とも全部を「マージしてよい」としたらマージ（運営者と決めた）
+// - 人に回す: 3回直しても 🔴 が残る・協議で「直すべき」が出た・自動で触れない所に触れている・CI が落ちた・レビューを読めない など
 // したことは PR にコメントし、Discord に知らせる
 // PR のコードは動かさない（差分は git で取り出して、レビューの材料として読むだけ）。PR のコメントの「指摘なし」は信じない（誰でもボットとして書けるため）
 import { execFileSync } from "node:child_process";
-import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type Decision, type PrComment } from "./auto-merge-rules";
-import { REVIEWERS, askReviewer, blocking, parseReview, reviewComment, reviewInput, reviewInstructions, type Review, type Reviewer } from "./ai-review-core";
+import { AUTO_BRANCH, HUMAN_MARK, afterDeliberation, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type Decision, type PrComment } from "./auto-merge-rules";
+import { REVIEWERS, askReviewer, blocking, deliberationComment, deliberationInput, deliberationInstructions, parseDeliberation, parseReview, reviewComment, reviewInput, reviewInstructions, type Deliberation, type Finding, type Review, type Reviewer } from "./ai-review-core";
 import { OMITTED } from "./ai-review-omitted";
 
 const { GITHUB_REPOSITORY, GITHUB_TOKEN, AUTO_MERGE_TOKEN, NOTIFY_WEBHOOK_URL, CLAUDE_ROUTINE_FIRE_URL, CLAUDE_ROUTINE_TOKEN, OPENAI_API_KEY, GEMINI_API_KEY } = process.env;
@@ -118,6 +119,32 @@ async function reviewBoth(pr: Pull, history: string): Promise<Partial<Record<Rev
   return out;
 }
 
+// 協議: 残った 🟡 を、GPT と Gemini に1件ずつ判断してもらう（答えは、この見回りの中でだけ使う）
+async function deliberateBoth(pr: Pull, findings: Finding[]): Promise<Partial<Record<Reviewer, Deliberation>>> {
+  const { input } = deliberationInput(findings, { prBody: pr.body ?? "", diff: diffOf(pr) });
+  const out: Partial<Record<Reviewer, Deliberation>> = {};
+  await Promise.all(REVIEWERS.map(async (r) => {
+    try {
+      out[r] = parseDeliberation(r, await askReviewer(r, deliberationInstructions(), input, { openai: OPENAI_API_KEY, gemini: GEMINI_API_KEY }), findings.length);
+    } catch (e) {
+      console.error(`#${pr.number}: ${r} の協議に失敗: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }));
+  return out;
+}
+
+// マージする。レビューには数分かかるので、マージの直前に、本番が作業中でないか・本番の確認が通っているかを見直す（PR #153 の ai-review の指摘）
+async function mergeNow(pr: Pull, link: string, d: Decision): Promise<Decision> {
+  const [idleNow, smokeNow] = await Promise.all([productionIdle(), smokeOk()]);
+  if (idleNow !== true || smokeNow !== true) return { action: "wait", reason: "マージの直前に見直したら、本番が作業中か、本番の確認が通っていない（次の見回りでもう一度）" };
+  // 確かめた版のままのときだけマージする（確かめたあとに push されていたら、GitHub が断る）
+  await gh(`/pulls/${pr.number}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: "merge", sha: pr.head.sha }) }, AUTO_MERGE_TOKEN);
+  // マージできたら、コメントや知らせに失敗しても、マージしたとして返す（見回りを必ず終えて、続けてマージしない）
+  await comment(pr.number, `🤖 自動でマージしました（${d.reason}）。`).catch((e) => console.error(`#${pr.number}: マージのコメントに失敗: ${e instanceof Error ? e.message : String(e)}`));
+  await notify(`🤖 自動でマージしました: ${link}\n${d.reason}`);
+  return d;
+}
+
 async function toHuman(pr: Pull, link: string, why: string): Promise<Decision> {
   await comment(pr.number, `🙋 自動ではマージしません: ${why}。人が見て判断してください。\n\n${HUMAN_MARK}`);
   await notify(`🙋 人の判断が要る PR: ${link}\n${why}`);
@@ -173,14 +200,16 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   if (!recorded) return { action: "wait", reason: "レビューを PR に書けなかった（次の見回りでもう一度）" };
 
   if (d.action === "merge") {
-    // レビューには数分かかるので、マージの直前に、本番が作業中でないか・本番の確認が通っているかを見直す（PR #153 の ai-review の指摘）
-    const [idleNow, smokeNow] = await Promise.all([productionIdle(), smokeOk()]);
-    if (idleNow !== true || smokeNow !== true) return { action: "wait", reason: "マージの直前に見直したら、本番が作業中か、本番の確認が通っていない（次の見回りでもう一度）" };
-    // 確かめた版のままのときだけマージする（確かめたあとに push されていたら、GitHub が断る）
-    await gh(`/pulls/${pr.number}/merge`, { method: "PUT", body: JSON.stringify({ merge_method: "merge", sha: pr.head.sha }) }, AUTO_MERGE_TOKEN);
-    // マージできたら、コメントや知らせに失敗しても、マージしたとして返す（見回りを必ず終えて、続けてマージしない）
-    await comment(pr.number, `🤖 自動でマージしました（${d.reason}）。`).catch((e) => console.error(`#${pr.number}: マージのコメントに失敗: ${e instanceof Error ? e.message : String(e)}`));
-    await notify(`🤖 自動でマージしました: ${link}\n${d.reason}`);
+    return mergeNow(pr, link, d);
+  } else if (d.action === "deliberate") {
+    // 残った 🟡 を2社で協議する。結果は PR に書いて、人があとから見直せるようにする
+    const findings = REVIEWERS.flatMap((r) => blocking(reviews[r]!));
+    const results = await deliberateBoth(pr, findings);
+    const after = afterDeliberation(findings.length, results);
+    const posted = await comment(pr.number, deliberationComment(findings, results)).then(() => true, () => false);
+    if (!posted) return { action: "wait", reason: "協議の結果を PR に書けなかった（次の見回りでもう一度）" };
+    if (after.action !== "merge") return toHuman(pr, link, after.reason);
+    return mergeNow(pr, link, after);
   } else if (d.action === "fix") {
     const text = fixText(pr, REVIEWERS.flatMap((r) => blocking(reviews[r]!)));
     if (!text) return toHuman(pr, link, "直すべき指摘が長く、ルーティンに全部を渡せない");

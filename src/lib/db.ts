@@ -874,7 +874,7 @@ export type Settings = {
   dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
   promoOff: string; // 宣伝の投稿（リンク付き）をしない場所（カンマ区切り。例: x）
   plainOff: string; // 普通の投稿（リンクなし）をしない場所（カンマ区切り）
-  autoAskReview: boolean; // コードの見直しの提案（守り・3社の採点の平均が7点以上の攻め）を、運営者が押さなくても自動で提案箱のルーティンに頼む（autoAsk.ts）
+  autoAskReview: boolean; // 提案箱の「仕組みの改善」（見直しの守り・攻め、AIの社員や会議の提案、運営者の提案）を、運営者が押さなくても自動でルーティンに頼む（autoAsk.ts）
   budgetAutopilot: boolean; // 予算の自動運転: 月の予算のペースに合わせて、費用のかかる設定を自動で絞る（autopilot.ts。人が決めた値より増やさない）
   autopilotLevel: string; // 予算の自動運転のいまの段階（normal / careful / saving。変わったときに記録するため）
   postSafetyPerDay: number; // 毎日の計画で投稿するときの安全装置（場所ごと・直近24時間）。AIの目標ではなく、異常を止めるための値
