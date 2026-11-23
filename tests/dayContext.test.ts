@@ -1,5 +1,7 @@
+import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { db } from "../src/lib/db";
 import { dayContextText, dayLabel, holidayOf, japaneseHolidays, parseOpenMeteo, resetWeatherCache, tokyoWeather } from "../src/lib/dayContext";
 
 test("祝日: 決まった日・ハッピーマンデー・春分秋分・振替休日・国民の休日", () => {
@@ -50,6 +52,37 @@ test("天気: 1日1回だけ読み、読めなかった日も読み直さない"
   assert.deepEqual(await tokyoWeather("2026-11-24", fail), []);
   assert.deepEqual(await tokyoWeather("2026-11-24", fail), []);
   assert.equal(calls, 2);
+  resetWeatherCache();
+});
+
+test("天気: 同時に呼ばれても読むのは1回。記録は DB にあるので、プロセスの覚えが消えても読み直さない", async () => {
+  resetWeatherCache();
+  let calls = 0;
+  const slow = (async () => { calls++; await new Promise((r) => setTimeout(r, 30)); return new Response(JSON.stringify(sample)); }) as typeof fetch;
+  const [a, b] = await Promise.all([tokyoWeather("2026-11-23", slow), tokyoWeather("2026-11-23", slow)]);
+  assert.equal(a.length, 2);
+  assert.deepEqual(a, b);
+  assert.equal(calls, 1);
+  // 再起動したのと同じ（同じプロセスの覚えはなく、DB の記録だけがある）
+  const row = db().prepare("SELECT status, weather FROM day_weather WHERE day = ?").get("2026-11-23") as { status: string; weather: string };
+  assert.equal(row.status, "done");
+  assert.deepEqual(JSON.parse(row.weather), a);
+  assert.deepEqual(await tokyoWeather("2026-11-23", slow), a);
+  assert.equal(calls, 1);
+  resetWeatherCache();
+});
+
+test("天気: ほかのプロセスが読んでいる途中なら読まずに結果を待ち、終わらなければ省く", async () => {
+  resetWeatherCache();
+  let calls = 0;
+  const ok = (async () => { calls++; return new Response(JSON.stringify(sample)); }) as typeof fetch;
+  // ほかのプロセスが先に印を入れた
+  db().prepare("INSERT INTO day_weather (day) VALUES (?)").run("2026-11-25");
+  assert.deepEqual(await tokyoWeather("2026-11-25", ok, { waitMs: 0 }), []);
+  // ほかのプロセスが読み終えた
+  db().prepare("UPDATE day_weather SET status = 'done', weather = ? WHERE day = ?").run(JSON.stringify(parseOpenMeteo(sample)), "2026-11-25");
+  assert.equal((await tokyoWeather("2026-11-25", ok, { waitMs: 0 })).length, 2);
+  assert.equal(calls, 0);
   resetWeatherCache();
 });
 

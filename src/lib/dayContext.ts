@@ -2,6 +2,8 @@
 // - 雨の日や休日など、家にいる人が多い日は、今ある遊ぶツールの宣伝を優先する、の判断に使う（新しく作るためではない）
 // - 天気は無料・キー不要の Open-Meteo を1日1回だけ読む。読めなければ省く（曜日・祝日だけ渡す）。AIの呼び出しは増えない
 
+import { db } from "./db";
+
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
 // "YYYY-MM-DD" の日付（日本時間の日付として扱う）
@@ -95,10 +97,39 @@ export function parseOpenMeteo(v: unknown): DayWeather[] {
 const OPEN_METEO = "https://api.open-meteo.com/v1/forecast?latitude=35.6895&longitude=139.6917&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FTokyo&forecast_days=2";
 
 // 1日1回だけ読む（読めなかった日も、その日は読み直さない）
-let cache: { day: string; weather: DayWeather[] } | null = null;
+// - 取得の記録は DB（day_weather。day が一意）に置くので、再起動や複数のプロセスでも、その日に読むのは最初に行を入れた1つだけ
+// - 同じプロセスの中で同時に呼ばれたときは、読んでいる途中の Promise を分け合う
+// - ほかのプロセスが読んでいる途中なら、少し待って結果を使う（待っても終わらなければ、天気を省く。読み直さない）
+const inflight = new Map<string, Promise<DayWeather[]>>();
 
-export async function tokyoWeather(today: string, get: typeof fetch = fetch): Promise<DayWeather[]> {
-  if (cache?.day === today) return cache.weather;
+function savedWeather(today: string): { status: string; weather: DayWeather[] } | null {
+  const row = db().prepare("SELECT status, weather FROM day_weather WHERE day = ?").get(today) as { status: string; weather: string } | undefined;
+  if (!row) return null;
+  let weather: DayWeather[] = [];
+  try { weather = parseSavedWeather(JSON.parse(row.weather)); } catch { weather = []; }
+  return { status: row.status, weather };
+}
+
+// DB に保存した形（DayWeather[]）を読み直す（形が違えば空）
+function parseSavedWeather(v: unknown): DayWeather[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is DayWeather => !!x && typeof x === "object" && typeof (x as DayWeather).day === "string" && typeof (x as DayWeather).text === "string");
+}
+
+async function readOrFetch(today: string, get: typeof fetch, waitMs: number): Promise<DayWeather[]> {
+  const saved = savedWeather(today);
+  if (saved?.status === "done") return saved.weather;
+  // 取得を始める印を入れる。入らなければ、ほかのプロセスが先に始めている
+  const claimed = db().prepare("INSERT OR IGNORE INTO day_weather (day) VALUES (?)").run(today).changes === 1;
+  if (!claimed) {
+    const end = Date.now() + waitMs;
+    for (;;) {
+      const s = savedWeather(today);
+      if (s?.status === "done") return s.weather;
+      if (Date.now() >= end) return [];
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
   let weather: DayWeather[] = [];
   try {
     const res = await get(OPEN_METEO, { headers: { "User-Agent": "ai-product-lab (daily plan)" }, signal: AbortSignal.timeout(10_000) });
@@ -106,8 +137,18 @@ export async function tokyoWeather(today: string, get: typeof fetch = fetch): Pr
   } catch {
     weather = [];
   }
-  cache = { day: today, weather };
+  db().prepare("UPDATE day_weather SET status = 'done', weather = ?, at = datetime('now') WHERE day = ?").run(JSON.stringify(weather), today);
+  // 古い日の行は残さない
+  db().prepare("DELETE FROM day_weather WHERE day < ?").run(addDays(today, -14));
   return weather;
+}
+
+export function tokyoWeather(today: string, get: typeof fetch = fetch, { waitMs = 15_000 }: { waitMs?: number } = {}): Promise<DayWeather[]> {
+  const running = inflight.get(today);
+  if (running) return running;
+  const p = readOrFetch(today, get, waitMs).catch(() => [] as DayWeather[]).finally(() => inflight.delete(today));
+  inflight.set(today, p);
+  return p;
 }
 
 // 計画の材料にする文。天気がない日は、曜日・祝日だけ
@@ -124,7 +165,8 @@ export function dayContextText(today: string, weather: DayWeather[]): string {
   ].join("\n");
 }
 
-// テスト用: 天気の覚えを消す
+// テスト用: 天気の記録を消す
 export function resetWeatherCache(): void {
-  cache = null;
+  inflight.clear();
+  db().prepare("DELETE FROM day_weather").run();
 }
