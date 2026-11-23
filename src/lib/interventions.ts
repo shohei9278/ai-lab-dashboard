@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { db } from "./db";
 import { jstDay } from "./sns";
 import { STALE_NOTE } from "./voices";
@@ -21,7 +23,9 @@ export const commitUrl = (sha: string) => `https://github.com/shohei9278/ai-lab-
 const isFoundBy = (k: unknown): k is FoundBy => typeof k === "string" && Object.hasOwn(FOUND_BY, k);
 export const foundByLabels = (v: string | null) => (v ?? "").split(",").filter(isFoundBy).map((k) => FOUND_BY[k]);
 
-// これまでの実際の事例。key ごとにコードの内容で更新するので、文面やコミットを直せば次の起動で反映される（消した記録は消したまま）
+// これまでの実際の事例（2026-11-23 まで）。新しい記録は、ここではなく src/data/interventions/<key>.json に1件1ファイルで足す（RECORD_DIR）
+// 同じ所に PR ごとに足すと、PR を並べたときに毎回ぶつかるため（運営者が決めた）
+// key ごとにコードの内容で更新するので、文面やコミットを直せば次の起動で反映される（消した記録は消したまま）
 const FIRST: (Omit<InterventionRow, "id"> & { key: string })[] = [
   { key: "protected-review", day: "2026-11-23", kind: "direction", title: "自動で触れない所に触れている PR も、レビュー・直し・協議までは自動で進め、マージしてよい状態になったら「レビュー済み」として人に回すようにした", happened: "自動で触れない所（設定の画面・来訪者の入口・予算・CI など）に触れている PR は、レビューもせずにすぐ人に回していた。#157 は設定を1つ足しただけで人に回り、運営者が中身を読んで判断していた。", noticed: "運営者が、判断待ちも勝手にやってくれるのか、今後は減るのかと聞いた。Claude Code が、自動で触れない所に触れる PR がいちばん多く人に回りそうだとし、レビューまでは自動でして「レビュー済み」の形で回す案を勧めると、運営者が作ると決めた。", decision: "Claude Code が、自動マージの見回り（scripts/auto-merge.ts・auto-merge-rules.ts）で、自動で触れない所に触れている PR も、CI・本番の確認などのほかの条件がそろったら GPT と Gemini のレビュー・ルーティンへの直しの依頼（3回まで）・協議までは今までどおり進め、マージしてよい状態になったら、マージはせずに「✅ レビュー済みで、マージしてよい状態」として人に回し、Discord に知らせるようにした。マージは人が決める。", result: null, found_by: "human", commit_sha: null },
   { key: "auto-ask-pace", day: "2026-11-23", kind: "direction", title: "提案箱の自動の依頼を、種類ごとの「1日1件」から「一度に1件・終わったらすぐ次・全部で1日4件まで」に変えた", happened: "自動の依頼は、見直しの守りが1日1件・攻めが3日に1件・ほかの提案が1日1件までで、1件が早く片付いた日でも次を頼めず、提案がたまっていくところだった。運営者が書いた提案も、頼まれるまで1日待っていた。", noticed: "運営者が「1日1件だと遅くはない？」と聞いた。Claude Code が、本当の歯止めは「一度に1件」なので、種類ごとの上限をやめて全部で1日4件までにし、運営者の提案の待ちを1時間に縮める形を勧めると、運営者がそのとおりに作ると決めた。", decision: "Claude Code が、自動の依頼（src/lib/autoAsk.ts）を、一度に1件ずつ・前の PR が終わったら次の見回り（1時間に1回）で次を頼む形にし、上限を全部で1日（24時間）4件にした。頼む順は、見直しの守り（入ってから1日たっても見送られなければ）→ 運営者が書いた提案（1時間たっても見送られなければ）→ 3社の採点の平均が7点以上の提案（見直しの攻め・AIの社員や会議の提案。点の高い順）。", result: null, found_by: "human", commit_sha: null },
@@ -142,6 +146,52 @@ const FIRST: (Omit<InterventionRow, "id"> & { key: string })[] = [
   { key: "three-company-ideas", day: "2026-11-05", kind: "direction", title: "アイデア出しを3社の競争にした", happened: "設定した1社のAIだけがアイデアを出していて、会社どうしを比べられなかった。", noticed: "「AIにアイデアを出させるって 設定したAIだけが思考するっけ？」と問いかけ、選択肢を比べて3社方式に決めた。", decision: "Claude Codeが、Claude・GPT・Geminiが案を出し、作者を伏せて採点し合う形に変えた。", result: "本番で運用している。", found_by: "human", commit_sha: "29973d3" },
 ];
 
+// 1件1ファイルの記録（src/data/interventions/<key>.json）。ファイル名（.json を除く）が key
+// 中身は { day, kind, title, happened, noticed, decision, result, found_by, commit_sha }（FIRST の1件と同じ。result・found_by・commit_sha は null でよい）
+// 形のおかしいファイルは読まずに、記録（サーバーのログ）に残す。テスト（tests/interventions.test.ts）で、全部のファイルが読めることを確かめる
+export type SeedRecord = Omit<InterventionRow, "id"> & { key: string };
+export const RECORD_DIR = path.join(process.cwd(), "src", "data", "interventions");
+const KEY_RE = /^[a-z0-9][a-z0-9-]{0,60}$/;
+const str = (v: unknown, max: number): v is string => typeof v === "string" && v.trim().length > 0 && v.length <= max;
+const optStr = (v: unknown, max: number) => v === null || v === undefined || (typeof v === "string" && v.length <= max);
+
+export function parseSeedRecord(key: string, v: unknown): SeedRecord | string {
+  if (!KEY_RE.test(key)) return "ファイル名は、英小文字・数字・ハイフンにしてください";
+  const o = (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;
+  if (typeof o.day !== "string" || !isRealDay(o.day)) return "day は 2026-11-23 の形で、実在する日にしてください";
+  if (!["bug", "design", "direction"].includes(String(o.kind))) return "kind は bug・design・direction のどれかにしてください";
+  if (!str(o.title, 200) || !str(o.happened, 1500) || !str(o.noticed, 1500) || !str(o.decision, 2000)) return "title・happened・noticed・decision は、すべて書いてください";
+  if (!optStr(o.result, 1000)) return "result は文字か null にしてください";
+  if (!optStr(o.found_by, 100) || (typeof o.found_by === "string" && !o.found_by.split(",").every(isFoundBy))) return `found_by は ${Object.keys(FOUND_BY).join("・")} をカンマでつないだものか null にしてください`;
+  if (!(o.commit_sha === null || o.commit_sha === undefined || (typeof o.commit_sha === "string" && /^[0-9a-f]{7,40}$/.test(o.commit_sha)))) return "commit_sha は英数字のコミットのIDか null にしてください";
+  return {
+    key, day: o.day, kind: o.kind as InterventionKind, title: o.title, happened: o.happened, noticed: o.noticed, decision: o.decision,
+    result: (o.result as string | null | undefined) ?? null, found_by: (o.found_by as string | null | undefined) ?? null, commit_sha: (o.commit_sha as string | null | undefined) ?? null,
+  };
+}
+
+// フォルダの記録を、古い順（日・key の順）に読む。読めないファイルは飛ばして、理由を返す
+export function readRecordFiles(dir = RECORD_DIR): { records: SeedRecord[]; errors: string[] } {
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir).filter((n) => n.endsWith(".json"));
+  } catch {
+    return { records: [], errors: [] };
+  }
+  const records: SeedRecord[] = [];
+  const errors: string[] = [];
+  for (const n of names) {
+    try {
+      const r = parseSeedRecord(n.slice(0, -".json".length), JSON.parse(fs.readFileSync(path.join(dir, n), "utf8")));
+      if (typeof r === "string") errors.push(`${n}: ${r}`);
+      else records.push(r);
+    } catch (e) {
+      errors.push(`${n}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return { records: records.sort((a, b) => a.day.localeCompare(b.day) || a.key.localeCompare(b.key)), errors };
+}
+
 const g = globalThis as unknown as { __aiLabInterventionsSeeded?: boolean };
 
 function seedOnce() {
@@ -151,7 +201,11 @@ function seedOnce() {
   const update = db().prepare("UPDATE interventions SET day = ?, kind = ?, title = ?, happened = ?, noticed = ?, decision = ?, result = ?, found_by = ?, commit_sha = ? WHERE seed_key = ? AND edited = 0");
   const insert = db().prepare("INSERT INTO interventions (day, kind, title, happened, noticed, decision, result, found_by, commit_sha, seed_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   db().transaction(() => {
-    for (const x of [...FIRST].reverse()) {
+    // 今までの記録（新しい順に並んでいるので、古い順に入れる）→ フォルダの記録（古い順）。同じ key は FIRST を使う
+    const { records, errors } = readRecordFiles();
+    for (const e of errors) console.error(`改善の記録のファイルを読めませんでした: ${e}`);
+    const keys = new Set(FIRST.map((x) => x.key));
+    for (const x of [...[...FIRST].reverse(), ...records.filter((r) => !keys.has(r.key))]) {
       const v = [x.day, x.kind, x.title, x.happened, x.noticed, x.decision, x.result, x.found_by, x.commit_sha, x.key];
       if (exists.get(x.key)) update.run(...v);
       else insert.run(...v);
