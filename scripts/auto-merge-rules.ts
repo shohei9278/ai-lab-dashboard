@@ -83,7 +83,8 @@ export function smokeResult(runs: SmokeRun[]): boolean | null {
   return SMOKE_FAILED.includes(r.conclusion ?? "") ? false : null;
 }
 
-export type Decision = { action: "merge" | "fix" | "human" | "wait" | "review" | "deliberate"; reason: string };
+// protectedFiles: 自動で触れない所に触れている PR。レビュー・直し・協議までは自動でし、マージだけは人が決める（運営者が決めた）
+export type Decision = { action: "merge" | "fix" | "human" | "wait" | "review" | "deliberate"; reason: string; protectedFiles?: string[] };
 
 // レビューの前に決められること。"review" なら、レビューしてから afterReview で決める
 // レビューは、ほかの条件が全部そろってから1回だけ呼ぶ（AIの費用を、マージできない間に使わない）
@@ -102,13 +103,19 @@ export function beforeReview(x: {
   if (!x.filesComplete) return { action: "human", reason: "変えたファイルが多すぎて、全部を確かめられない" };
   if (!x.commentsComplete) return { action: "human", reason: "コメントが多すぎて、全部を読めない" };
   if (!x.historyOk) return { action: "human", reason: "前の版へのレビューが多すぎて、次のレビューに全部を渡せない" };
+  // 自動で触れない所に触れていても、レビュー・直し・協議までは自動でする。マージに進めるときに人に回す（readyForHuman）
   const prot = protectedFiles(x.files);
-  if (prot.length) return { action: "human", reason: `自動ではマージしない所に触れている（${prot.slice(0, 5).join("・")}）` };
   if (!x.ciOk) return { action: "human", reason: "CI が通っていない" };
   if (x.smokeOk === false) return { action: "wait", reason: "本番の確認がいま失敗しているので、自動マージを止めている" };
   if (x.smokeOk !== true) return { action: "wait", reason: "本番の確認の結果が分からない" };
   if (x.productionIdle !== true) return { action: "wait", reason: x.productionIdle === false ? "本番が作業中" : "本番が止まっているか分からない" };
+  if (prot.length) return { action: "review", reason: "GPT と Gemini にレビューを頼む（自動で触れない所に触れているので、マージは人が決める）", protectedFiles: prot };
   return { action: "review", reason: "GPT と Gemini にレビューを頼む" };
+}
+
+// 自動で触れない所に触れている PR が、レビュー（と協議）を通ってマージに進める状態になったとき。マージはせず、レビュー済みとして人に回す
+export function readyForHuman(d: Decision, prot: string[]): Decision {
+  return { action: "human", reason: `✅ レビュー済みで、マージしてよい状態（${d.reason}）。ただし、自動ではマージしない所（${prot.slice(0, 5).join("・")}${prot.length > 5 ? " ほか" : ""}）に触れている` };
 }
 
 export function afterReview(reviews: Partial<Record<Reviewer, Review>>, fixes: number): Decision {
