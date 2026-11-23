@@ -7,6 +7,7 @@ import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
 import { AUTO_PLATFORMS, autoPlatforms, postAllowed, xWeightedLength, type AutoPlatform } from "./snsApi";
 import { CONV, KIND_LABEL, getProject, logEvent, type Lp } from "./loop";
 import { publicUrl } from "./publish";
+import { unsupportedNumbers } from "./numberCheck";
 
 // SNSへの投稿。画面からXの投稿画面を開いて、あなたが投稿することもできる。
 // 設定で「自動で投稿」をオンにし、X・Threads・Bluesky のキーを入れると、AIが下書きして自動で投稿する（毎日の計画、または計画がない日は maybeAutoPost）。
@@ -50,12 +51,21 @@ function planContext(projectId: number): string {
   return own;
 }
 
+// 投稿の数字を照らすときの「本物の材料」: 案件とページに書かれていること、これまでの投稿とその本物の反応（numberCheck.ts）
+// 計画の希望・ほかの人の伸びた投稿（viralHints）は入れない（そこにある数字を、自分の実績のように書かせない）
+function postFacts(p: ProjectRow, lp: Lp): { facts: string; past: string } {
+  const past = listPosts(p.id).filter((x) => x.status === "posted").map((x) => `- ${x.text}（訪問 ${x.visits}人・${CONV[p.kind].noun} ${x.conversions}人）`).join("\n") || "（まだなし）";
+  const facts = `${KIND_LABEL[p.kind]}: ${p.title}\n対象: ${p.target}\n困りごと・動機: ${p.problem}\n中身: ${p.solution}\nページの見出し: ${lp.headline}\nページの補足: ${lp.subheadline}\nページに書かれている特徴: ${lp.features.map((f) => `${f.title}（${f.body}）`).join(" / ")}`;
+  return { facts: `${facts}\n${past}`, past };
+}
+
 export async function draftPosts(projectId: number, count: number, hint?: string, platform: AutoPlatform = "x"): Promise<number[]> {
   const p = getProject(projectId);
   if (!p?.lp) throw new Error("まだLPやツールがありません");
   const lp = JSON.parse(p.lp) as Lp;
-  const past = listPosts(projectId).filter((x) => x.status === "posted").map((x) => `- ${x.text}（訪問 ${x.visits}人・${CONV[p.kind].noun} ${x.conversions}人）`).join("\n") || "（まだなし）";
+  const { facts, past } = postFacts(p, lp);
   const isTool = p.kind === "tool";
+  const user = `${KIND_LABEL[p.kind]}: ${p.title}\n対象: ${p.target}\n困りごと・動機: ${p.problem}\n中身: ${p.solution}\nページの見出し: ${lp.headline}\nページの補足: ${lp.subheadline}\nページに書かれている特徴: ${lp.features.map((f) => `${f.title}（${f.body}）`).join(" / ")}\n件数: ${count}${hint ? `\n今回の希望: ${hint}` : ""}\n\nこれまでの投稿と反応:\n${past}${planContext(projectId)}${viralHints("sns")}${badPostsText("promo")}${tagHints()}`;
   const out = await callJson<{ posts: { angle: string; text: string }[] }>({
     purpose: "SNS投稿の下書き",
     projectId,
@@ -72,11 +82,17 @@ export async function draftPosts(projectId: number, count: number, hint?: string
 - 投稿ごとに切り口を変える（例: 困りごとへの共感 / 使い方の具体例 / 作った理由 / 問いかけ / そのまま使える文例・チェックリストを投稿の中で見せ、続きはリンク先で）
 これまでの投稿と反応がある場合は、反応が良かった切り口を参考にし、同じ文は避ける。それだけで読む価値がある内容（文例・使い方の具体例など）を入れ、宣伝だけの投稿にしない。
 形式: {"posts":[{"angle":"切り口を短く","text":"本文"}]}`,
-    user: `${KIND_LABEL[p.kind]}: ${p.title}\n対象: ${p.target}\n困りごと・動機: ${p.problem}\n中身: ${p.solution}\nページの見出し: ${lp.headline}\nページの補足: ${lp.subheadline}\nページに書かれている特徴: ${lp.features.map((f) => `${f.title}（${f.body}）`).join(" / ")}\n件数: ${count}${hint ? `\n今回の希望: ${hint}` : ""}\n\nこれまでの投稿と反応:\n${past}${planContext(projectId)}${viralHints("sns")}${badPostsText("promo")}${tagHints()}`,
+    user,
     validate: (v): v is { posts: { angle: string; text: string }[] } =>
       isObj(v) && Array.isArray(v.posts) && v.posts.length > 0 && v.posts.every((x) => isObj(x) && isStr(x.text)),
   });
-  const ids = out.posts.slice(0, count).map((x) => addPost(projectId, limitTags(x.text.trim(), AUTO_PLATFORMS[platform].tagMax).slice(0, 500), "ai", typeof x.angle === "string" ? x.angle.slice(0, 40) : null, platform));
+  // 材料にない、実績に見える数字（○人・○件・○% など）が入った下書きは残さない（numberCheck.ts。ハルシネーション対策）
+  const posts = out.posts.slice(0, count).filter((x) => {
+    const bad = unsupportedNumbers(x.text, facts);
+    if (bad.length) logEvent(projectId, "system", "sns-number-skip", `材料にない数字（${bad.join("・")}）が入ったため、SNS投稿の下書きを捨てました: ${x.text.slice(0, 40)}…`);
+    return !bad.length;
+  });
+  const ids = posts.map((x) => addPost(projectId, limitTags(x.text.trim(), AUTO_PLATFORMS[platform].tagMax).slice(0, 500), "ai", typeof x.angle === "string" ? x.angle.slice(0, 40) : null, platform));
   logEvent(projectId, "ai", "sns-draft", `SNS投稿の下書きを${ids.length}件作成`);
   return ids;
 }
@@ -243,7 +259,16 @@ async function postProject(p: ProjectRow, platform: AutoPlatform, hint?: string)
   let draft = hint ? undefined : db().prepare("SELECT * FROM sns_posts WHERE project_id = ? AND status = 'draft' AND author = 'ai' AND platform = ? ORDER BY id LIMIT 1").get(p.id, platform) as SnsPost | undefined;
   if (!draft) {
     const [id] = await draftPosts(p.id, 1, hint, platform);
+    // 材料にない数字が入って下書きを捨てたときは、投稿しない（draftPosts が記録を残す）
+    if (id === undefined) return null;
     draft = getPost(id);
+  }
+  // 前に作った下書きも、投稿の前にもう一度数字を照らす（numberCheck.ts）
+  const bad = p.lp ? unsupportedNumbers(draft.text, postFacts(p, JSON.parse(p.lp) as Lp).facts) : [];
+  if (bad.length) {
+    logEvent(p.id, "system", "sns-number-skip", `材料にない数字（${bad.join("・")}）が入っていたため、${def.label}への投稿を見送り、下書きを消しました: ${draft.text.slice(0, 40)}…`);
+    db().prepare("DELETE FROM sns_posts WHERE id = ?").run(draft.id);
+    return null;
   }
   const link = postLink(p.id, draft.code)!;
   if (!def.fits(draft.text, link)) {
