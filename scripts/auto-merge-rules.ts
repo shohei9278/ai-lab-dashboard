@@ -41,12 +41,12 @@ export const handedToHuman = (comments: PrComment[]) => comments.some((c) => bot
 
 // 見回りが書いたレビューの印。次の版のレビューに「前の版への指摘（直ったかを確かめる項目）」として渡す（PR #153 の ai-review の指摘）
 // 偽物が混じっても、確かめる項目が増えるだけで、マージに進む方向には働かない（「直った」「判断済み」の言葉は根拠にしないよう AI に伝える）
-// 本物は、直させるのが3回までなので、2社×3回の6件まで。それより多い・長いときは、全部を渡せないので人に回す（偽物で本物を押し出させない）
+// 本物は、最初のレビューと3回直したあとのレビューで、2社×4回の8件まで。それより多い・長いときは、全部を渡せないので人に回す（偽物で本物を押し出させない）
 const REVIEW_MARK = "<!-- auto-merge review ";
 export const reviewMarker = (reviewer: string, sha: string) => `${REVIEW_MARK}${reviewer} ${sha} -->`;
 // 同じ版のレビューは1回だけ書く（マージの直前の見直しで待ったときなど、同じ版をもう一度レビューしても、記録を増やさない）
 export const reviewPosted = (comments: PrComment[], reviewer: string, sha: string) => comments.some((c) => bot(c) && c.body!.includes(reviewMarker(reviewer, sha)));
-export const HISTORY_MAX_COMMENTS = 2 * MAX_FIX_ROUNDS;
+export const HISTORY_MAX_COMMENTS = 2 * (MAX_FIX_ROUNDS + 1);
 export const HISTORY_MAX_CHARS = 30_000;
 export function reviewHistory(comments: PrComment[]): { text: string; ok: boolean } {
   const past = comments.filter((c) => bot(c) && c.body!.includes(REVIEW_MARK)).map((c) => c.body!);

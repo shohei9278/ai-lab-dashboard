@@ -153,8 +153,17 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   if (REVIEWERS.some((r) => !reviews[r])) return { action: "wait", reason: "レビューを頼めなかった（次の見回りでもう一度）" };
   // 人とルーティンが読めるよう、2社のレビューを PR に書く（ここに書いたものは、マージに進む判断には使わない）
   // 印を付けて、次の版のレビューに「直ったかを確かめる項目」として渡す
-  for (const r of REVIEWERS) if (!reviewPosted(comments, r, pr.head.sha)) await comment(pr.number, `${reviewComment(reviews[r]!, "自動マージの見回りが頼んだレビューです（main のコードで動いています）。")}\n\n${reviewMarker(r, pr.head.sha)}`).catch(() => undefined);
+  let recorded = true;
+  for (const r of REVIEWERS) {
+    if (reviewPosted(comments, r, pr.head.sha)) continue;
+    await comment(pr.number, `${reviewComment(reviews[r]!, "自動マージの見回りが頼んだレビューです（main のコードで動いています）。")}\n\n${reviewMarker(r, pr.head.sha)}`).catch((e) => {
+      recorded = false;
+      console.error(`#${pr.number}: ${r} のレビューのコメントに失敗: ${e instanceof Error ? e.message : String(e)}`);
+    });
+  }
   const d = afterReview(reviews, fixRounds(comments));
+  // 直しを頼むのは、レビューを PR に書けたときだけ（書けないと、次の版のレビューに、この指摘が渡らない。PR #153 の ai-review の指摘）
+  if (d.action === "fix" && !recorded) return { action: "wait", reason: "レビューを PR に書けなかった（次の見回りでもう一度）" };
 
   if (d.action === "merge") {
     // レビューには数分かかるので、マージの直前に、本番が作業中でないか・本番の確認が通っているかを見直す（PR #153 の ai-review の指摘）
@@ -189,7 +198,8 @@ async function main() {
   if (!GITHUB_REPOSITORY || !GITHUB_TOKEN) throw new Error("GITHUB_REPOSITORY と GITHUB_TOKEN が要ります");
   // 開いている PR を全部読む（PR #153 の ai-review の指摘）
   const open = await pages<Pull>("/pulls?state=open", 10);
-  if (!open.complete) await notify("⚠️ 開いている PR が多すぎて、自動マージの見回りが全部を見られていません");
+  // 読みきれないときは、見回りを失敗にする（一部だけ見て進めない。失敗は Actions が知らせる）
+  if (!open.complete) throw new Error("開いている PR が多すぎて、自動マージの見回りが全部を見られません");
   const pulls = open.items.filter((p) => AUTO_BRANCH.test(p.head.ref));
   if (!pulls.length) return console.log("ルーティンが作った開いている PR はありません");
   const [idle, smoke] = await Promise.all([productionIdle(), smokeOk()]);

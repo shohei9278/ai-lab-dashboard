@@ -61,6 +61,10 @@ test("自動マージ: 名前を変えたファイルは前の名前も見る（
 test("レビューの答え: 中身が欠けている・重さが分からない・オブジェクトでない指摘は、重さに関係なく 🔴 として数える", () => {
   const r = parseReview("gpt", JSON.stringify({ summary: "s", findings: [{ severity: "low" }, "文字だけ", { file: "a.ts", issue: "x", why: "y", severity: "critical" }, { file: "b.ts", issue: "x", why: "y", severity: "low" }] }), false);
   assert.deepEqual(r.findings.map((f) => f.severity), ["high", "high", "high", "low"]);
+  // 「最大8件」より多く返ってきても、件数で切らない（9件目の 🔴 を捨てない）
+  const many = parseReview("gpt", JSON.stringify({ summary: "s", findings: [...Array.from({ length: 8 }, () => ({ file: "a.ts", issue: "x", why: "y", severity: "low" })), { file: "a.ts", issue: "x", why: "y", severity: "high" }] }), false);
+  assert.equal(many.findings.length, 9);
+  assert.equal(many.findings[8].severity, "high");
   assert.equal(parseReview("gpt", "読めない", false).parsed, false);
   assert.equal(parseReview("gpt", JSON.stringify({ summary: "s" }), false).parsed, false);
 });
@@ -84,6 +88,9 @@ test("自動マージ: 見回りが書いた前の版へのレビューを、次
   assert.match(h.text, /^前の版へのレビュー（直ったかを確かめる項目）:\n\n### レビュー\n- 🔴 a.ts 問題/);
   assert.doesNotMatch(h.text, /reviewMarker|ほかのコメント/);
   assert.deepEqual(reviewHistory([]), { text: "", ok: true });
+  // 本物は、最初と3回直したあとのレビューで 2社×4回=8件まで。8件は渡せる
+  assert.equal(HISTORY_MAX_COMMENTS, 8);
+  assert.equal(reviewHistory(Array.from({ length: 8 }, (_, i) => bot(reviewMarker("gpt", `s${i}`)))).ok, true);
   assert.equal(reviewHistory(Array.from({ length: HISTORY_MAX_COMMENTS + 1 }, (_, i) => bot(reviewMarker("gpt", `s${i}`)))).ok, false);
   assert.equal(reviewPosted([mine], "gpt", "old1"), true);
   assert.equal(reviewPosted([mine], "gemini", "old1"), false);

@@ -48,11 +48,12 @@ export async function askReviewer(reviewer: Reviewer, instructions: string, inpu
 const str = (v: unknown) => typeof v === "string" && v.trim().length > 0;
 // 答えを読む。指摘は、file・issue・why がそろい、重さが high・medium・low のどれかのものだけを、そのまま使う
 // 形のおかしい指摘（中身が欠けている・重さが分からない・オブジェクトでない）は、落とさずに high として扱う（読み違えて見逃さないように）
+// 「最大8件」と頼んでいても、多く返ってきたら、件数で切らずにすべて数える（9件目の 🔴 を捨てない。PR #153 の ai-review の指摘）
 export function parseReview(reviewer: Reviewer, text: string, cut: boolean): Review {
   try {
     const out = JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")) as { summary?: unknown; findings?: unknown };
     if (!Array.isArray(out.findings)) return { reviewer, summary: String(out.summary ?? "").slice(0, 3000), findings: [], parsed: false, cut };
-    const findings = out.findings.slice(0, 8).map((f): Finding => {
+    const findings = out.findings.map((f): Finding => {
       const o = (typeof f === "object" && f !== null ? f : {}) as Record<string, unknown>;
       const ok = str(o.file) && str(o.issue) && str(o.why) && ["high", "medium", "low"].includes(String(o.severity))
         && (o.line === undefined || o.line === null || Number.isInteger(o.line)) && (o.fix === undefined || o.fix === null || typeof o.fix === "string");
