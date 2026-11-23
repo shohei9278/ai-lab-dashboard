@@ -95,7 +95,13 @@ test("ツールのルーティン: 自動では、設定の同時に頼む数と
   const later2 = later + 25 * 3600_000;
   assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later2 }), 1);
   assert.deepEqual(ids.map((id) => row(id).routine_tries), [1, 1, 2, 2]);
+  const gaveUp = () => (db().prepare("SELECT message FROM events WHERE kind = 'tool-routine-gave-up' ORDER BY id").all() as { message: string }[]).map((x) => x.message);
+  assert.equal(gaveUp().length, 1, "c は2回頼んでも入らなかったので、判断待ちに出したことを残して知らせる");
+  assert.match(gaveUp()[0], new RegExp(`（開発待ち #${ids[2]}）$`));
   assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later2 + 25 * 3600_000 }), 0);
+  assert.equal(gaveUp().length, 2);
+  assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later2 + 50 * 3600_000 }), 0);
+  assert.equal(gaveUp().length, 2, "知らせは1件に1回だけ");
   // 起動に失敗したら、経過に残して、その回は続けて頼まない（1日の数を空けてから試す）
   db().exec("DELETE FROM approvals; DELETE FROM events");
   devCase("e"); devCase("f");

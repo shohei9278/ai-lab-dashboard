@@ -1,7 +1,8 @@
 import crypto from "node:crypto";
 import { db, getSettings, type ApprovalRow } from "./db";
-import { getProject, lastDevDesign, logEvent, type Lp } from "./loop";
+import { getProject, lastDevDesign, logEvent, projectTitle, type Lp } from "./loop";
 import { atMs, fireRoutine, routineConfigured, type Fetch } from "./routine";
+import { notifyHuman } from "./liveNotify";
 
 // 案件のツールを、クラウドの Claude Code（ルーティン「案件のツールを作る」）に作ってもらう
 // じっくり案件は、AIが設計書を書いたあと、人が手元の Claude Code で作って入れるのを待っていた（開発待ちが8件たまっていた）。
@@ -107,6 +108,13 @@ export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } 
   const today = firedSince(now);
   let slots = Math.min(s.toolRoutineConcurrent - inFlight, s.toolRoutinePerDay - today);
   let n = 0;
+  // 頼み直しを使い切っても入らなかったものは、判断待ちに移ったことを人に1回だけ知らせる（AIの作業待ちから黙って移らないように。運営者が決めた）
+  for (const a of rows.filter((x) => x.status === "pending" && x.routine_at && x.routine_tries >= AUTO_TRIES && !working(x, now))) {
+    const tag = `（開発待ち #${a.id}）`;
+    if (db().prepare("SELECT 1 FROM events WHERE kind = 'tool-routine-gave-up' AND message LIKE ?").get(`%${tag}`)) continue;
+    logEvent(a.project_id, "system", "tool-routine-gave-up", `ルーティンに${a.routine_tries}回頼みましたが、ツールが入らなかったので、判断待ちに出しました${tag}`);
+    notifyHuman(`${projectTitle(a.project_id)}あなたの判断待ち: ルーティンに${a.routine_tries}回頼んでもツールが入りませんでした。作業の様子を見て、頼み直すか手で作ってください`);
+  }
   const fresh = rows.filter((x) => x.status === "pending" && !x.routine_at);
   const retry = rows.filter((x) => x.status === "pending" && x.routine_at && x.routine_tries < AUTO_TRIES && !working(x, now));
   for (const a of [...fresh, ...retry]) {

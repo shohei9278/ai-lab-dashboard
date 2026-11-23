@@ -16,7 +16,7 @@ export default async function QueuePage() {
   return (
     <div className="space-y-4">
       <PageIntro title="AIの作業待ち">
-        人の判断は要らず、AIが自動で進めている作業です。ツールの開発待ちは、クラウドの Claude Code（ルーティン）が順に作ります（同時に{s.toolRoutineConcurrent}件・1日{s.toolRoutinePerDay}件まで。設定で変えられます）。頼んで3時間たっても入らなかったものは、自動で1回だけ頼み直し、それでも入らなければ<Link href="/approvals" className="text-accent underline">判断待ち</Link>に出します。
+        人の判断は要らず、AIが自動で進めている作業です。ツールの開発待ちは、クラウドの Claude Code（ルーティン）が順に作ります（同時に{s.toolRoutineConcurrent}件・1日{s.toolRoutinePerDay}件まで。設定で変えられます）。頼んで3時間たっても入らなかったものは、自動で1回だけ頼み直し、それでも入らなければ<Link href="/approvals" className="text-accent underline">判断待ち</Link>に出して知らせます。
       </PageIntro>
       {items.length ? (
         <div className="space-y-3">{items.map((a) => <ApprovalCard key={a.id} a={a} />)}</div>

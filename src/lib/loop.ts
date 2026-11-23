@@ -125,7 +125,7 @@ export function logEvent(projectId: number | null, actor: "ai" | "human" | "syst
 }
 
 // 通知の頭に付ける案件の名前
-function projectTitle(id: number): string {
+export function projectTitle(id: number): string {
   const t = (db().prepare("SELECT title FROM projects WHERE id = ?").get(id) as { title: string } | undefined)?.title;
   return t ? `【${t}】` : "";
 }
