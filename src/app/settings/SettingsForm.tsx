@@ -186,8 +186,8 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="mt-1" checked={v.autoAskReview} onChange={(e) => set("autoAskReview", e.target.checked)} />
             <span>
-              コードの見直しの提案を、自動で提案箱のルーティンに頼む
-              <span className="block text-xs text-muted">守り（直すべき所）は、入ってから1日たっても見送らなければ頼みます（1日1件まで）。攻め（足すとよい機能）は、定例会議の3社の採点の平均が7点以上のものだけ、点の高い順に頼みます（3日に1件まで）。一度に頼むのは1件だけです。できた PR は、CI と GPT・Gemini のレビューで直すべき指摘がなければ自動でマージされます。</span>
+              提案箱の「仕組みの改善」を、自動でルーティンに頼む
+              <span className="block text-xs text-muted">コードの見直しの守り（直すべき所）は、入ってから1日たっても見送らなければ頼みます（1日1件まで）。見直しの攻め（足すとよい機能）は、定例会議の3社の採点の平均が7点以上のものだけ、点の高い順に頼みます（3日に1件まで）。AIの社員や会議から入った提案は、3社の採点の平均が7点以上のものを、運営者が書いた提案は1日たっても見送らなければ頼みます（合わせて1日1件まで）。一度に頼むのは1件だけです。頼まれたルーティンが「直さなくて良い」と判断したら見送りにします。できた PR は、CI と GPT・Gemini のレビューで直すべき指摘がなければ自動でマージされます。</span>
             </span>
           </label>
           <div className="grid gap-4 sm:grid-cols-2">

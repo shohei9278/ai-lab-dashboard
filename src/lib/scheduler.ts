@@ -134,8 +134,8 @@ async function tickNow() {
   // 開発待ちのツールを、設定の数の範囲でルーティンに頼む
   await autoToolRoutine().catch((e) => logEvent(null, "system", "tool-routine-error", `ツールを作るルーティンに頼む処理でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   await syncAiFixPrs().catch((e) => logEvent(null, "system", "ai-fix-sync-error", `Claude Code に頼んだ改善の PR の状態を読めませんでした: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
-  // コードの見直しの提案を、自動で提案箱のルーティンに頼む（1時間に1回・一度に1件。autoAsk.ts）
-  await maybeAutoAsk().catch((e) => logEvent(null, "system", "auto-ask-error", `見直しの提案の自動の依頼でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
+  // 提案箱の「仕組みの改善」を、自動でルーティンに頼む（1時間に1回・一度に1件。autoAsk.ts）
+  await maybeAutoAsk().catch((e) => logEvent(null, "system", "auto-ask-error", `提案箱の提案の自動の依頼でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   // 投稿についた反応を取り込む（計画を作る前に。1時間に1回）
   await syncReactions().catch(() => 0);
   // 毎朝の計画を作り、時刻が来た予定を実行する（毎日の自動実行より先に。計画で新しい案件を休むことがあるため）

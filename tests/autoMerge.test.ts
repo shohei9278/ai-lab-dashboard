@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
-import { MAX_BODY, parseReview, reviewInput, reviewInstructions, type Review } from "../scripts/ai-review-core";
+import { afterDeliberation, FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
+import { deliberationComment, MAX_BODY, parseDeliberation, parseReview, reviewInput, reviewInstructions, type Review } from "../scripts/ai-review-core";
 import { OMITTED } from "../scripts/ai-review-omitted";
 
 // 自動マージの決まり: ルーティンが作った PR を、マージ・直させる・人に回す・待つ、のどれにするか
@@ -138,4 +138,33 @@ test("レビューの材料: PR の説明文が長すぎるときは、黙って
   const long = reviewInput({ prBody: "あ".repeat(MAX_BODY + 1), diff: "d" });
   assert.equal(long.cut, true);
   assert.match(long.input, /（長いため途中まで）/);
+});
+
+test("協議: 3回直しても 🟡 だけが残れば協議に回し、🔴 が残れば人に回す", () => {
+  const tried = [bot(fixMarker("a")), bot(fixMarker("b")), bot(fixMarker("c"))];
+  assert.equal(afterReview({ gpt: rv("gpt", ["medium"]), gemini: rv("gemini", ["low"]) }, fixRounds(tried)).action, "deliberate");
+  assert.equal(afterReview({ gpt: rv("gpt", ["medium"]), gemini: rv("gemini", ["high"]) }, fixRounds(tried)).action, "human");
+  // 3回より前は、今までどおり直させる
+  assert.equal(afterReview({ gpt: rv("gpt", ["medium"]), gemini: rv("gemini", []) }, 2).action, "fix");
+});
+
+test("協議: 2社とも全部を「マージしてよい」としたときだけマージ。1件でも「直すべき」・読めない答えは人に回す", () => {
+  const ok = (n: number) => JSON.stringify({ verdicts: Array.from({ length: n }, (_, i) => ({ id: i + 1, decision: "merge_ok", reason: "端の場合" })) });
+  const both = (g: string, m: string, n: number) => ({ gpt: parseDeliberation("gpt", g, n), gemini: parseDeliberation("gemini", m, n) });
+  assert.equal(afterDeliberation(2, both(ok(2), ok(2), 2)).action, "merge");
+  const one = JSON.stringify({ verdicts: [{ id: 1, decision: "merge_ok", reason: "r" }, { id: 2, decision: "must_fix", reason: "壊れる" }] });
+  assert.match(afterDeliberation(2, both(ok(2), one, 2)).reason, /1件が「直すべき」/);
+  assert.equal(afterDeliberation(2, { gpt: parseDeliberation("gpt", ok(2), 2) }).action, "human");
+  // 欠け・重なり・知らない答え・理由なしは、読めない
+  for (const bad of [ok(1), JSON.stringify({ verdicts: [{ id: 1, decision: "merge_ok", reason: "r" }, { id: 1, decision: "merge_ok", reason: "r" }] }),
+    JSON.stringify({ verdicts: [{ id: 1, decision: "ok", reason: "r" }, { id: 2, decision: "merge_ok", reason: "r" }] }),
+    JSON.stringify({ verdicts: [{ id: 1, decision: "merge_ok", reason: "" }, { id: 2, decision: "merge_ok", reason: "r" }] }), "読めない"]) {
+    assert.equal(parseDeliberation("gpt", bad, 2).parsed, false, bad);
+    assert.equal(afterDeliberation(2, both(bad, ok(2), 2)).action, "human", bad);
+  }
+  // 結果は PR に、指摘ごとに2社の判断を書く
+  const f = rv("gpt", ["medium", "medium"]).findings;
+  const c = deliberationComment(f, both(ok(2), one, 2));
+  assert.match(c, /✅ マージしてよい/);
+  assert.match(c, /🛑 直すべき（壊れる）/);
 });

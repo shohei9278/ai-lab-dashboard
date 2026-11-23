@@ -3,7 +3,7 @@
 // マージしてよいかは、見回り（main のコード）が自分で呼んだ GPT と Gemini のレビューの答えだけで決める
 // PR のコメントは誰でも（PR の中の workflow も、ボットとして）書けるので、「指摘なし」のような、マージに進む方向の判断には使わない（PR #153 の ai-review の指摘）
 // コメントの印は、止める方向（人に回した・この版の直しは頼んだ）にだけ使う。偽物でも、止まるだけで、マージはされない
-import { blocking, findingLine, REVIEWERS, type Finding, type Review, type Reviewer } from "./ai-review-core";
+import { blocking, findingLine, REVIEWERS, type Deliberation, type Finding, type Review, type Reviewer } from "./ai-review-core";
 
 export const AUTO_BRANCH = /^claude\/proposal-(\d+)$/;
 export const MAX_FIX_ROUNDS = 3; // ルーティンに直させるのは、この回数まで。超えたら人に回す
@@ -83,7 +83,7 @@ export function smokeResult(runs: SmokeRun[]): boolean | null {
   return SMOKE_FAILED.includes(r.conclusion ?? "") ? false : null;
 }
 
-export type Decision = { action: "merge" | "fix" | "human" | "wait" | "review"; reason: string };
+export type Decision = { action: "merge" | "fix" | "human" | "wait" | "review" | "deliberate"; reason: string };
 
 // レビューの前に決められること。"review" なら、レビューしてから afterReview で決める
 // レビューは、ほかの条件が全部そろってから1回だけ呼ぶ（AIの費用を、マージできない間に使わない）
@@ -117,10 +117,24 @@ export function afterReview(reviews: Partial<Record<Reviewer, Review>>, fixes: n
   if (REVIEWERS.some((r) => reviews[r]!.cut)) return { action: "human", reason: "差分か説明文が長く、レビューが途中までしか読めていない" };
   const n = REVIEWERS.reduce((a, r) => a + blocking(reviews[r]!).length, 0);
   if (n > 0) {
-    if (fixes >= MAX_FIX_ROUNDS) return { action: "human", reason: `${MAX_FIX_ROUNDS}回直しても、直すべき指摘（🔴・🟡）が${n}件残っている` };
+    if (fixes >= MAX_FIX_ROUNDS) {
+      // 🔴 が1件でも残れば人に回す。🟡 だけなら、GPT と Gemini の協議で決める（運営者と決めた。直す価値のない指摘で止まり続けないように）
+      const high = REVIEWERS.reduce((a, r) => a + reviews[r]!.findings.filter((f) => f.severity === "high").length, 0);
+      if (high > 0) return { action: "human", reason: `${MAX_FIX_ROUNDS}回直しても、🔴 が${high}件残っている` };
+      return { action: "deliberate", reason: `${MAX_FIX_ROUNDS}回直しても 🟡 が${n}件残っているので、GPT と Gemini に協議してもらう` };
+    }
     return { action: "fix", reason: `直すべき指摘（🔴・🟡）が${n}件ある（${fixes + 1}回目の直し）` };
   }
   return { action: "merge", reason: "CI が通り、GPT と Gemini のどちらも直すべき指摘なし" };
+}
+
+// 協議のあと。2社とも答えを読めて、すべての指摘を「マージしてよい」としたときだけマージ。1件でも「直すべき」・読めない答えがあれば人に回す
+export function afterDeliberation(count: number, results: Partial<Record<Reviewer, Deliberation>>): Decision {
+  const missing = REVIEWERS.filter((r) => !results[r]?.parsed || results[r]!.verdicts.length !== count);
+  if (missing.length) return { action: "human", reason: `協議の答えを読めなかった（${missing.join("・")}）` };
+  const must = new Set(REVIEWERS.flatMap((r) => results[r]!.verdicts.filter((v) => v.decision !== "merge_ok").map((v) => v.id)));
+  if (must.size) return { action: "human", reason: `協議で、残った 🟡 のうち${must.size}件が「直すべき」とされた` };
+  return { action: "merge", reason: `${MAX_FIX_ROUNDS}回直して残った 🟡 ${count}件を、GPT と Gemini がどちらも「マージしてよい」と判断した（協議）` };
 }
 
 // ルーティンに渡す文。指摘は1件ずつ丸ごと入れ、全部が入りきらないときは null（途中で切って渡さない。人に回す）
