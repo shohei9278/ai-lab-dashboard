@@ -36,7 +36,9 @@ git switch main && git pull
 
 ## 3. 本番に出す
 - **ダッシュボード**: main に入ると Railway が自動で出す。始まらないときは Railway の「Deploy latest commit」を運営者に頼む
-- **公開サイト（`lp-site/` を変えた PR のときだけ）**: main にマージしても出ない。手元のフォルダの中身がそのまま出るので、出す前に、手元が `origin/main` とまったく同じかを確かめる（コミットしていない変更・まだ入っていないファイル・手元だけのコミットがあると、レビューしていない内容を出してしまう）
+- **公開サイト（`lp-site/` を変えた PR のときだけ）**: main にマージして CI が通ると、`.github/workflows/lp-deploy.yml`（Actions の「公開サイトを出す」）が自動で出し、Discord に知らせる。出たかは、その知らせか Actions の結果で一度だけ確かめる
+  - 自動で出なかったときは、まず Actions の「公開サイトを出す」を手で動かす（`gh workflow run lp-deploy.yml --ref main`）
+  - それもできないときだけ、手元から出す。手元のフォルダの中身がそのまま出るので、出す前に、手元が `origin/main` とまったく同じかを確かめる（コミットしていない変更・まだ入っていないファイル・手元だけのコミットがあると、レビューしていない内容を出してしまう）
   ```bash
   git fetch origin && test -z "$(git status --porcelain)" && test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" && echo clean
   ```
