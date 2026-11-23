@@ -874,6 +874,8 @@ export type Settings = {
   dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
   promoOff: string; // 宣伝の投稿（リンク付き）をしない場所（カンマ区切り。例: x）
   plainOff: string; // 普通の投稿（リンクなし）をしない場所（カンマ区切り）
+  xPlayPromo: boolean; // X の宣伝を止めていても、遊ぶツール（ねらいが 広がる・また来てもらう）に限り、直近7日で3件まで宣伝してよい（毎日の計画から。提案箱 #92）
+  xPlayPromoSince: string; // xPlayPromo をオンにした日時（ISO）。14日たったら、週の定例会議に場所ごとの利用数を出して、続けるか止めるかを決める
   autoAskReview: boolean; // 提案箱の「仕組みの改善」（見直しの守り・攻め、AIの社員や会議の提案、運営者の提案）を、運営者が押さなくても自動でルーティンに頼む（autoAsk.ts）
   budgetAutopilot: boolean; // 予算の自動運転: 月の予算のペースに合わせて、費用のかかる設定を自動で絞る（autopilot.ts。人が決めた値より増やさない）
   autopilotLevel: string; // 予算の自動運転のいまの段階（normal / careful / saving。変わったときに記録するため）
@@ -927,6 +929,8 @@ const DEFAULTS: Settings = {
   dailyPlan: true,
   postSafetyPerDay: 10,
   promoOff: "",
+  xPlayPromo: false,
+  xPlayPromoSince: "",
   plainOff: "",
   dailyEnabled: false,
   dailyHour: 9,
@@ -961,8 +965,8 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["autopilotLevel", "loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff"]);
-const BOOL_KEYS = new Set(["autoAskReview", "budgetAutopilot", "killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish", "toolRoutineFixHeld", "toolRoutineNormal"]);
+const STRING_KEYS = new Set(["autopilotLevel", "loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff", "xPlayPromoSince"]);
+const BOOL_KEYS = new Set(["autoAskReview", "budgetAutopilot", "killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish", "toolRoutineFixHeld", "toolRoutineNormal", "xPlayPromo"]);
 
 export function getSettings(): Settings {
   const rows = db().prepare("SELECT key, value FROM settings").all() as { key: string; value: string }[];

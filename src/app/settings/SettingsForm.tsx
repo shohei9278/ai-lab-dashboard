@@ -432,6 +432,15 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
                     })}
                   </tbody>
                 </table>
+                {snsReady.some((x) => x.key === "x" && x.ok) && v.promoOff.split(",").includes("x") && (
+                  <label className="flex items-start gap-2 pt-1 text-sm">
+                    <input type="checkbox" className="mt-1" checked={v.xPlayPromo} onChange={(e) => set("xPlayPromo", e.target.checked)} />
+                    <span>
+                      X の宣伝を、遊ぶツールに限って再開してよい
+                      <span className="block text-xs text-muted">X の宣伝は止めたまま、ねらいが「広がる」「また来てもらう」のツールだけ、毎日の計画が直近7日で3件まで X に宣伝できます。オンにして14日たつと、週の定例会議に場所ごとの利用数を出して、続けるか止めるかを決めます。</span>
+                    </span>
+                  </label>
+                )}
               </div>
             )}
             {v.autoPost && !v.dailyPlan && (

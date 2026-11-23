@@ -3,7 +3,7 @@ import { db, getSettings, saveSettings } from "./db";
 import { logEvent } from "./loop";
 import { hasKey, modelInfo } from "./models";
 import { PLAN_MODELS, type RequestRow } from "./plan";
-import { postStatsText } from "./postStats";
+import { placeTypeStats, postStatsText } from "./postStats";
 import { createReport, gather, jstStartUtc } from "./report";
 import { decisionsText, followUpOf, openDecisions, type WeeklyContent } from "./meetings";
 import type { AdhocContent } from "./adhoc";
@@ -57,7 +57,7 @@ ${researchText()}
 毎朝の計画（日替わりの担当）:
 ${plans.join("\n") || "（なし）"}
 
-${postStatsText() || "効いた手の集計: まだ投稿がない"}
+${postStatsText() || "効いた手の集計: まだ投稿がない"}${xPlayReviewText()}
 
 提案箱（これまでの提案と、運営者の返事。返事待ち・見送りと同じ提案は出さない）:
 ${reqs.join("\n") || "（まだなし）"}
@@ -363,4 +363,28 @@ export async function maybeWeeklyMeeting() {
   // 失敗しても5分ごとに開き直さないよう、先に印を付ける
   saveSettings({ lastWeeklyReport: day(now) });
   await createWeeklyMeeting();
+}
+
+// X の宣伝を、遊ぶツールに限って再開してから14日たったら、場所ごとの利用数を定例会議に出して、続けるか止めるかを決めてもらう（提案箱 #92）
+export function xPlayReviewText(now = Date.now()): string {
+  const s = getSettings();
+  const since = Date.parse(s.xPlayPromoSince);
+  if (!s.xPlayPromo || !Number.isFinite(since) || now - since < 14 * 86_400_000) return "";
+  const rows = placeTypeStats(14);
+  const byPlace = new Map<string, { n: number; visits: number; conv: number }>();
+  for (const r of rows) {
+    const a = byPlace.get(r.platform) ?? { n: 0, visits: 0, conv: 0 };
+    byPlace.set(r.platform, { n: a.n + r.n, visits: a.visits + r.visits, conv: a.conv + r.uses + r.signups });
+  }
+  const label: Record<string, string> = { x: "X", threads: "Threads", bluesky: "Bluesky" };
+  const lines = [...byPlace].map(([p, a]) => `- ${label[p] ?? p}: 宣伝${a.n}件・訪問${a.visits}人・登録/利用${a.conv}件`);
+  const play = rows.filter((r) => r.type === "play").map((r) => `- ${r.label}: 宣伝${r.n}件・訪問${r.visits}人・利用${r.uses}件`);
+  return `
+
+X の宣伝の、遊ぶツールに限った再開（${new Date(since).toISOString().slice(0, 10)}から${Math.floor((now - since) / 86_400_000)}日。直近7日で3件まで）の見直し:
+場所ごとの直近14日の宣伝の成績:
+${lines.join("\n") || "- （直近14日の宣伝の投稿はない）"}
+そのうち遊ぶツール:
+${play.join("\n") || "- （なし）"}
+この数字で、X の再開を続けるか止めるかを決める。止める・広げるなら、設定の変更を提案箱（運営者向け）に出す（件数が少ないうちは偶然の可能性が高い）`;
 }

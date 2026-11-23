@@ -1,6 +1,8 @@
 import { callJson, isObj } from "./ai";
-import { db } from "./db";
+import { PROJECT_TYPE_LABEL, projectType, type ProjectType } from "./aims";
+import { db, getSettings } from "./db";
 import { hasKey } from "./models";
+import { X_POST_COST_USD } from "./xPost";
 
 // 「効いた手」の集計: これまでのAIの投稿（宣伝・普通の投稿）を、場所・宣伝か普通か・時間帯・切り口の型ごとにまとめる
 // 毎日の計画で、7日より前の結果も踏まえられるように渡す。件数が増えるほど確かになる
@@ -76,12 +78,64 @@ export function postStats() {
 const fmt = (r: StatRow) =>
   `- ${r.label}: ${r.n}件${r.promo ? `・宣伝からの訪問 平均${r.avgVisits!.toFixed(1)}人（登録・利用 計${r.conversions}）` : ""}${r.reacted ? `・反応（いいね＋返信＋リポスト）平均${r.avgReaction!.toFixed(1)}（${r.reacted}件で集計）` : "・反応はまだ未集計"}`;
 
+// ---- 場所×案件の型ごとの、宣伝の投稿の成績（宣伝先の配分を、訪問ではなく利用で決めるため。提案箱 #92） ----
+// 登録は事前登録LPでの登録、利用はツールを使った数（どちらも、その投稿のリンクから来た人のうち）
+
+export type PlaceTypeRow = {
+  platform: string; type: ProjectType; label: string;
+  n: number; visits: number; signups: number; uses: number;
+  rate: number | null; // 利用率（登録・利用 ÷ 訪問）
+  costJpy: number; // 投稿の費用の合計（X は1件 約30円、Threads・Bluesky は無料）
+  costPer: number | null; // 登録・利用1件あたりの費用（費用がかかって、登録・利用が0件なら null）
+};
+
+export function placeTypeStats(days?: number): PlaceTypeRow[] {
+  const rows = db().prepare(
+    `SELECT s.platform, p.kind, p.aim, COUNT(*) AS n, COALESCE(SUM(s.visits), 0) AS visits, COALESCE(SUM(s.conversions), 0) AS conv
+     FROM sns_posts s JOIN projects p ON p.id = s.project_id
+     WHERE s.status = 'posted' AND s.author = 'ai' AND s.post_url IS NOT NULL AND p.demo = 0${days ? " AND s.posted_at >= datetime('now', ?)" : ""}
+     GROUP BY s.platform, p.kind, p.aim`,
+  ).all(...(days ? [`-${days} days`] : [])) as { platform: string; kind: string; aim: string | null; n: number; visits: number; conv: number }[];
+  const yen = X_POST_COST_USD * getSettings().usdJpy;
+  const m = new Map<string, PlaceTypeRow>();
+  for (const r of rows) {
+    const type = projectType(r);
+    const k = `${r.platform}:${type}`;
+    const row = m.get(k) ?? { platform: r.platform, type, label: `${PLATFORM_LABEL[r.platform] ?? r.platform}×${PROJECT_TYPE_LABEL[type]}`, n: 0, visits: 0, signups: 0, uses: 0, rate: null, costJpy: 0, costPer: null };
+    row.n += r.n;
+    row.visits += r.visits;
+    if (type === "lp") row.signups += r.conv;
+    else row.uses += r.conv;
+    m.set(k, row);
+  }
+  return [...m.values()].map((r) => {
+    const conv = r.signups + r.uses;
+    const costJpy = r.platform === "x" ? r.n * yen : 0;
+    return { ...r, rate: r.visits ? conv / r.visits : null, costJpy, costPer: costJpy && conv ? costJpy / conv : null };
+  }).sort((a, b) => b.uses + b.signups - (a.uses + a.signups) || b.n - a.n);
+}
+
+const fmtPlaceType = (r: PlaceTypeRow) =>
+  `- ${r.label}: 投稿${r.n}件・訪問${r.visits}人（平均${(r.visits / r.n).toFixed(1)}人）・登録${r.signups}・利用${r.uses}・利用率${r.rate === null ? "—" : `${Math.round(r.rate * 100)}%`}・1件あたりの費用 ${!r.costJpy ? "0円（無料）" : r.costPer === null ? `まだ登録・利用なし（費用 計${Math.round(r.costJpy)}円）` : `約${Math.round(r.costPer)}円`}`;
+
+export function placeTypeText(): string {
+  const recent = placeTypeStats(14);
+  const all = placeTypeStats();
+  if (!all.length) return "";
+  return `宣伝の投稿の成績（場所×案件の型。登録・利用は、その投稿から来た人のうち。X は1件 約${Math.round(X_POST_COST_USD * getSettings().usdJpy)}円で計算）:
+直近14日:
+${recent.map(fmtPlaceType).join("\n") || "- （直近14日の宣伝の投稿はない）"}
+これまでの全部:
+${all.map(fmtPlaceType).join("\n")}`;
+}
+
 // 毎日の計画のAIに渡す文
 export function postStatsText(): string {
   const s = postStats();
   if (!s.total) return "";
+  const pt = placeTypeText();
   return `効いた手の集計（これまでの全投稿。件数が少ない組み合わせは偶然の可能性が高い）:
-場所と種類:
+${pt ? `${pt}\n` : ""}場所と種類:
 ${s.byPlace.map(fmt).join("\n")}
 時間帯（日本時間）:
 ${s.byTime.map(fmt).join("\n")}
