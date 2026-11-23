@@ -42,29 +42,56 @@ export function aiFixText(r: RequestRow, note: string): string {
 
 
 // 運営者が「AIに直させる」を押したとき。ルーティンを起動し、作業の画面の URL を覚える
-export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fetch): Promise<{ sessionUrl: string | null }> {
+// by: 運営者が押したか、自動で頼んだか（autoAsk.ts。自動のときは守り・攻めごとに記録の種類を分ける。記録の書き方だけが変わる）
+const gSend = globalThis as unknown as { __aiLabAiFixSending?: boolean };
+export const aiFixSending = () => !!gSend.__aiLabAiFixSending;
+export async function startAiFix(id: number, note: string, fetchImpl: Fetch = fetch, by: "human" | "auto-fix" | "auto-growth" = "human"): Promise<{ sessionUrl: string | null }> {
   if (!aiFixConfigured()) throw new Error("Claude Code のルーティンがまだつながっていません（docs/SETUP-AI-FIX.md）");
   const r = db().prepare("SELECT * FROM plan_requests WHERE id = ?").get(id) as RequestRow | undefined;
   if (!r || r.status !== "open" || r.target !== "system") throw new Error("まだ答えていない「仕組みの改善」だけ頼めます");
   if (!aiFixRetryable(r)) throw new Error(r.ai_fix_pr_state === "open" ? "できた PR がレビュー待ちです。マージするか閉じてから頼めます" : "頼んだばかりです。1時間たってから、もう一度頼めます");
-  const clean = note.trim().slice(0, 300);
-  const url = await fireRoutine("CLAUDE_ROUTINE_FIRE_URL", "CLAUDE_ROUTINE_TOKEN", aiFixText(r, clean), fetchImpl);
-  // 頼み直したときは、前の PR の番号と状態を消す（新しい PR が見つかるまで「PR はまだ見つかっていません」と出す。PR #126 の ai-review の指摘）
-  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_url = ?, ai_fix_note = ?, ai_fix_pr = NULL, ai_fix_pr_state = NULL WHERE id = ?").run(url, clean || null, id);
-  logEvent(null, "human", "plan-request-ai-fix", `提案箱の「${r.title}」を、Claude Code に直してもらうよう頼んだ（PR ができたら、見てマージする）`);
-  return { sessionUrl: url };
+  // 依頼を送っている間（ルーティンの応答を待つ数秒）は、人の依頼も自動の依頼も、次を送らない（同時に2件動かさない。PR #154 の ai-review の指摘）
+  // 本番は1つの処理で動いているので、処理の中の印で防げる。確かめてから印を付けるまでに await をはさまない
+  if (gSend.__aiLabAiFixSending) throw new Error("ほかの依頼を送っている途中です。少し待ってから頼めます");
+  gSend.__aiLabAiFixSending = true;
+  try {
+    const clean = note.trim().slice(0, 300);
+    const url = await fireRoutine("CLAUDE_ROUTINE_FIRE_URL", "CLAUDE_ROUTINE_TOKEN", aiFixText(r, clean), fetchImpl);
+    // 頼み直したときは、前の PR の番号と状態を消す（新しい PR が見つかるまで「PR はまだ見つかっていません」と出す。PR #126 の ai-review の指摘）
+    db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_url = ?, ai_fix_note = ?, ai_fix_pr = NULL, ai_fix_pr_state = NULL WHERE id = ?").run(url, clean || null, id);
+    if (by !== "human") logEvent(null, "system", `auto-ask-${by === "auto-fix" ? "fix" : "growth"}`, `提案箱の「${r.title}」を、自動で Claude Code に直してもらうよう頼みました（${clean}）`);
+    else logEvent(null, "human", "plan-request-ai-fix", `提案箱の「${r.title}」を、Claude Code に直してもらうよう頼んだ（PR ができたら、見てマージする）`);
+    return { sessionUrl: url };
+  } finally {
+    gSend.__aiLabAiFixSending = false;
+  }
 }
 
 // ルーティンが作った PR の状態を GitHub から読み、提案箱に出す。マージされていたら「やった」にする（1時間に1回）
 // 人がするのはマージだけ（運営者が決めた）。閉じた（マージしなかった）ときは、見送りにはせず、運営者の返事を待つ
 // リポジトリは公開なので、トークンなしで読める（GITHUB_TOKEN があれば使う。1時間に60回までの制限を避けるため）
 // 読むのは、頼んでから30日以内で、まだ返事のない提案だけ
-const gSync = globalThis as unknown as { __aiLabAiFixSync?: number };
+const gSync = globalThis as unknown as { __aiLabAiFixSync?: number; __aiLabAiFixSyncOk?: boolean };
+// いちばん最近の読み直しが成功したか（失敗している間は、PR を数えそこねるので、自動の依頼をしない。autoAsk.ts。PR #154 の ai-review の指摘）
+export const aiFixSyncOk = () => gSync.__aiLabAiFixSyncOk === true;
 type Pull = { number: number; state: string; merged_at: string | null; html_url: string; created_at?: string };
 export async function syncAiFixPrs(fetchImpl: Fetch = fetch, force = false): Promise<number> {
   if (!force && gSync.__aiLabAiFixSync && Date.now() - gSync.__aiLabAiFixSync < 3_600_000) return 0;
   gSync.__aiLabAiFixSync = Date.now();
-  const rows = db().prepare("SELECT * FROM plan_requests WHERE ai_fix_at IS NOT NULL AND status = 'open' AND ai_fix_at >= datetime('now', '-30 days') ORDER BY id LIMIT 20").all() as RequestRow[];
+  try {
+    const n = await syncRows(fetchImpl);
+    gSync.__aiLabAiFixSyncOk = true;
+    return n;
+  } catch (e) {
+    gSync.__aiLabAiFixSyncOk = false;
+    throw e;
+  }
+}
+
+async function syncRows(fetchImpl: Fetch): Promise<number> {
+  // PR が開いているものは、提案の返事（見送りなど）や頼んだ日に関係なく読み直す（自動の依頼が「PR が開いている間は次を頼まない」を正しく判断できるように。autoAsk.ts）
+  // 読む順は、PR が開いているもの → PR がまだ見つかっていないもの → 閉じたもの（閉じた PR の行が20件を占めて、開いている PR が読まれないままにならないように。PR #154 の ai-review の指摘）
+  const rows = db().prepare("SELECT * FROM plan_requests WHERE ai_fix_at IS NOT NULL AND ((status = 'open' AND ai_fix_at >= datetime('now', '-30 days')) OR ai_fix_pr_state = 'open') ORDER BY CASE WHEN ai_fix_pr_state = 'open' THEN 0 WHEN ai_fix_pr IS NULL THEN 1 ELSE 2 END, ai_fix_at DESC, id LIMIT 20").all() as RequestRow[];
   const repo = REPO_URL.replace("https://github.com/", "");
   const owner = repo.split("/")[0];
   let done = 0;

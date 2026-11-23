@@ -45,7 +45,7 @@ test("コードの見直し: 仕組みの改善として、出どころ「コー
   assert.match(again.skipped[0], /同じ題か同じ趣旨/);
 });
 
-test("コードの見直し: 6日のあいだに5件まで。形のおかしいものは入れずに理由を返す", () => {
+test("コードの見直し: 2日のあいだに5件まで。形のおかしいものは入れずに理由を返す", () => {
   clear();
   const first = addReviewFindings([item(1), item(2), item(3)]);
   assert.equal(first.added.length, 3);

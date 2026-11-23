@@ -8,6 +8,7 @@ import { createReport, gather, jstStartUtc } from "./report";
 import { decisionsText, followUpOf, openDecisions, type WeeklyContent } from "./meetings";
 import type { AdhocContent } from "./adhoc";
 import { STALE_NOTE, addProposal, addVoice } from "./voices";
+import { GROWTH_SCENE } from "./codeReview";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { researchText } from "./research";
 import { doneEffectsText } from "./effects";
@@ -239,9 +240,10 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
 // 採点しないもの:
 // - 運営者が入れたもの・会議の案（臨時会議の案は採点する）
 // - Claude Code に頼んだもの（PR ができる前に低評価で見送りになると、マージしても「やった」にならない。PR #126 の ai-review の指摘）
-// - コードの見直しのルーティンが入れたもの（採点の観点が「訪問・登録・利用に効くか」なので、コードの直しは低い点になりやすく、運営者が見る前に見送りや、まとめての消し込みになっていた。見直しのルーティンの1回目が見つけた）
+// - コードの見直しのルーティンが入れた「守り」（直すべき所）。採点の観点が「訪問・登録・利用に効くか」なので、コードの直しは低い点になりやすく、運営者が見る前に見送りや、まとめての消し込みになっていた（見直しのルーティンの1回目が見つけた）
+// 見直しの「攻め」（足すとよい機能）は採点する。点の高いものを自動でルーティンに頼むため（autoAsk.ts）
 export function scoringExisting(): RequestRow[] {
-  return db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source NOT IN ('human', 'review') AND (source != 'meeting' OR scene LIKE '臨時会議%') AND (created_at >= datetime('now', '-8 days') OR score IS NULL) AND ai_fix_at IS NULL").all() as RequestRow[];
+  return db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source != 'human' AND NOT (source = 'review' AND COALESCE(scene, '') != ?) AND (source != 'meeting' OR scene LIKE '臨時会議%') AND (created_at >= datetime('now', '-8 days') OR score IS NULL) AND ai_fix_at IS NULL").all(GROWTH_SCENE) as RequestRow[];
 }
 
 export function adjustScores(items: { who: string; score: number }[][]): number[] {
