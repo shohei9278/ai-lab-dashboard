@@ -58,6 +58,8 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
   const at = new Date().toISOString();
   const browser = await launch();
   if (typeof browser === "string") return { ok: true, skipped: browser, errors: [], clicked: 0, changed: false, overflow: false, at };
+  // 何も押す前の1画面の結果。このあとの処理が失敗しても、撮れた・撮れなかった理由を失わないよう、try の外に置く
+  let shot: { firstShot: string } | { firstShotError: string } | Record<string, never> = {};
   try {
     const height = opts.short ? PLAY_MIN_HEIGHT : 812;
     const ctx = await browser.newContext({ viewport: { width: 375, height }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, acceptDownloads: true });
@@ -73,6 +75,7 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
       () => null,
       (e: unknown) => (e instanceof Error ? e.message : String(e)).slice(0, 300),
     );
+    shot = shotError === null ? { firstShot } : { firstShotError: shotError };
     const before = await page.evaluate(() => document.body.innerText);
     // 枠の中のスクリプトは、親の画面に「使った」を知らせる。テストでは枠に入れないので、自分あての知らせを受け取って数える
     // （setContent では addInitScript が効かないため、開いたあとに受け取り口を付ける。操作はこのあとに行う）
@@ -127,10 +130,10 @@ export async function testTool(html: string, name: string, opts: { data?: unknow
     const motion = /labMotion|labmotion/.test(html) ? await motionCheck(ctx, html, opts) : undefined;
     return {
       ok: uniq.length === 0 && changed && !overflow && used && (motion?.ok ?? true) && off.length === 0,
-      errors: uniq, clicked, changed, overflow, used, ...(motion ? { motion } : {}), ...(opts.short ? { offscreen: off } : {}), screenshot: file, ...(shotError === null ? { firstShot } : { firstShotError: shotError }), at,
+      errors: uniq, clicked, changed, overflow, used, ...(motion ? { motion } : {}), ...(opts.short ? { offscreen: off } : {}), screenshot: file, ...shot, at,
     };
   } catch (e) {
-    return { ok: false, errors: [`テストの途中で失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`], clicked: 0, changed: false, overflow: false, at };
+    return { ok: false, errors: [`テストの途中で失敗: ${(e instanceof Error ? e.message : String(e)).slice(0, 300)}`], clicked: 0, changed: false, overflow: false, ...shot, at };
   } finally {
     await browser.close().catch(() => {});
   }
