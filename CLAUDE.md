@@ -14,6 +14,7 @@ Next.js の注意（`next dev` が自動で作り、消しても作り直す。N
   - 本番に出す（マージする）のは「マージして」と言われてから
   - 運営者が Auto-fix をオンにしたPRでは、CIの失敗・競合・レビューの指摘の直しを、聞かずにそのPRのブランチへコミットしてpushしてよい（マージはしない）
 - マージは通常のマージ（スカッシュしない）。人の手の記録がコミットIDにリンクしているため
+- 提案箱のルーティンが作った PR（`claude/proposal-<番号>`）は、自動マージ（`.github/workflows/auto-merge.yml`・`scripts/auto-merge.ts`）が、CI と GPT・Gemini のレビューを見てマージする（運営者が決めた。手順は `docs/SETUP-AI-FIX.md`）。このセッションの Claude Code が作る PR は、これまでどおり運営者が言った範囲だけ
 - コミットの末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`、PR本文の末尾に `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
 - 人が見つけた不具合や、人の判断が入った変更の PR には、`src/lib/interventions.ts` の `FIRST` に「改善の記録」の人の記録を1件足す。人が実際に言ったこと・決めたことだけを書き、言っていない判断を書かない。自動のテストやCIが見つけた不具合には足さない。運営者が画面で直した記録は、`FIRST` を書き換えても上書きされない
 

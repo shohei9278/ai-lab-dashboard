@@ -38,7 +38,7 @@ const STACK: [string, string][] = [
   ["運用", "Railway（Docker）・GitHub Actions"],
 ];
 // 自分で直して、自分で作る流れ（クラウドの Claude Code に頼むところ）
-const FIX_FLOW = ["AIの社員が気づく", "提案箱で3社が採点", "運営者が「AIに直させる」", "クラウドの Claude Code が直して PR", "別のAI（GPT）がレビュー", "人がマージ", "自動で「やった」", "会議で前後の数字を振り返る"];
+const FIX_FLOW = ["AIの社員が気づく", "提案箱で3社が採点", "運営者が「AIに直させる」", "クラウドの Claude Code が直して PR", "GPT と Gemini がレビュー", "指摘がなければ自動でマージ（残れば直す・人へ）", "自動で「やった」", "会議で前後の数字を振り返る"];
 const REVIEW_FLOW = ["週に1回、クラウドの Claude Code がコードを読む", "根拠のあるものを5件まで提案箱へ", "運営者が選んで「AIに直させる」", "別のルーティンが PR にする"];
 const BUILD_FLOW = ["AIが設計書を書く", "クラウドの Claude Code がブラウザで確かめながら作る", "ダッシュボードに入れる", "チェック・自動テスト", "公開（止まったら Claude Code が直す）"];
 const COLOR = { anthropic: "var(--series-anthropic)", openai: "var(--series-openai)", google: "var(--series-google)" } as const;
@@ -164,7 +164,7 @@ export default async function Showcase() {
           <article className="card space-y-2 p-4 text-sm">
             <h3 className="font-bold">仕組みの改善を、AIが PR にする</h3>
             <Chips items={FIX_FLOW} />
-            <p className="text-ink-2">朝会・会議・チェックの途中でAIの社員が気づいた改善は提案箱に入り、週の定例会議で3社が採点します（採点者ごとの甘さ・辛さをならし、言い方が違う同じ提案はまとめる）。運営者が押すと、クラウドの Claude Code がリポジトリを直して PR を作り、CI と別のAIのレビューを通ります。マージされると自動で「やった」になり、次の会議で、やる前とあとの数字を並べて効いたかを見ます。</p>
+            <p className="text-ink-2">朝会・会議・チェックの途中でAIの社員が気づいた改善は提案箱に入り、週の定例会議で3社が採点します（採点者ごとの甘さ・辛さをならし、言い方が違う同じ提案はまとめる）。運営者が押すと、クラウドの Claude Code がリポジトリを直して PR を作り、CI と2つの別の会社のAI（GPT・Gemini）のレビューを通ります。直すべき指摘があれば Claude Code が直し、なくなれば自動でマージされます。マージされると自動で「やった」になり、次の会議で、やる前とあとの数字を並べて効いたかを見ます。</p>
             {routine.asked > 0 && <p className="num text-xs text-muted">これまでに頼んだ改善 {routine.asked}件・マージされた PR {routine.merged}件</p>}
           </article>
           <article className="card space-y-2 p-4 text-sm">
@@ -183,6 +183,7 @@ export default async function Showcase() {
             <h3 className="font-bold">任せすぎないための決まり</h3>
             <ul className="list-disc space-y-1 pl-5 text-ink-2">
               <li>ルーティンは役割ごとに分け、リポジトリを直すほうは本番に触れられない。ツールを作るほうは、合言葉で、ツールを読む・入れる入口にだけ入れる</li>
+              <li>ルーティンが作った PR は、CI が通り、GPT と Gemini のどちらも直すべき指摘なしのときだけ自動でマージする。指摘はルーティンに3回まで直させ、残れば人に回す。来訪者の入口・予算と緊急停止・合言葉・CI・自動マージの仕組み自体に触れる PR は、自動ではマージしない</li>
               <li>コードを見直すほうは、提案箱に入れるだけでコードは直さない。入れるのは6日に5件まで、専用の合言葉で、その入口にだけ入れる</li>
               <li>頼む数は、同時に何件・1日に何件まで、と運営者が設定で決める（サブスクの使用量で動くため）</li>
               <li>チェックで止まったツールを Claude Code に直させるのは、同じ案件で7日に1回だけ。それでも直らなければ人の判断に回す</li>

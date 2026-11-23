@@ -52,8 +52,10 @@ jobs:
         run: npx tsc --noEmit
 
   # 別の会社のAIによるレビュー（PRだけ）。結果をコメントするだけで、失敗してもマージは止めない
+  # ルーティンが作った PR（claude/proposal-<番号>）は、自動マージの見回りが main のコードの中で GPT と Gemini にレビューを頼むので、ここではしない
+  # （PR の中のレビューのスクリプトを、秘密の値とコメントの権限つきで動かさないため。PR #153 の ai-review の指摘）
   ai-review:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.event.pull_request.head.ref, 'claude/proposal-')
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:
