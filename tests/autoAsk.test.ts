@@ -219,5 +219,12 @@ test("ルーティンの見送り: 合言葉がないと 401。頼んでから3�
   const r = db().prepare("SELECT status, note FROM plan_requests WHERE id = ?").get(asked) as { status: string; note: string };
   assert.deepEqual(r, { status: "declined", note: "Claude Code が見て、直さなくて良いと判断した: すでに入っている（src/lib/x.ts の12行目）" });
   assert.equal((db().prepare("SELECT status FROM plan_requests WHERE id = ?").get(notAsked) as { status: string }).status, "open");
+  // 見送ったら、すぐ次を頼める（頼んで1日以内でも、作業中と数えない）。PR が開いているものは、今までどおり作業中
+  db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
+  db().prepare("UPDATE plan_requests SET ai_fix_at = NULL, ai_fix_pr = NULL WHERE id IN (?, ?)").run(withPr, old);
+  db().prepare("UPDATE plan_requests SET score = 8 WHERE id = ?").run(notAsked);
+  assert.equal(nextAutoAsk()?.row.id, notAsked);
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_pr = 9, ai_fix_pr_state = 'open', status = 'declined' WHERE id = ?").run(withPr);
+  assert.equal(nextAutoAsk(), null);
   delete process.env.LAB_REVIEW_TOKEN;
 });
