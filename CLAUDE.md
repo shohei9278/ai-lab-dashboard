@@ -36,11 +36,9 @@ Next.js の注意（`next dev` が自動で作り、消しても作り直す。N
 - ダッシュボード: main にマージすると Railway が自動で出す。始まらないときは Railway の「Deploy latest commit」
 - 本番の確認（`.github/workflows/smoke.yml`）が、出したあとと30分ごとに、主要ページが 200 を返すか・来訪者の操作が 403 か・main の最新が本番に出ているかを見る
   - ページのURLを消す・移す・名前を変えるときは、smoke.yml の一覧も一緒に直す（`/live` をホームへ移したとき、ここを直し忘れて失敗が続いた）
-- 公開サイト（https://hitoride.vercel.app）は、main にマージしても出ない。マージのあと、main の最新にそろえた手元で次を実行する
-  ```
-  cd lp-site && npx vercel deploy --prod --yes
-  ```
-  - 出たかは `npx vercel inspect <出たURL>` の status と、ブラウザで一度開いて確かめる
+- 公開サイト（https://hitoride.vercel.app）は、main にマージして CI が通ると、`.github/workflows/lp-deploy.yml` が自動で Vercel に出す（前に出した版から `lp-site/` が変わったときだけ。出した・失敗したは Discord に知らせる）
+  - 自動で出なかった・急ぐときは、Actions の「公開サイトを出す」を手で動かす（main の最新を出す）。それもできないときだけ、main の最新にそろえた手元で `cd lp-site && npx vercel deploy --prod --yes`
+  - 出たかは、Discord の知らせ（または `npx vercel inspect <出たURL>` の status）と、ブラウザで一度開いて確かめる
   - curl などで短い間隔で何度も読みに行かない。Vercel の防御（Security Checkpoint）に機械的なアクセスと見なされ、403 の確認画面を返されるようになる
 
 ## 来訪者（ログインしていない人）
