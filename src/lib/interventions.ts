@@ -153,7 +153,8 @@ export type SeedRecord = Omit<InterventionRow, "id"> & { key: string };
 export const RECORD_DIR = path.join(process.cwd(), "src", "data", "interventions");
 const KEY_RE = /^[a-z0-9][a-z0-9-]{0,60}$/;
 const str = (v: unknown, max: number): v is string => typeof v === "string" && v.trim().length > 0 && v.length <= max;
-const optStr = (v: unknown, max: number) => v === null || v === undefined || (typeof v === "string" && v.length <= max);
+// result・found_by・commit_sha も、書き忘れに気づけるよう必ず書く（ないときは null と書く。PR #161 の ai-review の指摘）
+const optStr = (v: unknown, max: number) => v === null || (typeof v === "string" && v.length <= max);
 
 export function parseSeedRecord(key: string, v: unknown): SeedRecord | string {
   if (!KEY_RE.test(key)) return "ファイル名は、英小文字・数字・ハイフンにしてください";
@@ -163,10 +164,10 @@ export function parseSeedRecord(key: string, v: unknown): SeedRecord | string {
   if (!str(o.title, 200) || !str(o.happened, 1500) || !str(o.noticed, 1500) || !str(o.decision, 2000)) return "title・happened・noticed・decision は、すべて書いてください";
   if (!optStr(o.result, 1000)) return "result は文字か null にしてください";
   if (!optStr(o.found_by, 100) || (typeof o.found_by === "string" && !o.found_by.split(",").every(isFoundBy))) return `found_by は ${Object.keys(FOUND_BY).join("・")} をカンマでつないだものか null にしてください`;
-  if (!(o.commit_sha === null || o.commit_sha === undefined || (typeof o.commit_sha === "string" && /^[0-9a-f]{7,40}$/.test(o.commit_sha)))) return "commit_sha は英数字のコミットのIDか null にしてください";
+  if (!(o.commit_sha === null || (typeof o.commit_sha === "string" && /^[0-9a-f]{7,40}$/.test(o.commit_sha)))) return "commit_sha は英数字のコミットのIDか null にしてください";
   return {
     key, day: o.day, kind: o.kind as InterventionKind, title: o.title, happened: o.happened, noticed: o.noticed, decision: o.decision,
-    result: (o.result as string | null | undefined) ?? null, found_by: (o.found_by as string | null | undefined) ?? null, commit_sha: (o.commit_sha as string | null | undefined) ?? null,
+    result: o.result as string | null, found_by: o.found_by as string | null, commit_sha: o.commit_sha as string | null,
   };
 }
 
@@ -175,8 +176,10 @@ export function readRecordFiles(dir = RECORD_DIR): { records: SeedRecord[]; erro
   let names: string[];
   try {
     names = fs.readdirSync(dir).filter((n) => n.endsWith(".json"));
-  } catch {
-    return { records: [], errors: [] };
+  } catch (e) {
+    // フォルダがないときだけ空にする。権限などで読めないときは、理由を返してログに残す（PR #161 の ai-review の指摘）
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return { records: [], errors: [] };
+    return { records: [], errors: [`フォルダを読めない: ${e instanceof Error ? e.message : String(e)}`] };
   }
   const records: SeedRecord[] = [];
   const errors: string[] = [];

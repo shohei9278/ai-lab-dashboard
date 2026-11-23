@@ -19,7 +19,7 @@ test("改善の記録のファイル: フォルダの記録は全部読めて、
 test("改善の記録のファイル: 形のおかしいファイルは読まずに、理由を返す", () => {
   const ok = { day: "2026-11-23", kind: "design", title: "t", happened: "h", noticed: "n", decision: "d", result: null, found_by: "human", commit_sha: null };
   assert.equal(typeof parseSeedRecord("good-key", ok), "object");
-  for (const [key, v] of [["Bad_Key", ok], ["k", { ...ok, day: "2026-02-31" }], ["k", { ...ok, kind: "other" }], ["k", { ...ok, title: "" }], ["k", { ...ok, found_by: "someone" }], ["k", { ...ok, commit_sha: "xyz" }], ["k", "文字だけ"]] as const) {
+  for (const [key, v] of [["Bad_Key", ok], ["k", { ...ok, day: "2026-02-31" }], ["k", { ...ok, kind: "other" }], ["k", { ...ok, title: "" }], ["k", { ...ok, found_by: "someone" }], ["k", { ...ok, commit_sha: "xyz" }], ["k", "文字だけ"], ["k", { ...ok, found_by: undefined }], ["k", { ...ok, commit_sha: undefined }], ["k", { ...ok, result: undefined }]] as const) {
     assert.equal(typeof parseSeedRecord(key, v), "string", `${key} ${JSON.stringify(v)}`);
   }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "interventions-"));
@@ -32,5 +32,7 @@ test("改善の記録のファイル: 形のおかしいファイルは読まず
   assert.equal(r.errors.length, 1);
   assert.match(r.errors[0], /^broken\.json: /);
   assert.deepEqual(readRecordFiles(path.join(dir, "ない")), { records: [], errors: [] });
+  // フォルダでないもの（ファイル）を指したときは、空ではなく理由を返す
+  assert.match(readRecordFiles(path.join(dir, "a-old.json")).errors[0], /^フォルダを読めない: /);
   fs.rmSync(dir, { recursive: true });
 });
