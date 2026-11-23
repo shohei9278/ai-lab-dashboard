@@ -2,8 +2,9 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings, type ApprovalRow } from "../src/lib/db";
-import { autoToolRoutine, hasTool, labTokenOk, startToolRoutine, toolRoutineConfigured, toolRoutineText, toolRoutineView } from "../src/lib/toolRoutine";
+import { AUTO_TRIES, autoToolRoutine, autoWork, hasTool, labTokenOk, startToolRoutine, toolRoutineConfigured, toolRoutineText, toolRoutineView } from "../src/lib/toolRoutine";
 import { GET, POST } from "../src/app/api/tool-jobs/[id]/route";
+import { pendingApprovals, pendingCount } from "../src/lib/views";
 
 // 開発待ちのじっくり案件を、クラウドの Claude Code（ルーティン「案件のツールを作る」）に頼む（運営者が決めた。頼む数は設定で決める）
 
@@ -85,11 +86,16 @@ test("ツールのルーティン: 自動では、設定の同時に頼む数と
   assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls) }), 1);
   db().prepare("UPDATE approvals SET status = 'approved' WHERE id = ?").run(ids[1]);
   assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls) }), 0, "1日に3件まで");
-  // 3時間たって入っていないものは作業中から外れるが、自動では頼み直さない
+  // 3時間たって入っていないものは作業中から外れ、自動でもう1回だけ頼み直す（まだ頼んでいないものが先）
   const later = Date.now() + 25 * 3600_000;
-  assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later }), 1);
-  assert.deepEqual(ids.map((id) => !!row(id).routine_at), [true, true, true, true]);
-  assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later + 3600_000 }), 0);
+  assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later }), 2);
+  assert.deepEqual(ids.map((id) => row(id).routine_tries), [1, 1, 2, 1]);
+  assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later + 3600_000 }), 0, "作業中");
+  // 2回頼んでも入らなかったものは、自動では頼まない（人の判断待ちに回る）
+  const later2 = later + 25 * 3600_000;
+  assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later2 }), 1);
+  assert.deepEqual(ids.map((id) => row(id).routine_tries), [1, 1, 2, 2]);
+  assert.equal(await autoToolRoutine({ fetchImpl: okFire(calls), now: later2 + 25 * 3600_000 }), 0);
   // 起動に失敗したら、経過に残して、その回は続けて頼まない（1日の数を空けてから試す）
   db().exec("DELETE FROM approvals; DELETE FROM events");
   devCase("e"); devCase("f");
@@ -250,4 +256,36 @@ test("本番の作業中: ルーティンが作業中の開発待ちも、/api/l
   assert.deepEqual(b.map((x) => x.id), [working.projectId]);
   assert.match(b[0].what, /ルーティン/);
   assert.equal(b[0].title, "作業中");
+});
+
+test("判断待ちとAIの作業待ち: 自動で頼む開発待ちはAIの作業待ちに出し、判断待ちの数に数えない。2回頼んでも入らない・自動がオフのものは判断待ちに出す", async () => {
+  configure();
+  db().exec("DELETE FROM approvals; DELETE FROM events");
+  saveSettings({ toolRoutineAuto: true, toolRoutineConcurrent: 1, toolRoutinePerDay: 5, killSwitch: false });
+  const a = devCase("まだ").approvalId;
+  const b = devCase("2回目").approvalId;
+  const c = devCase("あきらめ").approvalId;
+  db().prepare("UPDATE approvals SET routine_at = datetime('now', '-5 hours'), routine_tries = 1 WHERE id = ?").run(b);
+  db().prepare("UPDATE approvals SET routine_at = datetime('now', '-5 hours'), routine_tries = ? WHERE id = ?").run(AUTO_TRIES, c);
+  const pid = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id) VALUES ('公開', 't', 'p', 's', 'h', 'r', 'idea', 'claude')").run().lastInsertRowid);
+  const pub = Number(db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason) VALUES (?, 'publish', '公開する', 'r')").run(pid).lastInsertRowid);
+  // 作業中のもの・まだ頼める回数が残っているものは自動。頼める回数を使い切ったもの・開発待ち以外は人
+  assert.deepEqual([a, b, c, pub].map((id) => autoWork(row(id))), [true, true, false, false]);
+  assert.deepEqual(pendingApprovals(undefined, true, "auto").map((x) => x.id), [a, b]);
+  assert.deepEqual(pendingApprovals(undefined, true, "human").map((x) => x.id), [c, pub]);
+  assert.equal(pendingApprovals(undefined, true).length, 4, "案件のページでは両方出す");
+  assert.equal(pendingCount(), 2);
+  // 使い切ったものでも、手で頼み直して作業中なら、AIの作業待ち
+  db().prepare("UPDATE approvals SET routine_at = datetime('now') WHERE id = ?").run(c);
+  assert.equal(autoWork(row(c)), true);
+  // 自動で頼まない設定・止めるスイッチ・ルーティンがつながっていないときは、すべて判断待ち
+  saveSettings({ toolRoutineAuto: false });
+  assert.equal(pendingCount(), 4);
+  saveSettings({ toolRoutineAuto: true, killSwitch: true });
+  assert.equal(pendingCount(), 4);
+  saveSettings({ killSwitch: false });
+  delete process.env.CLAUDE_TOOL_ROUTINE_FIRE_URL;
+  assert.equal(pendingCount(), 4);
+  configure();
+  assert.equal(pendingCount(), 1);
 });

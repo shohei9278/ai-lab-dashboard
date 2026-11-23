@@ -17,6 +17,8 @@ const TOKEN_VAR = "CLAUDE_TOOL_ROUTINE_TOKEN";
 export const ROUTINE_WORK_MS = 3 * 60 * 60 * 1000;
 // 手で頼み直せるまでの時間
 const RETRY_MS = 60 * 60 * 1000;
+// 自動で頼む回数の上限（最初の1回と、入らなかったときの頼み直し1回。運営者が決めた）。これを使い切って入らなかったものは、人の判断待ちに出す
+export const AUTO_TRIES = 2;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export const toolRoutineConfigured = () => routineConfigured(URL_VAR, TOKEN_VAR) && labTokenConfigured();
@@ -70,7 +72,7 @@ export async function startToolRoutine(approvalId: number, opts: { manual?: bool
   if (a.routine_at && now - atMs(a.routine_at) < RETRY_MS) throw new Error("頼んだばかりです。1時間たってから、もう一度頼めます");
   // 起動する前に「頼んだ」を先に記録し、記録できた呼び出しだけが起動する（見回りと運営者のボタンが同時に来ても、2回起動しない。PR #130 の ai-review の指摘）
   const stamp = Math.floor(now / 1000);
-  const claimed = db().prepare(`UPDATE approvals SET routine_at = datetime(?, 'unixepoch'), routine_url = NULL
+  const claimed = db().prepare(`UPDATE approvals SET routine_at = datetime(?, 'unixepoch'), routine_url = NULL, routine_tries = routine_tries + 1
     WHERE id = ? AND kind = 'dev' AND status = 'pending' AND (routine_at IS NULL OR routine_at <= datetime(?, 'unixepoch'))`).run(stamp, approvalId, stamp - RETRY_MS / 1000).changes;
   if (!claimed) throw new Error("頼んだばかりです。1時間たってから、もう一度頼めます");
   let url: string | null;
@@ -78,7 +80,7 @@ export async function startToolRoutine(approvalId: number, opts: { manual?: bool
     url = await fireRoutine(URL_VAR, TOKEN_VAR, toolRoutineText(a), opts.fetchImpl);
   } catch (e) {
     // 起動できなかったら、頼んだ記録を元に戻す
-    db().prepare("UPDATE approvals SET routine_at = ?, routine_url = ? WHERE id = ?").run(a.routine_at, a.routine_url, approvalId);
+    db().prepare("UPDATE approvals SET routine_at = ?, routine_url = ?, routine_tries = ? WHERE id = ?").run(a.routine_at, a.routine_url, a.routine_tries, approvalId);
     throw e;
   }
   db().prepare("UPDATE approvals SET routine_url = ? WHERE id = ?").run(url, approvalId);
@@ -94,7 +96,8 @@ function firedSince(now: number): number {
 
 // 開発待ちを、設定の数の範囲で自動で頼む（見回りのたびに見る）。頼んだ数を返す
 // 同時に頼む数: 作業中（頼んで3時間以内でまだ入っていない）の数。1日に頼む数: 24時間以内に頼んだ回数（手で頼んだ分・頼み直した分も数える）
-// 自動では、一度頼んだ開発待ちは頼み直さない（入らなかったら、運営者が見て頼み直す）
+// 頼んで3時間たっても入らなかったものは、自動で1回だけ頼み直す（AUTO_TRIES。運営者が決めた）。それでも入らなければ、人の判断待ちに出す（autoWork）
+// まだ頼んでいないものを先に、頼み直しはそのあと
 export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } = {}): Promise<number> {
   const s = getSettings();
   if (!s.toolRoutineAuto || s.killSwitch || !toolRoutineConfigured()) return 0;
@@ -104,7 +107,9 @@ export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } 
   const today = firedSince(now);
   let slots = Math.min(s.toolRoutineConcurrent - inFlight, s.toolRoutinePerDay - today);
   let n = 0;
-  for (const a of rows.filter((x) => x.status === "pending" && !x.routine_at)) {
+  const fresh = rows.filter((x) => x.status === "pending" && !x.routine_at);
+  const retry = rows.filter((x) => x.status === "pending" && x.routine_at && x.routine_tries < AUTO_TRIES && !working(x, now));
+  for (const a of [...fresh, ...retry]) {
     if (slots <= 0) break;
     try {
       await startToolRoutine(a.id, { fetchImpl: opts.fetchImpl, now });
@@ -116,6 +121,14 @@ export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } 
     }
   }
   return n;
+}
+
+// AIが自動で進めている作業か（人の判断待ちではなく「AIの作業待ち」に出すもの。運営者が決めた）
+// ルーティンに自動で頼む開発待ちのうち、まだ頼んでいない・作業中・頼み直しが残っているもの。頼み直しを使い切って入らなかったものは、人の判断待ち
+export function autoWork(a: Pick<ApprovalRow, "kind" | "status" | "routine_at" | "routine_tries">, now = Date.now()): boolean {
+  const s = getSettings();
+  if (a.kind !== "dev" || a.status !== "pending" || !s.toolRoutineAuto || s.killSwitch || !toolRoutineConfigured()) return false;
+  return working(a, now) || a.routine_tries < AUTO_TRIES;
 }
 
 // 開発待ちのカードに出す、ルーティンの様子
