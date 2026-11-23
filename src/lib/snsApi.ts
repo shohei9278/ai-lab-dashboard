@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { projectType } from "./aims";
 import { db, getSettings } from "./db";
 import { logEvent } from "./loop";
 import { X_PLAIN_POST_COST_USD, X_POST_COST_USD, postToX, xConfigured } from "./xPost";
@@ -193,9 +194,32 @@ export const AUTO_PLATFORMS: Record<AutoPlatform, Def> = {
 };
 
 // 設定で、場所ごとに宣伝の投稿・普通の投稿を止められる（例: X は宣伝の投稿が高いので止める）
-export function postAllowed(platform: string, kind: "promo" | "plain"): boolean {
+// X の宣伝を止めていても、設定の xPlayPromo がオンなら、遊ぶツールの案件に限って直近7日で X_PLAY_PROMO_PER_WEEK 件まで宣伝してよい（提案箱 #92）
+// 案件（projectId）を渡さないときは、その例外は使わない（計画のない日の決まった間隔の自動投稿は、止めたまま）
+export function postAllowed(platform: string, kind: "promo" | "plain", projectId?: number | null): boolean {
   const s = getSettings();
-  return !(kind === "promo" ? s.promoOff : s.plainOff).split(",").map((x) => x.trim()).includes(platform);
+  if (!(kind === "promo" ? s.promoOff : s.plainOff).split(",").map((x) => x.trim()).includes(platform)) return true;
+  return kind === "promo" && platform === "x" && !!projectId && isPlayProject(projectId) && xPlayPromoLeft() > 0;
+}
+
+export const X_PLAY_PROMO_PER_WEEK = 3;
+
+// X の宣伝を止めているが、遊ぶツールに限って再開してよいとき（設定の xPlayPromo）
+export function xPlayPromoOn(): boolean {
+  const s = getSettings();
+  return s.xPlayPromo && s.promoOff.split(",").map((x) => x.trim()).includes("x");
+}
+
+// 遊ぶツールの X の宣伝を、あと何件してよいか（直近7日の X の宣伝の投稿を数える）。例外が使えないときは 0
+export function xPlayPromoLeft(): number {
+  if (!xPlayPromoOn()) return 0;
+  const used = (db().prepare("SELECT COUNT(*) AS n FROM sns_posts WHERE platform = 'x' AND status = 'posted' AND posted_at >= datetime('now', '-7 days')").get() as { n: number }).n;
+  return Math.max(0, X_PLAY_PROMO_PER_WEEK - used);
+}
+
+function isPlayProject(projectId: number): boolean {
+  const p = db().prepare("SELECT kind, aim FROM projects WHERE id = ?").get(projectId) as { kind: string; aim: string | null } | undefined;
+  return !!p && projectType(p) === "play";
 }
 
 export const autoPlatforms = () => (Object.keys(AUTO_PLATFORMS) as AutoPlatform[]).filter((k) => AUTO_PLATFORMS[k].configured());

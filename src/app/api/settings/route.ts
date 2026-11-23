@@ -44,6 +44,11 @@ export async function POST(req: Request) {
   for (const k of ["promoOff", "plainOff"] as const) {
     if (typeof body[k] === "string") patch[k] = body[k].split(",").map((x: string) => x.trim()).filter((x: string) => ["x", "threads", "bluesky"].includes(x)).join(",");
   }
+  // X の宣伝を、遊ぶツールに限って週3件まで再開してよい。オンにした日時を覚えて、14日たったら週の定例会議で続けるか決める
+  if (typeof body.xPlayPromo === "boolean") {
+    if (body.xPlayPromo && !getSettings().xPlayPromo) patch.xPlayPromoSince = new Date().toISOString();
+    patch.xPlayPromo = body.xPlayPromo;
+  }
   if (typeof body.viralSearch === "boolean") patch.viralSearch = body.viralSearch;
   if (typeof body.showcaseEnabled === "boolean") patch.showcaseEnabled = body.showcaseEnabled;
   if (typeof body.showcaseShowLinks === "boolean") patch.showcaseShowLinks = body.showcaseShowLinks;

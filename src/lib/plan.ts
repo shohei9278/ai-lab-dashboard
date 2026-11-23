@@ -4,7 +4,7 @@ import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
 import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, liveEnd, liveSay, liveStep, logEvent, planImprove, projectTotals, trafficCapacity } from "./loop";
 import { endReasons, headline } from "./experiment";
 import { funnelText } from "./funnel";
-import { AUTO_PLATFORMS, autoPlatforms, postAllowed, type AutoPlatform } from "./snsApi";
+import { AUTO_PLATFORMS, X_PLAY_PROMO_PER_WEEK, autoPlatforms, postAllowed, xPlayPromoLeft, xPlayPromoOn, type AutoPlatform } from "./snsApi";
 import { jstDay, postPromo, safetyQuota } from "./sns";
 import { viralHints } from "./viralPosts";
 import { budgetState } from "./budget";
@@ -267,7 +267,7 @@ function planMaterial(): string {
     outsideText(),
     researchText() || "調べたこと: まだない",
     `公開中の案件:\n${projectLines.join("\n") || "（なし）"}`,
-    `自動で投稿できる場所: ${platforms.map((p) => `${AUTO_PLATFORMS[p].label}（宣伝は${postAllowed(p, "promo") ? `1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}・普通の投稿は${postAllowed(p, "plain") ? `約${Math.round(AUTO_PLATFORMS[p].plainCostUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}。直近24時間の投稿 ${safetyQuota(p).used}件・安全装置 ${s.postSafetyPerDay}件）`).join(" / ") || "なし（自動投稿がオフ、またはキーがない。投稿の予定は入れない）"}`,
+    `自動で投稿できる場所: ${platforms.map((p) => `${AUTO_PLATFORMS[p].label}（宣伝は${postAllowed(p, "promo") ? `1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円` : p === "x" && xPlayPromoOn() ? `運営者が止めている。ただし遊ぶツール（ねらいが 広がる・また来てもらう）の案件に限り、直近7日で${X_PLAY_PROMO_PER_WEEK}件まで入れてよい（いま あと${xPlayPromoLeft()}件・1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円）` : "運営者が止めている（予定に入れない）"}・普通の投稿は${postAllowed(p, "plain") ? `約${Math.round(AUTO_PLATFORMS[p].plainCostUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}。直近24時間の投稿 ${safetyQuota(p).used}件・安全装置 ${s.postSafetyPerDay}件）`).join(" / ") || "なし（自動投稿がオフ、またはキーがない。投稿の予定は入れない）"}`,
     `投稿してよい時間: ${POST_START}〜${POST_END}時`,
     `予算: 今月の残り 約${Math.max(0, Math.round(s.monthlyBudgetJpy - monthSpendUsd() * s.usdJpy))}円（月${s.monthlyBudgetJpy}円）・新しい案件1件 約${Math.round(b.perProject)}円・今日の予算のペースで作れる新しい案件 ${b.newToday}件`,
     `最近のAIの宣伝の投稿と、そこからの訪問・成果:\n${recentPosts.join("\n") || "（なし）"}`,
@@ -397,6 +397,7 @@ export async function createPlan({ force = false, ask = callJson }: { force?: bo
 - 効かなかった手を同じように繰り返さない。回数を増やすより、切り口・場所・時刻を変えることを先に試す
 - 切り口どうしを比べるときは、場所と時間帯をそろえる（例: 同じ場所・同じ時間帯で、完成見本の切り口と共感の切り口を別の日に出す）。場所も時間帯も切り口も同時に変えると、どれが効いたか分からなくなる
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
+- 宣伝先の配分（どの場所に、どの型の案件の宣伝を出すか）は、訪問の平均ではなく、「宣伝の投稿の成績（場所×案件の型）」の直近14日の利用数（事前登録LPなら登録数）と利用率で決める。直近14日で登録・利用が2件以上出た場所×型は、宣伝の投稿を週3件まで試してよい（運営者が止めている場所は、材料に許しが書いてある分だけ）。件数が少ないので偶然の可能性も高く、決めつけない
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
 形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
       user: material + opinionsText(opinions),
@@ -411,6 +412,9 @@ export async function createPlan({ force = false, ask = callJson }: { force?: bo
   const live = new Set(liveProjects().map((p) => p.id));
   const perPlatform = new Map<string, number>();
   let improves = 0;
+  // X の宣伝を止めているときの、遊ぶツールに限った例外の残り（同じ計画に何件も入れて、週の上限を超えないように）
+  const xPlayExempt = !postAllowed("x", "promo");
+  let xPlayLeft = xPlayPromoLeft();
   const tasks = out.tasks.filter((t) => {
     if (!/^\d{2}:\d{2}$/.test(t.time) || t.time <= now.hm) return false;
     if (t.kind === "improve") {
@@ -424,7 +428,11 @@ export async function createPlan({ force = false, ask = callJson }: { force?: bo
     const h = Number(t.time.slice(0, 2));
     if (h < POST_START || h >= POST_END || !t.platform || !platforms.has(t.platform)) return false;
     if (t.kind === "promo" && !live.has(Number(t.project_id))) return false;
-    if (!postAllowed(t.platform, t.kind)) return false;
+    if (!postAllowed(t.platform, t.kind, t.kind === "promo" ? Number(t.project_id) : null)) return false;
+    if (t.kind === "promo" && t.platform === "x" && xPlayExempt) {
+      if (xPlayLeft <= 0) return false;
+      xPlayLeft--;
+    }
     const n = (perPlatform.get(t.platform) ?? 0) + 1;
     const q = safetyQuota(t.platform);
     if (q.used + n > q.cap) return false;
@@ -543,7 +551,7 @@ async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string
   const platform = t.platform as AutoPlatform;
   if (!s.autoPost) return { status: "skipped", result: "自動投稿がオフのため見送り" };
   if (!AUTO_PLATFORMS[platform]?.configured()) return { status: "skipped", result: "この場所のキーがないため見送り" };
-  if (!postAllowed(platform, t.kind === "promo" ? "promo" : "plain")) return { status: "skipped", result: `設定で、この場所の${t.kind === "promo" ? "宣伝" : "普通"}の投稿を止めているため見送り` };
+  if (!postAllowed(platform, t.kind === "promo" ? "promo" : "plain", t.kind === "promo" ? t.project_id : null)) return { status: "skipped", result: `設定で、この場所の${t.kind === "promo" ? "宣伝" : "普通"}の投稿を止めているため見送り` };
   const quota = safetyQuota(platform);
   if (quota.used >= quota.cap) {
     logEvent(null, "system", "plan-cap", `${AUTO_PLATFORMS[platform].label}の投稿が安全装置（直近24時間で${quota.cap}件）に届いたため、予定を見送りました`);

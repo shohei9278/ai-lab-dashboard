@@ -189,3 +189,15 @@ export function aimOfIdea(idea: { aim?: unknown; kind?: unknown }): Aim {
 export function genresOf(text: string): string[] {
   return [...new Set(text.split(/[,、\n]/).map((x) => x.trim()).filter((x) => x && x.length <= 30))].slice(0, 20);
 }
+
+// 宣伝先の配分で使う、案件の型（遊ぶツール／役立つツール／事前登録LP）
+// 広がる・また来てもらう のツールは「遊ぶツール」、役に立つ は「役立つツール」、需要を確かめる（紹介ページ）は「事前登録LP」
+// ねらいの付いていない古いツールは、どちらとも決められないので分けて数える
+export type ProjectType = "play" | "useful" | "lp" | "tool";
+export const PROJECT_TYPE_LABEL: Record<ProjectType, string> = { play: "遊ぶツール", useful: "役立つツール", lp: "事前登録LP", tool: "ツール（ねらいなし）" };
+export function projectType(p: { kind: string; aim: string | null }): ProjectType {
+  if (p.kind !== "tool") return "lp";
+  if (p.aim === "useful") return "useful";
+  if (p.aim === "spread" || p.aim === "return") return "play";
+  return "tool";
+}
