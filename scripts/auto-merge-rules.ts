@@ -54,6 +54,13 @@ export function reviewHistory(comments: PrComment[]): { text: string; ok: boolea
   return { text, ok: past.length <= HISTORY_MAX_COMMENTS && text.length <= HISTORY_MAX_CHARS };
 }
 
+// レビューを頼めなかった（通信の失敗・モデルの廃止など）ことの印。同じ版で3回頼めなかったら、人に回す（いつまでも待たない。PR #153 の ai-review の指摘）
+// 偽物が混じっても、早く人に回るだけで、マージはされない
+export const MAX_REVIEW_FAILS = 3;
+const REVIEW_FAIL_MARK = "<!-- auto-merge review-failed ";
+export const reviewFailMarker = (sha: string) => `${REVIEW_FAIL_MARK}${sha} -->`;
+export const reviewFailures = (comments: PrComment[], sha: string) => comments.filter((c) => bot(c) && c.body!.includes(reviewFailMarker(sha))).length;
+
 // ルーティンの起動の応答のうち、「届いていない」とはっきり分かるもの（4xx。ただし 408・429 は、届いたか分からない側）
 // 5xx・408・429 は、受け付けたあとに失敗したこともありうるので、印を残して、人に確かめてもらう（PR #153 の ai-review の指摘）
 export const fireRejected = (status: number) => status >= 400 && status < 500 && status !== 408 && status !== 429;

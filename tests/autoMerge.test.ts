@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, protectedFiles, reviewHistory, reviewMarker, reviewPosted, type PrComment } from "../scripts/auto-merge-rules";
+import { FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, reviewPosted, type PrComment } from "../scripts/auto-merge-rules";
 import { parseReview, reviewInstructions, type Review } from "../scripts/ai-review-core";
 
 // 自動マージの決まり: ルーティンが作った PR を、マージ・直させる・人に回す・待つ、のどれにするか
@@ -101,4 +101,11 @@ test("自動マージ: 見回りが書いた前の版へのレビューを、次
 test("自動マージ: ルーティンの起動ではっきり断られたのは 4xx だけ（408・429・5xx は届いたか分からないので、直しの印を残す）", () => {
   for (const s of [400, 401, 403, 404, 422]) assert.equal(fireRejected(s), true, String(s));
   for (const s of [408, 429, 500, 502, 503]) assert.equal(fireRejected(s), false, String(s));
+});
+
+test("自動マージ: レビューを頼めなかった回数は、この版のボットの印だけを数える（3回で人に回す）", () => {
+  assert.equal(MAX_REVIEW_FAILS, 3);
+  const c = [bot(reviewFailMarker(SHA)), bot(reviewFailMarker(SHA)), bot(reviewFailMarker("old")), { body: reviewFailMarker(SHA), user: { login: "someone" } }];
+  assert.equal(reviewFailures(c, SHA), 2);
+  assert.equal(reviewFailures(c, "new"), 0);
 });

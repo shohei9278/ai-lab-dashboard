@@ -6,7 +6,7 @@
 // したことは PR にコメントし、Discord に知らせる
 // PR のコードは動かさない（差分は git で取り出して、レビューの材料として読むだけ）。PR のコメントの「指摘なし」は信じない（誰でもボットとして書けるため）
 import { execFileSync } from "node:child_process";
-import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, reviewHistory, reviewMarker, reviewPosted, type Decision, type PrComment } from "./auto-merge-rules";
+import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, reviewPosted, type Decision, type PrComment } from "./auto-merge-rules";
 import { REVIEWERS, askReviewer, blocking, parseReview, reviewComment, reviewInput, reviewInstructions, type Review, type Reviewer } from "./ai-review-core";
 import { OMITTED } from "./ai-review-omitted";
 
@@ -149,8 +149,14 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   if (noKey.length) return toHuman(pr, link, `レビューを頼む API キーがない（${noKey.join("・")}。GitHub の Secrets）`);
 
   const reviews = await reviewBoth(pr, history.text);
-  // 答えが返ってこなかった（通信の失敗など）ときは、次の見回りでもう一度頼む
-  if (REVIEWERS.some((r) => !reviews[r])) return { action: "wait", reason: "レビューを頼めなかった（次の見回りでもう一度）" };
+  // 答えが返ってこなかった（通信の失敗など）ときは、次の見回りでもう一度頼む。同じ版で3回頼めなかったら、人に回す
+  const failed = REVIEWERS.filter((r) => !reviews[r]);
+  if (failed.length) {
+    const n = reviewFailures(comments, pr.head.sha) + 1;
+    if (n >= MAX_REVIEW_FAILS) return toHuman(pr, link, `レビューを${MAX_REVIEW_FAILS}回頼めなかった（${failed.join("・")}。Actions のログに理由があります）`);
+    await comment(pr.number, `⏳ レビューを頼めませんでした（${failed.join("・")}。${n}回目）。次の見回りでもう一度頼みます。\n\n${reviewFailMarker(pr.head.sha)}`);
+    return { action: "wait", reason: `レビューを頼めなかった（${n}回目。次の見回りでもう一度）` };
+  }
   // 人とルーティンが読めるよう、2社のレビューを PR に書く（ここに書いたものは、マージに進む判断には使わない）
   // 印を付けて、次の版のレビューに「直ったかを確かめる項目」として渡す
   let recorded = true;
