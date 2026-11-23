@@ -111,13 +111,15 @@ test("自動マージ: レビューを頼めなかった回数は、この版の
   assert.equal(reviewFailures(c, "new"), 0);
 });
 
-test("自動マージ: 本番の確認は、いちばん新しいものが動いている途中なら待つ。取り消し・飛ばしは、その前を見る", () => {
+test("自動マージ: 本番の確認は、いちばん新しい回だけで決める。動いている途中・取り消し・飛ばしのときは待つ", () => {
   const done = (conclusion: string) => ({ status: "completed", conclusion });
   assert.equal(smokeResult([done("success"), done("failure")]), true);
   assert.equal(smokeResult([done("failure"), done("success")]), false);
   assert.equal(smokeResult([{ status: "in_progress", conclusion: null }, done("success")]), null);
   assert.equal(smokeResult([{ status: "queued", conclusion: null }, done("success")]), null);
-  assert.equal(smokeResult([done("cancelled"), done("skipped"), done("success")]), true);
+  assert.equal(smokeResult([done("cancelled"), done("success")]), null);
+  assert.equal(smokeResult([done("skipped"), done("success")]), null);
+  assert.equal(smokeResult([done("timed_out"), done("success")]), false);
   assert.equal(smokeResult([done("cancelled")]), null);
   assert.equal(smokeResult([]), null);
 });

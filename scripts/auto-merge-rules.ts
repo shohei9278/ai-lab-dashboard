@@ -66,16 +66,15 @@ export const reviewFailures = (comments: PrComment[], sha: string) => comments.f
 export const fireRejected = (status: number) => status >= 400 && status < 500 && status !== 408 && status !== 429;
 
 // main の本番の確認（smoke.yml）の、いちばん新しい結果。新しい順の一覧を渡す
-// いちばん新しいものが動いている途中なら、分からない（null）として待つ（出した直後の、まだ確かめていない本番の上でマージしない。PR #153 の ai-review の指摘）
-// 取り消し・飛ばしは結果ではないので、その前のものを見る
+// いちばん新しい回だけで決める。成功なら true、失敗なら false、それ以外（動いている途中・取り消し・飛ばし・ない）は分からない（null）として待つ
+// （本番に出し始めたときにも動いて「飛ばし」になるので、飛ばしは、新しい版を出している途中の合図のことがある。PR #153 の ai-review の指摘）
 export type SmokeRun = { status: string; conclusion: string | null };
+const SMOKE_FAILED = ["failure", "timed_out", "startup_failure", "action_required"];
 export function smokeResult(runs: SmokeRun[]): boolean | null {
-  for (const r of runs) {
-    if (r.status !== "completed") return null;
-    if (r.conclusion === "skipped" || r.conclusion === "cancelled") continue;
-    return r.conclusion === "success";
-  }
-  return null;
+  const r = runs[0];
+  if (!r || r.status !== "completed") return null;
+  if (r.conclusion === "success") return true;
+  return SMOKE_FAILED.includes(r.conclusion ?? "") ? false : null;
 }
 
 export type Decision = { action: "merge" | "fix" | "human" | "wait" | "review"; reason: string };
