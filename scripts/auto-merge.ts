@@ -6,7 +6,7 @@
 // したことは PR にコメントし、Discord に知らせる
 // PR のコードは動かさない（差分は git で取り出して、レビューの材料として読むだけ）。PR のコメントの「指摘なし」は信じない（誰でもボットとして書けるため）
 import { execFileSync } from "node:child_process";
-import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, reviewPosted, type Decision, type PrComment } from "./auto-merge-rules";
+import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type Decision, type PrComment } from "./auto-merge-rules";
 import { REVIEWERS, askReviewer, blocking, parseReview, reviewComment, reviewInput, reviewInstructions, type Review, type Reviewer } from "./ai-review-core";
 import { OMITTED } from "./ai-review-omitted";
 
@@ -128,7 +128,9 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   // コメントは、止める方向の印（人に回した・この版の直しは頼んだ・直させた回数）にだけ使う
   const { items: comments, complete: commentsComplete } = await pages<PrComment & { body: string }>(`/issues/${pr.number}/comments`, 20);
   if (handedToHuman(comments)) return { action: "wait", reason: "人に回したまま" };
-  const checks = (await gh<{ check_runs: CheckRun[] }>(`/commits/${pr.head.sha}/check-runs?per_page=100`)).check_runs;
+  // CI の結果は、全部で何件あるかも見る（100件を超えて読みきれないときは、終わっていないとして待つ。PR #153 の ai-review の指摘）
+  const runs = await gh<{ total_count: number; check_runs: CheckRun[] }>(`/commits/${pr.head.sha}/check-runs?per_page=100`);
+  const checks = runs.check_runs;
   // 変えたファイルを全部読む（GitHub は1つの PR で3000件まで）。名前を変えたものは、前の名前も見る
   const { items: files, complete: filesComplete } = await pages<{ filename: string; previous_filename?: string }>(`/pulls/${pr.number}/files`, 30);
   const link = `#${pr.number}「${pr.title}」 ${pr.html_url}`;
@@ -136,7 +138,7 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   const pre = beforeReview({
     branch: pr.head.ref, sameRepo: pr.head.repo?.full_name === GITHUB_REPOSITORY,
     baseMain: pr.base.ref === "main" && pr.base.repo?.full_name === GITHUB_REPOSITORY, draft: pr.draft,
-    checksDone: checks.length > 0 && checks.every((c) => c.status === "completed"),
+    checksDone: checks.length > 0 && runs.total_count <= checks.length && checks.every((c) => c.status === "completed"),
     ciOk: checks.find((c) => c.name === "check")?.conclusion === "success",
     files: changedPaths(files), filesComplete, commentsComplete, historyOk: history.ok, fixRequestedNow: fixRequested(comments, pr.head.sha),
     productionIdle: idle, smokeOk: smoke,
@@ -161,15 +163,14 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   // 印を付けて、次の版のレビューに「直ったかを確かめる項目」として渡す
   let recorded = true;
   for (const r of REVIEWERS) {
-    if (reviewPosted(comments, r, pr.head.sha)) continue;
     await comment(pr.number, `${reviewComment(reviews[r]!, "自動マージの見回りが頼んだレビューです（main のコードで動いています）。")}\n\n${reviewMarker(r, pr.head.sha)}`).catch((e) => {
       recorded = false;
       console.error(`#${pr.number}: ${r} のレビューのコメントに失敗: ${e instanceof Error ? e.message : String(e)}`);
     });
   }
   const d = afterReview(reviews, fixRounds(comments));
-  // 直しを頼むのは、レビューを PR に書けたときだけ（書けないと、次の版のレビューに、この指摘が渡らない。PR #153 の ai-review の指摘）
-  if (d.action === "fix" && !recorded) return { action: "wait", reason: "レビューを PR に書けなかった（次の見回りでもう一度）" };
+  // マージも直しも、レビューを PR に書けたときだけ（書けないと、次の版のレビューに、この指摘が渡らない。PR #153 の ai-review の指摘）
+  if (!recorded) return { action: "wait", reason: "レビューを PR に書けなかった（次の見回りでもう一度）" };
 
   if (d.action === "merge") {
     // レビューには数分かかるので、マージの直前に、本番が作業中でないか・本番の確認が通っているかを見直す（PR #153 の ai-review の指摘）
@@ -216,6 +217,8 @@ async function main() {
       // 1回の見回りでマージするのは1件だけ（マージのたびに本番に出るので、続けて出さない）
       if (d.action === "merge") break;
     } catch (e) {
+      // 1件でも失敗したら、ほかの PR は見終えたうえで、見回りを失敗にする（Actions からも知らせが来る。PR #153 の ai-review の指摘）
+      process.exitCode = 1;
       console.error(`#${pr.number}: ${e instanceof Error ? e.message : String(e)}`);
       await notify(`⚠️ 自動マージの見回りで失敗しました（#${pr.number}）: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
     }

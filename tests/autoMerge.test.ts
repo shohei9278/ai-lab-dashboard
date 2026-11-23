@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, reviewPosted, type PrComment } from "../scripts/auto-merge-rules";
+import { FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
 import { parseReview, reviewInstructions, type Review } from "../scripts/ai-review-core";
 import { OMITTED } from "../scripts/ai-review-omitted";
 
@@ -93,8 +93,10 @@ test("自動マージ: 見回りが書いた前の版へのレビューを、次
   assert.equal(HISTORY_MAX_COMMENTS, 8);
   assert.equal(reviewHistory(Array.from({ length: 8 }, (_, i) => bot(reviewMarker("gpt", `s${i}`)))).ok, true);
   assert.equal(reviewHistory(Array.from({ length: HISTORY_MAX_COMMENTS + 1 }, (_, i) => bot(reviewMarker("gpt", `s${i}`)))).ok, false);
-  assert.equal(reviewPosted([mine], "gpt", "old1"), true);
-  assert.equal(reviewPosted([mine], "gemini", "old1"), false);
+  // 同じ AI と版のレビューは、何度書いても1組と数える。形の読めない印は1件ずつ数える
+  const same = Array.from({ length: 12 }, () => bot(reviewMarker("gpt", "s1")));
+  assert.equal(reviewHistory(same).ok, true);
+  assert.equal(reviewHistory(Array.from({ length: HISTORY_MAX_COMMENTS + 1 }, () => bot("<!-- auto-merge review 形が違う"))).ok, false);
   assert.match(reviewInstructions({ autoPr: true, withHistory: false, recheck: true }), /直っているかを1件ずつ確かめ/);
   assert.doesNotMatch(reviewInstructions({ autoPr: true, withHistory: false }), /前の版へのレビュー/);
   // 予算の中なら費用が増えてもよいが、緊急停止と予算の上限を確かめずにAIを呼ぶ変更は 🔴（運営者が決めた）
