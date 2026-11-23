@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, reviewPosted, type PrComment } from "../scripts/auto-merge-rules";
+import { FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, reviewPosted, type PrComment } from "../scripts/auto-merge-rules";
 import { parseReview, reviewInstructions, type Review } from "../scripts/ai-review-core";
+import { OMITTED } from "../scripts/ai-review-omitted";
 
 // 自動マージの決まり: ルーティンが作った PR を、マージ・直させる・人に回す・待つ、のどれにするか
 // マージに進む判断は、見回りが自分で呼んだレビューの答えだけで決める（PR のコメントの「指摘なし」は信じない）
@@ -108,4 +109,19 @@ test("自動マージ: レビューを頼めなかった回数は、この版の
   const c = [bot(reviewFailMarker(SHA)), bot(reviewFailMarker(SHA)), bot(reviewFailMarker("old")), { body: reviewFailMarker(SHA), user: { login: "someone" } }];
   assert.equal(reviewFailures(c, SHA), 2);
   assert.equal(reviewFailures(c, "new"), 0);
+});
+
+test("自動マージ: 本番の確認は、いちばん新しいものが動いている途中なら待つ。取り消し・飛ばしは、その前を見る", () => {
+  const done = (conclusion: string) => ({ status: "completed", conclusion });
+  assert.equal(smokeResult([done("success"), done("failure")]), true);
+  assert.equal(smokeResult([done("failure"), done("success")]), false);
+  assert.equal(smokeResult([{ status: "in_progress", conclusion: null }, done("success")]), null);
+  assert.equal(smokeResult([{ status: "queued", conclusion: null }, done("success")]), null);
+  assert.equal(smokeResult([done("cancelled"), done("skipped"), done("success")]), true);
+  assert.equal(smokeResult([done("cancelled")]), null);
+  assert.equal(smokeResult([]), null);
+});
+
+test("自動マージ: レビューの差分から外すファイルは、すべて自動で触れない所に入っている（外したファイルの中身を見ないままマージしない）", () => {
+  assert.deepEqual(protectedFiles(OMITTED), OMITTED);
 });

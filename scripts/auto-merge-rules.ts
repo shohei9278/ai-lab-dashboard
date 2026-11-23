@@ -65,6 +65,19 @@ export const reviewFailures = (comments: PrComment[], sha: string) => comments.f
 // 5xx・408・429 は、受け付けたあとに失敗したこともありうるので、印を残して、人に確かめてもらう（PR #153 の ai-review の指摘）
 export const fireRejected = (status: number) => status >= 400 && status < 500 && status !== 408 && status !== 429;
 
+// main の本番の確認（smoke.yml）の、いちばん新しい結果。新しい順の一覧を渡す
+// いちばん新しいものが動いている途中なら、分からない（null）として待つ（出した直後の、まだ確かめていない本番の上でマージしない。PR #153 の ai-review の指摘）
+// 取り消し・飛ばしは結果ではないので、その前のものを見る
+export type SmokeRun = { status: string; conclusion: string | null };
+export function smokeResult(runs: SmokeRun[]): boolean | null {
+  for (const r of runs) {
+    if (r.status !== "completed") return null;
+    if (r.conclusion === "skipped" || r.conclusion === "cancelled") continue;
+    return r.conclusion === "success";
+  }
+  return null;
+}
+
 export type Decision = { action: "merge" | "fix" | "human" | "wait" | "review"; reason: string };
 
 // レビューの前に決められること。"review" なら、レビューしてから afterReview で決める

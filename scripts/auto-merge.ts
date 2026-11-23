@@ -6,7 +6,7 @@
 // したことは PR にコメントし、Discord に知らせる
 // PR のコードは動かさない（差分は git で取り出して、レビューの材料として読むだけ）。PR のコメントの「指摘なし」は信じない（誰でもボットとして書けるため）
 import { execFileSync } from "node:child_process";
-import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, reviewPosted, type Decision, type PrComment } from "./auto-merge-rules";
+import { AUTO_BRANCH, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, reviewPosted, type Decision, type PrComment } from "./auto-merge-rules";
 import { REVIEWERS, askReviewer, blocking, parseReview, reviewComment, reviewInput, reviewInstructions, type Review, type Reviewer } from "./ai-review-core";
 import { OMITTED } from "./ai-review-omitted";
 
@@ -28,7 +28,7 @@ async function gh<T>(path: string, init: RequestInit = {}, token = GITHUB_TOKEN)
 
 // Discord に知らせる。送れなかったら、見回りの記録（Actions のログ）に残す（PR #153 の ai-review の指摘）
 async function notify(text: string) {
-  if (!NOTIFY_WEBHOOK_URL) return;
+  if (!NOTIFY_WEBHOOK_URL) return console.error(`Discord の送り先（NOTIFY_WEBHOOK_URL）がないため、知らせていません: ${text.slice(0, 200)}`);
   for (let i = 0; i < 2; i++) {
     const res = await fetch(NOTIFY_WEBHOOK_URL, {
       method: "POST",
@@ -59,10 +59,9 @@ async function productionIdle(): Promise<boolean | null> {
 
 // main の本番の確認（smoke.yml）の、いちばん新しい結果
 async function smokeOk(): Promise<boolean | null> {
-  // main の結果だけを見る（ほかのブランチの結果で決めない。PR #153 の ai-review の指摘）
-  const r = await gh<{ workflow_runs: { conclusion: string | null }[] }>("/actions/workflows/smoke.yml/runs?branch=main&status=completed&per_page=10").catch(() => null);
-  const last = r?.workflow_runs.find((x) => x.conclusion && x.conclusion !== "skipped" && x.conclusion !== "cancelled");
-  return last ? last.conclusion === "success" : null;
+  // main の結果だけを見る（ほかのブランチの結果で決めない。PR #153 の ai-review の指摘）。決まりは smokeResult
+  const r = await gh<{ workflow_runs: SmokeRun[] }>("/actions/workflows/smoke.yml/runs?branch=main&per_page=10").catch(() => null);
+  return r ? smokeResult(r.workflow_runs) : null;
 }
 
 // 起動が届いていないと分かるとき（設定がない・起動先がはっきり断った）。時間切れ・通信の失敗・5xx・408・429 は、届いたか分からないので別に扱う
@@ -99,6 +98,7 @@ function diffOf(pr: Pull): string {
   execFileSync("git", ["fetch", "--quiet", "origin", "main", `+refs/heads/${pr.head.ref}:refs/remotes/origin/${pr.head.ref}`]);
   const head = execFileSync("git", ["rev-parse", `refs/remotes/origin/${pr.head.ref}`], { encoding: "utf8" }).trim();
   if (head !== pr.head.sha) throw new Error("確かめている間に、PR に新しい push があった");
+  // 外すのはロックファイルだけで、どれも自動で触れない所（それに触れる PR は、レビューの前に人に回る。tests/autoMerge.test.ts で確かめている）
   return execFileSync("git", ["diff", `origin/main...${pr.head.sha}`, "--", ".", ...OMITTED.map((f) => `:!${f}`)], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
 
