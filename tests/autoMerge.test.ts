@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { afterDeliberation, FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
+import { afterDeliberation, FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, protectedFiles, readyForHuman, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
 import { deliberationComment, MAX_BODY, parseDeliberation, parseReview, reviewInput, reviewInstructions, type Review } from "../scripts/ai-review-core";
 import { OMITTED } from "../scripts/ai-review-omitted";
 
@@ -32,10 +32,11 @@ test("自動マージ: 直すべき指摘があれば直させ、3回直して�
   assert.equal(pre({ fixRequestedNow: true }).action, "wait");
 });
 
-test("自動マージ: 自動で触れない所・CI の失敗・全部を読めないとき・レビューの答えを読めないとき・途中までのときは人に回す", () => {
-  assert.match(pre({ files: ["src/lib/loop.ts", ".github/workflows/ci.yml"] }).reason, /\.github\/workflows\/ci\.yml/);
+test("自動マージ: 自動で触れない所はレビューまで進め、CI の失敗・全部を読めないとき・レビューの答えを読めないとき・途中までのときは人に回す", () => {
+  // 自動で触れない所に触れていても、レビューまでは進める（マージだけ人が決める。readyForHuman）
+  assert.deepEqual(pre({ files: ["src/lib/loop.ts", ".github/workflows/ci.yml"] }).protectedFiles, [".github/workflows/ci.yml"]);
   for (const f of ["src/proxy.ts", "src/lib/ai.ts", "src/lib/autopilot.ts", "src/lib/autoAsk.ts", "scripts/auto-merge-rules.ts", "scripts/ai-review-core.ts", "src/lib/interventions.ts", "package.json", "docs/routine-proposal-fix.md", "CLAUDE.md", "src/app/login/LoginForm.tsx", "src/app/settings/SettingsForm.tsx", "src/app/api/settings/route.ts"]) {
-    assert.equal(pre({ files: [f] }).action, "human", f);
+    assert.deepEqual([pre({ files: [f] }).action, pre({ files: [f] }).protectedFiles], ["review", [f]], f);
   }
   assert.deepEqual(protectedFiles(["src/lib/loop.ts", "src/app/page.tsx", "tests/x.test.ts"]), []);
   assert.equal(pre({ ciOk: false }).action, "human");
@@ -56,7 +57,7 @@ test("自動マージ: CI が終わっていない・本番が作業中・止ま
 test("自動マージ: 名前を変えたファイルは前の名前も見る（危ない所から外へ名前を変えて、すり抜けない）", () => {
   const paths = changedPaths([{ filename: "src/lib/helper.ts", previous_filename: "src/lib/ai.ts" }, { filename: "src/lib/loop.ts" }]);
   assert.deepEqual(paths, ["src/lib/helper.ts", "src/lib/ai.ts", "src/lib/loop.ts"]);
-  assert.equal(pre({ files: paths }).action, "human");
+  assert.deepEqual(pre({ files: paths }).protectedFiles, ["src/lib/ai.ts"]);
 });
 
 test("レビューの答え: 中身が欠けている・重さが分からない・オブジェクトでない指摘は、重さに関係なく 🔴 として数える", () => {
@@ -167,4 +168,18 @@ test("協議: 2社とも全部を「マージしてよい」としたときだ�
   const c = deliberationComment(f, both(ok(2), one, 2));
   assert.match(c, /✅ マージしてよい/);
   assert.match(c, /🛑 直すべき（壊れる）/);
+});
+
+test("自動で触れない所: レビュー・直し・協議までは進め、マージしてよい状態になったら、レビュー済みとして人に回す", () => {
+  assert.equal(pre().protectedFiles, undefined);
+  const p = pre({ files: ["src/app/settings/SettingsForm.tsx", "src/lib/loop.ts"] });
+  assert.deepEqual([p.action, p.protectedFiles], ["review", ["src/app/settings/SettingsForm.tsx"]]);
+  // CI が落ちている・本番の確認が分からないなどは、今までどおり
+  assert.equal(pre({ files: ["src/proxy.ts"], ciOk: false }).action, "human");
+  assert.equal(pre({ files: ["src/proxy.ts"], smokeOk: null }).action, "wait");
+  const d = afterReview({ gpt: rv("gpt", []), gemini: rv("gemini", ["low"]) }, 0);
+  assert.equal(d.action, "merge");
+  const h = readyForHuman(d, p.protectedFiles!);
+  assert.equal(h.action, "human");
+  assert.match(h.reason, /^✅ レビュー済みで、マージしてよい状態（CI が通り、GPT と Gemini のどちらも直すべき指摘なし）。ただし、自動ではマージしない所（src\/app\/settings\/SettingsForm\.tsx）に触れている$/);
 });

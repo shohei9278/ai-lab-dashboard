@@ -3,11 +3,12 @@
 // - マージ: CI が通り、自動で触れない所に触れておらず、本番が作業中でなく、本番の確認が通っていて、この見回りが自分で呼んだ GPT と Gemini のどちらも直すべき指摘（🔴・🟡）なし
 // - 直させる: 直すべき指摘があれば、提案箱のルーティンに、同じブランチで直させる（3回まで）
 // - 協議: 3回直しても 🟡 だけが残ったら、GPT と Gemini に1件ずつ判断させ、2社とも全部を「マージしてよい」としたらマージ（運営者と決めた）
-// - 人に回す: 3回直しても 🔴 が残る・協議で「直すべき」が出た・自動で触れない所に触れている・CI が落ちた・レビューを読めない など
+// - 人に回す: 3回直しても 🔴 が残る・協議で「直すべき」が出た・CI が落ちた・レビューを読めない など
+// - 自動で触れない所に触れている PR も、レビュー・直し・協議までは同じように進め、マージしてよい状態になったら「レビュー済み」として人に回す（運営者が決めた）
 // したことは PR にコメントし、Discord に知らせる
 // PR のコードは動かさない（差分は git で取り出して、レビューの材料として読むだけ）。PR のコメントの「指摘なし」は信じない（誰でもボットとして書けるため）
 import { execFileSync } from "node:child_process";
-import { AUTO_BRANCH, HUMAN_MARK, afterDeliberation, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type Decision, type PrComment } from "./auto-merge-rules";
+import { AUTO_BRANCH, HUMAN_MARK, afterDeliberation, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, readyForHuman, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type Decision, type PrComment } from "./auto-merge-rules";
 import { REVIEWERS, askReviewer, blocking, deliberationComment, deliberationInput, deliberationInstructions, parseDeliberation, parseReview, reviewComment, reviewInput, reviewInstructions, type Deliberation, type Finding, type Review, type Reviewer } from "./ai-review-core";
 import { OMITTED } from "./ai-review-omitted";
 
@@ -172,6 +173,8 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   });
   if (pre.action === "human") return toHuman(pr, link, pre.reason);
   if (pre.action !== "review") return pre;
+  // 自動で触れない所に触れている PR は、レビュー・直し・協議までは自動で進め、マージに進めるときに人に回す
+  const prot = pre.protectedFiles ?? [];
   if (!AUTO_MERGE_TOKEN) return { action: "wait", reason: "AUTO_MERGE_TOKEN がない" };
   // APIキーがないと、いつまでもレビューできないので、人に回す（通信の一時的な失敗は、次の見回りでもう一度頼む。PR #153 の ai-review の指摘）
   const noKey = REVIEWERS.filter((r) => !(r === "gpt" ? OPENAI_API_KEY : GEMINI_API_KEY));
@@ -200,7 +203,7 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   if (!recorded) return { action: "wait", reason: "レビューを PR に書けなかった（次の見回りでもう一度）" };
 
   if (d.action === "merge") {
-    return mergeNow(pr, link, d);
+    return prot.length ? toHuman(pr, link, readyForHuman(d, prot).reason) : mergeNow(pr, link, d);
   } else if (d.action === "deliberate") {
     // 残った 🟡 を2社で協議する。結果は PR に書いて、人があとから見直せるようにする
     const findings = REVIEWERS.flatMap((r) => blocking(reviews[r]!));
@@ -209,7 +212,7 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
     const posted = await comment(pr.number, deliberationComment(findings, results)).then(() => true, () => false);
     if (!posted) return { action: "wait", reason: "協議の結果を PR に書けなかった（次の見回りでもう一度）" };
     if (after.action !== "merge") return toHuman(pr, link, after.reason);
-    return mergeNow(pr, link, after);
+    return prot.length ? toHuman(pr, link, readyForHuman(after, prot).reason) : mergeNow(pr, link, after);
   } else if (d.action === "fix") {
     const text = fixText(pr, REVIEWERS.flatMap((r) => blocking(reviews[r]!)));
     if (!text) return toHuman(pr, link, "直すべき指摘が長く、ルーティンに全部を渡せない");
