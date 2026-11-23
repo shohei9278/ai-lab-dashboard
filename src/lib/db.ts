@@ -652,6 +652,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["approvals", "routine_url", "TEXT"],
   ["approvals", "initial_choice", "TEXT"], // 判断: AIの意見を見る前に人が選んだもの
   ["approvals", "final_choice", "TEXT"], // 判断: AIの意見と議論を見たあとに人が確定したもの
+  ["approvals", "routine_tries", "INTEGER NOT NULL DEFAULT 0"], // 開発待ちをルーティンに頼んだ回数（入らなかったら、自動で1回だけ頼み直す。toolRoutine.ts）
   ["projects", "kind", "TEXT NOT NULL DEFAULT 'lp'"],
   ["lp_versions", "author_model", "TEXT"], // その版のLPを書いたAI
   ["projects", "public_version", "INTEGER"], // 公開用サイトに今出している版
@@ -764,7 +765,11 @@ CREATE TABLE plan_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, plan_id INTEGE
   }
   for (const [table, column, def] of EXTRA_COLUMNS) {
     const cols = conn.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
-    if (!cols.some((c) => c.name === column)) conn.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+    if (!cols.some((c) => c.name === column)) {
+      conn.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+      // 前に頼んだことのある開発待ちは、1回頼んだとして数える（頼み直しを1回だけにするため）
+      if (table === "approvals" && column === "routine_tries") conn.exec("UPDATE approvals SET routine_tries = 1 WHERE routine_at IS NOT NULL");
+    }
   }
 }
 
@@ -1114,6 +1119,7 @@ export type ApprovalRow = {
   lp_version: number;
   routine_at: string | null;
   routine_url: string | null;
+  routine_tries: number;
 };
 
 export type EventRow = { id: number; at: string; project_id: number | null; actor: "ai" | "human" | "system"; kind: string; message: string };
