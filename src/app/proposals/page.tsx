@@ -18,12 +18,14 @@ function AutoAskPanel({ st }: { st: AutoAskStatus }) {
   let check = st.nextCheckAt;
   if (check && resume) while (check <= resume) check += 3_600_000;
   const busy = st.busy ? `#${st.busy.id}「${st.busy.title}」を ${jstDateTime(st.busy.at)} に頼み、${st.busy.pr ? `PR #${st.busy.pr} の` : "PR ができるのを"}マージまで待っています` : null;
+  // 上限は、止めている・進めている間も重なりうるので、状態とは別にも出す（PR #173 の ai-review の指摘）
+  const cap = st.resumeAt ? `直近24時間に${st.asked}件頼み、1日の上限（${st.max}件）に達しています。${jstDateTime(st.resumeAt)} から次を頼めます` : null;
   const state = st.off
     ? { label: "止まっています", text: `${st.off}。新しい提案は頼みません` }
     : busy
-      ? { label: "進めています", text: `${busy}。終わったら次を頼みます` }
-      : st.resumeAt
-        ? { label: "上限で待っています", text: `直近24時間に${st.asked}件頼み、1日の上限（${st.max}件）に達しています。${jstDateTime(st.resumeAt)} から次を頼めます` }
+      ? { label: "進めています", text: `${busy}。${cap ? "終わっても、上限が空くまで次は頼みません" : "終わったら次を頼みます"}` }
+      : cap
+        ? { label: "上限で待っています", text: cap }
         : st.next
           ? { label: "次を頼みます", text: "次の見回りで頼みます" }
           : { label: "頼むものがありません", text: `頼める提案がありません（守りの提案は入ってから1日、運営者の提案は1時間待ちます。採点が${AUTO_MIN_SCORE}点未満のものは頼みません）` };
@@ -37,9 +39,10 @@ function AutoAskPanel({ st }: { st: AutoAskStatus }) {
       <p className="mt-1 text-xs text-ink-2">{state.text}</p>
       {/* 止めても、止める前に頼んだ PR は進むので、見えるようにする（PR #173 の ai-review の指摘） */}
       {st.off && busy && <p className="mt-1 text-xs text-ink-2">止める前に頼んだもの: {busy}</p>}
+      {cap && (st.off || busy) && <p className="mt-1 text-xs text-ink-2">{cap}</p>}
       {st.next && (
         <>
-          <p className="mt-1 text-xs text-ink-2">{st.off ? "再開したら次に頼む提案" : "次に頼む提案"}: <b>#{st.next.id}「{st.next.title}」</b></p>
+          <p className="mt-1 text-xs text-ink-2">{st.off ? (cap ? "再開して上限が空いたら次に頼む提案" : "再開したら次に頼む提案") : cap ? "上限が空いたら次に頼む提案" : "次に頼む提案"}: <b>#{st.next.id}「{st.next.title}」</b></p>
           <p className="text-xs text-muted">理由: {st.next.why.replace(/^自動: /, "")}</p>
         </>
       )}
