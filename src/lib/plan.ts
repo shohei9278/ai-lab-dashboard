@@ -401,7 +401,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - voice: 社員としてのひとこと（つぶやき程度、60文字以内）。感想・気づき・心配・ダメ出し・試したいことなど何でもよい。数字や出来事は材料にあるものだけを使い、体験談は作らない
 - research: 今の判断に効くのに分からないことがあれば、Webの公開情報で調べてもらう問いを1件だけ（例: 「#35 が使われない原因が分からない。類似の無料ツールを調べ、すでに無料でできることと、#35 に足りないことを確かめる」）。{"question":"分からないこと","why":"分かるとどの判断が変わるか","how":"どう調べるか","project_id":案件の番号（全体についてなら null）}。調べなくても決められる日・Webでは分からないこと（自社の利用者の気持ちなど）・最近調べたことと同じ問いは null。結果は翌朝の材料に出典つきで入る
 - voice_effects: 外の声（実際の人の反応）や調べたことを根拠に、今日の計画で何かを変えたときだけ。[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"project_id":案件の番号,"change":"何をどう変えたか"}]。外の声はAIどうしの解釈より優先する
-- trials: 何かを変えて効果を見るとき（切り口・見せ方・場所・ページの直し）は、試しとして、判定日時（judge_after_hours: 24〜168時間後）と見る数字（metric: visits か conversions）と、判断に要る訪問の下限（min_visits: 5〜200）を決める。投稿から1日では訪問がほとんどないので、少ない数字で勝ち負けを決めないため。[{"project_id":番号,"question":"何を確かめるか","change":"何を変えるか（比べるものがあれば両方。例: 同じツールを静止画と短い動画で紹介する）","metric":"visits","judge_after_hours":48,"min_visits":20,"focus":false}]。同時に3件まで・今日始めるのは2件まで。判定日時を待っている試しの案件には重ねない。変えることは、今日の tasks にも入れる。なければ空の配列
+- trials: 何かを変えて効果を見るとき（切り口・見せ方・場所・ページの直し）は、試しとして、判定日時（judge_after_hours: 24〜168時間後）と見る数字（metric: visits か conversions）と、判断に要る訪問の下限（min_visits: 5〜200）を決める。投稿から1日では訪問がほとんどないので、少ない数字で勝ち負けを決めないため。[{"project_id":番号,"question":"何を確かめるか","change":"何を変えるか（比べるものがあれば両方。例: 同じツールを静止画と短い動画で紹介する）","metric":"visits","judge_after_hours":48,"min_visits":20,"focus":false}]。同時に3件まで・今日始めるのは2件まで。判定日時を待っている試しの案件には重ねない。変えることは、今日の tasks にも入れる（同じ案件の promo か improve が tasks にない試しは、何も変えないので入らない）。なければ空の配列
 - 既存のツールの集客の実験（focus）: ネックが reach か use で、すでに登録・利用が出た公開中の案件があるときは、新しい案件を増やすより、その1件の紹介の仕方を変えて比べる試しを focus: true で作ってよい（そのときは pause_new も true にして、新しい案件づくりを休む）。訪問が少ない（reach）なら投稿の切り口・場所・見せ方を、訪問はあるが使われない（use）なら improve でツールの最初の画面を変える。比べる投稿は、場所と時間帯をそろえる
 - trial_results: 材料の「判定日時が来た試し」それぞれの結論。[{"id":試しの番号,"verdict":"win|lose|unclear","result":"数字を根拠にした理由（件数が少なければそう書く）"}]。判定日時が来ていない試しには、結論を出さない
 - replies: 運営者が提案箱に入れた提案（材料の「運営者からの提案」）それぞれへの返事。どう受け止め、今日の計画にどう反映したか（反映できないなら理由）を1〜2文で
@@ -489,7 +489,8 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   }
   // 試し（判定日時と見る数字・下限）と、判定日時が来た試しの結論
   applyTrialResults(out.trial_results, due, model);
-  const trialsAdded = addTrials(id, out.trials, { live, model, focusOk: (bottleneck === "reach" || bottleneck === "use") && out.pause_new === true });
+  const focusNeed = out.pause_new !== true ? null : bottleneck === "reach" ? "promo" : bottleneck === "use" ? "improve" : null;
+  const trialsAdded = addTrials(id, out.trials, { live, model, tasks: tasks.map((t) => ({ kind: t.kind, project_id: t.kind === "plain" ? null : Number(t.project_id) })), focusNeed });
   // お願い（返事がまだのものと同じ題は入れない）
   const reqs = (Array.isArray(out.requests) ? out.requests : []).filter((r) => isObj(r) && isStr(r.title)).slice(0, 2)
     .filter((r) => addProposal({ title: r.title, how: String(r.how ?? ""), why: String(r.why ?? ""), target: "human", source: "plan", proposer: model, scene: "朝会", planId: id }));

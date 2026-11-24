@@ -48,8 +48,9 @@ export function trialStats(t: Pick<TrialRow, "project_id" | "created_at">): { vi
 }
 
 // 朝会が出した試しを入れる（決まりに合わないものは入れない）。入れた件数を返す
-// focusOk: その朝会のネックが reach / use で、新しい案件を休む（pause_new）とき。そろわなければ、印のある試しもふつうの試しにする（PR #172 の ai-review の指摘）
-export function addTrials(planId: number, raw: unknown, opts: { live: Set<number>; model: string; now?: number; focusOk?: boolean }): number {
+// tasks: その朝会で決まった予定（決まりで落とした後のもの）。同じ案件の投稿（promo）か直し（improve）がない試しは入れない（何も変えない期間の数字で判定しないため。PR #172 の ai-review の指摘）
+// focusNeed: 既存の案件の集客の実験に要る予定。ネックが reach で新しい案件を休むなら promo、use で休むなら improve、それ以外は null（印のある試しも、ふつうの試しにする）
+export function addTrials(planId: number, raw: unknown, opts: { live: Set<number>; model: string; tasks: { kind: string; project_id: number | null }[]; focusNeed: "promo" | "improve" | null; now?: number }): number {
   if (!Array.isArray(raw)) return 0;
   const now = opts.now ?? Date.now();
   let room = Math.min(TRIAL_MAX_NEW, TRIAL_MAX_OPEN - openTrials().length);
@@ -63,6 +64,8 @@ export function addTrials(planId: number, raw: unknown, opts: { live: Set<number
     const question = typeof t.question === "string" ? t.question.trim() : "";
     const change = typeof t.change === "string" ? t.change.trim() : "";
     if (!opts.live.has(pid) || !question || !change) continue;
+    const kinds = new Set(opts.tasks.filter((x) => x.project_id === pid && (x.kind === "promo" || x.kind === "improve")).map((x) => x.kind));
+    if (!kinds.size) continue;
     // 同じ案件で、まだ判定日時を待っている試しがあれば重ねない（どちらの効果か分からなくなるため）
     if (db().prepare("SELECT 1 FROM plan_trials WHERE project_id = ? AND status = 'open'").get(pid)) continue;
     const metric: TrialMetric = t.metric === "conversions" ? "conversions" : "visits";
@@ -70,7 +73,7 @@ export function addTrials(planId: number, raw: unknown, opts: { live: Set<number
     const minVisits = clamp(t.min_visits, TRIAL_MIN_VISITS.min, TRIAL_MIN_VISITS.max, TRIAL_MIN_VISITS.default);
     // 既存の案件の集客の実験は、すでに登録・利用が出た案件だけ（利用が0の案件では、紹介の仕方の差が見えないため）
     const used = (db().prepare("SELECT COALESCE(SUM(signups), 0) AS c FROM metrics WHERE project_id = ? AND source != 'simulated'").get(pid) as { c: number }).c;
-    const focus = t.focus === true && opts.focusOk === true && used > 0 ? 1 : 0;
+    const focus = t.focus === true && opts.focusNeed !== null && kinds.has(opts.focusNeed) && used > 0 ? 1 : 0;
     ins.run(planId, pid, utc(now), question.slice(0, 200), change.slice(0, 300), metric, utc(now + hours * 3_600_000), hours, minVisits, focus);
     logEvent(pid, "ai", "trial", `試しを始めました（${modelInfo(opts.model).label}）: ${question.slice(0, 80)}。${hours}時間後に${METRIC_LABEL[metric]}で判断します（訪問${minVisits}人に届かなければ保留）${focus ? "。新しい案件を休んで、この案件の集客を試します" : ""}`);
     room--;
@@ -90,8 +93,9 @@ export function settleDueTrials(now = Date.now()): TrialRow[] {
       due.push(t);
       continue;
     }
-    if (!t.extended) {
-      const next = utc(ms(t.judge_at) + t.hours * 3_600_000);
+    const next = utc(ms(t.judge_at) + t.hours * 3_600_000);
+    // 延ばした先がもう過ぎている（朝会が止まっていたなど）なら、延ばした分の数字はもう入っているので、ここで閉じる（PR #172 の ai-review の指摘）
+    if (!t.extended && ms(next) > now) {
       db().prepare("UPDATE plan_trials SET judge_at = ?, extended = 1 WHERE id = ?").run(next, t.id);
       logEvent(t.project_id, "system", "trial", `試し「${t.question.slice(0, 60)}」は、訪問が${s.visits}人で下限（${t.min_visits}人）に届かないので、判断を保留して${jstDateTime(next)}まで延ばしました`);
     } else {
