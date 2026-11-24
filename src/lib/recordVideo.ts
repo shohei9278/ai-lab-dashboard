@@ -247,7 +247,7 @@ export async function createRecordVideo(kind: RecordVideoKind, instruction?: str
   if (g.__aiLabRecordVideo) throw new Error("いま別の動画を作っています。終わってから試してください");
   g.__aiLabRecordVideo = true;
   // 作っている間は「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように）
-  return withActivity({ key: "record-video", title: `実験の記録の動画（${RECORD_VIDEO_KINDS[kind]}）`, models: [getSettings().loopModel], room: "pr", doing: "実験の記録の動画" }, (step) => makeRecordVideo(kind, instruction, step));
+  return withActivity({ key: "record-video", title: `実験の記録の動画（${RECORD_VIDEO_KINDS[kind]}）`, models: [getSettings().loopModel], room: "pr", doing: "実験の記録の動画", projectId: null }, (step) => makeRecordVideo(kind, instruction, step));
 }
 
 async function makeRecordVideo(kind: RecordVideoKind, instruction: string | undefined, step: (status: string) => void): Promise<number> {

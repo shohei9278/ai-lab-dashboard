@@ -35,7 +35,7 @@ test("AIを呼ぶ関数（PR #92 の ai-review の指摘）: 設定やモデル�
 test("作業中の登録: 長い作業は、終わるまで「いまAIがやっていること」に出て、失敗しても消える。オフィスでは担当のAIがその部屋にいる", async () => {
   let done!: () => void;
   let stepFn!: (s: string) => void;
-  const job = withActivity({ key: "play-video-1", title: "遊ぶ様子の動画「雪玉」", models: ["claude-opus-5-5"], room: "pr", doing: "遊ぶ様子の動画" }, (step) => { stepFn = step; return new Promise<void>((ok) => { done = ok; }); });
+  const job = withActivity({ key: "play-video-1", title: "遊ぶ様子の動画「雪玉」", models: ["claude-opus-5-5"], room: "pr", doing: "遊ぶ様子の動画", projectId: null }, (step) => { stepFn = step; return new Promise<void>((ok) => { done = ok; }); });
   const a = activityList().find((x) => x.key === "play-video-1")!;
   assert.deepEqual([a.title, a.models, a.room, a.steps["Claude Opus 5.5"]], ["遊ぶ様子の動画「雪玉」", ["claude-opus-5-5"], "pr", "始めました"]);
   stepFn("録画しています");
@@ -47,11 +47,11 @@ test("作業中の登録: 長い作業は、終わるまで「いまAIがやっ�
   assert.ok(!activityList().some((x) => x.key === "play-video-1"));
   assert.ok(!officeWorking().some((x) => x.member === "anthropic"));
   // 失敗しても消える
-  await assert.rejects(withActivity({ key: "check-eval-9", title: "公開前チェックの評価", models: ["gpt-5.6-sol"], room: "dev", doing: "公開前チェックの評価" }, async () => { throw new Error("だめ"); }));
+  await assert.rejects(withActivity({ key: "check-eval-9", title: "公開前チェックの評価", models: ["gpt-5.6-sol"], room: "dev", doing: "公開前チェックの評価", projectId: null }, async () => { throw new Error("だめ"); }));
   assert.ok(!activityList().some((x) => x.key === "check-eval-9"));
   // 複数のAIを比べる作業は、その全員がその部屋にいる（PR #168 の ai-review の指摘）
   let fin!: () => void;
-  const run = withActivity({ key: "run-1", title: "AIの比べ（実行）", models: ["claude-opus-5-5", "gpt-5.6-sol", "gemini-3.1-pro-preview"], room: "dev", doing: "AIの比べ" }, () => new Promise<void>((ok) => { fin = ok; }));
+  const run = withActivity({ key: "run-1", title: "AIの比べ（実行）", models: ["claude-opus-5-5", "gpt-5.6-sol", "gemini-3.1-pro-preview"], room: "dev", doing: "AIの比べ", projectId: null }, () => new Promise<void>((ok) => { fin = ok; }));
   assert.deepEqual(officeWorking().filter((x) => x.doing === "AIの比べ").map((x) => x.member).sort(), ["anthropic", "google", "openai"]);
   fin();
   await run;
@@ -91,6 +91,8 @@ test("オフィスのいまの作業: クラウドのルーティンが作って
   assert.doesNotMatch(shown, /非公開の秘密案件|秘密|残り/);
   assert.match(shown, /プロンプトの比較/);
   assert.equal(officeWorking().find((x) => x.doing === "プロンプトの比較")?.project, "非公開の秘密案件", "運営者の画面では案件名を出す");
+  // ライブ（/api/live の activities）にも案件の番号を渡す（ライブの案件名から、案件の画面へ移れるように）
+  assert.equal(activityList().find((x) => x.key === "pt")?.projectId, pid);
   fin();
   await job;
   liveEnd("adhoc");

@@ -486,9 +486,12 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   const rq = out.research;
   if (rq && isStr(rq.question)) {
     const pid = Number(rq.project_id);
-    const rid = addResearch({ planId: id, projectId: Number.isFinite(pid) && pid > 0 ? pid : null, question: rq.question, why: isStr(rq.why) ? rq.why : "", how: isStr(rq.how) ? rq.how : "", askedBy: model });
+    const researchProject = Number.isFinite(pid) && pid > 0 ? pid : null;
+    const rid = addResearch({ planId: id, projectId: researchProject, question: rq.question, why: isStr(rq.why) ? rq.why : "", how: isStr(rq.how) ? rq.how : "", askedBy: model });
     // 調べている間は「いまAIがやっていること」に出す（右下の表示・オフィス・マージ前の確認に出るように。調べるのは research.ts の Claude）
-    void withActivity({ key: `research-${rid}`, title: "調べもの", models: ["claude-sonnet-5-5"], room: "meeting", doing: "調べもの" }, () => runResearch(rid)).catch((e) => console.error("調べものに失敗しました", e));
+    // 案件についての調べものは、案件も渡す（オフィスとライブに案件名を出し、ライブから案件へ移れるように。PR #168 の ai-review の指摘）
+    const researchTitle = researchProject ? db().prepare("SELECT title FROM projects WHERE id = ?").pluck().get(researchProject) as string | undefined : undefined;
+    void withActivity({ key: `research-${rid}`, title: researchTitle ? `調べもの「${researchTitle}」` : "調べもの", models: ["claude-sonnet-5-5"], room: "meeting", doing: "調べもの", projectId: researchTitle ? researchProject : null }, () => runResearch(rid)).catch((e) => console.error("調べものに失敗しました", e));
   }
   for (const r of Array.isArray(out.replies) ? out.replies : []) {
     if (isObj(r) && isStr(r.reply)) conn.prepare("UPDATE plan_requests SET ai_reply = ? WHERE id = ? AND source = 'human'").run(`${modelInfo(model).label}（${now.day}の朝会）: ${r.reply.slice(0, 400)}`, Number(r.id));
