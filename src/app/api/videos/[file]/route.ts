@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import { recordVideoPath } from "@/lib/recordVideo";
 import { playVideoPath } from "@/lib/playVideo";
 import { isOwner } from "@/lib/viewer";
 
@@ -7,7 +6,7 @@ import { isOwner } from "@/lib/viewer";
 export async function GET(req: Request, { params }: { params: Promise<{ file: string }> }) {
   if (!(await isOwner())) return new Response("Forbidden", { status: 403 });
   const { file } = await params;
-  const p = recordVideoPath(file) ?? playVideoPath(file);
+  const p = playVideoPath(file);
   if (!p || !fs.existsSync(p)) return new Response("Not found", { status: 404 });
   const body = fs.readFileSync(p);
   const headers = { "Content-Type": "video/mp4", "Accept-Ranges": "bytes", "Cache-Control": "no-store" };

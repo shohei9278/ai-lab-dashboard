@@ -463,8 +463,8 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" className="mt-1" checked={v.dailyReport} onChange={(e) => set("dailyReport", e.target.checked)} />
               <span>
-                毎晩の日報（22時以降に、その日の結果と note の下書きを書く）
-                <span className="block text-xs text-muted">1日 約10〜20円です。「日報」の画面で見られ、note の下書きと画像はログインしているときだけ出ます。</span>
+                毎晩の日報（22時以降に、その日の結果を書く）
+                <span className="block text-xs text-muted">1日 約10〜20円です。「日報とつぶやき」の画面で見られます。</span>
               </span>
             </label>
             {v.dailyPlan && (

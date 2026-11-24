@@ -84,7 +84,7 @@ function feed(): FeedItem[] {
     });
     items.push({ key: `ac${m.id}`, at: m.at, who: label(c.chair), provider: provider(c.chair), kind: `${t}の結論（議長）`, text: c.conclusion, project: null });
   }
-  // ---- ほかのAIの出力（読める形で残しているもの）。日報の note 下書き・週のレポートの下書きは、下書きなので入れない ----
+  // ---- ほかのAIの出力（読める形で残しているもの）。週のレポートの下書きは、下書きなので入れない ----
   const who = (id: string | null) => (id ? label(id) : "AI");
   const prov = (id: string | null) => (id ? provider(id) : null);
   // 社員のつぶやき（どの場面で出たか）
