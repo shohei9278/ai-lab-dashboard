@@ -281,7 +281,8 @@ CREATE TABLE IF NOT EXISTS research (
   searches INTEGER,
   done_at TEXT
 );
--- 日報: 毎晩、その日の朝会の担当AIが1日の結果を書く。運営者が自分のnoteに貼る下書きと画像も一緒に作る
+-- 日報: 毎晩、その日の朝会の担当AIが1日の結果を書く
+-- note_title・note_body・images は、運営者の note に貼る下書きと画像を作っていたときの名残（運営者が不要と決め、今は空で入れる）
 CREATE TABLE IF NOT EXISTS daily_reports (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   day TEXT NOT NULL UNIQUE, -- 日本時間の YYYY-MM-DD
@@ -387,6 +388,7 @@ CREATE TABLE IF NOT EXISTS play_scripts (
   PRIMARY KEY (project_id, html_hash)
 );
 
+-- 実験の記録の動画（運営者が不要と決めて、作る仕組みを外した。前に作った分の記録だけが残る）
 CREATE TABLE IF NOT EXISTS record_videos (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -884,7 +886,7 @@ export type Settings = {
   viralCursor: string; // 話題の投稿で、前回読み終えた所（読んだ範囲の終わり。ISO）。次はここから読む（遅らせて読むので、検索の日時とは別に覚える）
   lastFollowersTry: string; // 最後にフォロワー数を読もうとした日（日本時間。失敗しても、その日はもう読まない）
   wantsPerQuery: number; // 「欲しい」の声の検索1つあたりに読む投稿の数（0 なら探さない）
-  dailyReport: boolean; // 毎晩、AIが1日の日報と note の下書きを書く
+  dailyReport: boolean; // 毎晩、AIが1日の日報を書く
   dailyPlan: boolean; // 毎朝AIが全案件を振り返って、今日の計画（投稿の回数・時刻・切り口、ページの改善など）を決めて動く
   promoOff: string; // 宣伝の投稿（リンク付き）をしない場所（カンマ区切り。例: x）
   plainOff: string; // 普通の投稿（リンクなし）をしない場所（カンマ区切り）

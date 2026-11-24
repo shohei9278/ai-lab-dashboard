@@ -39,7 +39,7 @@ jobs:
           [ "$to" = "$DASHBOARD/#live" ] || exit 1
       - name: ゲストは操作できない
         run: |
-          for u in /api/loop /api/videos /api/interventions; do
+          for u in /api/loop /api/diary /api/interventions; do
             code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{}' --max-time 40 "$DASHBOARD$u")
             echo "$u $code"
             [ "$code" = "403" ] || exit 1

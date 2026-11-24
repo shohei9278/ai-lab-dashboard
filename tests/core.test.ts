@@ -16,8 +16,6 @@ import { isOpenShop, stateAt, tallyAt, toMs } from "../src/lib/officeShared";
 import { liveFeed, liveSnapshot } from "../src/lib/live";
 import { HIDDEN } from "../src/lib/viewer";
 import { indexCounts } from "../src/lib/publish";
-import { numbersFromMaterial } from "../src/lib/recordVideo";
-import { skitHtml } from "../src/lib/recordSkit";
 import { reviewHistory } from "../scripts/ai-review-history";
 import { jstDay, postQuota } from "../src/lib/sns";
 import { clipText, getTrace, listTraces, saveTrace } from "../src/lib/traces";
@@ -59,14 +57,6 @@ test("保留: 集客中でない案件は保留にできない", () => {
 test("一覧から来た人: 目印のある訪問者だけを1人1回数える", () => {
   const views = [{ visitor_id: "a", source: "index" }, { visitor_id: "a", source: "index" }, { visitor_id: "b", source: "index" }, { visitor_id: "c", source: "x1" }, { visitor_id: "d", source: null }];
   assert.deepEqual(indexCounts(views, [{ visitor_id: "a" }, { visitor_id: "c" }, { visitor_id: null }]), { visits: 2, uses: 1 });
-});
-
-test("動画の台本: 材料にない数字は通さない", () => {
-  const script = (text: string) => ({ hook: "h", end: "e", caption: "c", scenes: [{ who: null, label: "l", text }] });
-  const mat = "AI費用 約5,624円・訪問 32人";
-  assert.equal(numbersFromMaterial(script("費用は5,624円、訪問は32人"), mat), true);
-  assert.equal(numbersFromMaterial(script("費用は9,999円"), mat), false);
-  assert.equal(numbersFromMaterial({ ...script("費用は5,624円"), caption: "利用者は1,000人です" }, mat), false);
 });
 
 test("人の手の記録: 最初の事例は入れ直しても増えず、消した記録は戻らない", () => {
@@ -138,12 +128,6 @@ test("AIの入出力: 件数と日数を超えた分は消し、長い本文は�
   assert.ok(clipped.length < 61_000 && clipped.startsWith("始") && clipped.endsWith("終"));
   saveTrace({ ...base, input: long });
   assert.equal(listTraces()[0].input_chars, long.length);
-});
-
-test("ロボットの寸劇: 台本の文字でページの作りを壊せない", () => {
-  const html = skitHtml({ cast: [{ name: "A", provider: "openai" }], beats: [{ speaker: 0, line: "</script><img src=x>", mood: "normal", board: "<b>" }] });
-  assert.ok(!html.includes("</script><img"));
-  assert.ok(html.includes("\\u003c/script>"));
 });
 
 test("GPTのレビュー: 過去の指摘と関係者の判断だけを渡す", () => {

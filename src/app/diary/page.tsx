@@ -4,10 +4,8 @@ import { DiaryTabs } from "@/components/LabTabs";
 import { ShowMore } from "@/components/ShowMore";
 import { getSettings } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
-import { listDiaries, type DiaryContent, type DiaryImage, type DiaryRow } from "@/lib/diary";
-import { CopyNote, WriteDiary } from "./DiaryActions";
-import { RecordVideos } from "./RecordVideos";
-import { listRecordVideos } from "@/lib/recordVideo";
+import { listDiaries, type DiaryContent, type DiaryRow } from "@/lib/diary";
+import { WriteDiary } from "./DiaryActions";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +17,8 @@ const List = ({ title, items }: { title: string; items: string[] }) =>
     </div>
   ) : null;
 
-function Diary({ d, owner }: { d: DiaryRow; owner: boolean }) {
+function Diary({ d }: { d: DiaryRow }) {
   const c = JSON.parse(d.content) as DiaryContent;
-  const images = JSON.parse(d.images) as DiaryImage[];
   const m = modelInfo(d.model_id);
   const n = c.numbers;
   return (
@@ -39,32 +36,6 @@ function Diary({ d, owner }: { d: DiaryRow; owner: boolean }) {
       <List title="分かったこと" items={c.learned} />
       <List title="効かなかったこと・できなかったこと" items={c.failed} />
       {c.tomorrow && <p className="text-sm"><span className="text-xs text-muted">明日は: </span>{c.tomorrow}</p>}
-      {owner && (
-        <details className="border-t border-line pt-2">
-          <summary className="cursor-pointer text-sm text-ink-2">note の下書き（あなただけに見えています）</summary>
-          <div className="mt-2 space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <CopyNote text={`${d.note_title}\n\n${d.note_body}`} />
-              <span className="text-xs text-muted">【ここに感想を記載】の所に、あなたの言葉を書いて投稿してください。</span>
-            </div>
-            <div className="rounded-lg bg-surface-2 p-3">
-              <div className="font-bold">{d.note_title}</div>
-              <p className="mt-2 whitespace-pre-wrap text-sm">{d.note_body}</p>
-            </div>
-            {images.length > 0 && (
-              <div className="flex gap-3 overflow-x-auto pb-1">
-                {images.map((i) => (
-                  <a key={i.file} href={`/api/screenshots/${i.file}`} download={i.file} className="block shrink-0 space-y-1 text-xs text-ink-2">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={`/api/screenshots/${i.file}`} alt={i.label} className="h-40 w-auto rounded-lg border border-line" />
-                    <span className="underline">{i.label}を保存</span>
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        </details>
-      )}
     </article>
   );
 }
@@ -81,9 +52,8 @@ export default async function DiaryPage() {
         {s.dailyReport ? "" : "（設定で、毎晩の日報は止めています）"}
       </PageIntro>
       <DiaryTabs current="/diary" />
-      {owner && <RecordVideos items={listRecordVideos()} />}
       {list.length ? (
-        <ShowMore initial={7} className="space-y-3">{list.map((d) => <Diary key={d.id} d={d} owner={owner} />)}</ShowMore>
+        <ShowMore initial={7} className="space-y-3">{list.map((d) => <Diary key={d.id} d={d} />)}</ShowMore>
       ) : <p className="card p-4 text-sm text-ink-2">まだ日報はありません。毎晩22時以降に、その日の分が書かれます。</p>}
     </div>
   );
