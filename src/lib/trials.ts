@@ -15,6 +15,7 @@ export type TrialRow = {
   id: number; plan_id: number; project_id: number; created_at: string; question: string; change: string; metric: TrialMetric;
   judge_at: string; hours: number; min_visits: number; focus: number; extended: number; status: "open" | "decided" | "expired";
   verdict: "win" | "lose" | "unclear" | null; result: string | null; decided_at: string | null; decided_by: string | null;
+  final_visits: number | null; final_conversions: number | null;
 };
 export const TRIAL_MAX_OPEN = 3; // 同時に試すのは3件まで（多いと、どれも数字が足りなくなる）
 export const TRIAL_MAX_NEW = 2; // 1回の朝会で始めるのは2件まで
@@ -47,7 +48,8 @@ export function trialStats(t: Pick<TrialRow, "project_id" | "created_at">): { vi
 }
 
 // 朝会が出した試しを入れる（決まりに合わないものは入れない）。入れた件数を返す
-export function addTrials(planId: number, raw: unknown, opts: { live: Set<number>; model: string; now?: number }): number {
+// focusOk: その朝会のネックが reach / use で、新しい案件を休む（pause_new）とき。そろわなければ、印のある試しもふつうの試しにする（PR #172 の ai-review の指摘）
+export function addTrials(planId: number, raw: unknown, opts: { live: Set<number>; model: string; now?: number; focusOk?: boolean }): number {
   if (!Array.isArray(raw)) return 0;
   const now = opts.now ?? Date.now();
   let room = Math.min(TRIAL_MAX_NEW, TRIAL_MAX_OPEN - openTrials().length);
@@ -68,7 +70,7 @@ export function addTrials(planId: number, raw: unknown, opts: { live: Set<number
     const minVisits = clamp(t.min_visits, TRIAL_MIN_VISITS.min, TRIAL_MIN_VISITS.max, TRIAL_MIN_VISITS.default);
     // 既存の案件の集客の実験は、すでに登録・利用が出た案件だけ（利用が0の案件では、紹介の仕方の差が見えないため）
     const used = (db().prepare("SELECT COALESCE(SUM(signups), 0) AS c FROM metrics WHERE project_id = ? AND source != 'simulated'").get(pid) as { c: number }).c;
-    const focus = t.focus === true && used > 0 ? 1 : 0;
+    const focus = t.focus === true && opts.focusOk === true && used > 0 ? 1 : 0;
     ins.run(planId, pid, utc(now), question.slice(0, 200), change.slice(0, 300), metric, utc(now + hours * 3_600_000), hours, minVisits, focus);
     logEvent(pid, "ai", "trial", `試しを始めました（${modelInfo(opts.model).label}）: ${question.slice(0, 80)}。${hours}時間後に${METRIC_LABEL[metric]}で判断します（訪問${minVisits}人に届かなければ保留）${focus ? "。新しい案件を休んで、この案件の集客を試します" : ""}`);
     room--;
@@ -93,8 +95,8 @@ export function settleDueTrials(now = Date.now()): TrialRow[] {
       db().prepare("UPDATE plan_trials SET judge_at = ?, extended = 1 WHERE id = ?").run(next, t.id);
       logEvent(t.project_id, "system", "trial", `試し「${t.question.slice(0, 60)}」は、訪問が${s.visits}人で下限（${t.min_visits}人）に届かないので、判断を保留して${jstDateTime(next)}まで延ばしました`);
     } else {
-      db().prepare("UPDATE plan_trials SET status = 'expired', result = ?, decided_at = datetime('now') WHERE id = ?")
-        .run(`延ばしても訪問が${s.visits}人で、下限（${t.min_visits}人）に届かなかったので、判断できなかった`, t.id);
+      db().prepare("UPDATE plan_trials SET status = 'expired', result = ?, decided_at = datetime('now'), final_visits = ?, final_conversions = ? WHERE id = ?")
+        .run(`延ばしても訪問が${s.visits}人で、下限（${t.min_visits}人）に届かなかったので、判断できなかった`, s.visits, s.conversions, t.id);
       logEvent(t.project_id, "system", "trial", `試し「${t.question.slice(0, 60)}」は、延ばしても訪問が下限に届かなかったので、判断せずに閉じました（訪問${s.visits}人）`);
     }
   }
@@ -114,7 +116,9 @@ export function applyTrialResults(raw: unknown, due: TrialRow[], model: string):
     const result = typeof r.result === "string" ? r.result.trim() : "";
     if (!ids.has(id) || !verdict || !result) continue;
     const t = due.find((d) => d.id === id)!;
-    db().prepare("UPDATE plan_trials SET status = 'decided', verdict = ?, result = ?, decided_at = datetime('now'), decided_by = ? WHERE id = ? AND status = 'open'").run(verdict, result.slice(0, 400), model, id);
+    const s = trialStats(t);
+    db().prepare("UPDATE plan_trials SET status = 'decided', verdict = ?, result = ?, decided_at = datetime('now'), decided_by = ?, final_visits = ?, final_conversions = ? WHERE id = ? AND status = 'open'")
+      .run(verdict, result.slice(0, 400), model, s.visits, s.conversions, id);
     logEvent(t.project_id, "ai", "trial", `試し「${t.question.slice(0, 60)}」の結論（${modelInfo(model).label}）: ${VERDICT_LABEL[verdict]}。${result.slice(0, 160)}`);
     ids.delete(id);
     n++;

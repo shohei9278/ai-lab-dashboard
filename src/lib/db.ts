@@ -604,7 +604,9 @@ CREATE TABLE IF NOT EXISTS plan_trials (
   verdict TEXT, -- win / lose / unclear
   result TEXT,
   decided_at TEXT,
-  decided_by TEXT
+  decided_by TEXT,
+  final_visits INTEGER, -- 判定したとき（閉じたとき）の訪問・登録/利用（終わったあとの流入を足さずに、結論の元の数字を残す）
+  final_conversions INTEGER
 );
 CREATE TABLE IF NOT EXISTS lessons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,

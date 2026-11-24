@@ -40,9 +40,13 @@ test("試し: 判定日時・見る数字・下限を決まりの範囲にそろ
 test("試し: 既存の案件の集客の実験（focus）は、登録・利用が出た案件だけ", () => {
   db().exec("DELETE FROM plan_trials");
   const used = live("使われた", 3), none = live("まだ0");
-  addTrials(1, [{ project_id: used, question: "q", change: "c", focus: true }, { project_id: none, question: "q", change: "c", focus: true }], { live: new Set([used, none]), model: "claude-opus-5-5" });
+  addTrials(1, [{ project_id: used, question: "q", change: "c", focus: true }, { project_id: none, question: "q", change: "c", focus: true }], { live: new Set([used, none]), model: "claude-opus-5-5", focusOk: true });
   const t = openTrials();
   assert.deepEqual(t.map((x) => [x.project_id, x.focus]), [[used, 1], [none, 0]]);
+  // ネックが reach / use で新しい案件を休む朝会でなければ、印があってもふつうの試し（PR #172 の ai-review の指摘）
+  db().exec("DELETE FROM plan_trials");
+  addTrials(1, [{ project_id: used, question: "q", change: "c", focus: true }], { live: new Set([used]), model: "claude-opus-5-5", focusOk: false });
+  assert.equal(openTrials()[0].focus, 0);
 });
 
 test("試し: 判定日時の前は結論を出させず、下限に届かなければ1回だけ延ばし、それでも届かなければ判断できなかったとして閉じる", () => {
@@ -62,6 +66,7 @@ test("試し: 判定日時の前は結論を出させず、下限に届かなけ
   // 延ばしても届かなければ、閉じる（結論は出さない）
   assert.deepEqual(settleDueTrials(start + 50 * H), []);
   assert.deepEqual([row(id).status, row(id).verdict], ["expired", null]);
+  assert.equal(row(id).final_visits, 4);
 });
 
 test("試し: 数字がそろったら朝会のAIに結論を出させ、判定日時が来た試しの結論だけを入れる", () => {
@@ -78,6 +83,9 @@ test("試し: 数字がそろったら朝会のAIに結論を出させ、判定�
   // 判定日時が来ていない試しの結論・知らない番号・形の合わない結論は入れない
   assert.equal(applyTrialResults([{ id: tb.id, verdict: "win", result: "早すぎる" }, { id: 9999, verdict: "win", result: "x" }, { id: ta.id, verdict: "great", result: "x" }, { id: ta.id, verdict: "win", result: "動画の投稿から12訪問・3利用" }], due, "gpt-5.6-sol"), 1);
   assert.deepEqual([row(ta.id).status, row(ta.id).verdict, row(ta.id).decided_by], ["decided", "win", "gpt-5.6-sol"]);
+  // 判定したときの数字を残す（終わったあとの流入を足さない。PR #172 の ai-review の指摘）
+  db().prepare("INSERT INTO metrics (project_id, day, visits, signups, source) VALUES (?, ?, 50, 5, 'real')").run(a, jstDay());
+  assert.deepEqual([row(ta.id).final_visits, row(ta.id).final_conversions], [12, 3]);
   assert.equal(row(tb.id).status, "open");
 });
 

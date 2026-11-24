@@ -83,7 +83,8 @@ export default async function PlanPage() {
                   <div className="mt-1 font-medium">{t.question}</div>
                   <div className="text-xs text-ink-2">変えたこと: {t.change}</div>
                   <div className="num mt-1 text-xs text-muted">
-                    見る数字: {METRIC_LABEL[t.metric]}・判定 {jstDateTime(t.judge_at)}・下限 訪問{t.min_visits}人{st ? `・今 訪問${st.visits}・登録/利用${st.conversions}` : ""}
+                    見る数字: {METRIC_LABEL[t.metric]}・判定 {jstDateTime(t.judge_at)}・下限 訪問{t.min_visits}人
+                    {st ? `・今 訪問${st.visits}・登録/利用${st.conversions}` : t.final_visits !== null ? `・判定のとき 訪問${t.final_visits}・登録/利用${t.final_conversions ?? 0}` : ""}
                   </div>
                   {t.result && <div className="mt-1 text-xs">結論: {t.result}</div>}
                 </li>

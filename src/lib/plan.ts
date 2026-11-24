@@ -489,7 +489,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   }
   // 試し（判定日時と見る数字・下限）と、判定日時が来た試しの結論
   applyTrialResults(out.trial_results, due, model);
-  const trialsAdded = addTrials(id, out.trials, { live, model });
+  const trialsAdded = addTrials(id, out.trials, { live, model, focusOk: (bottleneck === "reach" || bottleneck === "use") && out.pause_new === true });
   // お願い（返事がまだのものと同じ題は入れない）
   const reqs = (Array.isArray(out.requests) ? out.requests : []).filter((r) => isObj(r) && isStr(r.title)).slice(0, 2)
     .filter((r) => addProposal({ title: r.title, how: String(r.how ?? ""), why: String(r.why ?? ""), target: "human", source: "plan", proposer: model, scene: "朝会", planId: id }));
