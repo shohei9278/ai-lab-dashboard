@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { LiveSnapshot } from "@/lib/live";
 
@@ -136,7 +137,12 @@ export function LivePanel({ initial, owner = false, replay = null, controls }: {
             <div key={a.key} className="mt-1.5 space-y-1">
               <div className="flex flex-wrap items-baseline gap-x-2">
                 <span aria-hidden className="lab-pulse" style={{ color: "var(--accent)" }}>◐</span>
-                <span className="text-sm font-medium">{a.title}</span>
+                {/* 案件の作業は、案件の画面へ移れるようにする（運営者が決めた） */}
+                {a.projectId ? (
+                  <Link href={`/projects/${a.projectId}`} className="text-sm font-medium underline decoration-dotted underline-offset-2 hover:text-accent">{a.title}</Link>
+                ) : (
+                  <span className="text-sm font-medium">{a.title}</span>
+                )}
                 <span className="num text-xs text-muted">{clock(now - a.since)} 経過</span>
               </div>
               <ul className="grid gap-1">
@@ -151,7 +157,7 @@ export function LivePanel({ initial, owner = false, replay = null, controls }: {
               {data.building.map((b) => (
                 <li key={b.id} className="text-sm">
                   <span aria-hidden className="lab-pulse mr-1" style={{ color: "var(--accent)" }}>◐</span>
-                  <span className="font-medium">{b.title}</span>
+                  <Link href={`/projects/${b.id}`} className="font-medium underline decoration-dotted underline-offset-2 hover:text-accent">{b.title}</Link>
                   <span className="text-ink-2"> — AIが{b.what}</span>
                   <span className="num ml-1 text-xs text-muted">{clock(now - b.since)} 経過</span>
                 </li>

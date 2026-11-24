@@ -190,11 +190,11 @@ export function liveEnd(key: string) {
 // 右下の「AIが作業中」・オフィス・ライブ・/api/live の activities に出る（/api/live に出ている間は、マージを待つ。運営者が決めた）
 // fn には、進み具合を書き換える step を渡す。終わったら（失敗しても）消す
 // models: 担当のAI（複数のAIを比べる作業は、その全部）。doing: オフィスに出す、案件名を含まない言い方（公開ページで、非公開の案件名を出さないため。PR #168 の ai-review の指摘）
-export async function withActivity<T>(a: { key: string; title: string; models: string[]; room: Room; doing: string; projectId?: number | null }, fn: (step: (status: string) => void) => Promise<T>): Promise<T> {
+export async function withActivity<T>(a: { key: string; title: string; models: string[]; room: Room; doing: string; projectId: number | null }, fn: (step: (status: string) => void) => Promise<T>): Promise<T> {
   const who = a.models.length === 1 ? modelLabel(a.models[0]) : "AI";
   const step = (status: string) => {
     setStep(a.key, a.title, who, status);
-    Object.assign(activities.get(a.key)!, { models: a.models, room: a.room, doing: a.doing, projectId: a.projectId ?? null });
+    Object.assign(activities.get(a.key)!, { models: a.models, room: a.room, doing: a.doing, projectId: a.projectId });
   };
   step("始めました");
   try {
