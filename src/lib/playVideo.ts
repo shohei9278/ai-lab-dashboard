@@ -163,9 +163,13 @@ export function givenPlayScript(projectId: number, html: string): GivenPlay | nu
 // given: Claude Code が書いた台本。手順はそのまま使い、AIは一言（なければ）と投稿文の案だけを書く
 // prev: 前の台本（録画して問題があったとき、どこを直すかが分かるように渡す）
 // hint: 運営者が作り直しのときに書いた指示（任意）。台本（手順・一言・投稿文）に反映させる
+// Claude Code の台本に一言があっても、運営者の指示があるときは、一言を指示に合わせて書き直す
+export const keepGivenHook = (given: Pick<GivenPlay, "hook"> | undefined, hint: string | undefined): boolean => !!given?.hook && !hint?.trim();
 async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [], opts: { given?: GivenPlay; prev?: PlayScript; hint?: string } = {}): Promise<PlayScript> {
   const { given, prev, hint } = opts;
-  const fixed = given ? `\n\nこのツールを作った人が、手元で録画して確かめた台本の手順がある。steps はこのまま返し、${given.hook ? "hook もこのまま返して、" : "hook と "}caption を書く:\n${JSON.stringify(given)}` : "";
+  // 運営者の指示があるときは、Claude Code の台本の一言も、指示に合わせて書き直させる（手順は変えない。PR #171 の ai-review の指摘）
+  const keepHook = keepGivenHook(given, hint);
+  const fixed = given ? `\n\nこのツールを作った人が、手元で録画して確かめた台本の手順がある。steps はこのまま返し、${keepHook ? "hook もこのまま返して、" : "hook と "}caption を書く:\n${JSON.stringify(given)}` : "";
   const before = prev ? `\n\n前の台本: ${JSON.stringify({ hook: prev.hook, steps: prev.steps })}` : "";
   const script = await callJson<PlayScript>({
     purpose: "遊ぶ様子の動画の台本",
@@ -179,7 +183,7 @@ ${PLAY_STEP_RULES}
     user: `ツール名: ${p.title}\n対象: ${p.target}\n何ができるか: ${p.solution}${tagHints()}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${fixed}${before}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}${hint ? `\n\n運営者からの指示（台本に反映する${given ? "。手順は変えられないので、一言と投稿文に反映する" : ""}）: ${hint}` : ""}`,
     validate: (v): v is PlayScript => parsePlayScript(v) !== null,
   }).then((v) => parsePlayScript(v)!);
-  return given ? { ...script, steps: given.steps, hook: given.hook ?? script.hook } : script;
+  return given ? { ...script, steps: given.steps, hook: keepHook ? given.hook! : script.hook } : script;
 }
 
 // 上の帯の高さ（一言は2行まで入る）。ツールの枠の高さは (1920 - TOP - BOTTOM) / SCALE = 510px（#66 の動画で、一番下の一言が欠けたので 500px から少し高くした）

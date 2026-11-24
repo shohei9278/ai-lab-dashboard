@@ -7,7 +7,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { db } from "../src/lib/db";
 import { launch } from "../src/lib/freePage";
-import { FAST_MAX, FAST_WAIT_MAX, PLAY_SECONDS_MAX, bandTitle, fastSlack, PLAY_STEPS_MAX, lastPlayIssues, makePlayVideo, parsePlayCheck, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
+import { FAST_MAX, FAST_WAIT_MAX, PLAY_SECONDS_MAX, bandTitle, fastSlack, PLAY_STEPS_MAX, keepGivenHook, lastPlayIssues, makePlayVideo, parsePlayCheck, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
 
 test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がない台本は使わない", () => {
   const s = parsePlayScript({
@@ -305,4 +305,12 @@ test("遊ぶ様子の動画を作り直すとき（運営者が決めた）: 同
   assert.deepEqual(lastPlayIssues(pid, 2), [], "別の版の指摘は渡さない");
   add(1, 1, []);
   assert.deepEqual(lastPlayIssues(pid, 1), [], "いちばん新しい動画が問題なしなら渡さない");
+});
+
+test("遊ぶ様子の動画を作り直すとき（PR #171 の ai-review の指摘）: Claude Code の台本の一言は、運営者の指示があるときだけ書き直させる", () => {
+  assert.equal(keepGivenHook({ hook: "回して遊ぶ" }, undefined), true);
+  assert.equal(keepGivenHook({ hook: "回して遊ぶ" }, "  "), true, "空白だけの指示は、指示なしと同じ");
+  assert.equal(keepGivenHook({ hook: "回して遊ぶ" }, "最後の結果まで映す"), false);
+  assert.equal(keepGivenHook({}, undefined), false, "一言のない台本は、もともと書かせる");
+  assert.equal(keepGivenHook(undefined, undefined), false);
 });
