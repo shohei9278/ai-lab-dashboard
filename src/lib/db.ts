@@ -585,6 +585,29 @@ CREATE TABLE IF NOT EXISTS day_weather (
   weather TEXT NOT NULL DEFAULT '[]', -- JSON（DayWeather[]）
   at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+-- 試し: 朝会が決めた「何を変えて、いつ・何の数字で判断するか」（運営者が決めた。翌朝のAIが、少ない数字で早々に勝ち負けを決めないように）
+-- status: open（判定日時を待っている）/ decided（判定日時に結論を出した）/ expired（下限に届かず、延ばしても届かなかった）
+CREATE TABLE IF NOT EXISTS plan_trials (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  plan_id INTEGER NOT NULL,
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  question TEXT NOT NULL, -- 何を確かめるか
+  change TEXT NOT NULL, -- 何を変えるか（例: 同じツールを静止画と短い動画で紹介する）
+  metric TEXT NOT NULL, -- 見る数字（visits / conversions）
+  judge_at TEXT NOT NULL, -- 判定日時（UTC）
+  hours INTEGER NOT NULL, -- 始めてから判定までの時間
+  min_visits INTEGER NOT NULL, -- この訪問に届かなければ、判断を保留する
+  focus INTEGER NOT NULL DEFAULT 0, -- 新しい案件を休んで、利用の出た既存の案件の集客を試すもの
+  extended INTEGER NOT NULL DEFAULT 0, -- 下限に届かず、判定日時を1回延ばした
+  status TEXT NOT NULL DEFAULT 'open',
+  verdict TEXT, -- win / lose / unclear
+  result TEXT,
+  decided_at TEXT,
+  decided_by TEXT,
+  final_visits INTEGER, -- 判定したとき（閉じたとき）の訪問・登録/利用（終わったあとの流入を足さずに、結論の元の数字を残す）
+  final_conversions INTEGER
+);
 CREATE TABLE IF NOT EXISTS lessons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),

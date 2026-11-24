@@ -1,6 +1,7 @@
 import { callJson, isObj, isStr } from "./ai";
 import { limitTags } from "./hashtags";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
+import { addTrials, applyTrialResults, settleDueTrials, trialsText, type TrialRow } from "./trials";
 import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, liveEnd, liveSay, liveStep, logEvent, planImprove, projectTotals, trafficCapacity, withActivity } from "./loop";
 import { endReasons, headline } from "./experiment";
 import { funnelText } from "./funnel";
@@ -232,7 +233,7 @@ export function platformCostText(): string {
   }).join(" / ")}`;
 }
 
-function planMaterial(weather: DayWeather[] = []): string {
+function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = []): string {
   const s = getSettings();
   const now = jstNow();
   const live = liveProjects();
@@ -277,6 +278,7 @@ function planMaterial(weather: DayWeather[] = []): string {
     `最近のAIの宣伝の投稿と、そこからの訪問・成果:\n${recentPosts.join("\n") || "（なし）"}`,
     `最近の普通の投稿（リンクがないので、訪問の数は分からない。反応は投稿の翌日と3日後に取り込む）:\n${plains.join("\n") || "（なし）"}`,
     `最近の計画と結果:\n${past.join("\n") || "（まだなし。今日が最初の計画）"}`,
+    trialsText(due),
     `公開サイトの一覧から来た人（投稿のリンクとは別。累計）: ${(() => { const r = db().prepare("SELECT COALESCE(SUM(index_visits), 0) AS v, COALESCE(SUM(index_uses), 0) AS u FROM projects WHERE demo = 0").get() as { v: number; u: number }; return `訪問${r.v}人・登録/利用${r.u}人`; })()}`,
     postStatsText() || "効いた手の集計: まだ投稿がない",
     platformCostText(),
@@ -299,6 +301,8 @@ type PlanOut = PlanContent & {
   replies?: { id: number; reply: string }[];
   voice_effects?: unknown;
   research?: { question?: unknown; why?: unknown; how?: unknown; project_id?: unknown } | null;
+  trials?: unknown; // 試し（trials.ts の addTrials）
+  trial_results?: unknown; // 判定日時が来た試しの結論（trials.ts の applyTrialResults）
   tasks: { time: string; kind: TaskKind; platform?: string; project_id?: number; type?: string; angle: string; reason: string }[];
 };
 
@@ -366,7 +370,9 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   const model = existing && PLAN_MODELS.includes(existing.model_id) && hasKey(modelInfo(existing.model_id).provider) ? existing.model_id : planModelFor();
   // 朝会: 先にほかの社員の意見を聞き、担当はそれを読んでから計画を書く
   // 東京の天気（1日1回だけ読む。読めなければ省く）
-  const material = planMaterial(await weather(now.day).catch(() => []));
+  // 判定日時が来た試しを先に見る（下限に届かないものは保留して延ばし、残りは朝会のAIが結論を出す）
+  const due = settleDueTrials();
+  const material = planMaterial(await weather(now.day).catch(() => []), due);
   const standup = { key: `standup-${Date.now()}`, title: `${now.day.slice(5).replace("-", "/")}の朝会` };
   let opinions: PlanOpinion[] = [];
   let out: PlanOut;
@@ -395,16 +401,20 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - voice: 社員としてのひとこと（つぶやき程度、60文字以内）。感想・気づき・心配・ダメ出し・試したいことなど何でもよい。数字や出来事は材料にあるものだけを使い、体験談は作らない
 - research: 今の判断に効くのに分からないことがあれば、Webの公開情報で調べてもらう問いを1件だけ（例: 「#35 が使われない原因が分からない。類似の無料ツールを調べ、すでに無料でできることと、#35 に足りないことを確かめる」）。{"question":"分からないこと","why":"分かるとどの判断が変わるか","how":"どう調べるか","project_id":案件の番号（全体についてなら null）}。調べなくても決められる日・Webでは分からないこと（自社の利用者の気持ちなど）・最近調べたことと同じ問いは null。結果は翌朝の材料に出典つきで入る
 - voice_effects: 外の声（実際の人の反応）や調べたことを根拠に、今日の計画で何かを変えたときだけ。[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"project_id":案件の番号,"change":"何をどう変えたか"}]。外の声はAIどうしの解釈より優先する
+- trials: 何かを変えて効果を見るとき（切り口・見せ方・場所・ページの直し）は、試しとして、判定日時（judge_after_hours: 24〜168時間後）と見る数字（metric: visits か conversions）と、判断に要る訪問の下限（min_visits: 5〜200）を決める。投稿から1日では訪問がほとんどないので、少ない数字で勝ち負けを決めないため。[{"project_id":番号,"question":"何を確かめるか","change":"何を変えるか（比べるものがあれば両方。例: 同じツールを静止画と短い動画で紹介する）","metric":"visits","judge_after_hours":48,"min_visits":20,"focus":false}]。同時に3件まで・今日始めるのは2件まで。判定日時を待っている試しの案件には重ねない。変えることは、今日の tasks にも入れる（同じ案件の promo か improve が tasks にない試しは、何も変えないので入らない）。なければ空の配列
+- 既存のツールの集客の実験（focus）: ネックが reach か use で、すでに登録・利用が出た公開中の案件があるときは、新しい案件を増やすより、その1件の紹介の仕方を変えて比べる試しを focus: true で作ってよい（そのときは pause_new も true にして、新しい案件づくりを休む）。訪問が少ない（reach）なら投稿の切り口・場所・見せ方を、訪問はあるが使われない（use）なら improve でツールの最初の画面を変える。比べる投稿は、場所と時間帯をそろえる
+- trial_results: 材料の「判定日時が来た試し」それぞれの結論。[{"id":試しの番号,"verdict":"win|lose|unclear","result":"数字を根拠にした理由（件数が少なければそう書く）"}]。判定日時が来ていない試しには、結論を出さない
 - replies: 運営者が提案箱に入れた提案（材料の「運営者からの提案」）それぞれへの返事。どう受け止め、今日の計画にどう反映したか（反映できないなら理由）を1〜2文で
 - requests: あなた（AI）は自分ではできないが、運営者（人）がやると効きそうなことを0〜2件頼める。季節が合わず今は集客しても届かない案件があれば「#番号を○月まで集客お休みにしてほしい」と頼んでもよい（お休みにできるのは運営者だけ）。例: 対象の人が集まるコミュニティに参加して自分の言葉で紹介する / アカウントのプロフィールの文や固定の投稿を変える / 知り合いに見てもらって感想を聞く。title は短く、how は具体的な手順、why は数字の根拠。返事がまだのお願い・断られたお願いと同じものは出さない。なければ空の配列
 守ること:
 - 材料にある数字だけを使う。件数が少ないときは certainty を low にし、「まだ偶然の可能性が高い」と書く
+- 判定日時が来ていない試しの案件は、少ない数字で勝ち負けを決めない。review では「判断保留（判定は◯日◯時）」と書く
 - 効かなかった手を同じように繰り返さない。回数を増やすより、切り口・場所・時刻を変えることを先に試す
 - 切り口どうしを比べるときは、場所と時間帯をそろえる（例: 同じ場所・同じ時間帯で、完成見本の切り口と共感の切り口を別の日に出す）。場所も時間帯も切り口も同時に変えると、どれが効いたか分からなくなる
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
 - 宣伝先の配分（どの場所に、どの型の案件の宣伝を出すか）は、訪問の平均ではなく、「宣伝の投稿の成績（場所×案件の型）」の直近14日の利用数（事前登録LPなら登録数）と利用率で決める。直近14日で登録・利用が2件以上出た場所×型は、宣伝の投稿を週3件まで試してよい（運営者が止めている場所は、材料に許しが書いてある分だけ）。件数が少ないので偶然の可能性も高く、決めつけない
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
-形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
+形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"trials":[],"trial_results":[],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
       user: material + opinionsText(opinions),
       validate: isPlanOut,
     });
@@ -477,6 +487,10 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
     const type = t.kind === "improve" ? null : isAngleType(t.type) ? t.type : "other";
     ins.run(id, t.time, t.kind, t.kind === "improve" ? null : t.platform, t.kind === "plain" ? null : Number(t.project_id), String(t.angle ?? "").slice(0, 300), String(t.reason ?? "").slice(0, 300), type);
   }
+  // 試し（判定日時と見る数字・下限）と、判定日時が来た試しの結論
+  applyTrialResults(out.trial_results, due, model);
+  const focusNeed = out.pause_new !== true ? null : bottleneck === "reach" ? "promo" : bottleneck === "use" ? "improve" : null;
+  const trialsAdded = addTrials(id, out.trials, { live, model, tasks: tasks.map((t) => ({ kind: t.kind, project_id: t.kind === "plain" ? null : Number(t.project_id) })), focusNeed });
   // お願い（返事がまだのものと同じ題は入れない）
   const reqs = (Array.isArray(out.requests) ? out.requests : []).filter((r) => isObj(r) && isStr(r.title)).slice(0, 2)
     .filter((r) => addProposal({ title: r.title, how: String(r.how ?? ""), why: String(r.why ?? ""), target: "human", source: "plan", proposer: model, scene: "朝会", planId: id }));
@@ -498,7 +512,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   }
   // 前の日までの、実行されずに残った予定は見送りにする
   conn.prepare("UPDATE plan_tasks SET status = 'skipped', result = '時間内に実行できなかった' WHERE status = 'pending' AND plan_id IN (SELECT id FROM daily_plans WHERE day < ?)").run(now.day);
-  logEvent(null, "ai", "plan", `今日の計画${existing ? "を作り直しました" : ""}: ネック「${BOTTLENECK_LABEL[bottleneck]}」${content.focus}（担当 ${modelInfo(model).label}${opinions.length ? `・意見 ${opinions.map((o) => modelInfo(o.modelId).label).join("・")}` : ""}・予定${tasks.length}件${out.pause_new ? "・新しい案件は休み" : ""}${reqs.length ? `・あなたへのお願い${reqs.length}件` : ""}）`);
+  logEvent(null, "ai", "plan", `今日の計画${existing ? "を作り直しました" : ""}: ネック「${BOTTLENECK_LABEL[bottleneck]}」${content.focus}（担当 ${modelInfo(model).label}${opinions.length ? `・意見 ${opinions.map((o) => modelInfo(o.modelId).label).join("・")}` : ""}・予定${tasks.length}件${trialsAdded ? `・試し${trialsAdded}件` : ""}${out.pause_new ? "・新しい案件は休み" : ""}${reqs.length ? `・あなたへのお願い${reqs.length}件` : ""}）`);
   return id;
 }
 
