@@ -18,6 +18,8 @@ export function PlayVideos({ projectId, videos }: { projectId: number; videos: P
   const [accepted, setAccepted] = useState(false);
   // 作り直すときの指示（任意）。前の動画に残った指摘は、書かなくても自動で台本に渡す
   const [hint, setHint] = useState("");
+  const [tab, setTab] = useState<"latest" | "past">("latest");
+  const tabCls = (on: boolean) => `rounded-md px-2.5 py-1 text-xs ${on ? "bg-accent font-bold text-accent-ink" : "text-ink-2 hover:bg-surface-2"}`;
   const [platform, setPlatform] = useState("x");
   const [drafted, setDrafted] = useState<number | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -71,8 +73,16 @@ export function PlayVideos({ projectId, videos }: { projectId: number; videos: P
       {videos.length === 0 ? (
         <p className="text-sm text-ink-2">まだありません。</p>
       ) : (
-        <ul className="grid gap-4 sm:grid-cols-2">
-          {videos.map((v) => (
+        <div className="space-y-3">
+          {/* 作るたびに並びが増えて見づらかったので、最新の1本だけを出し、前のものは「過去の動画」のタブに分ける（運営者が決めた） */}
+          {videos.length > 1 && (
+            <div role="tablist" aria-label="遊ぶ様子の動画の表示" className="flex gap-1">
+              <button type="button" role="tab" data-demo-ok aria-selected={tab === "latest"} onClick={() => setTab("latest")} className={tabCls(tab === "latest")}>最新の動画</button>
+              <button type="button" role="tab" data-demo-ok aria-selected={tab === "past"} onClick={() => setTab("past")} className={tabCls(tab === "past")}>過去の動画（{videos.length - 1}）</button>
+            </div>
+          )}
+          <ul className="grid gap-4 sm:grid-cols-2">
+            {(tab === "latest" ? videos.slice(0, 1) : videos.slice(1)).map((v) => (
               <li key={v.id} className="space-y-2">
                 <video src={`/api/videos/${v.file}`} controls playsInline preload="metadata" className="w-full max-w-[240px] rounded-lg border border-line bg-black" />
                 <div className="text-sm font-medium">{v.hook}</div>
@@ -99,8 +109,9 @@ export function PlayVideos({ projectId, videos }: { projectId: number; videos: P
                 {drafted === v.id && <p className="text-xs text-ink-2" role="status">下の「SNSで広める」の下書きに入れました（その投稿専用のリンク付き）。そこからコピーして投稿し、投稿したら記録してください。</p>}
                 {draftError && <p className="text-xs" style={{ color: "var(--critical)" }} role="alert">{draftError}</p>}
               </li>
-          ))}
-        </ul>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );
