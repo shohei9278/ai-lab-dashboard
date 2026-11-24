@@ -162,9 +162,14 @@ export function givenPlayScript(projectId: number, html: string): GivenPlay | nu
 
 // given: Claude Code が書いた台本。手順はそのまま使い、AIは一言（なければ）と投稿文の案だけを書く
 // prev: 前の台本（録画して問題があったとき、どこを直すかが分かるように渡す）
-async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [], opts: { given?: GivenPlay; prev?: PlayScript } = {}): Promise<PlayScript> {
-  const { given, prev } = opts;
-  const fixed = given ? `\n\nこのツールを作った人が、手元で録画して確かめた台本の手順がある。steps はこのまま返し、${given.hook ? "hook もこのまま返して、" : "hook と "}caption を書く:\n${JSON.stringify(given)}` : "";
+// hint: 運営者が作り直しのときに書いた指示（任意）。台本（手順・一言・投稿文）に反映させる
+// Claude Code の台本に一言があっても、運営者の指示があるときは、一言を指示に合わせて書き直す
+export const keepGivenHook = (given: Pick<GivenPlay, "hook"> | undefined, hint: string | undefined): boolean => !!given?.hook && !hint?.trim();
+async function writePlayScript(p: ProjectRow, html: string, issues: string[] = [], opts: { given?: GivenPlay; prev?: PlayScript; hint?: string } = {}): Promise<PlayScript> {
+  const { given, prev, hint } = opts;
+  // 運営者の指示があるときは、Claude Code の台本の一言も、指示に合わせて書き直させる（手順は変えない。PR #171 の ai-review の指摘）
+  const keepHook = keepGivenHook(given, hint);
+  const fixed = given ? `\n\nこのツールを作った人が、手元で録画して確かめた台本の手順がある。steps はこのまま返し、${keepHook ? "hook もこのまま返して、" : "hook と "}caption を書く:\n${JSON.stringify(given)}` : "";
   const before = prev ? `\n\n前の台本: ${JSON.stringify({ hook: prev.hook, steps: prev.steps })}` : "";
   const script = await callJson<PlayScript>({
     purpose: "遊ぶ様子の動画の台本",
@@ -175,10 +180,10 @@ ${PLAY_STEP_RULES}
 - hook: 動画の上に大きく出す一言（20文字以内）。何をするものか・何が起きるかが一言で分かるもの。誇大な表現・実在の人物や作品の名前は使わない
 - caption: 投稿の本文の案（120文字以内。リンクは付けない（あとで付ける）。${tagRule(PLAY_TAG_MAX)}）
 出力はJSONのみ: {"hook":"","steps":[{"do":"click","target":"回す"},{"do":"wait","ms":1500}],"caption":""}（ドラッグの例: {"do":"drag","target":"#board","from":[0.2,0.8],"dx":0.3,"dy":-0.3}。早送りの例: {"do":"wait","ms":8000,"fast":4}）`,
-    user: `ツール名: ${p.title}\n対象: ${p.target}\n何ができるか: ${p.solution}${tagHints()}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${fixed}${before}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}`,
+    user: `ツール名: ${p.title}\n対象: ${p.target}\n何ができるか: ${p.solution}${tagHints()}\n\nツールのHTML:\n${external(html.slice(0, 30_000))}${fixed}${before}${issues.length ? `\n\n前の台本で録画したら、次の問題があった。直した台本を書く:\n${issues.map((x) => `- ${x}`).join("\n")}` : ""}${hint ? `\n\n運営者からの指示（台本に反映する${given ? "。手順は変えられないので、一言と投稿文に反映する" : ""}）: ${hint}` : ""}`,
     validate: (v): v is PlayScript => parsePlayScript(v) !== null,
   }).then((v) => parsePlayScript(v)!);
-  return given ? { ...script, steps: given.steps, hook: given.hook ?? script.hook } : script;
+  return given ? { ...script, steps: given.steps, hook: keepHook ? given.hook! : script.hook } : script;
 }
 
 // 上の帯の高さ（一言は2行まで入る）。ツールの枠の高さは (1920 - TOP - BOTTOM) / SCALE = 510px（#66 の動画で、一番下の一言が欠けたので 500px から少し高くした）
@@ -451,7 +456,16 @@ export const playVideoPending = (projectId: number) => pending.has(projectId);
 
 // 動くツールの案件の、今の版を遊ぶ様子の動画を作る。台本 → 録画 → コマの確かめ。問題があれば台本を1回だけ直して撮り直す
 // 同時に作るのは1本だけ（ブラウザと動画の変換でメモリを使うため）。作っている途中に頼まれたら、順番待ちにして、前のものが終わってから作る（断らない）
-export function makePlayVideo(projectId: number): Promise<number> {
+// 同じ版のいちばん新しい動画に、確かめで残った指摘（問題なしだった・動画がない・別の版の動画なら空）
+export function lastPlayIssues(projectId: number, version: number): string[] {
+  const last = db().prepare("SELECT ok, check_json FROM play_videos WHERE project_id = ? AND version = ? ORDER BY id DESC LIMIT 1").get(projectId, version) as { ok: number; check_json: string } | undefined;
+  if (!last || last.ok) return [];
+  const issues = (JSON.parse(last.check_json) as Partial<PlayCheck>).issues;
+  return Array.isArray(issues) ? issues.filter((x): x is string => typeof x === "string").slice(0, 10) : [];
+}
+
+// hint: 作り直すときの運営者の指示（任意。300文字まで）
+export function makePlayVideo(projectId: number, hint?: string): Promise<number> {
   if (pending.has(projectId)) throw new Error("この案件の遊ぶ様子の動画は、いま作っています（順番待ちを含む）。できあがるまでお待ちください");
   pending.add(projectId);
   const before = (g.__aiLabPlayQueue ?? Promise.resolve()).catch(() => undefined);
@@ -459,13 +473,13 @@ export function makePlayVideo(projectId: number): Promise<number> {
   const run = withActivity({ key: `play-video-${projectId}`, title: `遊ぶ様子の動画「${getProject(projectId)?.title ?? `#${projectId}`}」`, models: [claudeModelId() ?? "claude-opus-5-5"], room: "pr", doing: "遊ぶ様子の動画", projectId }, async (step) => {
     step("順番待ちです");
     await before;
-    return makeOnce(projectId, step);
+    return makeOnce(projectId, step, hint);
   }).finally(() => pending.delete(projectId));
   g.__aiLabPlayQueue = run.catch(() => undefined);
   return run;
 }
 
-async function makeOnce(projectId: number, step: (status: string) => void = () => {}): Promise<number> {
+async function makeOnce(projectId: number, step: (status: string) => void = () => {}, hint?: string): Promise<number> {
   const p = getProject(projectId);
   if (!p || p.kind !== "tool") throw new Error("動くツールの案件だけ、遊ぶ様子の動画を作れます");
   const lp = versionLp(p, p.lp_version);
@@ -479,8 +493,11 @@ async function makeOnce(projectId: number, step: (status: string) => void = () =
     // Claude Code がツールと一緒に書いた台本があれば、その手順で録画する（AIは一言と投稿文の案だけを書く）
     const given = givenPlayScript(p.id, tool.html);
     if (given) logEvent(p.id, "system", "play-video", "ツールを作った人（Claude Code）が書いた台本の手順で録画します");
+    // 作り直すときは、同じ版のいちばん新しい動画に残った指摘を、最初の台本から渡す（前の指摘が次の台本に伝わらず、同じ問題が続いていたため。運営者が決めた）
+    const prevIssues = lastPlayIssues(p.id, p.lp_version);
+    if (prevIssues.length || hint) logEvent(p.id, "human", "play-video", `遊ぶ様子の動画を作り直します${prevIssues.length ? `（前の動画の指摘${prevIssues.length}件を台本に渡します）` : ""}${hint ? `。運営者の指示: ${hint}` : ""}`);
     step("台本を書いています");
-    let script = await writePlayScript(p, tool.html, [], given ? { given } : {});
+    let script = await writePlayScript(p, tool.html, prevIssues, { ...(given ? { given } : {}), hint });
     let file = "";
     let check: PlayCheck = { ok: false, issues: [] };
     for (let round = 0; round < 2; round++) {
@@ -499,7 +516,7 @@ async function makeOnce(projectId: number, step: (status: string) => void = () =
       logEvent(p.id, "ai", "play-video", `遊ぶ様子の動画の1回目の確かめで問題があったため、撮り直します: ${check.issues.join(" / ").slice(0, 300)}`);
       // ツールを作った人が確かめた台本があるときは、撮り直しでも手順は変えない（AIは一言と投稿文の案だけを書き直す）
       // #66 では、見た目の指摘を直そうとしたAIが「ふたを開ける」を使えない手順に書き換え、最後まで届かなくなった
-      script = await writePlayScript(p, tool.html, check.issues, given ? { given, prev: script } : { prev: script });
+      script = await writePlayScript(p, tool.html, check.issues, given ? { given, prev: script, hint } : { prev: script, hint });
     }
     const id = Number(db().prepare("INSERT INTO play_videos (project_id, version, file, hook, caption, script, check_json, ok) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
       .run(p.id, p.lp_version, file, script.hook, script.caption, JSON.stringify(script), JSON.stringify(check), check.ok ? 1 : 0).lastInsertRowid);

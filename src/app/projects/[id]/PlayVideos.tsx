@@ -16,6 +16,10 @@ export function PlayVideos({ projectId, videos }: { projectId: number; videos: P
   const router = useRouter();
   const { run, busy, error } = useLoopAction();
   const [accepted, setAccepted] = useState(false);
+  // 作り直すときの指示（任意）。前の動画に残った指摘は、書かなくても自動で台本に渡す
+  const [hint, setHint] = useState("");
+  const [tab, setTab] = useState<"latest" | "past">("latest");
+  const tabCls = (on: boolean) => `rounded-md px-2.5 py-1 text-xs ${on ? "bg-accent font-bold text-accent-ink" : "text-ink-2 hover:bg-surface-2"}`;
   const [platform, setPlatform] = useState("x");
   const [drafted, setDrafted] = useState<number | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
@@ -47,10 +51,20 @@ export function PlayVideos({ projectId, videos }: { projectId: number; videos: P
     <section className="card space-y-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="font-bold">遊ぶ様子の動画</h2>
-        <ActionButton disabled={!!busy} onClick={async () => { setAccepted(false); if (await run("受け付けています…", { action: "play-video", projectId })) setAccepted(true); }}>
+        <ActionButton disabled={!!busy} onClick={async () => { setAccepted(false); if (await run("受け付けています…", { action: "play-video", projectId, hint })) { setAccepted(true); setHint(""); } }}>
           {videos.length ? "作り直す" : "動画を作る"}（約20円）
         </ActionButton>
       </div>
+      {videos.length > 0 && (
+        <label className="block text-xs text-ink-2">
+          作り直すときの指示（任意。前の動画に残った指摘は、書かなくても台本に渡します）
+          <textarea
+            id="play-video-hint" value={hint} onChange={(e) => setHint(e.target.value)} maxLength={300} rows={2}
+            placeholder="例: ふる時間を長めに / 最後の結果の画面まで映す"
+            className="mt-1 block w-full rounded border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+          />
+        </label>
+      )}
       <p className="text-xs text-muted">
         AIがツールの遊び方の台本を書き、スマホの並びで実際に動かして、縦長の動画（10〜15秒・音なし）に録画します。録画の最初・途中・最後のコマをAIが見て、何をするものか伝わるかを確かめます。必要なときに、このボタンで作ります（設定の「公開したときに動画を自動で作る」をオンにすると、ねらいが「広がる」の案件は、初めて公開したときに自動で作ります）。ほかの動画を作っている途中なら、終わってから作ります。投稿は、動画を保存し、投稿文の案を「投稿の下書きにする」で下の「SNSで広める」に入れて（その投稿専用のリンクが付きます）、そこからコピーして手で行ってください。
       </p>
@@ -59,8 +73,16 @@ export function PlayVideos({ projectId, videos }: { projectId: number; videos: P
       {videos.length === 0 ? (
         <p className="text-sm text-ink-2">まだありません。</p>
       ) : (
-        <ul className="grid gap-4 sm:grid-cols-2">
-          {videos.map((v) => (
+        <div className="space-y-3">
+          {/* 作るたびに並びが増えて見づらかったので、最新の1本だけを出し、前のものは「過去の動画」のタブに分ける（運営者が決めた） */}
+          {videos.length > 1 && (
+            <div role="tablist" aria-label="遊ぶ様子の動画の表示" className="flex gap-1">
+              <button type="button" role="tab" data-demo-ok aria-selected={tab === "latest"} onClick={() => setTab("latest")} className={tabCls(tab === "latest")}>最新の動画</button>
+              <button type="button" role="tab" data-demo-ok aria-selected={tab === "past"} onClick={() => setTab("past")} className={tabCls(tab === "past")}>過去の動画（{videos.length - 1}）</button>
+            </div>
+          )}
+          <ul className="grid gap-4 sm:grid-cols-2">
+            {(tab === "latest" ? videos.slice(0, 1) : videos.slice(1)).map((v) => (
               <li key={v.id} className="space-y-2">
                 <video src={`/api/videos/${v.file}`} controls playsInline preload="metadata" className="w-full max-w-[240px] rounded-lg border border-line bg-black" />
                 <div className="text-sm font-medium">{v.hook}</div>
@@ -87,8 +109,9 @@ export function PlayVideos({ projectId, videos }: { projectId: number; videos: P
                 {drafted === v.id && <p className="text-xs text-ink-2" role="status">下の「SNSで広める」の下書きに入れました（その投稿専用のリンク付き）。そこからコピーして投稿し、投稿したら記録してください。</p>}
                 {draftError && <p className="text-xs" style={{ color: "var(--critical)" }} role="alert">{draftError}</p>}
               </li>
-          ))}
-        </ul>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

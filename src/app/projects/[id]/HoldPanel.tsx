@@ -13,6 +13,8 @@ export function HoldPanel({ id, held, reason, until, today, blocked }: {
   const [why, setWhy] = useState(reason ?? "");
   const [date, setDate] = useState(until ?? later(30));
   const [seasonal, setSeasonal] = useState(false);
+  // 再開日を決めない（手で戻すまでお休み）。AIが再開日なしで休ませた案件は、はじめからこちらにしておく
+  const [noDate, setNoDate] = useState(held && !until);
 
   const form = (
     <div className="space-y-2">
@@ -23,23 +25,31 @@ export function HoldPanel({ id, held, reason, until, today, blocked }: {
           className="mt-1 block w-full rounded border border-line bg-surface px-2 py-1.5 text-sm text-ink"
         />
       </label>
+      <label className="flex items-center gap-1.5 text-xs text-ink-2">
+        <input type="checkbox" checked={noDate} onChange={(e) => setNoDate(e.target.checked)} />
+        再開日を決めない（「今すぐ集客に戻す」で手で戻すまで、お休みのまま）
+      </label>
       <div className="flex flex-wrap items-end gap-3">
-        <label className="text-xs text-ink-2">
-          再開日（この日に自動で集客へ戻します）
-          <input
-            type="date" value={date} min={later(1)} max={later(seasonal ? 365 : 90)} onChange={(e) => setDate(e.target.value)}
-            className="mt-1 block rounded border border-line bg-surface px-2 py-1.5 text-sm text-ink"
-          />
-        </label>
-        <label className="flex items-center gap-1.5 pb-2 text-xs text-ink-2">
-          <input type="checkbox" checked={seasonal} onChange={(e) => setSeasonal(e.target.checked)} />
-          季節もの（90日を超えて1年まで）
-        </label>
+        {!noDate && (
+          <>
+            <label className="text-xs text-ink-2">
+              再開日（この日に自動で集客へ戻します）
+              <input
+                type="date" value={date} min={later(1)} max={later(seasonal ? 365 : 90)} onChange={(e) => setDate(e.target.value)}
+                className="mt-1 block rounded border border-line bg-surface px-2 py-1.5 text-sm text-ink"
+              />
+            </label>
+            <label className="flex items-center gap-1.5 pb-2 text-xs text-ink-2">
+              <input type="checkbox" checked={seasonal} onChange={(e) => setSeasonal(e.target.checked)} />
+              季節もの（90日を超えて1年まで）
+            </label>
+          </>
+        )}
         <ActionButton
-          disabled={!!busy || blocked || !why.trim() || !date}
-          onClick={() => run("集客をお休みにしています…", { action: "hold", projectId: id, reason: why, until: date, seasonal })}
+          disabled={!!busy || blocked || !why.trim() || (!noDate && !date)}
+          onClick={() => run("集客をお休みにしています…", { action: "hold", projectId: id, reason: why, until: noDate ? null : date, seasonal: noDate ? false : seasonal })}
         >
-          {held ? "理由と再開日を変更する" : "集客をお休みにする"}
+          {held ? (noDate ? "理由を変更する（再開日なし）" : "理由と再開日を変更する") : "集客をお休みにする"}
         </ActionButton>
       </div>
       {blocked && <p className="text-xs text-muted">承認待ちかAIの作業中のあいだは、変更できません。</p>}
