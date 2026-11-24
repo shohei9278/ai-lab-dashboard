@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings } from "../src/lib/db";
 import { addIntervention, aiImprovements, editIntervention, hideIntervention, isRealDay, listInterventions, monthlyImprovements } from "../src/lib/interventions";
-import { getProject, holdProject, jstToday, newProjectBlock, resumeDueHolds, trafficCapacity } from "../src/lib/loop";
+import { getProject, holdProject, jstToday, newProjectBlock, resumeDueHolds, resumeProject, trafficCapacity } from "../src/lib/loop";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 import { CANVAS_HELPERS_JS, TWEEN_JS } from "../src/lib/toolParts";
 import { listMeetings } from "../src/lib/meetings";
@@ -48,6 +48,22 @@ test("保留: 理由と再開日を確かめ、再開日に集客へ戻す", () 
   assert.equal(p.stage, "live");
   assert.equal(p.hold_reason, null);
   assert.ok(p.resumed_at);
+});
+
+test("保留: 再開日を決めずにお休みにでき、再開日が来て自動で戻ることはなく、手で戻す（運営者が決めた）", () => {
+  const id = addProject();
+  holdProject(id, "様子を見る", null);
+  let p = getProject(id)!;
+  assert.deepEqual([p.stage, p.hold_until, p.hold_reason], ["hold", null, "様子を見る"]);
+  assert.equal(resumeDueHolds(), 0, "再開日なしは自動では戻らない");
+  // 再開日なしのまま理由だけ変え、あとから再開日を決めることもできる
+  holdProject(id, "冬まで様子を見る", null);
+  assert.equal(getProject(id)!.hold_reason, "冬まで様子を見る");
+  holdProject(id, "冬まで", day(30));
+  assert.equal(getProject(id)!.hold_until, day(30));
+  resumeProject(id);
+  p = getProject(id)!;
+  assert.equal(p.stage, "live");
 });
 
 test("保留: 集客中でない案件は保留にできない", () => {

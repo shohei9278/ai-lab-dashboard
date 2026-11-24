@@ -33,7 +33,8 @@ export async function POST(req: Request) {
   try {
     switch (body.action) {
       case "hold":
-        holdProject(Number(body.projectId), String(body.reason ?? ""), String(body.until ?? ""), body.seasonal === true);
+        // 再開日を決めないときは until を null で送る（運営者が決めた）
+        holdProject(Number(body.projectId), String(body.reason ?? ""), body.until === null ? null : String(body.until ?? ""), body.seasonal === true);
         return NextResponse.json({ ok: true });
       case "resume":
         resumeProject(Number(body.projectId));
@@ -119,7 +120,9 @@ export async function POST(req: Request) {
       case "play-video": {
         const p = requireProject(body);
         if (p.kind !== "tool") throw new Error("動くツールの案件だけ、遊ぶ様子の動画を作れます");
-        background(p.id, "遊ぶ様子の動画", makePlayVideo(p.id));
+        // 作り直すときの運営者の指示（任意。300文字まで）
+        const hint = typeof body.hint === "string" ? body.hint.trim().slice(0, 300) : "";
+        background(p.id, "遊ぶ様子の動画", makePlayVideo(p.id, hint || undefined));
         return NextResponse.json({ accepted: true });
       }
       case "test-tool":

@@ -5,8 +5,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
+import { db } from "../src/lib/db";
 import { launch } from "../src/lib/freePage";
-import { FAST_MAX, FAST_WAIT_MAX, PLAY_SECONDS_MAX, bandTitle, fastSlack, PLAY_STEPS_MAX, makePlayVideo, parsePlayCheck, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
+import { FAST_MAX, FAST_WAIT_MAX, PLAY_SECONDS_MAX, bandTitle, fastSlack, PLAY_STEPS_MAX, lastPlayIssues, makePlayVideo, parsePlayCheck, parsePlayScript, playSeconds, playVideoPath, renderPlay } from "../src/lib/playVideo";
 
 test("遊ぶ様子の動画の台本: 決めた形にそろえ、押す所がない台本は使わない", () => {
   const s = parsePlayScript({
@@ -293,4 +294,15 @@ test("遊ぶ様子の動画（#66 の動画で運営者が見つけた）: 確�
   const [red, , blue] = await at(r.shots[1], 540, 270 + 300);
   await browser.close();
   assert.ok(red < 80 && blue > 180, `途中のコマのボタンの真ん中の色 ${red},${blue}（赤い丸が残っていない青のはず）`);
+});
+
+test("遊ぶ様子の動画を作り直すとき（運営者が決めた）: 同じ版のいちばん新しい動画に残った指摘だけを、次の台本に渡す", () => {
+  const pid = Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind) VALUES ('作り直し', 't', 'p', 's', 'h', 'r', 'live', 'claude', 'tool')").run().lastInsertRowid);
+  const add = (version: number, ok: number, issues: string[]) => db().prepare("INSERT INTO play_videos (project_id, version, file, hook, caption, script, check_json, ok) VALUES (?, ?, 'f.mp4', 'h', 'c', '{}', ?, ?)").run(pid, version, JSON.stringify({ ok: !!ok, issues }), ok);
+  assert.deepEqual(lastPlayIssues(pid, 1), [], "動画がなければ空");
+  add(1, 0, ["最後まで届かない"]);
+  assert.deepEqual(lastPlayIssues(pid, 1), ["最後まで届かない"]);
+  assert.deepEqual(lastPlayIssues(pid, 2), [], "別の版の指摘は渡さない");
+  add(1, 1, []);
+  assert.deepEqual(lastPlayIssues(pid, 1), [], "いちばん新しい動画が問題なしなら渡さない");
 });
