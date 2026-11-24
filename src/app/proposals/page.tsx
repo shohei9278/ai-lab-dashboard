@@ -13,13 +13,15 @@ import { AUTO_MIN_SCORE, GROWTH_MIN_SCORE, autoAskStatus, type AutoAskStatus } f
 function AutoAskPanel({ st }: { st: AutoAskStatus }) {
   const at = (ms: number) => jstDateTime(new Date(ms).toISOString());
   // 上限で待っているときは、再開の時刻のあとの最初の見回りが、次に頼む時刻
+  // （ちょうど再開の時刻の見回りでは、24時間前の依頼がまだ数に入るので、その次の見回り。PR #173 の ai-review の指摘）
   const resume = st.resumeAt ? Date.parse(st.resumeAt) : null;
   let check = st.nextCheckAt;
-  if (check && resume) while (check < resume) check += 3_600_000;
+  if (check && resume) while (check <= resume) check += 3_600_000;
+  const busy = st.busy ? `#${st.busy.id}「${st.busy.title}」を ${jstDateTime(st.busy.at)} に頼み、${st.busy.pr ? `PR #${st.busy.pr} の` : "PR ができるのを"}マージまで待っています` : null;
   const state = st.off
-    ? { label: "止まっています", text: st.off }
-    : st.busy
-      ? { label: "進めています", text: `#${st.busy.id}「${st.busy.title}」を ${jstDateTime(st.busy.at)} に頼み、${st.busy.pr ? `PR #${st.busy.pr} の` : "PR ができるのを"}マージまで待っています。終わったら次を頼みます` }
+    ? { label: "止まっています", text: `${st.off}。新しい提案は頼みません` }
+    : busy
+      ? { label: "進めています", text: `${busy}。終わったら次を頼みます` }
       : st.resumeAt
         ? { label: "上限で待っています", text: `直近24時間に${st.asked}件頼み、1日の上限（${st.max}件）に達しています。${jstDateTime(st.resumeAt)} から次を頼めます` }
         : st.next
@@ -33,9 +35,11 @@ function AutoAskPanel({ st }: { st: AutoAskStatus }) {
         <span className="num text-xs text-ink-2">直近24時間 {st.asked}/{st.max}件・頼める提案 {st.waiting}件</span>
       </div>
       <p className="mt-1 text-xs text-ink-2">{state.text}</p>
+      {/* 止めても、止める前に頼んだ PR は進むので、見えるようにする（PR #173 の ai-review の指摘） */}
+      {st.off && busy && <p className="mt-1 text-xs text-ink-2">止める前に頼んだもの: {busy}</p>}
       {st.next && (
         <>
-          <p className="mt-1 text-xs text-ink-2">次に頼む提案: <b>#{st.next.id}「{st.next.title}」</b></p>
+          <p className="mt-1 text-xs text-ink-2">{st.off ? "再開したら次に頼む提案" : "次に頼む提案"}: <b>#{st.next.id}「{st.next.title}」</b></p>
           <p className="text-xs text-muted">理由: {st.next.why.replace(/^自動: /, "")}</p>
         </>
       )}
