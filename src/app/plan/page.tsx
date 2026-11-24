@@ -7,6 +7,7 @@ import { autoPlatforms } from "@/lib/snsApi";
 import { planProgress, recentPlans, todayPlan } from "@/lib/plan";
 import { RequestCount, PlanHistory, PlanSummary, PlanTasks, dayLabel } from "./PlanView";
 import { Replan } from "./PlanActions";
+import { METRIC_LABEL, VERDICT_LABEL, listTrials, trialStats } from "@/lib/trials";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default async function PlanPage() {
   const plan = todayPlan();
   const past = recentPlans(15).filter((p) => p.id !== plan?.id).slice(0, 14);
   const g = plan ? planProgress(plan) : null;
+  const trials = listTrials(10);
   const notes = [
     !s.dailyPlan && "設定で「毎日の計画」がオフのため、計画は作られません。",
     !s.autoPost && "自動投稿がオフのため、投稿の予定は入りません（ページを直す・新しい案件を休むなどだけ）。",
@@ -61,6 +63,35 @@ export default async function PlanPage() {
         </section>
       )}
 
+
+      {/* 試し: 朝会が決めた「何を変えて、いつ・何の数字で判断するか」。判定日時まで結論を出さない（trials.ts） */}
+      {trials.length > 0 && (
+        <section className="card space-y-3 p-4">
+          <h2 className="font-bold">試していること</h2>
+          <p className="text-xs text-muted">何かを変えたときは、判定日時と見る数字、判断に要る訪問の下限を先に決めます。判定日時までは結論を出さず、下限に届かなければ保留して1回だけ延ばします。</p>
+          <ul className="space-y-2">
+            {trials.map((t) => {
+              const st = t.status === "open" ? trialStats(t) : null;
+              const badge = t.status === "open" ? (t.extended ? "判断保留（延長中）" : "判定待ち") : t.verdict ? VERDICT_LABEL[t.verdict] : "判断できなかった";
+              return (
+                <li key={t.id} className="rounded-lg bg-surface-2 p-3 text-sm">
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                    <span className="rounded-full border border-line px-2 py-0.5 text-xs">{badge}</span>
+                    {t.focus ? <span className="rounded-full border border-line px-2 py-0.5 text-xs">既存の案件の集客</span> : null}
+                    <Link href={`/projects/${t.project_id}`} className="text-xs text-accent underline">#{t.project_id} {t.title}</Link>
+                  </div>
+                  <div className="mt-1 font-medium">{t.question}</div>
+                  <div className="text-xs text-ink-2">変えたこと: {t.change}</div>
+                  <div className="num mt-1 text-xs text-muted">
+                    見る数字: {METRIC_LABEL[t.metric]}・判定 {jstDateTime(t.judge_at)}・下限 訪問{t.min_visits}人{st ? `・今 訪問${st.visits}・登録/利用${st.conversions}` : ""}
+                  </div>
+                  {t.result && <div className="mt-1 text-xs">結論: {t.result}</div>}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       <section className="card space-y-3 p-4">
         <h2 className="font-bold">これまでの計画と達成度</h2>
