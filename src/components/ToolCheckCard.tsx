@@ -7,7 +7,6 @@ const pctText = (r: number | null) => (r === null ? "—" : `${Math.round(r * 10
 export function ToolCheckCard({ owner }: { owner: boolean }) {
   const weeks = toolCheckWeeks();
   const issues = owner ? recentToolCheckIssues() : [];
-  const max = Math.max(1, ...weeks.map((w) => w.checks));
   return (
     <section className="card space-y-3 p-4">
       <div>
@@ -36,10 +35,9 @@ export function ToolCheckCard({ owner }: { owner: boolean }) {
                 <td className="num py-1.5 text-right">{w.flagged}回</td>
                 <td className="num py-1.5 text-right font-medium">{pctText(w.rate)}</td>
                 <td className="py-1.5 pl-3">
+                  {/* 棒の全体を同じ長さにし、止めた割合だけを長さにする（回数は左の数字。PR #185 の ai-review の指摘） */}
                   <div className="h-2 overflow-hidden rounded-full bg-surface-2" title={`チェック${w.checks}回のうち${w.flagged}回止めた`}>
-                    <div className="h-full rounded-full" style={{ width: `${(w.checks / max) * 100}%`, background: "var(--line)" }}>
-                      <div className="h-full rounded-full" style={{ width: `${w.checks ? (w.flagged / w.checks) * 100 : 0}%`, background: "var(--warning)" }} />
-                    </div>
+                    <div className="h-full rounded-full" style={{ width: `${(w.rate ?? 0) * 100}%`, background: "var(--warning)" }} />
                   </div>
                 </td>
               </tr>

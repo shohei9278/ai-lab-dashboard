@@ -557,8 +557,8 @@ CREATE TABLE IF NOT EXISTS tool_checks (
   at TEXT NOT NULL DEFAULT (datetime('now')),
   project_id INTEGER REFERENCES projects(id),
   by TEXT NOT NULL, -- ai = AIが書いたツール / claude-code = Claude Code で作ったツール
-  ai_ok INTEGER NOT NULL, -- AIのチェック（reviewTool）の答え。1 = 問題なし
-  ai_issues TEXT NOT NULL, -- JSON（AIのチェックの指摘）
+  ai_ok INTEGER NOT NULL, -- AIのチェック（reviewTool）で止めなかったか。1 = 止めなかった（ok で、指摘も0件）。公開を止める条件と同じ（PR #185 の ai-review の指摘）
+  ai_issues TEXT NOT NULL, -- JSON（AIのチェックの指摘。全部）
   static_issues INTEGER NOT NULL DEFAULT 0, -- 決まり（staticToolIssues）の指摘の数
   test_issues INTEGER NOT NULL DEFAULT 0 -- ブラウザでの自動テストの指摘の数
 );

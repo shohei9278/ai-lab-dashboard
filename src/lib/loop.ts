@@ -1341,7 +1341,7 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
     const issues = [...statics, ...ai.issues, ...tests];
     // 1回ごとに残す（ツールのチェックの止めた割合を AIの成績に出す。toolCheckStats.ts）
     db().prepare("INSERT INTO tool_checks (project_id, by, ai_ok, ai_issues, static_issues, test_issues) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(p.id, given !== undefined ? "claude-code" : "ai", ai.ok ? 1 : 0, JSON.stringify(ai.issues.slice(0, 10)), statics.length, tests.length);
+      .run(p.id, given !== undefined ? "claude-code" : "ai", ai.ok && ai.issues.length === 0 ? 1 : 0, JSON.stringify(ai.issues), statics.length, tests.length);
     return { review: { ok: issues.length === 0 && ai.ok, issues }, test };
   };
   if (given !== undefined) {
