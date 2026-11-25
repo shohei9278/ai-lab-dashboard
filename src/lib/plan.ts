@@ -22,6 +22,7 @@ import { waitsText } from "./waits";
 import { decisionsText } from "./meetings";
 import { projectType } from "./aims";
 import { dayContextText, tokyoWeather, type DayWeather } from "./dayContext";
+import { hotPauseReason, hotProjects, hotText, type HotProject } from "./hot";
 
 // 毎日の計画: 毎朝AIが全案件を振り返り、今のネック（届かない・使われない など）を1つ決めて、今日やることを決める
 // - やること: 案件の宣伝の投稿 / 宣伝ではない普通の投稿 / ページを直す / 新しい案件づくりを休む / 次のアイデア出しに課題を伝える
@@ -233,7 +234,7 @@ export function platformCostText(): string {
   }).join(" / ")}`;
 }
 
-function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = []): string {
+function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: HotProject[] = []): string {
   const s = getSettings();
   const now = jstNow();
   const live = liveProjects();
@@ -272,6 +273,7 @@ function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = []): string 
     outsideText(),
     researchText() || "調べたこと: まだない",
     `公開中の案件:\n${projectLines.join("\n") || "（なし）"}`,
+    hotText(hot),
     `自動で投稿できる場所: ${platforms.map((p) => `${AUTO_PLATFORMS[p].label}（宣伝は${postAllowed(p, "promo") ? `1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円` : p === "x" && xPlayPromoOn() ? `運営者が止めている。ただし遊ぶツール（ねらいが 広がる・また来てもらう）の案件に限り、直近7日で${X_PLAY_PROMO_PER_WEEK}件まで入れてよい（いま あと${xPlayPromoLeft()}件・1件 約${Math.round(AUTO_PLATFORMS[p].costUsd * s.usdJpy)}円）` : "運営者が止めている（予定に入れない）"}・普通の投稿は${postAllowed(p, "plain") ? `約${Math.round(AUTO_PLATFORMS[p].plainCostUsd * s.usdJpy)}円` : "運営者が止めている（予定に入れない）"}。直近24時間の投稿 ${safetyQuota(p).used}件・安全装置 ${s.postSafetyPerDay}件）`).join(" / ") || "なし（自動投稿がオフ、またはキーがない。投稿の予定は入れない）"}`,
     `投稿してよい時間: ${POST_START}〜${POST_END}時`,
     `予算: 今月の残り 約${Math.max(0, Math.round(s.monthlyBudgetJpy - monthSpendUsd() * s.usdJpy))}円（月${s.monthlyBudgetJpy}円）・新しい案件1件 約${Math.round(b.perProject)}円・今日の予算のペースで作れる新しい案件 ${b.newToday}件`,
@@ -372,7 +374,9 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   // 東京の天気（1日1回だけ読む。読めなければ省く）
   // 判定日時が来た試しを先に見る（下限に届かないものは保留して延ばし、残りは朝会のAIが結論を出す）
   const due = settleDueTrials();
-  const material = planMaterial(await weather(now.day).catch(() => []), due);
+  // 当たりの兆し（昨日、普段より跳ねた案件）。見つけたら、新しい案件づくりを休んでその案件に集中する
+  const hot = hotProjects();
+  const material = planMaterial(await weather(now.day).catch(() => []), due, hot);
   const standup = { key: `standup-${Date.now()}`, title: `${now.day.slice(5).replace("-", "/")}の朝会` };
   let opinions: PlanOpinion[] = [];
   let out: PlanOut;
@@ -394,6 +398,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - 時刻は今より後で、投稿は${POST_START}〜${POST_END}時の間（"HH:MM"）。使える場所（自動で投稿できる場所）以外には予定を入れない
 - 安全装置（場所ごとの1日の投稿数）を超える予定は入れない。費用も考える（X はリンク付きの投稿が高い）
 - pause_new: ネックが「届かない」なのに新しい案件を増やしても届かない案件が増えるだけ、のようなときは true にして、今日は新しい案件づくりを休む
+- 当たりの兆し: 材料の「当たりの兆し」に案件があるときは、新しい案件づくりを休み（pause_new は自動で true になる）、その案件に集中する。宣伝は、跳ねた場所・切り口を残しつつ、別の切り口・場所も混ぜて2〜3件（上の「上位3案件」の決まりより優先する）。ツールで「ページの自動改善: できる」なら、来た人が次も使いたくなる直し（機能を1つ足す・結果のあとに次の一手を出す・最初の画面を分かりやすくする）を improve で1件。同じ仕組みを別の対象者に向けた派生のアイデアは、次のアイデア出しに自動で渡すので、idea_note には書かなくてよい。数字が少ないので、review では「まだ偶然の可能性がある」ことも書く
 - idea_note: 次のアイデア出しに伝えたい、今の課題（例: 最初の利用者に届けやすい場所がはっきりした案を優先する）。なければ空
 - goals: 今日の目標の数字（visits = 全案件の訪問の合計、conversions = 登録・利用の合計）。直近の数字から、背伸びすれば届く値にする
 - prediction: 目標とは別に、この計画を実行したら、今日の訪問と登録・利用は実際にいくつになると思うか（願望ではなく予想。目標と同じでなくてよい）と、その理由。最近の計画の「予想→実測」のずれを見て、楽観・悲観に偏っていたら直す
@@ -420,6 +425,12 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
     });
   } finally {
     liveEnd(standup.key);
+  }
+
+  // 当たりの兆しがあれば、AIが休むと書かなくても、新しい案件づくりを休む（理由は当たりの兆しにする）
+  if (hot.length) {
+    out.pause_reason = out.pause_new && isStr(out.pause_reason) && out.pause_reason.trim() ? `${hotPauseReason(hot)}。${out.pause_reason.trim()}` : hotPauseReason(hot);
+    out.pause_new = true;
   }
 
   // 決まりに合わない予定は落とす（時刻・場所・案件・安全装置・1日1件まで）
@@ -464,7 +475,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
     focus: String(out.focus ?? "").slice(0, 200),
     goals: out.goals.filter((g) => isObj(g) && (g.metric === "visits" || g.metric === "conversions") && Number(g.target) > 0)
       .slice(0, 2).map((g) => ({ metric: g.metric, target: Math.round(Number(g.target)), why: String(g.why ?? "").slice(0, 200) })),
-    pause_reason: out.pause_new ? String(out.pause_reason ?? "").slice(0, 200) : "",
+    pause_reason: out.pause_new ? String(out.pause_reason ?? "").slice(0, 400) : "",
     prediction: isObj(out.prediction) && Number.isFinite(Number(out.prediction.visits))
       ? { visits: Math.max(0, Math.round(Number(out.prediction.visits))), conversions: Math.max(0, Math.round(Number(out.prediction.conversions) || 0)), why: String(out.prediction.why ?? "").slice(0, 200) }
       : undefined,
@@ -510,6 +521,8 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   for (const r of Array.isArray(out.replies) ? out.replies : []) {
     if (isObj(r) && isStr(r.reply)) conn.prepare("UPDATE plan_requests SET ai_reply = ? WHERE id = ? AND source = 'human'").run(`${modelInfo(model).label}（${now.day}の朝会）: ${r.reply.slice(0, 400)}`, Number(r.id));
   }
+  // 当たりの兆しを残す（次のアイデア出しに、派生の候補として渡す。hot.ts の hotIdeaHint）
+  for (const h of hot) logEvent(h.id, "system", "hot-project", `当たりの兆し（${h.why}）。今日は新しい案件づくりを休み、この案件に集中します`);
   // 前の日までの、実行されずに残った予定は見送りにする
   conn.prepare("UPDATE plan_tasks SET status = 'skipped', result = '時間内に実行できなかった' WHERE status = 'pending' AND plan_id IN (SELECT id FROM daily_plans WHERE day < ?)").run(now.day);
   logEvent(null, "ai", "plan", `今日の計画${existing ? "を作り直しました" : ""}: ネック「${BOTTLENECK_LABEL[bottleneck]}」${content.focus}（担当 ${modelInfo(model).label}${opinions.length ? `・意見 ${opinions.map((o) => modelInfo(o.modelId).label).join("・")}` : ""}・予定${tasks.length}件${trialsAdded ? `・試し${trialsAdded}件` : ""}${out.pause_new ? "・新しい案件は休み" : ""}${reqs.length ? `・あなたへのお願い${reqs.length}件` : ""}）`);

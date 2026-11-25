@@ -621,12 +621,13 @@ test("チェックの評価: 例は40件（問題なし15・問題あり25）で
   assert.equal(CHECK_EVAL_CASES.filter((c) => c.expect === "ok").length, 15);
   for (const t of Object.keys(CHECK_EVAL_TYPE_LABEL)) assert.equal(CHECK_EVAL_CASES.filter((c) => c.type === t).length, 5, t);
   for (const c of CHECK_EVAL_CASES) {
+    assert.ok(c.base && !c.input, `${c.id} は手で作った例なので土台を使う`);
     const base = JSON.stringify(CHECK_EVAL_BASES[c.base].lp);
     const now = JSON.stringify(checkEvalInput(c).lp);
     if (c.edit) assert.notEqual(now, base, `${c.id} は土台から変わっていない`);
     else assert.equal(now, base);
     // 提供時期・すぐ使える の決まりは事前登録LPのチェックにだけあるので、ツールの土台には使わない
-    if (c.type === "timing" || c.type === "ready") assert.equal(CHECK_EVAL_BASES[c.base].kind, "lp", c.id);
+    if (c.type === "timing" || c.type === "ready") assert.equal(CHECK_EVAL_BASES[c.base!].kind, "lp", c.id);
   }
   // 例を作っても土台は書き換わらない
   checkEvalInput(CHECK_EVAL_CASES.find((c) => c.id === "ng-fake-ratio")!);

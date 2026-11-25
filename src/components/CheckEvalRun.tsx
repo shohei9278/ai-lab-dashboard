@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 // 公開前チェックの評価を始めるボタン（運営者だけ）。費用の見込みを確かめてから流す。流れている間は画面を数秒ごとに新しくする
-export function CheckEvalRun({ models, running }: { models: { id: string; label: string; estimate: number }[]; running: boolean }) {
+export function CheckEvalRun({ models, running, total }: { models: { id: string; label: string; estimate: number }[]; running: boolean; total: number }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
@@ -24,7 +24,7 @@ export function CheckEvalRun({ models, running }: { models: { id: string; label:
             type="button"
             disabled={running || !!busy}
             onClick={async () => {
-              if (!window.confirm(`${m.label} で、40件の例をチェックさせます。費用は約${m.estimate}円です。実行しますか？`)) return;
+              if (!window.confirm(`${m.label} で、${total}件の例をチェックさせます。費用は約${m.estimate}円です。実行しますか？`)) return;
               setBusy(m.id);
               setMsg(null);
               const res = await fetch("/api/check-eval", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modelId: m.id }) });

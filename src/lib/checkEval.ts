@@ -4,6 +4,10 @@ import { callJson, GuardError } from "./ai";
 import { MODELS, costUsd, getModel, hasKey } from "./models";
 import { isReview, lpReviewPrompt, withActivity, type Review } from "./loop";
 import { CHECK_EVAL_CASES, CHECK_EVAL_TYPE_LABEL, checkEvalInput, type CheckEvalCase, type CheckEvalType } from "./checkEvalCases";
+import { adoptedSeedCases } from "./evalSeeds";
+
+// 試験に使う例: 手で作った例と、本番のヒヤリハットから運営者が入れた例（evalSeeds.ts）
+export const evalCases = (): CheckEvalCase[] => [...CHECK_EVAL_CASES, ...adoptedSeedCases()];
 
 // 公開前チェックの評価。正解の決まった例を、本番と同じ指示（lpReviewPrompt）でチェックさせ、
 // 「問題ありを見逃した数」と「問題なしを止めた数」を数える。結果は案件には使わず、社員の声にも残さない（費用は ai_calls に入る）
@@ -25,15 +29,16 @@ export function checkEvalModels(): string[] {
 // チェックの指示と例の指紋。全部の例を、渡す文の全体（system と user）と正解にして作る
 // （指示・LPの渡し方・例のどれかを変えると変わる。変える前の結果とは、そのまま比べられないため）
 export function checkPromptHash(): string {
-  const texts = CHECK_EVAL_CASES.map((c) => { const { project, lp } = checkEvalInput(c); const p = lpReviewPrompt(project, lp); return `${c.id}|${c.expect}|${c.type ?? ""}\n${p.system}\n===\n${p.user}`; });
+  const texts = evalCases().map((c) => { const { project, lp } = checkEvalInput(c); const p = lpReviewPrompt(project, lp); return `${c.id}|${c.expect}|${c.type ?? ""}\n${p.system}\n===\n${p.user}`; });
   return createHash("sha256").update(texts.join("\n---\n")).digest("hex").slice(0, 8);
 }
 
 // 1周の費用の見込み（円）。日本語は1文字を約1トークンとして多めに見積もる
 export function estimateCheckEvalJpy(modelId: string): number {
   const m = getModel(modelId);
-  const inputTokens = CHECK_EVAL_CASES.reduce((n, c) => { const { project, lp } = checkEvalInput(c); const p = lpReviewPrompt(project, lp); return n + p.system.length + p.user.length; }, 0);
-  return Math.ceil(costUsd(m, inputTokens, OUTPUT_TOKENS * CHECK_EVAL_CASES.length) * getSettings().usdJpy);
+  const cases = evalCases();
+  const inputTokens = cases.reduce((n, c) => { const { project, lp } = checkEvalInput(c); const p = lpReviewPrompt(project, lp); return n + p.system.length + p.user.length; }, 0);
+  return Math.ceil(costUsd(m, inputTokens, OUTPUT_TOKENS * cases.length) * getSettings().usdJpy);
 }
 
 // このサーバーの中で、いま実際に動いている評価。サーバーが再起動すると空になる
@@ -99,7 +104,7 @@ function finish(id: number, status: "done" | "error", error: string | null = nul
 // 緊急停止・予算切れ（GuardError）が出たら、ほかの並びは新しい例を取らずに止まり、呼び出し中のものが終わるのを待ってから閉じる
 // （閉じたあとに結果や費用が増えないように）
 export async function runCheckEval(id: number, modelId: string) {
-  const queue = [...CHECK_EVAL_CASES];
+  const queue = evalCases();
   let stop: Error | null = null;
   active.add(id);
   // 閉じられた評価（別のサーバーが止まったと見なした など）は、新しい例を取らずに終える
@@ -133,7 +138,8 @@ export type CheckEvalSummary = {
 };
 
 export function summarizeCheckEval(run: CheckEvalRow, rows: CheckEvalResultRow[]): CheckEvalSummary {
-  const note = (id: string) => CHECK_EVAL_CASES.find((c) => c.id === id)?.note ?? id;
+  const cases = evalCases();
+  const note = (id: string) => cases.find((c) => c.id === id)?.note ?? id;
   const answered = rows.filter((r) => r.got_ok !== null);
   const ng = answered.filter((r) => r.expect === "ng");
   const ok = answered.filter((r) => r.expect === "ok");
@@ -162,7 +168,7 @@ export function checkEvalOverview() {
   const latest = db().prepare("SELECT * FROM check_evals WHERE id IN (SELECT MAX(id) FROM check_evals WHERE status = 'done' GROUP BY model_id) ORDER BY id DESC").all() as CheckEvalRow[];
   const results = (id: number) => db().prepare("SELECT * FROM check_eval_results WHERE eval_id = ?").all(id) as CheckEvalResultRow[];
   return {
-    cases: { total: CHECK_EVAL_CASES.length, ng: CHECK_EVAL_CASES.filter((c) => c.expect === "ng").length, ok: CHECK_EVAL_CASES.filter((c) => c.expect === "ok").length },
+    cases: (() => { const cases = evalCases(); return { total: cases.length, ng: cases.filter((c) => c.expect === "ng").length, ok: cases.filter((c) => c.expect === "ok").length, fromProduction: cases.filter((c) => c.input).length }; })(),
     promptHash: checkPromptHash(),
     latest: latest.map((r) => summarizeCheckEval(r, results(r.id))),
     history: runs.map((r) => summarizeCheckEval(r, results(r.id))),

@@ -230,9 +230,11 @@ export const CHECK_EVAL_BASES: Record<string, Base> = {
   },
 };
 
+export type CheckEvalInput = { project: Pick<Base, "kind" | "target" | "solution" | "title">; lp: Lp };
 export type CheckEvalCase = {
   id: string;
-  base: keyof typeof CHECK_EVAL_BASES;
+  base?: keyof typeof CHECK_EVAL_BASES; // 手で作った例の土台（本番から採った例は input を使う）
+  input?: CheckEvalInput; // 本番から採った例（evalSeeds.ts）: そのときの案件とページ
   expect: "ok" | "ng";
   type?: CheckEvalType; // 問題ありの例の種類
   note: string; // 何を足したか（画面に出す）
@@ -290,7 +292,9 @@ export const CHECK_EVAL_CASES: CheckEvalCase[] = [
 ];
 
 // 例の中身（チェックに渡す形）
-export function checkEvalInput(c: CheckEvalCase): { project: Pick<Base, "kind" | "target" | "solution" | "title">; lp: Lp } {
+export function checkEvalInput(c: CheckEvalCase): CheckEvalInput {
+  if (c.input) return { project: c.input.project, lp: c.edit ? c.edit(structuredClone(c.input.lp)) : structuredClone(c.input.lp) };
+  if (!c.base) throw new Error(`例 ${c.id} に土台がありません`);
   const b = CHECK_EVAL_BASES[c.base];
   const lp = structuredClone(b.lp);
   return { project: { kind: b.kind, target: b.target, solution: b.solution, title: b.title }, lp: c.edit ? c.edit(lp) : lp };
