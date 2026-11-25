@@ -17,13 +17,13 @@ function AutoAskPanel({ st }: { st: AutoAskStatus }) {
   const resume = st.resumeAt ? Date.parse(st.resumeAt) : null;
   let check = st.nextCheckAt;
   if (check && resume) while (check <= resume) check += 3_600_000;
-  const busy = st.busy ? `#${st.busy.id}「${st.busy.title}」を ${jstDateTime(st.busy.at)} に頼み、${st.busy.pr ? `PR #${st.busy.pr} の` : "PR ができるのを"}マージまで待っています` : null;
+  const busy = st.busy ? `#${st.busy.id}「${st.busy.title}」を ${jstDateTime(st.busy.at)} に頼み、${st.busy.pr ? `PR #${st.busy.pr} のマージまで待っています` : `PR ができるのを待っています（${st.busy.giveUpAt ? jstDateTime(st.busy.giveUpAt) : ""}までにできなければ、次を頼みます）`}` : null;
   // 上限は、止めている・進めている間も重なりうるので、状態とは別にも出す（PR #173 の ai-review の指摘）
   const cap = st.resumeAt ? `直近24時間に${st.asked}件頼み、1日の上限（${st.max}件）に達しています。${jstDateTime(st.resumeAt)} から次を頼めます` : null;
   const state = st.off
     ? { label: "止まっています", text: `${st.off}。新しい提案は頼みません` }
     : busy
-      ? { label: "進めています", text: `${busy}。${cap ? "終わっても、上限が空くまで次は頼みません" : "終わったら次を頼みます"}` }
+      ? { label: "進めています", text: cap ? `${busy}。終わっても、上限が空くまで次は頼みません` : st.busy?.pr ? `${busy}。終わったら次を頼みます` : busy }
       : cap
         ? { label: "上限で待っています", text: cap }
         : st.next
