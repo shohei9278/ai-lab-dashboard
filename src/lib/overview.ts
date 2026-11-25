@@ -1,4 +1,4 @@
-import { db, getSettings, monthAdSpendJpy, monthSpendBreakdownUsd, type ApprovalKind, type EventRow, type ProjectRow, type Stage } from "./db";
+import { JST_TODAY_START, db, getSettings, jstThisMonth, monthAdSpendJpy, monthSpendBreakdownUsd, type ApprovalKind, type EventRow, type ProjectRow, type Stage } from "./db";
 import { NO_EXPIRE_KINDS, PUBLISH_FAILING_SQL, STUCK_SQL, buildingNow, projectTotals } from "./loop";
 import { maskEvents } from "./views";
 import { NEEDS_WAIT_SQL } from "./needs";
@@ -110,9 +110,9 @@ export function overview() {
 
   const aiRow = db()
     .prepare(
-      `SELECT COUNT(*) AS n, SUM(c.at >= datetime('now', 'start of day')) AS today
+      `SELECT COUNT(*) AS n, SUM(c.at >= ${JST_TODAY_START}) AS today
        FROM ai_calls c LEFT JOIN projects p ON p.id = c.project_id
-       WHERE c.error IS NULL AND COALESCE(p.demo, 0) = 0 AND strftime('%Y-%m', c.at) = strftime('%Y-%m', 'now')`,
+       WHERE c.error IS NULL AND COALESCE(p.demo, 0) = 0 AND ${jstThisMonth("c.at")}`,
     )
     .get() as { n: number; today: number | null };
 

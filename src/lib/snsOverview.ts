@@ -1,4 +1,4 @@
-import { db, getSettings, type ProjectRow } from "./db";
+import { db, getSettings, jstThisMonth, type ProjectRow } from "./db";
 import { CONV } from "./loop";
 import { AUTO_PLATFORMS, type AutoPlatform } from "./snsApi";
 import { postLink, postQuota, recentAutoPosts } from "./sns";
@@ -15,7 +15,7 @@ export function accounts() {
     const recent = recentAutoPosts(key);
     const all = db().prepare("SELECT COUNT(*) AS n, COALESCE(SUM(visits), 0) AS v, COALESCE(SUM(conversions), 0) AS c FROM sns_posts WHERE platform = ? AND status = 'posted'").get(key) as { n: number; v: number; c: number };
     const lastCall = db().prepare("SELECT at, error FROM ai_calls WHERE model_id = ? ORDER BY id DESC LIMIT 1").get(apiId) as { at: string; error: string | null } | undefined;
-    const cost = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS c FROM ai_calls WHERE model_id = ? AND strftime('%Y-%m', at) = strftime('%Y-%m', 'now')").get(apiId) as { c: number }).c;
+    const cost = (db().prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS c FROM ai_calls WHERE model_id = ? AND ${jstThisMonth("at")}`).get(apiId) as { c: number }).c;
     const { used: today, cap, planned } = postQuota(key);
     // 次に投稿できる時刻（間隔・失敗のあとの待ち時間のうち、遅い方。日本時間の8〜22時の外なら翌朝8時）
     let next = Date.now();

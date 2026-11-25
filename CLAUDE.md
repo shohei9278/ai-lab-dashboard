@@ -27,7 +27,7 @@ Next.js の注意（`next dev` が自動で作り、消しても作り直す。N
 ## マージの前
 - PR のチェック（CI と ai-review）が通っていること
 - ai-review は、別のAI（GPT）のレビューを PR のコメントに書く。PR の説明文を「要件」として読むので、途中で方針が変わったら説明文を今の形に直す（古い説明文のままだと、決めて変えた点を「要件と違う」と指摘される）
-- 本番がいま動いていないこと。本番の `/api/live` で `activities` と `building` が空なら動いていない（`building` には、クラウドの Claude Code のルーティンが作業中の開発待ちも入る）
+- 本番がいま動いていないこと。本番の `/api/live` で `activities` と `building` が空なら動いていない（`building` には、クラウドの Claude Code のルーティンが作業中の開発待ちも入る。`activities` には、名前の付いた作業がないときに、AIを呼んでいる途中のもの（朝の計画・日報・自動投稿など）も入る）
   - 本番: https://ai-lab-dashboard-production-fc9e.up.railway.app
 - push するたびにチェックとレビューがやり直しになる。CI の結果を繰り返し見に行かない（終わるのを待つときは、運営者に伝えて止まる）
 

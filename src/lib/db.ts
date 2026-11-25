@@ -1060,14 +1060,19 @@ export function monthSpendUsd(): number {
   return monthSpendBreakdownUsd().total;
 }
 
+// 「今月」「今日」は日本時間で区切る（記録の日時は世界時で入っている。世界時の月で数えると、毎月1日の0〜9時に先月の分が今月に入り、
+// 予算の上限に近かった月の翌朝、計画などが止まる。11/22 の見直しのルーティンが見つけた）
+export const jstThisMonth = (col: string) => `strftime('%Y-%m', ${col}, '+9 hours') = strftime('%Y-%m', 'now', '+9 hours')`;
+export const JST_TODAY_START = "datetime('now', '+9 hours', 'start of day', '-9 hours')";
+
 export function monthSpendBreakdownUsd() {
   const evalRow = db()
     .prepare(
-      "SELECT COALESCE(SUM(actual_usd), 0) AS s FROM runs WHERE mock = 0 AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')",
+      `SELECT COALESCE(SUM(actual_usd), 0) AS s FROM runs WHERE mock = 0 AND ${jstThisMonth("created_at")}`,
     )
     .get() as { s: number };
   const loopRow = db()
-    .prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_calls WHERE strftime('%Y-%m', at) = strftime('%Y-%m', 'now')")
+    .prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_calls WHERE ${jstThisMonth("at")}`)
     .get() as { s: number };
   return { eval: evalRow.s, loop: loopRow.s, total: evalRow.s + loopRow.s };
 }
@@ -1075,7 +1080,7 @@ export function monthSpendBreakdownUsd() {
 // 今月の広告費（円）
 export function monthAdSpendJpy(): number {
   const row = db()
-    .prepare("SELECT COALESCE(SUM(ad_spend_jpy), 0) AS s FROM metrics WHERE strftime('%Y-%m', day) = strftime('%Y-%m', 'now')")
+    .prepare("SELECT COALESCE(SUM(ad_spend_jpy), 0) AS s FROM metrics WHERE strftime('%Y-%m', day) = strftime('%Y-%m', 'now', '+9 hours')") // day は日本時間の日付
     .get() as { s: number };
   return row.s;
 }

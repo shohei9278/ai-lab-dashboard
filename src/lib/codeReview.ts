@@ -5,13 +5,13 @@ import { addProposal, countRepeat } from "./voices";
 // コードの見直しのルーティン（クラウドの Claude Code。週に2回。運営者が決めた）が、見つけたことを提案箱の「仕組みの改善」に入れる入口（docs/routine-code-review.md）
 // 提案箱が「運営の中で困ったこと（外側）」から出るのに対して、こちらは「コードの中身（内側）」から出す。直しはしない（直すのは、運営者が選んで「AIに直させる」を押したときの、提案箱のルーティン）
 // - 合言葉は LAB_REVIEW_TOKEN（ツールのルーティンの LAB_TOOL_TOKEN とは分ける。ルーティンの役割ごとに、入れる入口を分けるため）
-// - 入れられるのは、2日のあいだに5件まで（1回の見直しで5件まで。週2回の間は3〜4日あく）
+// - 入れられるのは、2日のあいだに8件まで（1回の見直しで8件まで。週2回の間は3〜4日あく。確かめる所が多い間は、運営者が5件から8件に上げた）
 
 export const REVIEW_SCENE = "コードの見直し";
 // 攻め: 直すべき所（守り）ではなく、実験を伸ばすために足すとよい機能。定例会議で3社が採点し、点の高いものを自動でルーティンに頼む（autoAsk.ts）
 export const GROWTH_SCENE = "コードの見直し（攻め）";
-export const REVIEW_MAX = 5;
-export const GROWTH_MAX = 2; // 5件のうち、攻めは2件まで
+export const REVIEW_MAX = 8;
+export const GROWTH_MAX = 2; // 8件のうち、攻めは2件まで
 const REVIEW_WINDOW = "-2 days";
 const TITLE_MAX = 80;
 const HOW_MAX = 600;
