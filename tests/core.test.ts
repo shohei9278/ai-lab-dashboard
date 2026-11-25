@@ -783,6 +783,40 @@ test("LP作成に渡すツールの例外の文言: エラーや代わりの動�
   assert.match(cut, /保存できません$/);
 });
 
+test("LP作成に渡すツールの注意書き: 結果は目安だと断る文だけを、画面とスクリプトの両方から取り出す", async () => {
+  const { toolCaveatTexts, toolExceptionTexts } = await import("../src/lib/loop");
+  const html = `<h2>必要な目数</h2><p class="note">目安です。試し編みで確かめてください。</p><button>計算する</button><script>out.textContent = "約" + n + "目（おおよその数です）"; const done = "計算しました";</script>`;
+  const t = toolCaveatTexts(html);
+  assert.match(t, /目安です。試し編みで確かめてください。/);
+  assert.match(t, /おおよその数です/);
+  assert.doesNotMatch(t, /必要な目数|計算する|計算しました/);
+  // 例外の文言とは別に取り出す（注意書きは、例外の文言には入らない）
+  assert.equal(toolExceptionTexts(html), "");
+  assert.equal(toolCaveatTexts(`<button>はかる</button>`), "");
+  // 操作の案内だけの文は、注意書きにしない（結果や数値を指す言葉と一緒のときだけ取り出す）
+  assert.equal(toolCaveatTexts(`<p>入力内容を確認してください</p><p>もう一度試してください</p><p>設定の参考にしてください</p><script>alert("数字を確かめてください");</script>`), "");
+  const weak = toolCaveatTexts(`<p>入力内容を確認してください</p><p>結果は実際の寸法で確認してください</p><p>計算の結果は参考にとどめてください</p>`);
+  assert.match(weak, /結果は実際の寸法で確認してください/);
+  assert.match(weak, /計算の結果は参考にとどめてください/);
+  assert.doesNotMatch(weak, /入力内容を確認してください/);
+  // 1つの要素に文が並ぶときも、別の文の言葉どうしを組み合わせない（同じ文に弱い言葉と結果を指す言葉があるときだけ）
+  assert.equal(toolCaveatTexts(`<p>計算を始めます。入力内容を確認してください。</p><script>const m = "結果を表示します。もう一度試してください。";</script>`), "");
+  const mixed = toolCaveatTexts(`<p>計算を始めます。結果は実際の寸法で確認してください。入力内容を確認してください。</p>`);
+  assert.equal(mixed, "結果は実際の寸法で確認してください。");
+  // 「保証」は打ち消す形だけを注意書きにする（「動作を保証します」は取り出さない）
+  assert.equal(toolCaveatTexts(`<p>動作を保証します</p><p>品質を保証し、すぐに使えます</p><p>保証は1年です</p>`), "");
+  const warranty = toolCaveatTexts(`<p>動作を保証します。</p><p>計算の正しさは保証しません。</p><p>結果の正確さは保証できません。</p><p>仕上がりの保証はありません。</p>`);
+  assert.match(warranty, /計算の正しさは保証しません。/);
+  assert.match(warranty, /結果の正確さは保証できません。/);
+  assert.match(warranty, /仕上がりの保証はありません。/);
+  assert.doesNotMatch(warranty, /動作を保証します/);
+  const many = Array.from({ length: 20 }, (_, i) => `<p>${i}番目の値は目安です</p>`).join("");
+  const cut = toolCaveatTexts(many, 40);
+  assert.ok(cut.length <= 40);
+  assert.match(cut, /^0番目の値は目安です/);
+  assert.match(cut, /目安です$/);
+});
+
 test("最初の届け方の実施: 公開のときに提案箱へ入れたお願いの返事を、そのまま記録として読む", async () => {
   const { firstChannelState, firstChannelLabel } = await import("../src/lib/loop");
   const { addProposal } = await import("../src/lib/voices");
