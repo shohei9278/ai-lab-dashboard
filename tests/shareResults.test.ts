@@ -52,3 +52,15 @@ test("結果ごとのシェア: 枠の中で window.labResult を使え、壊れ
   assert.ok(staticToolIssues('<script id="lab-results">not json</script><script>1</script>').some((x) => x.includes("lab-results")));
   assert.ok(!staticToolIssues('<script type="application/json" id="lab-results">["A"]</script><script>1</script>').some((x) => x.includes("lab-results")));
 });
+
+test("提案箱 #62: ツールを直すときに一部だけが返ってきたら、全体ではないと見分ける", async () => {
+  const { isPartialTool } = await import("../src/lib/loop");
+  const prev = `<div>ツール</div><script>${"x".repeat(5000)}</script>`;
+  // 新しく作るとき（今のツールがない）は見分けない
+  assert.equal(isPartialTool("<p>1行</p>"), false);
+  // 変えた1行だけ
+  assert.equal(isPartialTool('<button id="go">はじめる</button>', prev), true);
+  // 全体を返した（少し短くなった・規模を絞った）ときは、一部とは見なさない
+  assert.equal(isPartialTool(prev.slice(0, 4000), prev), false);
+  assert.equal(isPartialTool(prev.slice(0, 1100), prev), false);
+});
