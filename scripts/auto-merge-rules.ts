@@ -26,7 +26,7 @@ export const protectedFiles = (files: string[]) => files.filter((f) => PROTECTED
 // PR の変えたファイル（GitHub の files API の1件）。名前を変えたときは、前の名前も見る（危ない所から外へ名前を変えて、見張りをすり抜けないように）
 export const changedPaths = (files: { filename: string; previous_filename?: string }[]) => files.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]));
 
-export type PrComment = { body?: string; user?: { login?: string } | null };
+export type PrComment = { body?: string; user?: { login?: string } | null; created_at?: string };
 const REVIEW_BOT = "github-actions[bot]";
 const bot = (c: PrComment) => c.user?.login === REVIEW_BOT && !!c.body;
 
@@ -34,8 +34,22 @@ const bot = (c: PrComment) => c.user?.login === REVIEW_BOT && !!c.body;
 const FIX_MARK = "<!-- auto-merge fix ";
 export const fixMarker = (sha: string) => `${FIX_MARK}${sha} -->`;
 export const fixRounds = (comments: PrComment[]) => comments.filter((c) => bot(c) && c.body!.includes(FIX_MARK)).length;
-// この版で、もう直しを頼んだか（定期の見回りで、同じ版の直しを何度も頼まない）
-export const fixRequested = (comments: PrComment[], sha: string) => comments.some((c) => bot(c) && c.body!.includes(fixMarker(sha)));
+// この版で、もう直しを頼んだか（定期の見回りで、同じ版の直しを何度も頼まない）と、頼んだあとの様子（運営者が決めた。PR #179 で、ルーティンが「指摘は当たらない」とコメントだけして終え、同じ版のまま待ち続けたため）
+// - waiting: 頼んでから FIX_WAIT_HOURS より短く、ほかの人のコメントもない（ルーティンが作業中かもしれないので待つ）
+// - answered: 頼んだあとに、見回り以外のコメントがある（ルーティンが直さずに理由を書いて終えた・人が書いた）。人に回す
+// - stale: 頼んでから FIX_WAIT_HOURS 以上たっても、新しい版もコメントもない（ルーティンが動かなかった・途中で止まった）。人に回す
+// どれも止める方向（人に回す）にだけ使う。コメントの言葉は読まず、マージに進む判断には使わない（偽物のコメントでも、早く人に回るだけ）
+export const FIX_WAIT_HOURS = 3;
+export type FixState = "none" | "waiting" | "answered" | "stale";
+export function fixState(comments: PrComment[], sha: string, now = new Date()): FixState {
+  const i = comments.findIndex((c) => bot(c) && c.body!.includes(fixMarker(sha)));
+  if (i < 0) return "none";
+  if (comments.slice(i + 1).some((c) => !!c.body?.trim() && c.user?.login !== REVIEW_BOT)) return "answered";
+  const at = Date.parse(comments[i].created_at ?? "");
+  // 頼んだ時刻が読めないときも、人に回す（待ち続けない）
+  return !Number.isFinite(at) || now.getTime() - at >= FIX_WAIT_HOURS * 3_600_000 ? "stale" : "waiting";
+}
+
 // 人に回したことの印（同じ PR で何度も知らせない）
 export const HUMAN_MARK = "<!-- auto-merge human -->";
 export const handedToHuman = (comments: PrComment[]) => comments.some((c) => bot(c) && c.body!.includes(HUMAN_MARK));
@@ -90,15 +104,17 @@ export type Decision = { action: "merge" | "fix" | "human" | "wait" | "review" |
 // レビューは、ほかの条件が全部そろってから1回だけ呼ぶ（AIの費用を、マージできない間に使わない）
 export function beforeReview(x: {
   branch: string; sameRepo: boolean; baseMain: boolean; draft: boolean; checksDone: boolean; ciOk: boolean;
-  files: string[]; filesComplete: boolean; commentsComplete: boolean; historyOk: boolean; fixRequestedNow: boolean;
+  files: string[]; filesComplete: boolean; commentsComplete: boolean; historyOk: boolean; fix: FixState;
   productionIdle: boolean | null; smokeOk: boolean | null;
 }): Decision {
   if (!AUTO_BRANCH.test(x.branch) || !x.sameRepo) return { action: "wait", reason: "ルーティンが作った PR ではない" };
   // main 向けの PR だけ（レビューは main との差分で見るので、ほかのブランチへのマージはしない。PR #153 の ai-review の指摘）
   if (!x.baseMain) return { action: "wait", reason: "main 向けの PR ではない" };
   if (x.draft) return { action: "wait", reason: "下書きの PR" };
+  if (x.fix === "answered") return { action: "human", reason: "この版の直しを頼んだが、新しい版はなく、コメントがある（ルーティンが直さずに理由を書いた・人が書いた）。指摘と、そのコメントを見てください" };
+  if (x.fix === "stale") return { action: "human", reason: `この版の直しを頼んでから${FIX_WAIT_HOURS}時間たっても、新しい版もコメントもない（ルーティンが動かなかったか、途中で止まった）` };
+  if (x.fix === "waiting") return { action: "wait", reason: "この版の直しは頼んだ" };
   if (!x.checksDone) return { action: "wait", reason: "CI が終わっていない" };
-  if (x.fixRequestedNow) return { action: "wait", reason: "この版の直しは頼んだ" };
   // 変えたファイル・コメントを全部読めなかったときは、見落としがありうるので人に回す（PR #153 の ai-review の指摘）
   if (!x.filesComplete) return { action: "human", reason: "変えたファイルが多すぎて、全部を確かめられない" };
   if (!x.commentsComplete) return { action: "human", reason: "コメントが多すぎて、全部を読めない" };

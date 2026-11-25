@@ -8,7 +8,7 @@
 // したことは PR にコメントし、Discord に知らせる
 // PR のコードは動かさない（差分は git で取り出して、レビューの材料として読むだけ）。PR のコメントの「指摘なし」は信じない（誰でもボットとして書けるため）
 import { execFileSync } from "node:child_process";
-import { AUTO_BRANCH, HUMAN_MARK, afterDeliberation, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, promptChanged, TOKEN_WARN_DAYS, tokenDaysLeft, readyForHuman, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type Decision, type PrComment } from "./auto-merge-rules";
+import { AUTO_BRANCH, HUMAN_MARK, afterDeliberation, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRounds, fixState, fixText, handedToHuman, MAX_REVIEW_FAILS, promptChanged, TOKEN_WARN_DAYS, tokenDaysLeft, readyForHuman, smokeResult, type SmokeRun, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type Decision, type PrComment } from "./auto-merge-rules";
 import { REVIEWERS, askReviewer, blocking, deliberationComment, deliberationInput, deliberationInstructions, parseDeliberation, parseReview, reviewComment, reviewInput, reviewInstructions, type Deliberation, type Finding, type Review, type Reviewer } from "./ai-review-core";
 import { OMITTED } from "./ai-review-omitted";
 
@@ -153,7 +153,7 @@ async function toHuman(pr: Pull, link: string, why: string): Promise<Decision> {
 }
 
 async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Promise<Decision> {
-  // コメントは、止める方向の印（人に回した・この版の直しは頼んだ・直させた回数）にだけ使う
+  // コメントは、止める方向の印（人に回した・この版の直しは頼んだ・頼んだあとの答え・直させた回数）にだけ使う
   const { items: comments, complete: commentsComplete } = await pages<PrComment & { body: string }>(`/issues/${pr.number}/comments`, 20);
   if (handedToHuman(comments)) return { action: "wait", reason: "人に回したまま" };
   // CI の結果は、全部で何件あるかも見る（100件を超えて読みきれないときは、終わっていないとして待つ。PR #153 の ai-review の指摘）
@@ -168,7 +168,7 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
     baseMain: pr.base.ref === "main" && pr.base.repo?.full_name === GITHUB_REPOSITORY, draft: pr.draft,
     checksDone: checks.length > 0 && runs.total_count <= checks.length && checks.every((c) => c.status === "completed"),
     ciOk: checks.find((c) => c.name === "check")?.conclusion === "success",
-    files: changedPaths(files), filesComplete, commentsComplete, historyOk: history.ok, fixRequestedNow: fixRequested(comments, pr.head.sha),
+    files: changedPaths(files), filesComplete, commentsComplete, historyOk: history.ok, fix: fixState(comments, pr.head.sha),
     productionIdle: idle, smokeOk: smoke,
   });
   if (pre.action === "human") return toHuman(pr, link, pre.reason);

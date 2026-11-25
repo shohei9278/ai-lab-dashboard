@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { afterDeliberation, FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, promptChanged, TOKEN_WARN_DAYS, tokenDaysLeft, protectedFiles, readyForHuman, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
+import { afterDeliberation, FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, FIX_WAIT_HOURS, fixMarker, fixRounds, fixState, fixText, handedToHuman, MAX_REVIEW_FAILS, promptChanged, TOKEN_WARN_DAYS, tokenDaysLeft, protectedFiles, readyForHuman, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
 import { deliberationComment, fitDiff, MAX_BODY, MAX_DIFF, parseDeliberation, parseReview, reviewInput, reviewInstructions, type Review } from "../scripts/ai-review-core";
 import { OMITTED } from "../scripts/ai-review-omitted";
 
@@ -11,7 +11,7 @@ const SHA = "abc123";
 const bot = (body: string): PrComment => ({ body, user: { login: "github-actions[bot]" } });
 const pre = (o: Partial<Parameters<typeof beforeReview>[0]> = {}) => beforeReview({
   branch: "claude/proposal-90", sameRepo: true, baseMain: true, draft: false, checksDone: true, ciOk: true, files: ["src/lib/loop.ts"],
-  filesComplete: true, commentsComplete: true, historyOk: true, fixRequestedNow: false, productionIdle: true, smokeOk: true, ...o,
+  filesComplete: true, commentsComplete: true, historyOk: true, fix: "none", productionIdle: true, smokeOk: true, ...o,
 });
 const rv = (reviewer: "gpt" | "gemini", severities: string[], o: { parsed?: boolean; cut?: boolean } = {}): Review =>
   o.parsed === false ? { reviewer, summary: "", findings: [], parsed: false, cut: !!o.cut }
@@ -27,9 +27,29 @@ test("自動マージ: 直すべき指摘があれば直させ、3回直して�
   assert.deepEqual(afterReview(r, 0), { action: "fix", reason: "直すべき指摘（🔴・🟡）が2件ある（1回目の直し）" });
   const tried = [bot(fixMarker("old1")), bot(fixMarker("old2")), bot(fixMarker("old3"))];
   assert.equal(afterReview(r, fixRounds(tried)).action, "human");
-  assert.equal(fixRequested([bot(fixMarker(SHA))], SHA), true);
-  assert.equal(fixRequested([bot(fixMarker("other"))], SHA), false);
-  assert.equal(pre({ fixRequestedNow: true }).action, "wait");
+  assert.equal(fixState([{ ...bot(fixMarker(SHA)), created_at: new Date().toISOString() }], SHA), "waiting");
+  assert.equal(fixState([bot(fixMarker("other"))], SHA), "none");
+  assert.equal(pre({ fix: "waiting" }).action, "wait");
+});
+
+test("自動マージ: 直しを頼んだ版のまま、ルーティンがコメントだけして終えた・長く何もないときは、人に回す（同じ版で待ち続けない）", () => {
+  const at = "2026-11-25T00:00:00Z";
+  const mark = { ...bot(fixMarker(SHA)), created_at: at };
+  const soon = new Date(Date.parse(at) + 60 * 60_000);
+  const late = new Date(Date.parse(at) + FIX_WAIT_HOURS * 3_600_000);
+  // 頼んだあとに、見回り以外のコメントがあれば、直さずに答えたとして人に回す（言葉は読まない）
+  const reply: PrComment = { body: "この指摘は当たりません", user: { login: "claude[bot]" } };
+  assert.equal(fixState([mark, reply], SHA, soon), "answered");
+  assert.equal(pre({ fix: "answered" }).action, "human");
+  // 頼む前のコメント・見回り自身のコメント・空のコメントは、答えとして数えない
+  assert.equal(fixState([reply, mark, bot("⏳ 次の見回りで"), { body: " ", user: { login: "x" } }], SHA, soon), "waiting");
+  // 頼んでから決めた時間がたっても何もなければ、人に回す
+  assert.equal(fixState([mark], SHA, late), "stale");
+  assert.equal(pre({ fix: "stale" }).action, "human");
+  // 頼んだ時刻が読めないときも、人に回す（待ち続けない）
+  assert.equal(fixState([bot(fixMarker(SHA))], SHA, soon), "stale");
+  // CI がやり直しの途中でも、答えがあれば人に回す
+  assert.equal(pre({ fix: "answered", checksDone: false }).action, "human");
 });
 
 test("自動マージ: 自動で触れない所はレビューまで進め、CI の失敗・全部を読めないとき・レビューの答えを読めないとき・途中までのときは人に回す", () => {
