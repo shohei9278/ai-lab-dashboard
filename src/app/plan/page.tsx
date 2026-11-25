@@ -7,7 +7,7 @@ import { autoPlatforms } from "@/lib/snsApi";
 import { planProgress, recentPlans, todayPlan } from "@/lib/plan";
 import { RequestCount, PlanHistory, PlanSummary, PlanTasks, dayLabel } from "./PlanView";
 import { Replan } from "./PlanActions";
-import { METRIC_LABEL, VERDICT_LABEL, listTrials, trialStats } from "@/lib/trials";
+import { METRIC_LABEL, VERDICT_LABEL, listTrials, trialBranches, trialStats } from "@/lib/trials";
 
 export const dynamic = "force-dynamic";
 
@@ -68,11 +68,12 @@ export default async function PlanPage() {
       {trials.length > 0 && (
         <section className="card space-y-3 p-4">
           <h2 className="font-bold">試していること</h2>
-          <p className="text-xs text-muted">何かを変えたときは、判定日時と見る数字、判断に要る訪問の下限を先に決めます。判定日時までは結論を出さず、下限に届かなければ保留して1回だけ延ばします。</p>
+          <p className="text-xs text-muted">何かを変えたときは、判定日時と見る数字、判断に要る訪問の下限、結果ごとの次の手を先に決めます。判定日時までは結論を出さず、下限に届かなければ保留して1回だけ延ばします。判定の朝は、先に決めた条件のどれに当たったかを選び、その次の手に進みます。</p>
           <ul className="space-y-2">
             {trials.map((t) => {
               const st = t.status === "open" ? trialStats(t) : null;
               const badge = t.status === "open" ? (t.extended ? "判断保留（延長中）" : "判定待ち") : t.verdict ? VERDICT_LABEL[t.verdict] : "判断できなかった";
+              const branches = trialBranches(t);
               return (
                 <li key={t.id} className="rounded-lg bg-surface-2 p-3 text-sm">
                   <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -86,6 +87,22 @@ export default async function PlanPage() {
                     見る数字: {METRIC_LABEL[t.metric]}・判定 {jstDateTime(t.judge_at)}・下限 訪問{t.min_visits}人
                     {st ? `・今 訪問${st.visits}・登録/利用${st.conversions}` : t.final_visits !== null ? `・判定のとき 訪問${t.final_visits}・登録/利用${t.final_conversions ?? 0}` : ""}
                   </div>
+                  {branches.length > 0 && (
+                    <div className="mt-2 text-xs">
+                      <div className="text-muted">先に決めた次の手{t.matched_branch === 0 ? "（どの条件にも当たらなかった）" : ""}:</div>
+                      <ol className="mt-1 space-y-1">
+                        {branches.map((b, i) => {
+                          const hit = t.matched_branch === i + 1;
+                          return (
+                            <li key={i} className={hit ? "rounded border border-accent px-2 py-1" : "px-2 py-1 text-ink-2"}>
+                              {hit && <span className="mr-1 font-medium text-accent">当たった:</span>}
+                              {i + 1}. {b.if} → {b.then}
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </div>
+                  )}
                   {t.result && <div className="mt-1 text-xs">結論: {t.result}</div>}
                 </li>
               );
