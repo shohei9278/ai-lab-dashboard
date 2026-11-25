@@ -783,6 +783,23 @@ test("LP作成に渡すツールの例外の文言: エラーや代わりの動�
   assert.match(cut, /保存できません$/);
 });
 
+test("LP作成に渡すツールの注意書き: 結果は目安だと断る文だけを、画面とスクリプトの両方から取り出す", async () => {
+  const { toolCaveatTexts, toolExceptionTexts } = await import("../src/lib/loop");
+  const html = `<h2>必要な目数</h2><p class="note">目安です。試し編みで確かめてください。</p><button>計算する</button><script>out.textContent = "約" + n + "目（おおよその数です）"; const done = "計算しました";</script>`;
+  const t = toolCaveatTexts(html);
+  assert.match(t, /目安です。試し編みで確かめてください。/);
+  assert.match(t, /おおよその数です/);
+  assert.doesNotMatch(t, /必要な目数|計算する|計算しました/);
+  // 例外の文言とは別に取り出す（注意書きは、例外の文言には入らない）
+  assert.equal(toolExceptionTexts(html), "");
+  assert.equal(toolCaveatTexts(`<button>はかる</button>`), "");
+  const many = Array.from({ length: 20 }, (_, i) => `<p>${i}番目の値は目安です</p>`).join("");
+  const cut = toolCaveatTexts(many, 40);
+  assert.ok(cut.length <= 40);
+  assert.match(cut, /^0番目の値は目安です/);
+  assert.match(cut, /目安です$/);
+});
+
 test("最初の届け方の実施: 公開のときに提案箱へ入れたお願いの返事を、そのまま記録として読む", async () => {
   const { firstChannelState, firstChannelLabel } = await import("../src/lib/loop");
   const { addProposal } = await import("../src/lib/voices");
