@@ -204,14 +204,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
       if (gone && db().prepare("DELETE FROM plan_requests WHERE id = ? AND status = 'open'").run(p.existingId).changes) { bump(k, 1 + gone.repeats); mergedSame++; }
       continue;
     }
-    const sc = Math.round(p.score * 10) / 10;
-    if (p.score < 5) {
-      // 採点の途中で Claude Code に頼まれたものは見送りにしない（PR #126 の ai-review の指摘）
-      closed += db().prepare("UPDATE plan_requests SET score = ?, score_provisional = 0, status = 'declined', note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open' AND ai_fix_at IS NULL").run(sc, `定例会議で低評価（平均${sc}点）のため自動で見送り`, p.existingId).changes;
-    } else {
-      // 朝会の仮の点も、ここで正式な点に置き換える
-      db().prepare("UPDATE plan_requests SET score = ?, score_provisional = 0 WHERE id = ?").run(sc, p.existingId);
-    }
+    if (applyMeetingScore(p.existingId!, p.score)) closed++;
   }
 
   // 4. 議長が議事録のまとめと発信用の下書きを書く
@@ -238,6 +231,17 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
   for (const [i, n] of extraRepeats) if (pool[i].existingId) db().prepare("UPDATE plan_requests SET repeats = repeats + ? WHERE id = ?").run(n, pool[i].existingId);
   logEvent(null, "ai", "meeting", `週の定例会議: ${got.length}社が${pool.length - existing.length}件の改善案を出し合い、${added}件を提案箱に入れました。この週の提案${existing.length}件も採点し、${closed}件を見送りにしました${dupOf.size ? `。同じ提案の組を見つけ、${dupOf.size}件をまとめました（提案箱から消したもの${mergedSame}件）` : ""}${revisited ? `。臨時会議の少数意見を${revisited}件、答え合わせしました` : ""}${settled ? `。臨時会議で「あとで決める」としたことを${settled}件決めました` : ""}（議長 ${modelInfo(chair).label}）`);
   return id;
+}
+
+// 定例会議の点を、提案箱の提案に付ける。5点未満なら見送りにする（見送りにしたら true）
+// - 点の書き換えは必ず行う（朝会の仮の点も、ここで正式な点に置き換える）
+// - 見送りにするのは、まだ返事待ちで Claude Code に頼んでいないものだけ（採点の途中で頼まれたものは見送りにしない。PR #126 の ai-review の指摘）
+//   見送りの条件に合わないときも、点は正式なものにする（採点の途中で頼まれた低い点の提案が、仮の点のまま残っていた。PR #183 の ai-review の指摘）
+export function applyMeetingScore(id: number, score: number): boolean {
+  const sc = Math.round(score * 10) / 10;
+  db().prepare("UPDATE plan_requests SET score = ?, score_provisional = 0 WHERE id = ?").run(sc, id);
+  if (score >= 5) return false;
+  return db().prepare("UPDATE plan_requests SET status = 'declined', note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open' AND ai_fix_at IS NULL").run(`定例会議で低評価（平均${sc}点）のため自動で見送り`, id).changes > 0;
 }
 
 // 採点者ごとの甘さ・辛さをならす: 採点者が付けた点から、その採点者の平均を引き、全体の平均を足す（採点者ごとの点を1〜10に収めてから、提案ごとに平均する）

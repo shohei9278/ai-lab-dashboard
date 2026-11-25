@@ -138,3 +138,19 @@ test("仮の採点: 点が2社以上そろった提案だけ仮の点にする�
   assert.deepEqual(await withKeys(() => scoreProvisional({ material: "材料", ask: gptFails })), { scored: 2, high: 2 });
   assert.deepEqual(row(older), { score: 8, score_provisional: 1, status: "open" });
 });
+
+test("定例会議の点: 書き換えは必ず行い、見送りは返事待ちで頼んでいないものだけ（採点の途中で頼まれた低い点の提案も、仮の点のまま残さない）", async () => {
+  const { applyMeetingScore } = await import("../src/lib/weekly");
+  db().exec("DELETE FROM plan_requests");
+  const low = add("仮で8点だったが正式は低い", { score: 8 });
+  const asked = add("採点の途中で頼まれた", { score: 8 });
+  const ok = add("仮で6点", { score: 6 });
+  db().prepare("UPDATE plan_requests SET score_provisional = 1").run();
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now') WHERE id = ?").run(asked);
+  assert.equal(applyMeetingScore(low, 4.04), true);
+  assert.deepEqual(row(low), { score: 4, score_provisional: 0, status: "declined" });
+  assert.equal(applyMeetingScore(asked, 3.96), false);
+  assert.deepEqual(row(asked), { score: 4, score_provisional: 0, status: "open" }, "見送りにはしないが、点は正式なものにする");
+  assert.equal(applyMeetingScore(ok, 6.44), false);
+  assert.deepEqual(row(ok), { score: 6.4, score_provisional: 0, status: "open" });
+});
