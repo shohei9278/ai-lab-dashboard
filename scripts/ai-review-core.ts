@@ -5,7 +5,7 @@ import OpenAI from "openai";
 
 export const REVIEWERS = ["gpt", "gemini"] as const;
 export type Reviewer = (typeof REVIEWERS)[number];
-export const REVIEW_MODEL: Record<Reviewer, string> = { gpt: "gpt-5.6-sol", gemini: "gemini-3.1-pro-preview" };
+export const REVIEW_MODEL: Record<Reviewer, string> = { gpt: "gpt-6.2-sol", gemini: "gemini-3.1-pro-preview" };
 // 差分の上限（文字数）。6万だと大きな PR の後半を見ていなかった（PR #174）ので上げた。超えたら、先にテストの差分を外し、それでも超えたら途中まで
 export const MAX_DIFF = 120_000;
 const TEST_FILE = /^(tests|e2e)\//;

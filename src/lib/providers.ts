@@ -100,7 +100,7 @@ async function realCall(model: ModelDef, prompt: { system: string; user: string 
 const MOCK_PROFILE: Record<string, { acc: number; flip: number; formatErr: number; thinkTokens: number }> = {
   "claude-opus-5-5": { acc: 0.93, flip: 0.03, formatErr: 0.0, thinkTokens: 400 },
   "claude-haiku-5-5": { acc: 0.82, flip: 0.08, formatErr: 0.02, thinkTokens: 150 },
-  "gpt-5.6-sol": { acc: 0.92, flip: 0.04, formatErr: 0.01, thinkTokens: 500 },
+  "gpt-6.2-sol": { acc: 0.92, flip: 0.04, formatErr: 0.01, thinkTokens: 500 },
   "gpt-5.6-luna": { acc: 0.8, flip: 0.1, formatErr: 0.03, thinkTokens: 200 },
   "gemini-3.1-pro-preview": { acc: 0.9, flip: 0.05, formatErr: 0.01, thinkTokens: 450 },
   "gemini-3.5-flash-lite": { acc: 0.76, flip: 0.12, formatErr: 0.04, thinkTokens: 100 },

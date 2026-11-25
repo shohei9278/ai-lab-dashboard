@@ -1,5 +1,5 @@
 import { db, getSettings } from "./db";
-import { MODELS, hasKey, type ModelDef } from "./models";
+import { MODELS, RETIRED, hasKey, type ModelDef } from "./models";
 import { PAGE_RIVALS, TOOL_MODELS, ideaAuthors, shadowModels } from "./loop";
 import { PAGE_JUDGES } from "./freePage";
 import { PLAN_MODELS } from "./plan";
@@ -35,7 +35,10 @@ function rolesOf(id: string): string[] {
 export function staffList(list: Ranking[]): Staff[] {
   const s = getSettings();
   const work = new Map((db().prepare("SELECT model_id AS m, COUNT(*) AS n, SUM(cost_usd) AS usd FROM ai_calls WHERE error IS NULL GROUP BY model_id").all() as { m: string; n: number; usd: number }[]).map((r) => [r.m, r]));
-  return MODELS.filter((m) => hasKey(m.provider) || work.has(m.id))
+  // 一覧から外したモデル（models.ts の RETIRED）も、仕事の記録があれば「（旧）」として残す（入れ替わる前の社員の仕事が名簿から消えないように）
+  const retired: ModelDef[] = Object.entries(RETIRED).filter(([id]) => work.has(id))
+    .map(([id, r]) => ({ id, label: `${r.label}（旧）`, provider: r.provider, tier: "top", inputPerM: 0, outputPerM: 0, verified: true }));
+  return [...MODELS.filter((m) => hasKey(m.provider) || work.has(m.id)), ...retired]
     .map((m) => {
       const ranks = list.filter((r) => r.rows.length > 1).flatMap((r) => {
         const i = r.rows.findIndex((x) => x.modelId === m.id);
@@ -49,5 +52,6 @@ export function staffList(list: Ranking[]): Staff[] {
       };
     })
     .filter((x) => x.roles.length || x.calls)
-    .sort((a, b) => b.calls - a.calls);
+    // 今の社員を先に、一覧から外したモデルは最後に並べる
+    .sort((a, b) => Number(a.model.id in RETIRED) - Number(b.model.id in RETIRED) || b.calls - a.calls);
 }

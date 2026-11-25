@@ -16,7 +16,7 @@ import { DESIGN_OPTIONS, ICONS, ILLUSTRATION_STYLES, PREVIEW_KINDS, SECTIONS, TH
 import { toolAssets, toolImages } from "./toolAssets";
 import { TOOL_STORE_MAX } from "../../lp-site/src/lp/toolStore";
 import { hasResultsTag, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
-import { MODELS, hasKey, modelInfo } from "./models";
+import { MODELS, countByCurrent, currentModelId, hasKey, modelInfo } from "./models";
 import { firstShotNote, screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
 import { trendsText } from "./trends";
@@ -1290,14 +1290,16 @@ ${EXTRAS_RULE}`,
 // チェックは3つ: コードの決まりごと、AIによるコードの確認、本物のブラウザ（スマホ幅）で動かすテスト
 // ツールのコードを書くAI。新しいツールは、使える候補のうち作った数が一番少ないものに順番に任せる（作り比べのため）
 // 直すときは、今のツールを書いたAIがそのまま直す
-export const TOOL_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-5.6-sol"];
+export const TOOL_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6.2-sol"];
 
 function toolModelFor(p: ProjectRow): string {
   const usable = TOOL_MODELS.filter((id) => hasKey(modelInfo(id).provider));
-  const current = (db().prepare("SELECT tool_model FROM lp_versions WHERE project_id = ? AND tool_model IS NOT NULL ORDER BY version DESC LIMIT 1").get(p.id) as { tool_model: string } | undefined)?.tool_model;
+  // 一覧から外したモデルが書いたツールは、代わりのモデルが直す（models.ts の RETIRED）
+  const written = (db().prepare("SELECT tool_model FROM lp_versions WHERE project_id = ? AND tool_model IS NOT NULL ORDER BY version DESC LIMIT 1").get(p.id) as { tool_model: string } | undefined)?.tool_model;
+  const current = written ? currentModelId(written) : undefined;
   if (current && usable.includes(current)) return current;
   if (!usable.length) return getSettings().loopModel;
-  const counts = new Map((db().prepare("SELECT tool_model AS m, COUNT(DISTINCT project_id) AS n FROM lp_versions WHERE tool_model IS NOT NULL GROUP BY tool_model").all() as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  const counts = countByCurrent(db().prepare("SELECT tool_model AS m, COUNT(DISTINCT project_id) AS n FROM lp_versions WHERE tool_model IS NOT NULL GROUP BY tool_model").all() as { m: string; n: number }[]);
   return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
 }
 
@@ -1591,12 +1593,12 @@ async function buildLpVersionNow(projectId: number, opts: { instruction?: string
 }
 
 // ページのデザインで Claude と作り比べる、別の会社のAI。使える候補のうち、比べた回数が少ない方に順番に任せる
-export const PAGE_RIVALS = ["gpt-5.6-sol", "gemini-3.1-pro-preview"];
+export const PAGE_RIVALS = ["gpt-6.2-sol", "gemini-3.1-pro-preview"];
 
 function pageRivalFor(): string | null {
   const usable = PAGE_RIVALS.filter((id) => hasKey(modelInfo(id).provider));
   if (!usable.length) return null;
-  const counts = new Map((db().prepare("SELECT model AS m, COUNT(*) AS n FROM page_candidates WHERE model IS NOT NULL GROUP BY model").all() as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  const counts = countByCurrent(db().prepare("SELECT model AS m, COUNT(*) AS n FROM page_candidates WHERE model IS NOT NULL GROUP BY model").all() as { m: string; n: number }[]);
   return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
 }
 
@@ -1782,8 +1784,8 @@ export function routineTurnForNew(p: Pick<ProjectRow, "id" | "kind" | "deep" | "
   if (p.created_at < ROUTINE_NORMAL_SINCE) return false;
   const usable = TOOL_MODELS.filter((id) => hasKey(modelInfo(id).provider));
   if (!usable.length) return true;
-  const ai = new Map((db().prepare(`SELECT v.tool_model AS m, COUNT(DISTINCT v.project_id) AS n FROM lp_versions v JOIN projects p ON p.id = v.project_id
-    WHERE v.tool_model IS NOT NULL AND p.deep = 0 AND p.demo = 0 AND p.tool_maker IS NULL AND p.created_at >= ? GROUP BY v.tool_model`).all(ROUTINE_NORMAL_SINCE) as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  const ai = countByCurrent(db().prepare(`SELECT v.tool_model AS m, COUNT(DISTINCT v.project_id) AS n FROM lp_versions v JOIN projects p ON p.id = v.project_id
+    WHERE v.tool_model IS NOT NULL AND p.deep = 0 AND p.demo = 0 AND p.tool_maker IS NULL AND p.created_at >= ? GROUP BY v.tool_model`).all(ROUTINE_NORMAL_SINCE) as { m: string; n: number }[]);
   const mine = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE tool_maker = 'claude-code' AND deep = 0 AND demo = 0 AND created_at >= ?").get(ROUTINE_NORMAL_SINCE) as { n: number }).n;
   return mine <= Math.min(...usable.map((id) => ai.get(id) ?? 0));
 }

@@ -1,6 +1,6 @@
 import { CHECK_EVAL_HISTORY, checkEvalModels, checkEvalOverview, estimateCheckEvalJpy, type CheckEvalSummary } from "@/lib/checkEval";
 import { getSettings } from "@/lib/db";
-import { getModel } from "@/lib/models";
+import { getModel, modelInfo } from "@/lib/models";
 import { jstDateTime } from "@/lib/format";
 import { ShowMore } from "./ShowMore";
 import { CheckEvalRun } from "./CheckEvalRun";
@@ -21,7 +21,7 @@ function seedViews(): SeedView[] {
       aiIssues: JSON.parse(s.ai_issues) as string[],
       humanComment: s.human_comment,
       suggest: s.suggest_expect && s.suggest_reason && s.suggest_score
-        ? { expect: s.suggest_expect, type: s.suggest_type, typeLabel: s.suggest_type ? CHECK_EVAL_TYPE_LABEL[s.suggest_type] : null, score: s.suggest_score, reason: s.suggest_reason, model: s.suggest_model ? getModel(s.suggest_model).label : "" }
+        ? { expect: s.suggest_expect, type: s.suggest_type, typeLabel: s.suggest_type ? CHECK_EVAL_TYPE_LABEL[s.suggest_type] : null, score: s.suggest_score, reason: s.suggest_reason, model: s.suggest_model ? modelInfo(s.suggest_model).label : "" }
         : null,
       suggestError: s.suggest_error,
     };
@@ -48,7 +48,7 @@ function Result({ s, owner, stale }: { s: CheckEvalSummary; owner: boolean; stal
   return (
     <div className="space-y-3 rounded-lg border border-line p-3">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="font-medium">{getModel(s.run.model_id).label}</div>
+        <div className="font-medium">{modelInfo(s.run.model_id).label}</div>
         <div className="text-xs text-muted">{jstDateTime(s.run.at)}{stale ? "・このあとチェックの指示か例を変えています" : ""}</div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
@@ -109,7 +109,7 @@ export function CheckEvalCard({ owner }: { owner: boolean }) {
           運営者がチェックの結果を覆すと、そのページが試験問題の候補になり、運営者が正解を決めたものから試験に加わります。
         </p>
       </div>
-      {o.running && <p className="text-sm text-ink-2">{getModel(o.running.run.model_id).label} で評価しています（{o.running.done} / {o.cases.total}件）…</p>}
+      {o.running && <p className="text-sm text-ink-2">{modelInfo(o.running.run.model_id).label} で評価しています（{o.running.done} / {o.cases.total}件）…</p>}
       {o.latest.length ? (
         <div className="grid gap-3 lg:grid-cols-2">
           {o.latest.map((x) => <Result key={x.run.id} s={x} owner={owner} stale={x.run.prompt_hash !== o.promptHash} />)}
@@ -124,7 +124,7 @@ export function CheckEvalCard({ owner }: { owner: boolean }) {
             {o.history.map((h) => (
               <div key={h.run.id} className="flex flex-wrap gap-x-3 text-ink-2">
                 <span className="num">{jstDateTime(h.run.at)}</span>
-                <span>{getModel(h.run.model_id).label}</span>
+                <span>{modelInfo(h.run.model_id).label}</span>
                 {h.run.status === "error" ? <span style={{ color: "var(--critical)" }}>{h.run.error ?? "途中で止まった"}</span> : <>
                   <span className="num">止めた {h.ng.caught}/{h.ng.total}</span>
                   <span className="num">通した {h.ok.passed}/{h.ok.total}</span>

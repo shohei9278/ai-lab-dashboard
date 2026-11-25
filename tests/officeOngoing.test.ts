@@ -47,11 +47,11 @@ test("作業中の登録: 長い作業は、終わるまで「いまAIがやっ�
   assert.ok(!activityList().some((x) => x.key === "play-video-1"));
   assert.ok(!officeWorking().some((x) => x.member === "anthropic"));
   // 失敗しても消える
-  await assert.rejects(withActivity({ key: "check-eval-9", title: "公開前チェックの評価", models: ["gpt-5.6-sol"], room: "dev", doing: "公開前チェックの評価", projectId: null }, async () => { throw new Error("だめ"); }));
+  await assert.rejects(withActivity({ key: "check-eval-9", title: "公開前チェックの評価", models: ["gpt-6.2-sol"], room: "dev", doing: "公開前チェックの評価", projectId: null }, async () => { throw new Error("だめ"); }));
   assert.ok(!activityList().some((x) => x.key === "check-eval-9"));
   // 複数のAIを比べる作業は、その全員がその部屋にいる（PR #168 の ai-review の指摘）
   let fin!: () => void;
-  const run = withActivity({ key: "run-1", title: "AIの比べ（実行）", models: ["claude-opus-5-5", "gpt-5.6-sol", "gemini-3.1-pro-preview"], room: "dev", doing: "AIの比べ", projectId: null }, () => new Promise<void>((ok) => { fin = ok; }));
+  const run = withActivity({ key: "run-1", title: "AIの比べ（実行）", models: ["claude-opus-5-5", "gpt-6.2-sol", "gemini-3.1-pro-preview"], room: "dev", doing: "AIの比べ", projectId: null }, () => new Promise<void>((ok) => { fin = ok; }));
   assert.deepEqual(officeWorking().filter((x) => x.doing === "AIの比べ").map((x) => x.member).sort(), ["anthropic", "google", "openai"]);
   fin();
   await run;

@@ -52,7 +52,7 @@ const isSuggestion = (v: unknown): v is SeedSuggestion =>
 export const SEED_NO_MODEL = "公開前チェックとは別の会社のAIが使えない（APIキーがない）ため、おすすめを付けていません";
 export function seedSuggestModel(): string | null {
   const own = getModel(getSettings().loopModel).provider;
-  const others = ["gpt-5.6-sol", "gemini-3.1-pro-preview", "claude-opus-5-5"].filter((id) => getModel(id).provider !== own);
+  const others = ["gpt-6.2-sol", "gemini-3.1-pro-preview", "claude-opus-5-5"].filter((id) => getModel(id).provider !== own);
   return others.find((id) => hasKey(getModel(id).provider)) ?? null;
 }
 

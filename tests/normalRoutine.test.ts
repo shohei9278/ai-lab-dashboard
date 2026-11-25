@@ -30,7 +30,7 @@ test("通常案件のルーティン: 交代の番は、ルーティンに作っ
   aiVersion(addTool("opus"), "claude-opus-5-5");
   aiVersion(addTool("sonnet"), "claude-sonnet-5-5");
   assert.equal(routineTurnForNew(p), false, "GPT がまだ0件");
-  aiVersion(addTool("gpt"), "gpt-5.6-sol");
+  aiVersion(addTool("gpt"), "gpt-6.2-sol");
   assert.equal(routineTurnForNew(p), true, "どれも1件になった");
   // じっくり案件・作ったツールがある案件・LP・設定でオフ・ルーティンがない → 番にしない
   assert.equal(routineTurnForNew({ ...p, deep: 1 }), false);

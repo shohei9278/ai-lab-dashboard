@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
 import path from "node:path";
+import { currentModelId } from "./models";
 
 const DB_PATH = process.env.AI_LAB_DB ?? path.join(process.cwd(), "data", "ai-lab.db");
 
@@ -1055,6 +1056,8 @@ export function getSettings(): Settings {
     if (!(r.key in DEFAULTS)) continue;
     s[r.key] = BOOL_KEYS.has(r.key) ? r.value === "1" : STRING_KEYS.has(r.key) ? r.value : Number(r.value);
   }
+  // 一覧から外したモデルが選ばれたままなら、代わりのモデルにする（models.ts の RETIRED。設定の画面の選び肢に合わせる）
+  s.loopModel = currentModelId(String(s.loopModel));
   return s as Settings;
 }
 

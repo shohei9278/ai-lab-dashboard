@@ -1,7 +1,7 @@
 import { callJson, isObj, isStr } from "./ai";
 import { db, getSettings, saveSettings } from "./db";
 import { logEvent } from "./loop";
-import { hasKey, modelInfo } from "./models";
+import { countByCurrent, currentModelId, hasKey, modelInfo } from "./models";
 import { PLAN_MODELS, type RequestRow } from "./plan";
 import { placeTypeStats, postStatsText } from "./postStats";
 import { createReport, gather, jstStartUtc } from "./report";
@@ -38,7 +38,7 @@ export function members(): string[] {
 
 // 議長は、議長を務めた回が少ないAIから
 export function chairFor(list: string[]): string {
-  const counts = new Map((db().prepare("SELECT chair_model AS m, COUNT(*) AS n FROM meetings GROUP BY chair_model").all() as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  const counts = countByCurrent(db().prepare("SELECT chair_model AS m, COUNT(*) AS n FROM meetings GROUP BY chair_model").all() as { m: string; n: number }[]);
   return [...list].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
 }
 
@@ -147,7 +147,7 @@ export async function createWeeklyMeeting(): Promise<number> {
   const order = pool.map((_, i) => i).sort(() => Math.random() - 0.5);
   const label = (i: number) => `P${order.indexOf(i) + 1}`;
   const scored = await Promise.allSettled(got.map((m) => {
-    const mine = pool.map((p, i) => ({ p, i })).filter((x) => x.p.proposer !== m.modelId).sort((a, b) => order.indexOf(a.i) - order.indexOf(b.i));
+    const mine = pool.map((p, i) => ({ p, i })).filter((x) => currentModelId(x.p.proposer ?? "") !== m.modelId).sort((a, b) => order.indexOf(a.i) - order.indexOf(b.i));
     // 採点する案がなければ、AIは呼ばない（だれも案を出さなかった週など）
     if (!mine.length) return Promise.resolve({ who: m.modelId, scores: [] as { id: string; score: number }[], same: [] as unknown[] });
     return callJson<{ scores: { id: string; score: number }[]; same?: unknown }>({
@@ -178,7 +178,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
   // 同じ提案の組（言い方が違うと文字の重なりでは見分けられないので、採点のときに答えてもらう。運営者が足すと決めた）
   // 残すのは、提案箱にあるもの（点の高いもの）、なければ今回の案の点の高いもの。残さないほうは、今回の案なら提案箱に入れず、提案箱のものはまとめて消す
   const byLabel = new Map(pool.map((_, i) => [label(i), i]));
-  const groups = sameGroups(pool.length, (who, i, j) => pool[i].proposer !== who && pool[j].proposer !== who,
+  const groups = sameGroups(pool.length, (who, i, j) => currentModelId(pool[i].proposer ?? "") !== who && currentModelId(pool[j].proposer ?? "") !== who,
     scored.flatMap((r) => (r.status === "fulfilled" ? [{ who: r.value.who, pairs: r.value.same.flatMap((x) => (Array.isArray(x) && x.length === 2 && byLabel.has(String(x[0]).trim()) && byLabel.has(String(x[1]).trim()) ? [[byLabel.get(String(x[0]).trim())!, byLabel.get(String(x[1]).trim())!] as [number, number]] : [])) }] : [])));
   const byIdx = new Map(ranked.map((p) => [p.idx, p]));
   const dupOf = new Map<number, number>(); // まとめるほう → 残すほう

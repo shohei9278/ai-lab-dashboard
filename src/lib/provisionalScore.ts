@@ -1,5 +1,6 @@
 import { callJson, isObj } from "./ai";
 import { db } from "./db";
+import { currentModelId } from "./models";
 import { logEvent } from "./loop";
 import { SCORE_RULES, adjustScores, members, scoringExisting } from "./weekly";
 
@@ -26,8 +27,8 @@ export async function scoreProvisional({ material, ask = callJson }: { material:
   const order = rows.map((_, i) => i).sort(() => Math.random() - 0.5);
   const label = (i: number) => `P${order.indexOf(i) + 1}`;
   const got = await Promise.allSettled(list.map((modelId) => {
-    // 自分が出した提案は採点しない（作者は伏せてあるが、自分の案をひいきしないように）
-    const mine = rows.map((r, i) => ({ r, i })).filter((x) => x.r.proposer !== modelId).sort((a, b) => order.indexOf(a.i) - order.indexOf(b.i));
+    // 自分が出した提案は採点しない（作者は伏せてあるが、自分の案をひいきしないように）。一覧から外した前のモデルが出した提案も、同じ会社の代わりのモデルは採点しない（models.ts の RETIRED）
+    const mine = rows.map((r, i) => ({ r, i })).filter((x) => currentModelId(x.r.proposer ?? "") !== modelId).sort((a, b) => order.indexOf(a.i) - order.indexOf(b.i));
     if (!mine.length) return Promise.resolve({ who: modelId, scores: [] as { id: string; score: number }[] });
     return ask<{ scores: { id: string; score: number }[] }>({
       purpose: "朝会（提案の仮の採点）",
