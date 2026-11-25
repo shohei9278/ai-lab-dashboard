@@ -35,7 +35,7 @@ test("試し: 判定日時・見る数字・下限を決まりの範囲にそろ
   assert.deepEqual([ta.project_id, ta.metric, ta.hours, ta.min_visits], [a, "conversions", 168, 5], "範囲の外は、範囲の端にそろえる");
   assert.deepEqual([tc.project_id, tc.metric, tc.hours, tc.min_visits], [c, "visits", 48, 20], "省いたものは決まりの値");
   // 次の日: 同時に3件までなので、あと1件だけ
-  assert.equal(addTrials(2, [{ project_id: b, question: "q", change: "c" }, { project_id: d, question: "q", change: "c" }], { live: set, model: "gpt-5.6-sol", tasks: promo(b, d), focusNeed: null }), 1);
+  assert.equal(addTrials(2, [{ project_id: b, question: "q", change: "c" }, { project_id: d, question: "q", change: "c" }], { live: set, model: "gpt-6.2-sol", tasks: promo(b, d), focusNeed: null }), 1);
   assert.equal(openTrials().length, 3);
 });
 
@@ -101,8 +101,8 @@ test("試し: 数字がそろったら朝会のAIに結論を出させ、判定�
   assert.match(trialsText(due, start + 25 * H), /判定日時が来た試し[^]*動画で紹介[^]*訪問12・登録\/利用3/);
   const [ta, tb] = openTrials();
   // 判定日時が来ていない試しの結論・知らない番号・形の合わない結論は入れない
-  assert.equal(applyTrialResults([{ id: tb.id, verdict: "win", result: "早すぎる" }, { id: 9999, verdict: "win", result: "x" }, { id: ta.id, verdict: "great", result: "x" }, { id: ta.id, verdict: "win", result: "動画の投稿から12訪問・3利用" }], due, "gpt-5.6-sol"), 1);
-  assert.deepEqual([row(ta.id).status, row(ta.id).verdict, row(ta.id).decided_by], ["decided", "win", "gpt-5.6-sol"]);
+  assert.equal(applyTrialResults([{ id: tb.id, verdict: "win", result: "早すぎる" }, { id: 9999, verdict: "win", result: "x" }, { id: ta.id, verdict: "great", result: "x" }, { id: ta.id, verdict: "win", result: "動画の投稿から12訪問・3利用" }], due, "gpt-6.2-sol"), 1);
+  assert.deepEqual([row(ta.id).status, row(ta.id).verdict, row(ta.id).decided_by], ["decided", "win", "gpt-6.2-sol"]);
   // 判定したときの数字を残す（終わったあとの流入を足さない。PR #172 の ai-review の指摘）
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, source) VALUES (?, ?, 50, 5, 'real')").run(a, jstDay());
   assert.deepEqual([row(ta.id).final_visits, row(ta.id).final_conversions], [12, 3]);

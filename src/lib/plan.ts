@@ -12,7 +12,7 @@ import { viralHints } from "./viralPosts";
 import { budgetState } from "./budget";
 import { jstDateTime } from "./format";
 import { ANGLE_TYPES, badPostsText, classifyUntyped, isAngleType, postStatsText } from "./postStats";
-import { hasKey, modelInfo } from "./models";
+import { countByCurrent, hasKey, modelInfo } from "./models";
 import { addProposal, addVoice } from "./voices";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { addResearch, researchText, runResearch } from "./research";
@@ -71,12 +71,12 @@ export type TaskRow = {
 export const TASK_KIND_LABEL: Record<TaskKind, string> = { promo: "宣伝の投稿", plain: "普通の投稿", improve: "ページを直す" };
 
 // 計画を書くAI。3社で日ごとに交代し、どのAIの計画が目標に届いたかを比べる（使える候補のうち、担当した日が少ないものに任せる）
-export const PLAN_MODELS = ["claude-opus-5-5", "gpt-5.6-sol", "gemini-3.1-pro-preview"];
+export const PLAN_MODELS = ["claude-opus-5-5", "gpt-6.2-sol", "gemini-3.1-pro-preview"];
 
 function planModelFor(): string {
   const usable = PLAN_MODELS.filter((id) => hasKey(modelInfo(id).provider));
   if (!usable.length) return getSettings().loopModel;
-  const counts = new Map((db().prepare("SELECT model_id AS m, COUNT(*) AS n FROM daily_plans GROUP BY model_id").all() as { m: string; n: number }[]).map((r) => [r.m, r.n]));
+  const counts = countByCurrent(db().prepare("SELECT model_id AS m, COUNT(*) AS n FROM daily_plans GROUP BY model_id").all() as { m: string; n: number }[]);
   return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
 }
 

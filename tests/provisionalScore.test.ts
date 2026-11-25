@@ -21,7 +21,7 @@ async function withKeys<T>(fn: () => Promise<T>): Promise<T> {
 }
 const add = (title: string, o: { source?: string; scene?: string; proposer?: string; score?: number | null; ago?: string } = {}) =>
   Number(db().prepare("INSERT INTO plan_requests (title, how, why, target, source, scene, proposer, score, created_at) VALUES (?, 'h', 'w', 'system', ?, ?, ?, ?, datetime('now', ?))")
-    .run(title, o.source ?? "scene", o.scene ?? "ツールのチェック", o.proposer ?? "gpt-5.6-sol", o.score ?? null, o.ago ?? "-1 hours").lastInsertRowid);
+    .run(title, o.source ?? "scene", o.scene ?? "ツールのチェック", o.proposer ?? "gpt-6.2-sol", o.score ?? null, o.ago ?? "-1 hours").lastInsertRowid);
 const row = (id: number) => db().prepare("SELECT score, score_provisional, status FROM plan_requests WHERE id = ?").get(id) as { score: number | null; score_provisional: number; status: string };
 // 題に「重要」があれば8点、「地味」なら4点、ほかは6点を付ける採点者（何社でも同じ）
 const fakeAsk = (calls: string[]) => (async (o: { purpose: string; user: string; validate: (v: unknown) => boolean }) => {
@@ -134,7 +134,7 @@ test("仮の採点: 点が2社以上そろった提案だけ仮の点にする�
   assert.equal(row(older).score, null);
   assert.ok(systems.every((s) => s.includes("「別軸:」で始まる案は、まだ実績がないので数字の根拠では比べない")));
   // 提案者が Claude でなければ、GPT が失敗しても Claude と Gemini の2社で仮の点にする
-  db().prepare("UPDATE plan_requests SET proposer = 'gpt-5.6-sol' WHERE id IN (?, ?)").run(older, newer);
+  db().prepare("UPDATE plan_requests SET proposer = 'gpt-6.2-sol' WHERE id IN (?, ?)").run(older, newer);
   assert.deepEqual(await withKeys(() => scoreProvisional({ material: "材料", ask: gptFails })), { scored: 2, high: 2 });
   assert.deepEqual(row(older), { score: 8, score_provisional: 1, status: "open" });
 });

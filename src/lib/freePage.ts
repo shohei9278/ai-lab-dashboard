@@ -343,7 +343,7 @@ export function pageTexts(html: string): { headline?: string; subheadline?: stri
 }
 
 // 採点するAI（3社）。作ったAIの会社の採点役が両方の案に1人ずつ付くので、身内びいきが打ち消し合う
-export const PAGE_JUDGES = ["claude-opus-5-5", "gpt-5.6-sol", "gemini-3.1-pro-preview"];
+export const PAGE_JUDGES = ["claude-opus-5-5", "gpt-6.2-sol", "gemini-3.1-pro-preview"];
 
 export type PageJudge = { modelId: string; a: number; b: number; reason: string };
 

@@ -255,14 +255,14 @@ test("判断の会議: 全自動で進んだ判断や、意見がそろった判
   // 1回目: 人の承認なし（全自動）・3社とも同じ
   const r1 = Number(ins.run(0, id, null, "claude-opus-5-5", 1, "collect", "訪問が少ない", "様子を見る").lastInsertRowid);
   db().prepare("UPDATE shadow_judgments SET round_id = ? WHERE id = ?").run(r1, r1);
-  ins.run(r1, id, null, "gpt-5.6-sol", 0, "collect", "同じく少ない", "待つ");
+  ins.run(r1, id, null, "gpt-6.2-sol", 0, "collect", "同じく少ない", "待つ");
   ins.run(r1, id, null, "gemini-3.1-pro-preview", 0, "collect", "まだ早い", "待つ");
   // 2回目: 人の承認あり・意見が割れて議論した
   const aid = Number(db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason) VALUES (?, 'decision', '撤退する', 'r')").run(id).lastInsertRowid);
   const r2 = Number(ins.run(0, id, aid, "claude-opus-5-5", 1, "kill", "反応がない", "閉じる").lastInsertRowid);
   db().prepare("UPDATE shadow_judgments SET round_id = ? WHERE id = ?").run(r2, r2);
-  ins.run(r2, id, aid, "gpt-5.6-sol", 0, "rethink", "届いていない", "場所を変える");
-  db().prepare("INSERT INTO debates (approval_id, round_id, status, payload) VALUES (?, ?, 'done', ?)").run(aid, r2, JSON.stringify({ issue: "届いていないのか", missing_info: "", positions: [{ modelId: "gpt-5.6-sol", first: "rethink", final: "rethink", argument: "投稿が少ない", changed: false }] }));
+  ins.run(r2, id, aid, "gpt-6.2-sol", 0, "rethink", "届いていない", "場所を変える");
+  db().prepare("INSERT INTO debates (approval_id, round_id, status, payload) VALUES (?, ?, 'done', ?)").run(aid, r2, JSON.stringify({ issue: "届いていないのか", missing_info: "", positions: [{ modelId: "gpt-6.2-sol", first: "rethink", final: "rethink", argument: "投稿が少ない", changed: false }] }));
   const ms = listMeetings("judge").filter((m) => m.projectId === id);
   assert.equal(ms.length, 2);
   const auto = ms.find((m) => m.key === `judge-${r1}`)!;
@@ -320,7 +320,7 @@ test("オフィス: 呼んだ目的で部屋を決め、3分たつと休憩室�
   assert.equal(stateAt(ev, "2026-11-12 10:01:00").openai.room, "lounge");
   const ins = db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd) VALUES (?, ?, 1, 1, 0)");
   ins.run("Xへの自動投稿", "x-api");
-  ins.run("判断", "gpt-5.6-sol");
+  ins.run("判断", "gpt-6.2-sol");
   const snap = officeSnapshot();
   assert.equal(snap.events.some((e) => e.doing.startsWith("Xへの自動投稿")), false);
   assert.equal(snap.events.some((e) => e.member === "openai" && e.room === "meeting"), true);
@@ -345,8 +345,8 @@ test("オフィス: ライブのAIの会話（提案・採点）を、話した�
   const at = new Date(Date.now() - 600_000).toISOString().replace("T", " ").slice(0, 19);
   const a = Number(cand.run(at, "A", "claude-opus-5-5", "会話テストA", JSON.stringify({ reason: "狙いA" })).lastInsertRowid);
   const b = Number(cand.run(at, "B", "claude-opus-5-5", "会話テストB", JSON.stringify({ reason: "狙いB" })).lastInsertRowid);
-  score.run(a, "gpt-5.6-sol", 72, "理由A");
-  score.run(b, "gpt-5.6-sol", 55, "理由B");
+  score.run(a, "gpt-6.2-sol", 72, "理由A");
+  score.run(b, "gpt-6.2-sol", 55, "理由B");
   cand.run("2000-01-01 00:00:00", "C", "claude-opus-5-5", "会話テスト古い", JSON.stringify({}));
   const talks = officeTalks().filter((l) => /会話テスト/.test(`${l.about}${l.text}`));
   assert.ok(talks.every((l) => l.kind === "talk"));
@@ -379,7 +379,7 @@ test("オフィス: ライブのAIの会話（提案・採点）を、話した�
 });
 
 test("ライブ: AIの会話に、つぶやき・朝会の計画・調べ物の答えも出す。調べ物は来た人に出さず、オフィスではつぶやきを二重にしない", () => {
-  db().prepare("INSERT INTO voices (model_id, scene, text) VALUES ('gpt-5.6-sol', '朝会', '出力テストのつぶやき')").run();
+  db().prepare("INSERT INTO voices (model_id, scene, text) VALUES ('gpt-6.2-sol', '朝会', '出力テストのつぶやき')").run();
   db().prepare("INSERT INTO daily_plans (day, model_id, content) VALUES ('1999-01-01', 'gemini-3.1-pro-preview', ?)").run(JSON.stringify({ focus: "出力テストの方針", bottleneck: "reach", evidence: "訪問が少ない" }));
   db().prepare("INSERT INTO research (question, status, summary, model_id) VALUES ('出力テストの問い', 'answered', '出力テストの答え', 'claude-opus-5-5')").run();
   const owner = liveFeed();
@@ -450,7 +450,7 @@ test("概要ページのオフィス: AIの会話・提案の中身・未公開�
   const ins = db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd, project_id) VALUES (?, 'claude-opus-5-5', 1, 1, 0, ?)");
   ins.run("LP作成", draft);
   ins.run("LP作成", open);
-  db().prepare("INSERT INTO voices (model_id, scene, text) VALUES ('gpt-5.6-sol', '朝会', '概要テストの声')").run();
+  db().prepare("INSERT INTO voices (model_id, scene, text) VALUES ('gpt-6.2-sol', '朝会', '概要テストの声')").run();
   db().prepare("INSERT INTO idea_candidates (at, batch_id, label, author_model, title, payload) VALUES (datetime('now'), 'showcase-t', 'A', 'claude-opus-5-5', '概要テストの案', '{}')").run();
   saveSettings({ showcaseVoices: false });
   const snap = showcaseOfficeSnapshot();
@@ -591,17 +591,17 @@ test("朝会: 意見が1社分しか取れなくても計画を作り、キー�
   db().prepare("DELETE FROM daily_plans").run();
   const solo = fakeAsk();
   const id3 = await withKeys(["OPENAI_API_KEY"], () => createPlan({ force: true, ask: solo.ask }));
-  assert.equal(planRow(id3).model_id, "gpt-5.6-sol");
+  assert.equal(planRow(id3).model_id, "gpt-6.2-sol");
   assert.equal(solo.calls.filter((x) => x.purpose === "朝会（意見）").length, 0);
   assert.equal((JSON.parse(planRow(id3).content) as PlanContent).opinions, undefined);
   // キーが2社なら、もう1社だけに聞く
   await withKeys(["OPENAI_API_KEY", "GEMINI_API_KEY"], async () => {
-    assert.deepEqual(standupMembers("gpt-5.6-sol"), ["gemini-3.1-pro-preview"]);
-    assert.deepEqual(standupMembers("gemini-3.1-pro-preview"), ["gpt-5.6-sol"]);
+    assert.deepEqual(standupMembers("gpt-6.2-sol"), ["gemini-3.1-pro-preview"]);
+    assert.deepEqual(standupMembers("gemini-3.1-pro-preview"), ["gpt-6.2-sol"]);
   });
   // 担当が製品ループのAI（3社の候補にないモデル）でも、同じ会社の社員には聞かない
   await withKeys(KEY_ENV, async () => {
-    assert.deepEqual(standupMembers("claude-sonnet-5-5"), ["gpt-5.6-sol", "gemini-3.1-pro-preview"]);
+    assert.deepEqual(standupMembers("claude-sonnet-5-5"), ["gpt-6.2-sol", "gemini-3.1-pro-preview"]);
   });
 });
 
@@ -694,7 +694,7 @@ test("チェックの評価: 長く running のままの評価は閉じて次を
   const stale = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, at) VALUES ('claude-opus-5-5', 'x', datetime('now', '-2 hours'))").run().lastInsertRowid);
   db().prepare("INSERT INTO ai_calls (purpose, model_id, input_tokens, output_tokens, cost_usd, at) VALUES ('チェックの評価', 'claude-opus-5-5', 1, 1, 0.25, datetime('now', '-90 minutes'))").run();
   // 動いている印が新しい評価は、始めた日時が古くても閉じない
-  const beating = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, at, beat_at) VALUES ('gpt-5.6-sol', 'x', datetime('now', '-2 hours'), datetime('now'))").run().lastInsertRowid);
+  const beating = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, at, beat_at) VALUES ('gpt-6.2-sol', 'x', datetime('now', '-2 hours'), datetime('now'))").run().lastInsertRowid);
   assert.equal(runningCheckEval()?.id, beating);
   const closed = db().prepare("SELECT status, cost_usd FROM check_evals WHERE id = ?").get(stale) as { status: string; cost_usd: number };
   assert.equal(closed.status, "error");
