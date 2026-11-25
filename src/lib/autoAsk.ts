@@ -10,7 +10,9 @@ import type { Fetch } from "./routine";
 // - 頼む順:
 //   1. コードの見直しの守り（直すべき所）: 入ってから1日たっても見送られなければ（その間に運営者が見送れば頼まない）
 //   2. 運営者が書いた提案: 入ってから1時間たっても見送られなければ（書いてすぐ頼まれると、取り消す間がないため）
-//   3. 3社の採点の平均が7点以上の提案（見直しの攻め・AIの社員・会議・エラーの見張りなど）: 点の高い順・入った日時の古い順
+//   3. 採点の点が7点以上の提案（見直しの攻め・AIの社員・会議・エラーの見張りなど）: 点の高い順・入った日時の古い順
+//   （点は、採点した社（AIの社員が出した提案は、出した社を除く2社）の点を、採点者ごとの甘さ・辛さをならして平均したもの。weekly.ts の adjustScores。
+//    朝会の仮の点は2社以上の点がそろったときだけ付くので、「3社の平均」とは書かない）
 //   （3・4 の点は定例会議の点。朝会の仮の点（provisionalScore.ts）は、7点以上のときだけ 3 に入れる）
 //   4. 5点以上7点未満の提案: 7点以上がなくなってから、点の高い順（5点未満は定例会議が自動で見送る。5〜7点が頼まれも見送られもせずにたまっていたため。運営者が決めた）
 // - 頼まれたルーティンが「直さなくて良い」と判断したら、見送りにする（/api/code-review/skip。docs/routine-proposal-fix.md）
@@ -59,7 +61,7 @@ function candidate(): { next: { row: Row; why: string; kind: AutoKind } | null; 
   if (!top) return { next: null, waiting };
   const growth = top.source === "review" && top.scene === GROWTH_SCENE;
   const low = top.score! < GROWTH_MIN_SCORE ? `（${GROWTH_MIN_SCORE}点未満。${GROWTH_MIN_SCORE}点以上の提案がなくなったので頼む）` : "";
-  return { next: { row: top, why: `自動: ${growth ? "コードの見直しの攻めの提案" : "提案箱の提案"}で、${top.score_provisional ? `朝会の仮の採点で3社の平均${top.score!.toFixed(1)}点（7点以上なので、月曜の定例会議を待たずに頼む）` : `定例会議で3社の平均${top.score!.toFixed(1)}点${low}`}`, kind: growth ? "auto-growth" : "auto-box" }, waiting };
+  return { next: { row: top, why: `自動: ${growth ? "コードの見直しの攻めの提案" : "提案箱の提案"}で、${top.score_provisional ? `朝会の仮の採点で${top.score!.toFixed(1)}点（7点以上なので、月曜の定例会議を待たずに頼む）` : `定例会議の採点で${top.score!.toFixed(1)}点${low}`}`, kind: growth ? "auto-growth" : "auto-box" }, waiting };
 }
 
 // 次に自動で頼む提案（なければ null）と、その理由

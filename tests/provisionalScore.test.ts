@@ -73,7 +73,7 @@ test("自動の依頼: 仮の点は7点以上のときだけ頼み、理由に�
   db().prepare("UPDATE plan_requests SET score_provisional = 1 WHERE id = ?").run(high);
   const next = nextAutoAsk();
   assert.equal(next?.row.id, high);
-  assert.match(next?.why ?? "", /朝会の仮の採点で3社の平均8\.0点（7点以上なので、月曜の定例会議を待たずに頼む）/);
+  assert.match(next?.why ?? "", /朝会の仮の採点で8\.0点（7点以上なので、月曜の定例会議を待たずに頼む）/);
   // 定例会議で正式な点になれば、5点以上は今までどおり頼む
   db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now', '-5 days'), status = 'done' WHERE id = ?").run(high);
   db().prepare("UPDATE plan_requests SET score_provisional = 0 WHERE id = ?").run(mid);
