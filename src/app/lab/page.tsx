@@ -13,6 +13,7 @@ import { CostEfficiency } from "@/components/CostEfficiency";
 import { staffList } from "@/lib/staff";
 import { isOwner } from "@/lib/viewer";
 import { CheckEvalCard } from "@/components/CheckEvalCard";
+import { ToolCheckCard } from "@/components/ToolCheckCard";
 
 export const dynamic = "force-dynamic";
 
@@ -172,6 +173,9 @@ export default async function LabPage() {
 
       {/* 公開前チェックのテスト（AIだけで公開するときの最後の関門を、正解の決まった例で確かめる） */}
       <CheckEvalCard owner={owner} />
+
+      {/* ツールのチェックの止めた割合（週ごと。項目が増えて止めすぎが増えていないかを見る） */}
+      <ToolCheckCard owner={owner} />
 
       {/* LPのデザインのAI */}
       <section className="card space-y-2 p-4">
