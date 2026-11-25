@@ -16,6 +16,7 @@ import { maybeNightlyReport } from "./diary";
 import { expireStaleProposals, mergeSimilarOpen, proposeFromErrors } from "./voices";
 import { syncAiFixPrs } from "./aiFix";
 import { maybeAutoAsk } from "./autoAsk";
+import { checkToolCheckJump } from "./toolCheckStats";
 import { autoToolRoutine } from "./toolRoutine";
 import { notifyLongWaits } from "./waits";
 
@@ -136,6 +137,12 @@ async function tickNow() {
   await syncAiFixPrs().catch((e) => logEvent(null, "system", "ai-fix-sync-error", `Claude Code に頼んだ改善の PR の状態を読めませんでした: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   // 提案箱の「仕組みの改善」を、自動でルーティンに頼む（1時間に1回・一度に1件。autoAsk.ts）
   await maybeAutoAsk().catch((e) => logEvent(null, "system", "auto-ask-error", `提案箱の提案の自動の依頼でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
+  // ツールのチェックの止めた割合が急に上がっていたら知らせる（1週に1回まで。AIは呼ばない。toolCheckStats.ts）
+  try {
+    checkToolCheckJump();
+  } catch (e) {
+    logEvent(null, "system", "tool-check-alert-error", `ツールのチェックの止めた割合の確かめでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
+  }
   // 投稿についた反応を取り込む（計画を作る前に。1時間に1回）
   await syncReactions().catch(() => 0);
   // 毎朝の計画を作り、時刻が来た予定を実行する（毎日の自動実行より先に。計画で新しい案件を休むことがあるため）

@@ -1,4 +1,5 @@
 import { db } from "./db";
+import { logEvent } from "./loop";
 
 // ツールのチェックの止めた割合（運営者が決めた）
 // 公開前チェックのテスト（checkEval.ts）は紹介ページのチェックだけを測る。ツールのチェック（loop.ts の reviewTool）は、
@@ -51,4 +52,31 @@ export function recentToolCheckIssues(limit = 10): ToolCheckIssue[] {
   return (db().prepare(
     "SELECT c.at, p.title, c.by, c.ai_issues FROM tool_checks c LEFT JOIN projects p ON p.id = c.project_id WHERE c.ai_ok = 0 ORDER BY c.id DESC LIMIT ?",
   ).all(limit) as { at: string; title: string | null; by: string; ai_issues: string }[]).map((r) => ({ at: r.at, title: r.title, by: r.by, issues: JSON.parse(r.ai_issues) as string[] }));
+}
+
+// 定例会議の材料（weekly.ts の meetingMaterial）: 週ごとの止めた割合と、最近止めたときの指摘。止めすぎが増えていれば、項目を外す・言い方を変える案につなげる（運営者が決めた）
+export function toolCheckText(): string {
+  const weeks = toolCheckWeeks(6).filter((w) => w.checks > 0);
+  if (!weeks.length) return "ツールのチェック（公開前にAIがツールのコードを読む）の止めた割合: まだチェックがない";
+  const issues = recentToolCheckIssues(5);
+  return `ツールのチェック（公開前にAIがツールのコードを読む）の止めた割合（週ごと。概算の週は、決まり・自動テストの指摘で止めたものも含む）:
+${weeks.map((w) => `- ${w.week} の週: ${w.checks}回中${w.flagged}回止めた（${w.rate === null ? "—" : `${Math.round(w.rate * 100)}%`}）${w.estimate ? "・概算" : ""}`).join("\n")}${issues.length ? `\n最近AIのチェックが止めたときの指摘:\n${issues.map((x) => `- ${x.title ?? "（案件なし）"}: ${x.issues.join(" / ").slice(0, 200) || "（指摘の文なし）"}`).join("\n")}` : ""}`;
+}
+
+// 止めた割合が急に上がったら知らせる（運営者が決めた。月曜の定例会議を待たずに気づけるように。AIは呼ばない）
+// 今週のチェックが TOOL_CHECK_ALERT_MIN 回以上で、前の4週間（チェックのあった週）の平均より TOOL_CHECK_ALERT_JUMP 以上高いとき。1週に1回まで
+export const TOOL_CHECK_ALERT_MIN = 5;
+export const TOOL_CHECK_ALERT_JUMP = 0.15;
+export function checkToolCheckJump(): string | null {
+  const weeks = toolCheckWeeks(5);
+  const now = weeks.at(-1)!;
+  const base = weeks.slice(0, -1).filter((w) => w.rate !== null);
+  if (now.checks < TOOL_CHECK_ALERT_MIN || now.rate === null || base.length < 2) return null;
+  const avg = base.reduce((n, w) => n + w.rate!, 0) / base.length;
+  if (now.rate - avg < TOOL_CHECK_ALERT_JUMP) return null;
+  const mark = `（${now.week} の週）`;
+  if (db().prepare("SELECT 1 FROM events WHERE kind = 'tool-check-alert' AND message LIKE ?").get(`%${mark}%`)) return null;
+  const msg = `ツールのチェックの止めた割合が上がっています${mark}: ${now.checks}回中${now.flagged}回（${Math.round(now.rate * 100)}%）。前の${base.length}週の平均は${Math.round(avg * 100)}%です。チェックの項目が止めすぎていないか、AIの成績で最近の指摘を見てください`;
+  logEvent(null, "system", "tool-check-alert", msg);
+  return msg;
 }
