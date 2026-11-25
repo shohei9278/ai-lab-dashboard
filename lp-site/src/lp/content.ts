@@ -109,7 +109,9 @@ export function toolImagesOf(v: unknown, allowData = false): ToolImages | undefi
 }
 // 結果の一覧を取り出す処理（hasResultsTag・toolResultsOf）は、HTMLのパーサーを使うので htmlDom.ts にある（画面のコードに入れない）
 
-// じっくり案件のツールのコードの上限（データは別に置くので、コードだけで数える）
+// AIが1回で書くじっくり案件のツールのコードの上限（データは別に置くので、コードだけで数える）。チェック（staticToolIssues）で止める
+// 保存・公開の上限は、データがあってもなくても TOOL_HTML_MAX（Claude Code で作るツールは 80,000文字まで、と決めているため。
+// 保存の所だけ 60,000文字のままで、Claude Code が作った約64,000文字のじっくり案件のツールが黙って捨てられた。#74）
 export const TOOL_DEEP_CODE_MAX = 60_000;
 // じっくり案件のデータの上限（JSON にしたときの文字数）と件数
 export const TOOL_DATA_MAX = 600_000;
@@ -191,8 +193,8 @@ export function normalizeLp(raw: unknown): Lp {
     const after = strs(v.beforeAfter.after, 4, 80);
     if (before.length && after.length) lp.beforeAfter = { before, after };
   }
-  // データを持つツール（じっくり案件）は、コードの上限を TOOL_DEEP_CODE_MAX にする
-  if (isObj(v.tool) && isStr(v.tool.html) && v.tool.html.length <= (Array.isArray(v.tool.data) ? TOOL_DEEP_CODE_MAX : TOOL_HTML_MAX)) {
+  // コードの上限は、データを持つツール（じっくり案件）も TOOL_HTML_MAX（受け付け・チェックと同じ。AIが1回で書くじっくり案件は、チェックで TOOL_DEEP_CODE_MAX に抑える）
+  if (isObj(v.tool) && isStr(v.tool.html) && v.tool.html.trim() && v.tool.html.length <= TOOL_HTML_MAX) {
     lp.tool = { html: v.tool.html, shareText: isStr(v.tool.shareText) ? cut(v.tool.shareText, 100) : lp.headline };
     const data = v.tool.data;
     if (Array.isArray(data) && data.length > 0 && data.length <= TOOL_DATA_ROWS_MAX && JSON.stringify(data).length <= TOOL_DATA_MAX) lp.tool.data = data;

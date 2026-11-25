@@ -102,3 +102,20 @@ test("じっくり案件（PR #90 の ai-review の指摘）: 修正の指示で
   assert.equal(pendingDev(id)?.id, a.id);
   assert.ok(db().prepare("SELECT 1 FROM events WHERE project_id = ? AND kind = 'dev-error'").get(id));
 });
+
+test("じっくり案件: Claude Code に伝える長さの上限・受け付けの上限・保存の上限がそろっている（保存の所だけ6万文字で、約6.4万文字のツールが黙って捨てられた。#74）", async () => {
+  const { TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, normalizeLp } = await import("../lp-site/src/lp/content");
+  const id = addDeep();
+  seedDesign(id);
+  await prepareLp(id);
+  const a = pendingDev(id)!;
+  const text = devRequestText(id, (JSON.parse(a.payload) as { design: string }).design, null);
+  assert.match(text, new RegExp(`${TOOL_HTML_MAX.toLocaleString("en-US")}文字以内`));
+  // AIが1回で書くじっくり案件の上限（6万文字）より長く、Claude Code の上限（8万文字）より短いツール
+  const html = `<button id=b>押す</button><script>document.getElementById('b').onclick=()=>{};/*${"x".repeat(TOOL_DEEP_CODE_MAX)}*/</script>`;
+  assert.ok(html.length > TOOL_DEEP_CODE_MAX && html.length < TOOL_HTML_MAX);
+  const base = { headline: "h", subheadline: "s", pains: ["a", "b", "c"], features: [{ title: "t", body: "b", icon: "clock" }, { title: "t", body: "b", icon: "clock" }, { title: "t", body: "b", icon: "clock" }], cta: "c", faq: [] };
+  assert.ok(normalizeLp({ ...base, tool: { html, shareText: "x", data: [{ name: "和菓子" }] } }).tool, "保存できる");
+  const job = startDevUpload(a.id, html); // 受け付ける（このあとはAIを呼ぶので、テストでは失敗で終わる）
+  await assert.rejects(job);
+});
