@@ -152,10 +152,11 @@ export function applyTrialResults(raw: unknown, due: TrialRow[], model: string):
     if (!ids.has(id) || !verdict || !result) continue;
     const t = due.find((d) => d.id === id)!;
     const s = trialStats(t);
-    // 当たった条件（1始まり。0 はどれにも当たらなかった）。先に決めた次の手がない古い試し・範囲の外の番号は、空のまま
+    // 当たった条件（1始まり。0 はどれにも当たらなかった）。先に決めた次の手がない古い試し・範囲の外の番号・数でない答え（null・空の文字・true など）は、空のまま
+    // （Number() で読むと、null や空の文字が 0、true が 1 になり、選んでいないのに選んだと残るため。PR #190 の ai-review の指摘）
     const bs = trialBranches(t);
-    const b = Number(r.branch);
-    const matched = bs.length && Number.isInteger(b) && b >= 0 && b <= bs.length ? b : null;
+    const b = r.branch;
+    const matched = bs.length && typeof b === "number" && Number.isInteger(b) && b >= 0 && b <= bs.length ? b : null;
     db().prepare("UPDATE plan_trials SET status = 'decided', verdict = ?, result = ?, decided_at = datetime('now'), decided_by = ?, final_visits = ?, final_conversions = ?, matched_branch = ? WHERE id = ? AND status = 'open'")
       .run(verdict, result.slice(0, 400), model, s.visits, s.conversions, matched, id);
     const hit = matched ? `。当たった条件: ${bs[matched - 1].if} → 次の手: ${bs[matched - 1].then}` : matched === 0 ? "。先に決めた条件のどれにも当たらなかった" : "";

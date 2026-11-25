@@ -17,7 +17,7 @@ const promo = (...ids: number[]) => ids.map((project_id) => ({ kind: "promo", pr
 const row = (id: number) => db().prepare("SELECT * FROM plan_trials WHERE id = ?").get(id) as TrialRow;
 const H = 3_600_000;
 // 結果ごとの次の手（始める前に決める。ない試しは入らない）
-const BR = [{ if: "訪問があり使われれば", then: "同じ見せ方を別の題材でも試す" }, { if: "訪問はあるのに使われなければ", then: "最初の画面を見直す" }];
+const BR = [{ if: "登録・利用が3以上", then: "同じ見せ方を別の題材でも試す" }, { if: "登録・利用が0〜2", then: "最初の画面に使い方の例を出す" }];
 
 test("試し: 判定日時・見る数字・下限を決まりの範囲にそろえて入れ、同時に3件まで・1回に2件まで・同じ案件には重ねない", () => {
   db().exec("DELETE FROM plan_trials");
@@ -114,9 +114,9 @@ test("試し: 数字がそろったら朝会のAIに結論を出させ、判定�
 test("朝会: 判定日時が来た試しを材料に渡して結論を入れさせ、新しい試しを入れる", async () => {
   const { createPlan } = await import("../src/lib/plan");
   db().exec("DELETE FROM plan_trials; DELETE FROM daily_plans");
-  const a = live("朝会で決着", 2), b = live("朝会で始める", 1);
+  const a = live("朝会で決着", 2);
   // 直し（improve）を予定に入れられる案件（自動で任せる事前登録のページ）
-  db().prepare("UPDATE projects SET kind = 'lp', mode = 'auto' WHERE id = ?").run(b);
+  db().prepare("UPDATE projects SET kind = 'lp', mode = 'auto' WHERE id = ?").run(a);
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, source) VALUES (?, ?, 25, 2, 'real')").run(a, jstDay());
   addTrials(1, [{ project_id: a, question: "比べる", change: "c", judge_after_hours: 24, min_visits: 5, branches: BR }], { live: new Set([a]), model: "claude-opus-5-5", tasks: promo(a), focusNeed: null, now: Date.now() - 30 * H });
   const due = openTrials()[0];
@@ -126,9 +126,10 @@ test("朝会: 判定日時が来た試しを材料に渡して結論を入れさ
     if (o.purpose === "毎日の計画") {
       planUser = o.user;
       v = { bottleneck: "use", evidence: "e", certainty: "low", review: "r", focus: "f", goals: [], pause_new: true, idea_note: "", research: null,
-        tasks: [{ time: "23:59", kind: "improve", project_id: b, angle: "最初の画面に使い方の例を出す", reason: "訪問はあるが使われない" }],
+        // 判定した試しは、数字（訪問25・利用2）に合う条件2を選び、その次の手を同じ案件の直しとして今日の予定に入れる
+        tasks: [{ time: "23:59", kind: "improve", project_id: a, angle: "最初の画面に使い方の例を出す", reason: "先に決めた条件2（登録・利用が0〜2）に当たった" }],
         trial_results: [{ id: due.id, verdict: "lose", branch: 2, result: "訪問25で利用2。前と変わらない" }],
-        trials: [{ project_id: b, question: "動画で紹介すると使われるか", change: "静止画と短い動画を同じ時間帯に出す", metric: "conversions", judge_after_hours: 48, min_visits: 20, focus: true, branches: BR }] };
+        trials: [{ project_id: a, question: "使い方の例を出すと使われるか", change: "静止画と短い動画を同じ時間帯に出す", metric: "conversions", judge_after_hours: 48, min_visits: 20, focus: true, branches: BR }] };
     } else if (o.purpose === "朝会（意見）") v = { opinion: "意見" };
     else if (o.purpose === "投稿の切り口の分類") v = { types: [] };
     else throw new Error(`想定していない呼び出し: ${o.purpose}`);
@@ -145,9 +146,12 @@ test("朝会: 判定日時が来た試しを材料に渡して結論を入れさ
   }
   assert.match(planUser, /判定日時が来た試し[^]*比べる/);
   assert.deepEqual([row(due.id).status, row(due.id).verdict, row(due.id).matched_branch], ["decided", "lose", 2]);
-  assert.match(planUser, /先に決めた次の手: 1\. 訪問があり使われれば → 同じ見せ方を別の題材でも試す \/ 2\. 訪問はあるのに使われなければ → 最初の画面を見直す/);
+  assert.match(planUser, /先に決めた次の手: 1\. 登録・利用が3以上 → 同じ見せ方を別の題材でも試す \/ 2\. 登録・利用が0〜2 → 最初の画面に使い方の例を出す/);
+  // 当たった条件の次の手が、今日の予定に残る（AIの答えを決めて渡したときの、保存の流れの確かめ。実際のAIが正しい条件を選ぶかは、ここでは確かめない）
+  const plan = db().prepare("SELECT id FROM daily_plans ORDER BY id DESC LIMIT 1").get() as { id: number };
+  assert.deepEqual(db().prepare("SELECT kind, project_id, angle FROM plan_tasks WHERE plan_id = ?").all(plan.id), [{ kind: "improve", project_id: a, angle: "最初の画面に使い方の例を出す" }]);
   const started = openTrials();
-  assert.deepEqual(started.map((t) => [t.project_id, t.metric, t.focus]), [[b, "conversions", 1]]);
+  assert.deepEqual(started.map((t) => [t.project_id, t.metric, t.focus]), [[a, "conversions", 1]]);
 });
 
 test("試し: 結果ごとの次の手を始める前に決め（ない試しは入れない）、判定ではどの条件に当たったかを残す", () => {
@@ -171,15 +175,30 @@ test("試し: 結果ごとの次の手を始める前に決め（ない試しは
   const due = settleDueTrials(start + 25 * H);
   assert.equal(due.length, 3);
   // 判定の材料に、先に決めた次の手を出す
-  assert.match(trialsText(due, start + 25 * H), /先に決めた次の手: 1\. 訪問があり使われれば → 同じ見せ方を別の題材でも試す/);
+  assert.match(trialsText(due, start + 25 * H), /先に決めた次の手: 1\. 登録・利用が3以上 → 同じ見せ方を別の題材でも試す/);
   const id = (p: number) => due.find((t) => t.project_id === p)!.id;
   assert.equal(applyTrialResults([
-    { id: id(b), verdict: "win", branch: 1, result: "訪問10で利用1" },
+    { id: id(b), verdict: "lose", branch: 2, result: "訪問10で利用1" },
     { id: id(c), verdict: "unclear", branch: 0, result: "どの条件にも当たらない" },
     { id: id(d), verdict: "lose", branch: 5, result: "番号の外" },
   ], due, "gemini-3.1-pro-preview"), 3);
-  assert.deepEqual([row(id(b)).matched_branch, row(id(c)).matched_branch, row(id(d)).matched_branch], [1, 0, null]);
+  assert.deepEqual([row(id(b)).matched_branch, row(id(c)).matched_branch, row(id(d)).matched_branch], [2, 0, null]);
   // 終わった試しの材料にも、当たった条件と決めていた次の手を出す
-  assert.match(trialsText([], start + 26 * H), /当たった条件: 訪問があり使われれば → 決めていた次の手: 同じ見せ方を別の題材でも試す/);
+  assert.match(trialsText([], start + 26 * H), /当たった条件: 登録・利用が0〜2 → 決めていた次の手: 最初の画面に使い方の例を出す/);
   assert.match(trialsText([], start + 26 * H), /先に決めた条件のどれにも当たらなかった/);
+  // 数でない答え（null・空の文字・true・数の文字）は、選んでいないとして空のまま（明らかな 0 とは分ける。PR #190 の ai-review の指摘）
+  const more = [live("null"), live("空"), live("true")];
+  // 1回の朝会で始めるのは2件までなので、2回に分けて入れる
+  for (const [plan, ps] of [[3, more.slice(0, 2)], [4, more.slice(2)]] as const) {
+    addTrials(plan, ps.map((p) => ({ project_id: p, question: "q", change: "c", judge_after_hours: 24, min_visits: 5, branches: BR })), { live: new Set(more), model: "claude-opus-5-5", tasks: promo(...more), focusNeed: null, now: start });
+  }
+  for (const p of more) db().prepare("INSERT INTO metrics (project_id, day, visits, signups, source) VALUES (?, ?, 10, 0, 'real')").run(p, jstDay());
+  const due2 = settleDueTrials(start + 25 * H);
+  const id2 = (p: number) => due2.find((t) => t.project_id === p)!.id;
+  assert.equal(applyTrialResults([
+    { id: id2(more[0]), verdict: "unclear", branch: null, result: "r" },
+    { id: id2(more[1]), verdict: "unclear", branch: "", result: "r" },
+    { id: id2(more[2]), verdict: "unclear", branch: true, result: "r" },
+  ], due2, "gemini-3.1-pro-preview"), 3);
+  assert.deepEqual(more.map((p) => row(id2(p)).matched_branch), [null, null, null]);
 });
