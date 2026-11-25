@@ -1685,7 +1685,8 @@ async function buildToolVersion(p: ProjectRow, before: Lp | undefined, opts: { i
   // 紹介ページの文の指摘には「紹介ページ: 」を付けて、ツールの指摘と分ける（じっくり案件で、紹介ページだけを直せるように）
   let review: Review = { ok: tool.review.ok && pageReview.ok, issues: [...tool.review.issues, ...pageReview.issues.map((x) => `紹介ページ: ${x}`)] };
   let lp: Lp = normalizeLp({ ...page, preview: undefined, tool: { html: tool.html, shareText: shareText ?? before?.tool?.shareText ?? page.headline, fonts: true, results: toolResultsOf(tool.html), ...(tool.deep ?? {}), ...(images ? { images } : {}) } });
-  if (!lp.tool) throw new Error(`ツールが大きすぎるか空のため保存できませんでした（${tool.html.trim().length.toLocaleString("en-US")}文字。${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）`);
+  // 理由を分けて出す（文字数は normalizeLp の判定と同じ数え方。PR #180 の ai-review の指摘）
+  if (!lp.tool) throw new Error(!tool.html.trim() ? "ツールが空のため保存できませんでした" : `ツールが大きすぎるため保存できませんでした（${tool.html.length.toLocaleString("en-US")}文字。${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）`);
   if (tool.deep?.data && !lp.tool.data) throw new Error("じっくり案件のデータが大きすぎるため保存できませんでした");
   if (lp.design) lp.design.illustration = before?.design?.illustration;
   const drawn = await withIllustration(p, lp, version);
