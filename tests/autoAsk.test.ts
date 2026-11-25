@@ -65,9 +65,9 @@ test("自動の依頼: 守りは1日たってから、攻めは5点以上（7点
   db().prepare("UPDATE plan_requests SET score = 4.5 WHERE id = ?").run(g);
   assert.equal(nextAutoAsk(), null);
   db().prepare("UPDATE plan_requests SET score = 6.5 WHERE id = ?").run(g);
-  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [g, "自動: コードの見直しの攻めの提案で、定例会議で3社の平均6.5点（7点未満。7点以上の提案がなくなったので頼む）"]);
+  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [g, "自動: コードの見直しの攻めの提案で、定例会議の採点で6.5点（7点未満。7点以上の提案がなくなったので頼む）"]);
   db().prepare("UPDATE plan_requests SET score = 7.4 WHERE id = ?").run(g);
-  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [g, "自動: コードの見直しの攻めの提案で、定例会議で3社の平均7.4点"]);
+  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [g, "自動: コードの見直しの攻めの提案で、定例会議の採点で7.4点"]);
   // 種類ごとの上限はない。前の PR が終わっていれば、守りを攻めより先に頼む
   const [f2] = addReviewFindings([fix("守りB")]).added;
   old(f2);
@@ -182,7 +182,7 @@ test("自動の依頼: 依頼を送っている間は、人の依頼も自動の
   delete process.env.CLAUDE_ROUTINE_TOKEN;
 });
 
-test("提案箱の自動の依頼: AIの社員や会議の提案は3社の平均の高い順（7点以上が先・5点以上まで）に、運営者の提案は1時間たってから頼む（全部で1日 DAILY_MAX 件まで）", () => {
+test("提案箱の自動の依頼: AIの社員や会議の提案は採点の点の高い順（7点以上が先・5点以上まで）に、運営者の提案は1時間たってから頼む（全部で1日 DAILY_MAX 件まで）", () => {
   clear();
   db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
   const add = db().prepare("INSERT INTO plan_requests (title, how, why, target, source, score, created_at) VALUES (?, 'h', 'w', ?, ?, ?, datetime('now', ?))");
@@ -192,7 +192,7 @@ test("提案箱の自動の依頼: AIの社員や会議の提案は3社の平均
   // 5〜7点の提案は、ほかに頼むものがなければ頼む（頼まれも見送られもせずにたまっていたため）
   assert.equal(nextAutoAsk()?.row.id, low);
   const high = Number(add.run("点の高い提案", "system", "voice", 7.5, "-1 hours").lastInsertRowid);
-  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.kind, nextAutoAsk()?.why], [high, "auto-box", "自動: 提案箱の提案で、定例会議で3社の平均7.5点"]);
+  assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.kind, nextAutoAsk()?.why], [high, "auto-box", "自動: 提案箱の提案で、定例会議の採点で7.5点"]);
   // 運営者が書いた提案は、1時間たったら、点の高い提案より先に頼む
   db().prepare("UPDATE plan_requests SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(fresh);
   assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [fresh, "自動: 運営者が書いた提案で、1時間たっても見送られなかった"]);
