@@ -1193,11 +1193,18 @@ function deepContext(p: ProjectRow): { data: DeepData | null } | null {
 const deepText = (p: ProjectRow, deep: { data: DeepData | null }) =>
   `${p.deep_plan ? `\n作り込む所（じっくり案件）: ${p.deep_plan}` : ""}${deep.data ? deepDataText(deep.data) : ""}`;
 
+// 直すときに、AIが変えた所だけ（1行など）を返したか。チェックと動作の確かめには、直しを反映したツール全体を渡す（提案箱 #62。#43 では1行しか届かず、ほかが壊れていないかを確かめられなかった）
+// 規模を絞って書き直す（25,000文字以内）ときも、今のツールの2割より短くはまずならない
+export function isPartialTool(html: string, prevHtml?: string): boolean {
+  return !!prevHtml && html.trim().length < prevHtml.trim().length * 0.2;
+}
+const FULL_TOOL_RULE = "直したところだけ・変えた行だけ・「…（省略）」は返さない。直しを反映したツール全体（変えていない所も含めたHTMLの断片の全部）を、最初から最後まで書く";
+
 export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string, modelId?: string, effort?: "medium"): Promise<string> {
   const deep = deepContext(p);
   const system = `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
 ${toolRules(deep, shortToolPage(p.aim))}`;
-  const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${deep ? deepText(p, deep) : ""}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : viralHints("tool")}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}`;
+  const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${deep ? deepText(p, deep) : ""}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : viralHints("tool")}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}${prevHtml ? `\n\n出力: ${FULL_TOOL_RULE}` : ""}`;
   // ツールのHTMLは長く、JSONに包むと出力の上限で途中で切れやすい。HTMLをそのまま最後まで受け取る
   const author = modelId ?? claudeModelId();
   if (author) {
@@ -1299,7 +1306,16 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
   const deep = deepContext(p);
   const frame = deep ? { data: deep.data?.rows, fonts: true as const, images } : { fonts: true as const };
   // 長すぎて最後まで書けなかったら、別の会社のAIに規模を絞って書き直してもらう（同じAIで繰り返すと、同じ所で切れやすい）
+  // 直すときに変えた所だけが返ってきたら、全体を書き直してもらう（1回まで）。それでも全体でなければ止める（一部だけをチェックに回したり、次の直しの元にしたりしない）
   const write = async (note?: string, base?: string): Promise<string> => {
+    const out = await writeOnce(note, base);
+    if (!isPartialTool(out, base)) return out;
+    logEvent(p.id, "system", "tool-retry", `${modelLabel(model)}が、ツール全体ではなく一部（${out.trim().length}文字。今のツールは${base!.trim().length}文字）だけを返したため、全体を書き直してもらいます`);
+    const again = await writeOnce(`${note ? `${note} / ` : ""}前回は直したところだけを返した。${FULL_TOOL_RULE}`, base);
+    if (isPartialTool(again, base)) throw new Error(`ツールを直すAIが、2回とも全体ではなく一部（${again.trim().length}文字）だけを返しました。今の版はそのままです`);
+    return again;
+  };
+  const writeOnce = async (note?: string, base?: string): Promise<string> => {
     try {
       return await writeToolHtml(p, note, base, model);
     } catch (e) {
