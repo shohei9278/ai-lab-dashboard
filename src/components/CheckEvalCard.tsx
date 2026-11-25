@@ -4,6 +4,29 @@ import { getModel } from "@/lib/models";
 import { jstDateTime } from "@/lib/format";
 import { ShowMore } from "./ShowMore";
 import { CheckEvalRun } from "./CheckEvalRun";
+import { CheckEvalSeeds, type SeedView } from "./CheckEvalSeeds";
+import { evalSeeds } from "@/lib/evalSeeds";
+import { CHECK_EVAL_TYPE_LABEL } from "@/lib/checkEvalCases";
+
+// 試験問題の候補を画面の形にする（運営者だけ。ページの下書きとAIの入出力が入るので、来訪者には渡さない）
+function seedViews(): SeedView[] {
+  return evalSeeds("candidate").map((s) => {
+    const lp = JSON.parse(s.lp) as { headline?: string };
+    return {
+      id: s.id,
+      title: s.title,
+      version: s.lp_version,
+      happened: s.ai_ok ? `チェックは通した → あなたが${s.human_action === "reject" ? "却下した" : "作り直しを指示した"}（見逃しかも）` : "チェックは止めた → あなたが公開した（止めすぎかも）",
+      headline: lp.headline ?? "",
+      aiIssues: JSON.parse(s.ai_issues) as string[],
+      humanComment: s.human_comment,
+      suggest: s.suggest_expect && s.suggest_reason && s.suggest_score
+        ? { expect: s.suggest_expect, type: s.suggest_type, typeLabel: s.suggest_type ? CHECK_EVAL_TYPE_LABEL[s.suggest_type] : null, score: s.suggest_score, reason: s.suggest_reason, model: s.suggest_model ? getModel(s.suggest_model).label : "" }
+        : null,
+      suggestError: s.suggest_error,
+    };
+  });
+}
 
 const rate = (n: number, d: number) => (d ? n / d : 0);
 
@@ -82,7 +105,8 @@ export function CheckEvalCard({ owner }: { owner: boolean }) {
         <h2 className="font-bold">公開前チェックのテスト</h2>
         <p className="text-xs text-muted">
           AIだけで公開するとき、最後に止める役は公開前チェック（いまは {getModel(s.loopModel).label}）です。それが問題のあるページを見逃さないかを、正解の決まった{o.cases.total}件の例で確かめています。
-          例は実際に作ったページをもとにしていて、問題のないもの{o.cases.ok}件と、問題を1つだけ足したもの{o.cases.ng}件です。チェックには本番と同じ指示を使います。
+          例は実際に作ったページをもとにしていて、問題のないもの{o.cases.ok}件と、問題のあるもの{o.cases.ng}件です{o.cases.fromProduction > 0 ? `（うち${o.cases.fromProduction}件は、本番で運営者がチェックの結果を覆したページから入れたもの）` : ""}。チェックには本番と同じ指示を使います。
+          運営者がチェックの結果を覆すと、そのページが試験問題の候補になり、運営者が正解を決めたものから試験に加わります。
         </p>
       </div>
       {o.running && <p className="text-sm text-ink-2">{getModel(o.running.run.model_id).label} で評価しています（{o.running.done} / {o.cases.total}件）…</p>}
@@ -112,7 +136,8 @@ export function CheckEvalCard({ owner }: { owner: boolean }) {
           </ShowMore>
         </details>
       )}
-      {owner && <CheckEvalRun models={models} running={!!o.running} />}
+      {owner && <CheckEvalSeeds seeds={seedViews()} types={Object.entries(CHECK_EVAL_TYPE_LABEL).map(([key, label]) => ({ key, label }))} />}
+      {owner && <CheckEvalRun models={models} running={!!o.running} total={o.cases.total} />}
     </section>
   );
 }

@@ -560,6 +560,34 @@ CREATE TABLE IF NOT EXISTS check_eval_results (
   error TEXT,
   PRIMARY KEY (eval_id, case_id)
 );
+-- 公開前チェックの試験問題の候補（運営者が決めた）: 人が公開前チェックの結果を覆したとき（止めたページを公開した・通したページを却下した）のページを残す。
+-- AIが「入れるか・正解・種類・おすすめ度・理由」を付け、運営者が1クリックで正解を決めたものだけを試験に入れる
+CREATE TABLE IF NOT EXISTS check_eval_seeds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  approval_id INTEGER NOT NULL UNIQUE REFERENCES approvals(id),
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  lp_version INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL, -- lp / tool
+  target TEXT NOT NULL,
+  solution TEXT NOT NULL,
+  lp TEXT NOT NULL, -- JSON（そのときのページ）
+  ai_ok INTEGER NOT NULL, -- 公開前チェックの答え（1 = 問題なし、0 = 問題あり）
+  ai_issues TEXT NOT NULL, -- JSON（チェックが挙げた問題点）
+  human_action TEXT NOT NULL, -- approve / reject / revise
+  human_comment TEXT,
+  suggest_expect TEXT, -- AIのおすすめ: ok / ng / skip（入れない）
+  suggest_type TEXT,
+  suggest_score INTEGER, -- おすすめ度（1〜5）
+  suggest_reason TEXT,
+  suggest_model TEXT,
+  suggest_error TEXT,
+  status TEXT NOT NULL DEFAULT 'candidate', -- candidate / adopted / dismissed
+  expect TEXT, -- 運営者が決めた正解（ok / ng）
+  type TEXT, -- 運営者が決めた問題の種類（ng のとき）
+  decided_at TEXT
+);
 -- プロンプトの比較（AIの成績）: 同じ案件・同じAIで、指示の渡し方だけを変えたLPを2つ作り、3社が作り方を伏せて画面で採点する
 -- 作ったLPは案件には使わない。a は今の渡し方、b は変えた渡し方
 CREATE TABLE IF NOT EXISTS prompt_tests (
