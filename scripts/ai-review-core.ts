@@ -34,9 +34,11 @@ ${o.autoPr ? "prompt_changed には、この差分が、AIに渡す指示（プ�
 export function fitDiff(diff: string): { diff: string; droppedTests: string[] } {
   if (diff.length <= MAX_DIFF) return { diff, droppedTests: [] };
   const parts = diff.split(/(?=^diff --git )/m);
-  const pathOf = (part: string) => part.match(/^diff --git a\/(\S+)/)?.[1] ?? "";
-  const kept = parts.filter((part) => !TEST_FILE.test(pathOf(part)));
-  const droppedTests = parts.filter((part) => TEST_FILE.test(pathOf(part))).map(pathOf);
+  // 移動元（a/）と移動先（b/）の両方がテストのときだけ外す（テストのファイルを本体へ移した差分は、本体のコードなので残す。PR #178 の ai-review の指摘）
+  const paths = (part: string) => { const m = part.match(/^diff --git a\/(\S+) b\/(\S+)/); return m ? [m[1], m[2]] : [""]; };
+  const isTest = (part: string) => paths(part).every((p) => TEST_FILE.test(p));
+  const kept = parts.filter((part) => !isTest(part));
+  const droppedTests = parts.filter(isTest).map((part) => paths(part).at(-1)!);
   return { diff: kept.join(""), droppedTests };
 }
 

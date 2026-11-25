@@ -228,6 +228,11 @@ test("レビューに渡す差分: 上限を超えたら、先にテストの差
   const r = reviewInput({ diff: big });
   assert.equal(r.cut, false, "テストを外して収まれば、途中までにはしない");
   assert.match(r.input, /テストのファイルの差分は渡していない[^]*tests\/a\.test\.ts、e2e\/b\.spec\.ts/);
+  // テストのファイルを本体へ移した差分は、本体のコードなので外さない（PR #178 の ai-review の指摘）
+  const moved = `diff --git a/tests/foo.ts b/src/lib/foo.ts\nrename from tests/foo.ts\nrename to src/lib/foo.ts\n+${"y".repeat(100)}\n`;
+  const withMove = fitDiff(big + moved);
+  assert.deepEqual(withMove.droppedTests, ["tests/a.test.ts", "e2e/b.spec.ts"]);
+  assert.match(withMove.diff, /b\/src\/lib\/foo\.ts/);
   const huge = reviewInput({ diff: file("src/lib/a.ts", MAX_DIFF + 10) });
   assert.equal(huge.cut, true);
   assert.match(huge.input, /（長いため途中まで）$/);
