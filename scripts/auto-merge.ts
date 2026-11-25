@@ -81,7 +81,7 @@ async function fireFix(text: string) {
   if (!res.ok) throw fireRejected(res.status) ? new FireRejected(`ルーティンを起動できませんでした（${res.status}）`) : new Error(`ルーティンの起動の応答が失敗でした（${res.status}）。届いたかは分かりません`);
 }
 
-type Pull = { number: number; title: string; body: string | null; draft: boolean; html_url: string; head: { ref: string; sha: string; repo: { full_name: string } | null }; base: { ref: string; repo: { full_name: string } | null } };
+type Pull = { number: number; state?: string; title: string; body: string | null; draft: boolean; html_url: string; head: { ref: string; sha: string; repo: { full_name: string } | null }; base: { ref: string; repo: { full_name: string } | null } };
 type CheckRun = { name: string; status: string; conclusion: string | null };
 
 // 100件ずつ全部読む。上限のページまで埋まっていたら、読みきれていないとして complete=false
@@ -163,14 +163,20 @@ async function handle(pr: Pull, idle: boolean | null, smoke: boolean | null): Pr
   const { items: files, complete: filesComplete } = await pages<{ filename: string; previous_filename?: string }>(`/pulls/${pr.number}/files`, 30);
   const link = `#${pr.number}「${pr.title}」 ${pr.html_url}`;
   const history = reviewHistory(comments);
+  const fix = fixState(comments, pr.head.sha);
   const pre = beforeReview({
     branch: pr.head.ref, sameRepo: pr.head.repo?.full_name === GITHUB_REPOSITORY,
     baseMain: pr.base.ref === "main" && pr.base.repo?.full_name === GITHUB_REPOSITORY, draft: pr.draft,
     checksDone: checks.length > 0 && runs.total_count <= checks.length && checks.every((c) => c.status === "completed"),
     ciOk: checks.find((c) => c.name === "check")?.conclusion === "success",
-    files: changedPaths(files), filesComplete, commentsComplete, historyOk: history.ok, fix: fixState(comments, pr.head.sha),
+    files: changedPaths(files), filesComplete, commentsComplete, historyOk: history.ok, fix,
     productionIdle: idle, smokeOk: smoke,
   });
+  // 直しを頼んだあとの答え・待ちすぎで人に回す前に、PR を読み直す（コメントを読む間に、ルーティンが直した版を push していたら、古い版の判断で人に回さない。PR #187 の ai-review の指摘）
+  if (pre.action === "human" && (fix === "answered" || fix === "stale")) {
+    const now = await gh<Pull>(`/pulls/${pr.number}`);
+    if (now.state !== "open" || now.head.sha !== pr.head.sha) return { action: "wait", reason: "直しを頼んだあとに、新しい版が push された・PR が閉じた（次の見回りでもう一度）" };
+  }
   if (pre.action === "human") return toHuman(pr, link, pre.reason);
   if (pre.action !== "review") return pre;
   // 自動で触れない所に触れている PR は、レビュー・直し・協議までは自動で進め、マージに進めるときに人に回す
