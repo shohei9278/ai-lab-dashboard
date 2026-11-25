@@ -23,6 +23,7 @@ import { decisionsText } from "./meetings";
 import { projectType } from "./aims";
 import { dayContextText, tokyoWeather, type DayWeather } from "./dayContext";
 import { hotPauseReason, hotProjects, hotText, recordHot, type HotProject } from "./hot";
+import { scoreProvisional } from "./provisionalScore";
 
 // 毎日の計画: 毎朝AIが全案件を振り返り、今のネック（届かない・使われない など）を1つ決めて、今日やることを決める
 // - やること: 案件の宣伝の投稿 / 宣伝ではない普通の投稿 / ページを直す / 新しい案件づくりを休む / 次のアイデア出しに課題を伝える
@@ -116,7 +117,7 @@ export function planModelStats(): { modelId: string; days: number; goalRate: num
 
 export type RequestRow = {
   id: number; plan_id: number | null; created_at: string; title: string; how: string | null; why: string | null; status: "open" | "done" | "declined"; note: string | null; decided_at: string | null;
-  source: "plan" | "meeting" | "scene" | "error" | "revival" | "human" | "voice" | "review"; proposer: string | null; target: "human" | "system"; score: number | null; meeting_id: number | null;
+  source: "plan" | "meeting" | "scene" | "error" | "revival" | "human" | "voice" | "review"; proposer: string | null; target: "human" | "system"; score: number | null; score_provisional: number; meeting_id: number | null;
   scene: string | null; project_id: number | null; ref_id: number | null; ai_reply: string | null;
   ai_fix_at: string | null; ai_fix_url: string | null; ai_fix_note: string | null; ai_fix_pr: number | null; ai_fix_pr_state: "open" | "merged" | "closed" | null;
   repeats: number;
@@ -549,6 +550,9 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   // 前の日までの、実行されずに残った予定は見送りにする
   conn.prepare("UPDATE plan_tasks SET status = 'skipped', result = '時間内に実行できなかった' WHERE status = 'pending' AND plan_id IN (SELECT id FROM daily_plans WHERE day < ?)").run(now.day);
   logEvent(null, "ai", "plan", `今日の計画${existing ? "を作り直しました" : ""}: ネック「${BOTTLENECK_LABEL[bottleneck]}」${content.focus}（担当 ${modelInfo(model).label}${opinions.length ? `・意見 ${opinions.map((o) => modelInfo(o.modelId).label).join("・")}` : ""}・予定${tasks.length}件${trialsAdded ? `・試し${trialsAdded}件` : ""}${out.pause_new ? "・新しい案件は休み" : ""}${reqs.length ? `・あなたへのお願い${reqs.length}件` : ""}）`);
+  // 朝会のあとに、点のない提案に仮の点を付ける（その日の最初の計画のときだけ。作り直しでは付け直さない。provisionalScore.ts）
+  // 失敗しても計画は作ったままにする
+  if (!existing) await scoreProvisional({ material, ask }).catch((e) => logEvent(null, "system", "provisional-score-error", `提案の仮の採点でエラー: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`));
   return id;
 }
 

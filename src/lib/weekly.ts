@@ -24,6 +24,8 @@ import { exploreStatsText } from "./explore";
 type Proposal = { title: string; how: string; why: string; target: "human" | "system" };
 type MemberOut = { review: string; proposals: (Proposal & { axis?: unknown })[]; voice?: string };
 const NEW_AXIS = "別軸: "; // まだ試していない手の案に付ける（提案箱でも見分けられるように）
+// 提案の採点の観点（定例会議と、朝会の仮の採点 provisionalScore.ts で同じものを使う）
+export const SCORE_POINTS = "観点: 材料の数字に根拠があるか / 実際にやれるか / やったら成果（訪問・登録・利用）に効きそうか / スパムや作り話にならないか";
 
 const day = (d: Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(d);
 
@@ -147,7 +149,7 @@ export async function createWeeklyMeeting(): Promise<number> {
       purpose: "定例会議（提案の採点）",
       modelId: m.modelId,
       system: `週の定例会議で出た改善案を採点します。だれの案かは伏せてあります。
-観点: 材料の数字に根拠があるか / 実際にやれるか / やったら成果（訪問・登録・利用）に効きそうか / スパムや作り話にならないか
+${SCORE_POINTS}
 「別軸:」で始まる案は、まだ実績がないので数字の根拠では比べない。今のネックに効く理屈があるか、小さく試せるか、うまくいかなかったときの損が小さいかで見る
 1〜10点で、甘くしないこと（平凡なら5点前後）。並んだ案どうしを比べて、良いものと良くないものに差を付ける（全部に同じ点を付けない）
 same: 言い方は違っても、やることが同じ案の組（例: [["P2","P5"]]）。片方をやれば、もう片方をやる意味がなくなるものだけ。似た話題・同じ場所を直すだけの別の案は入れない。なければ空の配列
@@ -205,9 +207,10 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
     const sc = Math.round(p.score * 10) / 10;
     if (p.score < 5) {
       // 採点の途中で Claude Code に頼まれたものは見送りにしない（PR #126 の ai-review の指摘）
-      closed += db().prepare("UPDATE plan_requests SET score = ?, status = 'declined', note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open' AND ai_fix_at IS NULL").run(sc, `定例会議で低評価（平均${sc}点）のため自動で見送り`, p.existingId).changes;
+      closed += db().prepare("UPDATE plan_requests SET score = ?, score_provisional = 0, status = 'declined', note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open' AND ai_fix_at IS NULL").run(sc, `定例会議で低評価（平均${sc}点）のため自動で見送り`, p.existingId).changes;
     } else {
-      db().prepare("UPDATE plan_requests SET score = ? WHERE id = ?").run(sc, p.existingId);
+      // 朝会の仮の点も、ここで正式な点に置き換える
+      db().prepare("UPDATE plan_requests SET score = ?, score_provisional = 0 WHERE id = ?").run(sc, p.existingId);
     }
   }
 
@@ -246,7 +249,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
 // - コードの見直しのルーティンが入れた「守り」（直すべき所）。採点の観点が「訪問・登録・利用に効くか」なので、コードの直しは低い点になりやすく、運営者が見る前に見送りや、まとめての消し込みになっていた（見直しのルーティンの1回目が見つけた）
 // 見直しの「攻め」（足すとよい機能）は採点する。点の高いものを自動でルーティンに頼むため（autoAsk.ts）
 export function scoringExisting(): RequestRow[] {
-  return db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source != 'human' AND NOT (source = 'review' AND COALESCE(scene, '') != ?) AND (source != 'meeting' OR scene LIKE '臨時会議%') AND (created_at >= datetime('now', '-8 days') OR score IS NULL) AND ai_fix_at IS NULL").all(GROWTH_SCENE) as RequestRow[];
+  return db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source != 'human' AND NOT (source = 'review' AND COALESCE(scene, '') != ?) AND (source != 'meeting' OR scene LIKE '臨時会議%') AND (created_at >= datetime('now', '-8 days') OR score IS NULL OR score_provisional = 1) AND ai_fix_at IS NULL").all(GROWTH_SCENE) as RequestRow[];
 }
 
 export function adjustScores(items: { who: string; score: number }[][]): number[] {
