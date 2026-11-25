@@ -24,8 +24,10 @@ import { exploreStatsText } from "./explore";
 type Proposal = { title: string; how: string; why: string; target: "human" | "system" };
 type MemberOut = { review: string; proposals: (Proposal & { axis?: unknown })[]; voice?: string };
 const NEW_AXIS = "別軸: "; // まだ試していない手の案に付ける（提案箱でも見分けられるように）
-// 提案の採点の観点（定例会議と、朝会の仮の採点 provisionalScore.ts で同じものを使う）
-export const SCORE_POINTS = "観点: 材料の数字に根拠があるか / 実際にやれるか / やったら成果（訪問・登録・利用）に効きそうか / スパムや作り話にならないか";
+// 提案の採点の決まり（観点・別軸の案の見方・点の付け方）。定例会議と、朝会の仮の採点（provisionalScore.ts）で同じ文を使う（PR #183 の ai-review の指摘）
+export const SCORE_RULES = `観点: 材料の数字に根拠があるか / 実際にやれるか / やったら成果（訪問・登録・利用）に効きそうか / スパムや作り話にならないか
+「別軸:」で始まる案は、まだ実績がないので数字の根拠では比べない。今のネックに効く理屈があるか、小さく試せるか、うまくいかなかったときの損が小さいかで見る
+1〜10点で、甘くしないこと（平凡なら5点前後）。並んだ案どうしを比べて、良いものと良くないものに差を付ける（全部に同じ点を付けない）`;
 
 const day = (d: Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(d);
 
@@ -149,9 +151,7 @@ export async function createWeeklyMeeting(): Promise<number> {
       purpose: "定例会議（提案の採点）",
       modelId: m.modelId,
       system: `週の定例会議で出た改善案を採点します。だれの案かは伏せてあります。
-${SCORE_POINTS}
-「別軸:」で始まる案は、まだ実績がないので数字の根拠では比べない。今のネックに効く理屈があるか、小さく試せるか、うまくいかなかったときの損が小さいかで見る
-1〜10点で、甘くしないこと（平凡なら5点前後）。並んだ案どうしを比べて、良いものと良くないものに差を付ける（全部に同じ点を付けない）
+${SCORE_RULES}
 same: 言い方は違っても、やることが同じ案の組（例: [["P2","P5"]]）。片方をやれば、もう片方をやる意味がなくなるものだけ。似た話題・同じ場所を直すだけの別の案は入れない。なければ空の配列
 形式: {"scores":[{"id":"P1","score":点}],"same":[["P1","P4"]]}`,
       user: `${mat}\n\n採点する案:\n${mine.map((x) => `【${label(x.i)}】（${x.p.target === "system" ? "仕組み" : "運営者"}向け）${x.p.title}: ${x.p.how}（根拠: ${x.p.why}）`).join("\n")}`,

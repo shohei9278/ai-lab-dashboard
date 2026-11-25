@@ -115,3 +115,26 @@ test("朝会: その日の最初の計画のあとに仮の採点をし、作り
   assert.equal(calls.length, 0);
   assert.equal(row(id).score, null);
 });
+
+test("仮の採点: 点が2社以上そろった提案だけ仮の点にする（1社だけの点では決めず、次の朝会でまた採点する）。別軸の案の見方も定例会議と同じ文を渡す。古い順に選ぶ", async () => {
+  db().exec("DELETE FROM plan_requests");
+  const newer = add("重要な新しい提案", { ago: "-1 hours", proposer: "claude-opus-5-5" });
+  const older = add("重要な古い提案", { ago: "-3 days", proposer: "claude-opus-5-5" });
+  // 番号は新しいほうが小さいが、入った日時の古い順に並ぶ
+  assert.deepEqual(unscoredProposals().map((r) => r.id), [older, newer]);
+  const systems: string[] = [];
+  const base = fakeAsk([]);
+  // GPT だけ失敗する。提案者は Claude なので、採点できるのは Gemini だけ（1社）→ 仮の点にしない
+  const gptFails = (async (o: { modelId: string; system: string }) => {
+    systems.push(o.system);
+    if (o.modelId.startsWith("gpt")) throw new Error("通信の失敗");
+    return (base as unknown as (x: typeof o) => Promise<unknown>)(o);
+  }) as never;
+  assert.deepEqual(await withKeys(() => scoreProvisional({ material: "材料", ask: gptFails })), { scored: 0, high: 0 });
+  assert.equal(row(older).score, null);
+  assert.ok(systems.every((s) => s.includes("「別軸:」で始まる案は、まだ実績がないので数字の根拠では比べない")));
+  // 提案者が Claude でなければ、GPT が失敗しても Claude と Gemini の2社で仮の点にする
+  db().prepare("UPDATE plan_requests SET proposer = 'gpt-5.6-sol' WHERE id IN (?, ?)").run(older, newer);
+  assert.deepEqual(await withKeys(() => scoreProvisional({ material: "材料", ask: gptFails })), { scored: 2, high: 2 });
+  assert.deepEqual(row(older), { score: 8, score_provisional: 1, status: "open" });
+});
