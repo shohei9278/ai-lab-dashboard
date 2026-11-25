@@ -73,6 +73,7 @@ export function PlanSummary({ plan }: { plan: PlanRow }) {
           {g.prediction.why && <span className="text-xs text-muted">　理由: {g.prediction.why}</span>}
         </p>
       )}
+      {g.content.post_mix && <p className="text-sm text-ink-2"><span className="text-muted">投稿の数: </span>{g.content.post_mix}</p>}
       {(g.failed > 0 || g.skipped > 0 || g.held > 0) && (
         <p className="text-xs text-ink-2">{g.held > 0 ? `直したが承認待ちで未公開 ${g.held}件・` : ""}失敗 {g.failed}件・見送り {g.skipped}件（理由は下の予定に出ています）</p>
       )}

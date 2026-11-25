@@ -54,6 +54,8 @@ export type PlanContent = {
   prediction?: { visits: number; conversions: number; why: string };
   // 朝会で、担当より先に出たほかの社員の意見（今いちばんのネックと、今日やるべきこと）
   opinions?: PlanOpinion[];
+  // 場所ごとの投稿の数と、その数にした理由（数はAIが成績から決める。運営者が決めた）
+  post_mix?: string;
 };
 export type PlanOpinion = { modelId: string; text: string };
 export type PlanRow = { id: number; day: string; created_at: string; model_id: string; content: string; pause_new: number; idea_note: string | null };
@@ -222,16 +224,20 @@ function liveProjects(): LivePj[] {
 type Reacts = { reactions_at: string | null; likes: number | null; replies: number | null; reposts: number | null };
 const reactText = (x: Reacts) => (x.reactions_at ? ` 反応: いいね${x.likes ?? 0} 返信${x.replies ?? 0} リポスト${x.reposts ?? 0}` : " 反応: まだ未集計");
 
-// 場所ごとの、宣伝の投稿の数・そこからの訪問・1訪問あたりの費用（直近14日）。お金のかかる場所に偏らないように
+// 場所ごとの、宣伝の投稿の数・1投稿あたりの訪問と成果・1成果あたりの費用（直近14日と、これまで）
+// 費用を1訪問あたりだけで見ると、訪問は少ないが成果の多い場所（X）を避けてしまうので、成果あたりでも出す（運営者が決めた）
 export function platformCostText(): string {
   const s = getSettings();
-  const rows = db().prepare("SELECT platform, COUNT(*) AS n, COALESCE(SUM(visits), 0) AS v FROM sns_posts WHERE status = 'posted' AND author = 'ai' AND posted_at >= datetime('now', '-14 days') GROUP BY platform").all() as { platform: string; n: number; v: number }[];
-  if (!rows.length) return "場所ごとの1訪問あたりの費用（直近14日）: まだ投稿がない";
-  return `場所ごとの1訪問あたりの費用（直近14日の宣伝の投稿）: ${rows.map((r) => {
+  const rows = (since: string | null) => db().prepare(`SELECT platform, COUNT(*) AS n, COALESCE(SUM(visits), 0) AS v, COALESCE(SUM(conversions), 0) AS c FROM sns_posts WHERE status = 'posted' AND author = 'ai'${since ? " AND posted_at >= datetime('now', ?)" : ""} GROUP BY platform`).all(...(since ? [since] : [])) as { platform: string; n: number; v: number; c: number }[];
+  const line = (r: { platform: string; n: number; v: number; c: number }) => {
     const cost = (AUTO_PLATFORMS[r.platform as AutoPlatform]?.costUsd ?? 0) * r.n * s.usdJpy;
-    const per = cost === 0 ? "無料" : r.v ? `1訪問 約${Math.round(cost / r.v)}円` : `訪問0で約${Math.round(cost)}円`;
-    return `${AUTO_PLATFORMS[r.platform as AutoPlatform]?.label ?? r.platform} ${r.n}件・訪問${r.v}人・${per}`;
-  }).join(" / ")}`;
+    const perConv = cost === 0 ? "無料" : r.c ? `1成果 約${Math.round(cost / r.c)}円` : `成果0で約${Math.round(cost)}円`;
+    return `${AUTO_PLATFORMS[r.platform as AutoPlatform]?.label ?? r.platform} ${r.n}件・訪問${r.v}人（1投稿あたり${(r.v / r.n).toFixed(1)}人）・成果${r.c}人（1投稿あたり${(r.c / r.n).toFixed(2)}人）・${perConv}`;
+  };
+  const recent = rows("-14 days");
+  const all = rows(null);
+  if (!all.length) return "場所ごとの宣伝の投稿の成績: まだ投稿がない";
+  return `場所ごとの宣伝の投稿の成績（成果 = 投稿のリンクから来て、登録・利用した人）:\n- 直近14日: ${recent.map(line).join(" / ") || "なし"}\n- これまで: ${all.map(line).join(" / ")}`;
 }
 
 function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: HotProject[] = []): string {
@@ -297,6 +303,7 @@ function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: Hot
 
 type PlanOut = PlanContent & {
   pause_new: boolean;
+  post_mix?: unknown;
   idea_note: string;
   requests?: { title: string; how: string; why: string }[];
   voice?: string;
@@ -396,9 +403,11 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - promo と plain には、切り口の型（type）も付ける: ${Object.entries(ANGLE_TYPES).map(([k, v]) => `${k}（${v}）`).join(" / ")}
 - improve: 集客中の案件のページ（ツールなら画面）を直す。project_id と angle（何をどう直すか、具体的に）を決める。1日1件まで。訪問がある程度あるのに登録・利用されない案件で、材料に「ページの自動改善: できる」とある案件だけ。結果が「held」（直したが承認待ちで未公開）の改善は、公開ページは変わっていないので、改善の効果として数字を読まない
 決めること:
-- 投稿の回数・時刻・場所・宣伝と普通の投稿の割合は、あなたが決める。宣伝ばかりのアカウントに見えないよう、普通の投稿も混ぜる。同じ時刻に固めず、間をあける
+- 投稿の回数・時刻・場所・宣伝と普通の投稿の割合は、あなたが決める。数に決まりはない。材料の「場所ごとの宣伝の投稿の成績」から、場所ごとに決める: 1投稿あたりの成果が高い場所は増やし、投稿を増やしても1投稿あたりの訪問・成果が落ちている場所（同じ人に何度も見せている・宣伝ばかりに見える）は減らす。無料でも成果が出ない場所に数を積んでも効かない。数字が少ない場所は、少しずつ試す。宣伝ばかりのアカウントに見えないよう、普通の投稿も混ぜる。同じ時刻に固めず、間をあける
+- post_mix: 今日の場所ごとの投稿の数（宣伝・普通）と、その数にした理由を、場所ごとに1文で（例: "X 宣伝3（1投稿あたりの成果がいちばん高いので増やす）/ Threads 宣伝2・普通1（訪問は多いが成果が少ないので減らす）"）
 - 時刻は今より後で、投稿は${POST_START}〜${POST_END}時の間（"HH:MM"）。使える場所（自動で投稿できる場所）以外には予定を入れない
-- 安全装置（場所ごとの1日の投稿数）を超える予定は入れない。費用も考える（X はリンク付きの投稿が高い）
+- 安全装置（場所ごとの1日の投稿数）を超える予定は入れない。安全装置は異常を止めるための値で、目標ではない
+- 費用は、1訪問あたりではなく1成果あたりで比べる（お金のかかる場所でも、1成果あたりが安ければ増やしてよい）。今月の予算の残りは超えない
 - pause_new: ネックが「届かない」なのに新しい案件を増やしても届かない案件が増えるだけ、のようなときは true にして、今日は新しい案件づくりを休む
 - 当たりの兆し: 材料の「当たりの兆し」に案件があるときは、新しい案件づくりを休み（pause_new は自動で true になる）、その案件に集中する。宣伝は、跳ねた場所・切り口を残しつつ、別の切り口・場所も混ぜて2〜3件（上の「上位3案件」の決まりより優先する）。ツールで「ページの自動改善: できる」なら、来た人が次も使いたくなる直し（機能を1つ足す・結果のあとに次の一手を出す・最初の画面を分かりやすくする）を improve で1件。同じ仕組みを別の対象者に向けた派生のアイデアは、次のアイデア出しに自動で渡すので、idea_note には書かなくてよい。数字が少ないので、review では「まだ偶然の可能性がある」ことも書く
 - idea_note: 次のアイデア出しに伝えたい、今の課題（例: 最初の利用者に届けやすい場所がはっきりした案を優先する）。なければ空
@@ -419,9 +428,9 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - 効かなかった手を同じように繰り返さない。回数を増やすより、切り口・場所・時刻を変えることを先に試す
 - 切り口どうしを比べるときは、場所と時間帯をそろえる（例: 同じ場所・同じ時間帯で、完成見本の切り口と共感の切り口を別の日に出す）。場所も時間帯も切り口も同時に変えると、どれが効いたか分からなくなる
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
-- 宣伝先の配分（どの場所に、どの型の案件の宣伝を出すか）は、訪問の平均ではなく、「宣伝の投稿の成績（場所×案件の型）」の直近14日の利用数（事前登録LPなら登録数）と利用率で決める。直近14日で登録・利用が2件以上出た場所×型は、宣伝の投稿を週3件まで試してよい（運営者が止めている場所は、材料に許しが書いてある分だけ）。件数が少ないので偶然の可能性も高く、決めつけない
+- 宣伝先の配分（どの場所に、どの型の案件の宣伝を出すか）は、訪問の平均ではなく、「宣伝の投稿の成績（場所×案件の型）」の直近14日の利用数（事前登録LPなら登録数）と利用率で決める。直近14日で登録・利用が2件以上出た場所×型は、週の件数を決めずに増やしてよい（1成果あたりの費用と、増やしたあとの1投稿あたりの成果を見て決める。運営者が止めている場所は、材料に許しが書いてある分だけ）。件数が少ないので偶然の可能性も高く、決めつけない
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
-形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"trials":[],"trial_results":[],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
+形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"post_mix":"場所ごとの投稿の数と理由","pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"trials":[],"trial_results":[],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
       user: material + opinionsText(opinions),
       validate: isPlanOut,
     });
@@ -478,6 +487,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
     goals: out.goals.filter((g) => isObj(g) && (g.metric === "visits" || g.metric === "conversions") && Number(g.target) > 0)
       .slice(0, 2).map((g) => ({ metric: g.metric, target: Math.round(Number(g.target)), why: String(g.why ?? "").slice(0, 200) })),
     pause_reason: out.pause_new ? String(out.pause_reason ?? "").slice(0, 400) : "",
+    ...(isStr(out.post_mix) && out.post_mix.trim() ? { post_mix: out.post_mix.trim().slice(0, 400) } : {}),
     prediction: isObj(out.prediction) && Number.isFinite(Number(out.prediction.visits))
       ? { visits: Math.max(0, Math.round(Number(out.prediction.visits))), conversions: Math.max(0, Math.round(Number(out.prediction.conversions) || 0)), why: String(out.prediction.why ?? "").slice(0, 200) }
       : undefined,
