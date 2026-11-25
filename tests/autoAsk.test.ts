@@ -264,3 +264,21 @@ test("自動の依頼の様子（運営者が決めた）: 進んでいるもの
   assert.match(autoAskStatus().off ?? "", /オフ/);
   saveSettings({ autoAskReview: true });
 });
+
+test("自動の依頼: PR ができないまま3時間たったら、待つのをやめて次を頼む（頼んだ提案は頼み直さない）。待っている間は、いつまで待つかを出す", async () => {
+  const { autoAskStatus, NO_PR_WAIT_HOURS } = await import("../src/lib/autoAsk");
+  clear();
+  db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
+  const add = db().prepare("INSERT INTO plan_requests (title, how, why, target, source, score, created_at) VALUES (?, 'h', 'w', 'system', 'scene', ?, datetime('now', '-2 days'))");
+  const silent = Number(add.run("黙って終わった", 9).lastInsertRowid);
+  const next = Number(add.run("次の提案", 8).lastInsertRowid);
+  assert.equal(NO_PR_WAIT_HOURS, 3);
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now', '-1 hours') WHERE id = ?").run(silent);
+  assert.equal(nextAutoAsk(), null, "PR がまだないうちは待つ");
+  const st = autoAskStatus();
+  assert.equal(st.busy?.id, silent);
+  assert.ok(st.busy?.giveUpAt && Math.abs(Date.parse(st.busy.giveUpAt) - (Date.now() + 2 * 3_600_000)) < 120_000, st.busy?.giveUpAt ?? "");
+  db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now', '-4 hours') WHERE id = ?").run(silent);
+  assert.equal(nextAutoAsk()?.row.id, next, "3時間たったら次を頼む。頼んだ提案は頼み直さない");
+  assert.equal(autoAskStatus().busy, null);
+});

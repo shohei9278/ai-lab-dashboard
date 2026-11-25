@@ -26,11 +26,15 @@ export type AutoKind = "auto-fix" | "auto-growth" | "auto-box";
 
 const ASK_KINDS = "('auto-ask-fix', 'auto-ask-growth', 'auto-ask-box')";
 
-// 頼んだ改善のうち、まだ進んでいるもの（PR が開いている・頼んでから1日のあいだ PR が見つかっていない）
+// PR ができないまま待つ長さ。ルーティンはふだん10〜30分で PR を作る。直さなくて良いと判断したのに見送りを登録できなかったときなど、
+// 黙って終わったルーティンで、次の依頼が長く止まらないように（1日から短くした。#93 で約1日止まった。運営者が決めた）
+export const NO_PR_WAIT_HOURS = 3;
+
+// 頼んだ改善のうち、まだ進んでいるもの（PR が開いている・頼んでから NO_PR_WAIT_HOURS 時間のあいだ PR が見つかっていない）
 // 提案を見送ったあとも、PR が開いている間は数える（PR #154 の ai-review の指摘）。PR の状態は、開いている間は提案の返事に関係なく読み直す（aiFix.ts の syncAiFixPrs）
 // PR がまだないものは、返事待ちの間だけ数える（ルーティンが見送ったら、すぐ次を頼めるように。PR #155 の ai-review の指摘）
 function busyRow(): { id: number; title: string; ai_fix_at: string; ai_fix_pr: number | null } | undefined {
-  return db().prepare("SELECT id, title, ai_fix_at, ai_fix_pr FROM plan_requests WHERE ai_fix_at IS NOT NULL AND (ai_fix_pr_state = 'open' OR (status = 'open' AND ai_fix_pr IS NULL AND ai_fix_at >= datetime('now', '-1 day'))) ORDER BY ai_fix_at DESC LIMIT 1").get() as { id: number; title: string; ai_fix_at: string; ai_fix_pr: number | null } | undefined;
+  return db().prepare("SELECT id, title, ai_fix_at, ai_fix_pr FROM plan_requests WHERE ai_fix_at IS NOT NULL AND (ai_fix_pr_state = 'open' OR (status = 'open' AND ai_fix_pr IS NULL AND ai_fix_at >= datetime('now', ?))) ORDER BY ai_fix_at DESC LIMIT 1").get(`-${NO_PR_WAIT_HOURS} hours`) as { id: number; title: string; ai_fix_at: string; ai_fix_pr: number | null } | undefined;
 }
 
 // 直近24時間に自動で頼んだ日時（古い順）。自動で頼んだ回数は、上書きされない記録（events）で数える
@@ -67,7 +71,7 @@ export function nextAutoAsk(): { row: Row; why: string; kind: AutoKind } | null 
 // 提案箱の画面に出す、自動の依頼の今の様子（運営者が決めた。止まっているのか、待っているのかを分かるように）
 export type AutoAskStatus = {
   off: string | null; // 止めている理由（設定・緊急停止・つながっていない）。動いていれば null
-  busy: { id: number; title: string; at: string; pr: number | null } | null; // 頼んで進んでいるもの
+  busy: { id: number; title: string; at: string; pr: number | null; giveUpAt: string | null } | null; // 頼んで進んでいるもの（giveUpAt: PR がまだないとき、待つのをやめる日時。ISO）
   asked: number; max: number; // 直近24時間に頼んだ数と上限
   resumeAt: string | null; // 上限に達しているとき、次に頼めるようになる日時（UTC）
   next: { id: number; title: string; why: string } | null; // 次に頼む提案
@@ -83,7 +87,7 @@ export function autoAskStatus(): AutoAskStatus {
   const resumeAt = asked.length >= DAILY_MAX ? new Date(Date.parse(`${asked[asked.length - DAILY_MAX].replace(" ", "T")}Z`) + 86_400_000).toISOString() : null;
   return {
     off,
-    busy: b ? { id: b.id, title: b.title, at: b.ai_fix_at, pr: b.ai_fix_pr } : null,
+    busy: b ? { id: b.id, title: b.title, at: b.ai_fix_at, pr: b.ai_fix_pr, giveUpAt: b.ai_fix_pr ? null : new Date(Date.parse(`${b.ai_fix_at.replace(" ", "T")}Z`) + NO_PR_WAIT_HOURS * 3_600_000).toISOString() } : null,
     asked: asked.length, max: DAILY_MAX, resumeAt,
     next: c.next ? { id: c.next.row.id, title: c.next.row.title, why: c.next.why } : null,
     waiting: c.waiting,
