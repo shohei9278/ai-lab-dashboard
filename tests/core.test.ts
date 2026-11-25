@@ -799,6 +799,10 @@ test("LP作成に渡すツールの注意書き: 結果は目安だと断る文�
   assert.match(weak, /結果は実際の寸法で確認してください/);
   assert.match(weak, /計算の結果は参考にとどめてください/);
   assert.doesNotMatch(weak, /入力内容を確認してください/);
+  // 1つの要素に文が並ぶときも、別の文の言葉どうしを組み合わせない（同じ文に弱い言葉と結果を指す言葉があるときだけ）
+  assert.equal(toolCaveatTexts(`<p>計算を始めます。入力内容を確認してください。</p><script>const m = "結果を表示します。もう一度試してください。";</script>`), "");
+  const mixed = toolCaveatTexts(`<p>計算を始めます。結果は実際の寸法で確認してください。入力内容を確認してください。</p>`);
+  assert.equal(mixed, "結果は実際の寸法で確認してください。");
   const many = Array.from({ length: 20 }, (_, i) => `<p>${i}番目の値は目安です</p>`).join("");
   const cut = toolCaveatTexts(many, 40);
   assert.ok(cut.length <= 40);

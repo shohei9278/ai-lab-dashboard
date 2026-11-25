@@ -1035,7 +1035,7 @@ export function toolFactsForReview(html: string, max = 3000): string {
 // （保存できない環境向けの文言がツールにあるのに、よくある質問が「残ります」と言い切っていたことがあった）
 const EXCEPTION_WORDS = /できません|できない|できなかった|使えません|使えない|失敗|エラー|対応していません|対応していない|非対応|許可|残りません|残らない|消えます|消えてしまう|見つかりません|お使いのブラウザ|代わりに|手動で|センサー|オフライン/;
 export function toolExceptionTexts(html: string, max = 800): string {
-  return pickToolTexts(html, (x) => EXCEPTION_WORDS.test(x), max);
+  return pickToolTexts(html, (x) => (EXCEPTION_WORDS.test(x) ? x : ""), max);
 }
 
 // ツールの中の、結果は目安だと断る注意書き（「目安です。試し編みで確かめてください。」など）を取り出す。LP作成に別枠で渡し、
@@ -1047,15 +1047,18 @@ const CAVEAT_WORDS = /目安|おおよそ|およそ|概算|参考値|あくま�
 const CAVEAT_WEAK_WORDS = /参考に|確かめてください|確認してください|試して/;
 const CAVEAT_TARGET_WORDS = /結果|数値|計算|実際|仕上がり/;
 const isCaveat = (x: string) => CAVEAT_WORDS.test(x) || (CAVEAT_WEAK_WORDS.test(x) && CAVEAT_TARGET_WORDS.test(x));
+// 1つの要素に文が並ぶとき（「計算を始めます。入力内容を確認してください。」）、別の文の言葉どうしを組み合わせないよう、
+// 句点などで文に分けて1文ずつ見て、注意書きに当たる文だけをつなげて返す
+const caveatSentences = (x: string) => (x.match(/[^。！？!?]+[。！？!?]*/g) ?? []).filter((s) => isCaveat(s)).join("").trim();
 export function toolCaveatTexts(html: string, max = 400): string {
-  return pickToolTexts(html, isCaveat, max);
+  return pickToolTexts(html, caveatSentences, max);
 }
 
-// 画面の文言とスクリプトの中の文字列から、match に当たる日本語の文を、文の途中で切らずに max 文字まで取り出す
-function pickToolTexts(html: string, match: (text: string) => boolean, max: number): string {
+// 画面の文言とスクリプトの中の文字列から、pick が返す日本語の文（当たらなければ空）を、文の途中で切らずに max 文字まで取り出す
+function pickToolTexts(html: string, pick: (text: string) => string, max: number): string {
   const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((m) => m[1]).join("\n");
   const visible = html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, "").split(/<[^>]+>/);
-  const texts = [...visible, ...scriptStrings(scripts)].map((x) => x.replace(/\s+/g, " ").trim()).filter((x) => /[ぁ-んァ-ヶ一-龠]/.test(x) && match(x));
+  const texts = [...visible, ...scriptStrings(scripts)].map((x) => x.replace(/\s+/g, " ").trim()).filter((x) => /[ぁ-んァ-ヶ一-龠]/.test(x)).map(pick).filter(Boolean);
   const out: string[] = [];
   let len = 0;
   for (const t of new Set(texts)) {
