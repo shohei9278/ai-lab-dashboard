@@ -86,6 +86,24 @@ test("朝会: 当たりの兆しがあれば、AIが休むと書かなくても�
   assert.match(hotIdeaHint(), /派生を考えてよい[^]*朝会で跳ねた（対象: 料理をする人）/);
 });
 
+test("当たりの兆し: 朝会のAIが失敗しても、見つけた案件は記録する。計画を作り直しても同じ日・同じ案件は1件だけ", async () => {
+  reset();
+  const { createPlan } = await import("../src/lib/plan");
+  db().exec("DELETE FROM daily_plans");
+  const p = live("朝会が失敗");
+  for (let b = 2; b <= 8; b++) metric(p, b, 2);
+  metric(p, 1, 15);
+  const fail = (async (o: { purpose: string; validate: (v: unknown) => boolean }) => {
+    if (o.purpose === "投稿の切り口の分類") return { types: [] };
+    if (o.purpose === "朝会（意見）") return { opinion: "意見" };
+    throw new Error("予算の上限");
+  }) as never;
+  await assert.rejects(createPlan({ force: true, ask: fail, weather: async () => [] }), /予算の上限/);
+  await assert.rejects(createPlan({ force: true, ask: fail, weather: async () => [] }), /予算の上限/);
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'hot-project' AND project_id = ?").get(p) as { n: number }).n, 1);
+  assert.match(hotIdeaHint(), /朝会が失敗/);
+});
+
 test("当たりの兆し: 跳ねた案件がなければ、休むかどうかはAIの判断のまま。アイデア出しにも何も足さない", () => {
   reset();
   const p = live("ふつう");

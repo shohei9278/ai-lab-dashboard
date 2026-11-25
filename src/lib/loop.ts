@@ -2400,17 +2400,22 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
     return prepareLp(pid, action === "revise" ? comment : undefined);
   }
   if (a.kind === "publish") {
-    // 公開前チェックの結果を人が覆したら、試験問題の候補に残し、裏でAIにおすすめを付けさせる（evalSeeds.ts。失敗しても公開の処理は止めない）
+    if (action === "reject") rejectPublish(pid);
+    else if (action === "revise") await prepareLp(pid, comment);
+    else {
+      setStage(pid, "live");
+      await announcePublish(pid);
+    }
+    // 公開前チェックの結果を人が覆したら、試験問題の候補に残し、裏でAIにおすすめを付けさせる（evalSeeds.ts）
+    // 承認の処理が終わってから残す（途中で失敗した判断を、本番の例として残さないように。PR #174 の ai-review の指摘）。候補づくりの失敗は承認の結果に影響させない
     try {
       const seed = addEvalSeed(a, action, comment);
-      if (seed) void withActivity({ key: `eval-seed-${seed}`, title: "試験問題の候補", models: [seedSuggestModel()], room: "dev", doing: "試験問題の候補を見る", projectId: pid }, () => suggestEvalSeed(seed)).catch((e) => console.error("試験問題の候補のおすすめに失敗しました", e));
+      const model = seed ? seedSuggestModel() : null;
+      if (seed && model) void withActivity({ key: `eval-seed-${seed}`, title: "試験問題の候補", models: [model], room: "dev", doing: "試験問題の候補を見る", projectId: pid }, () => suggestEvalSeed(seed)).catch((e) => console.error("試験問題の候補のおすすめに失敗しました", e));
+      else if (seed) await suggestEvalSeed(seed); // 別の会社のAIが使えない理由を残すだけ（AIは呼ばない）
     } catch (e) {
       console.error("試験問題の候補を残せませんでした", e);
     }
-    if (action === "reject") return rejectPublish(pid);
-    if (action === "revise") return prepareLp(pid, comment);
-    setStage(pid, "live");
-    await announcePublish(pid);
     return;
   }
   // decision

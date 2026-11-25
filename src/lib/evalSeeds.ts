@@ -47,12 +47,13 @@ const isSuggestion = (v: unknown): v is SeedSuggestion =>
   isObj(v) && (v.expect === "ok" || v.expect === "ng" || v.expect === "skip") && (v.type === null || v.type === undefined || isType(v.type)) &&
   Number.isFinite(Number(v.score)) && isStr(v.reason) && v.reason.trim().length > 0;
 
-// おすすめを付けるAI: 公開前チェックをしているAI（設定の製品ループのAI）とは別の会社の上位のAI（自分の答えを甘く見ないように）。なければ同じAI
-export function seedSuggestModel(): string {
-  const loop = getSettings().loopModel;
-  const own = getModel(loop).provider;
+// おすすめを付けるAI: 公開前チェックをしているAI（設定の製品ループのAI）とは別の会社の上位のAI（自分の答えを甘く見ないように）。
+// 別の会社のAIが使えなければ null（同じAIには付けさせない。PR #174 の ai-review の指摘）
+export const SEED_NO_MODEL = "公開前チェックとは別の会社のAIが使えない（APIキーがない）ため、おすすめを付けていません";
+export function seedSuggestModel(): string | null {
+  const own = getModel(getSettings().loopModel).provider;
   const others = ["gpt-5.6-sol", "gemini-3.1-pro-preview", "claude-opus-5-5"].filter((id) => getModel(id).provider !== own);
-  return others.find((id) => hasKey(getModel(id).provider)) ?? loop;
+  return others.find((id) => hasKey(getModel(id).provider)) ?? null;
 }
 
 export function seedPrompt(s: SeedRow): { system: string; user: string } {
@@ -85,6 +86,10 @@ export async function suggestEvalSeed(id: number, ask: typeof callJson = callJso
   const s = db().prepare("SELECT * FROM check_eval_seeds WHERE id = ?").get(id) as SeedRow | undefined;
   if (!s) return;
   const modelId = seedSuggestModel();
+  if (!modelId) {
+    db().prepare("UPDATE check_eval_seeds SET suggest_error = ? WHERE id = ?").run(SEED_NO_MODEL, id);
+    return;
+  }
   try {
     const out = await ask<SeedSuggestion>({ purpose: "試験問題の候補", projectId: s.project_id, modelId, ...seedPrompt(s), validate: isSuggestion });
     const type = out.expect === "ng" && isType(out.type) ? out.type : null;
@@ -108,6 +113,9 @@ export function decideEvalSeed(id: number, decision: unknown, type?: unknown): S
     db().prepare("UPDATE check_eval_seeds SET status = 'dismissed', decided_at = datetime('now') WHERE id = ?").run(id);
   } else if (decision === "ok" || decision === "ng") {
     if (decision === "ng" && !isType(type)) throw new Error("問題ありで入れるときは、問題の種類を選んでください");
+    // 評価の途中で例を増やすと、進み具合の分母と実際に流している例の数がずれるので、終わってから入れる（PR #174 の ai-review の指摘）
+    // 止まったまま残った評価（checkEval.ts の STALE_MINUTES と同じ10分、動いた印がない）では止めない
+    if (db().prepare("SELECT 1 FROM check_evals WHERE status = 'running' AND COALESCE(beat_at, at) >= datetime('now', '-10 minutes')").get()) throw new Error("公開前チェックの評価が動いています。終わってから入れてください");
     db().prepare("UPDATE check_eval_seeds SET status = 'adopted', expect = ?, type = ?, decided_at = datetime('now') WHERE id = ?").run(decision, decision === "ng" ? type : null, id);
   } else throw new Error("決め方が分かりません（ok・ng・dismiss）");
   return db().prepare("SELECT * FROM check_eval_seeds WHERE id = ?").get(id) as SeedRow;

@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { jstDay } from "./sns";
+import { logEvent } from "./loop";
 
 // 当たりの兆し（運営者が決めた）: 昨日（日本時間）、普段より訪問か利用が跳ねた公開中の案件
 // 見つけた日の朝会は、新しい案件づくりを休み、その案件に集中する（宣伝の切り口を変える・ツールの直し）。
@@ -49,6 +50,14 @@ export function hotProjects(now = Date.now()): HotProject[] {
     hot.push({ id: p.id, title: p.title, visits: y.v, conversions: y.c, baseVisits: round1(baseV), baseConversions: round1(baseC), why: `昨日 ${why}`, ratio: Math.max(byVisits ? rv : 0, byConv ? rc : 0) });
   }
   return hot.sort((a, b) => b.ratio - a.ratio).slice(0, HOT_MAX).map((h) => ({ id: h.id, title: h.title, visits: h.visits, conversions: h.conversions, baseVisits: h.baseVisits, baseConversions: h.baseConversions, why: h.why }));
+}
+
+// 見つけた案件を記録する（次のアイデア出しの hotIdeaHint が読む）。同じ日（日本時間）・同じ案件は1件だけ（計画を作り直しても増やさない）
+export function recordHot(hot: HotProject[], day: string) {
+  for (const h of hot) {
+    if (db().prepare("SELECT 1 FROM events WHERE kind = 'hot-project' AND project_id = ? AND date(at, '+9 hours') = ?").get(h.id, day)) continue;
+    logEvent(h.id, "system", "hot-project", `当たりの兆し（${h.why}）。今日は新しい案件づくりを休み、この案件に集中します`);
+  }
 }
 
 // 朝会の材料
