@@ -6,7 +6,9 @@ import OpenAI from "openai";
 export const REVIEWERS = ["gpt", "gemini"] as const;
 export type Reviewer = (typeof REVIEWERS)[number];
 export const REVIEW_MODEL: Record<Reviewer, string> = { gpt: "gpt-5.6-sol", gemini: "gemini-3.1-pro-preview" };
-export const MAX_DIFF = 60_000;
+// 差分の上限（文字数）。6万だと大きな PR の後半を見ていなかった（PR #174）ので上げた。超えたら、先にテストの差分を外し、それでも超えたら途中まで
+export const MAX_DIFF = 120_000;
+const TEST_FILE = /^(tests|e2e)\//;
 // PR の説明文（要件）の上限。超えたら途中までとして cut にする（黙って切らない。自動マージでは人に回る。PR #153 の ai-review の指摘）
 export const MAX_BODY = 20_000;
 
@@ -28,10 +30,23 @@ ${o.withHistory ? `「これまでのレビュー」に出た指摘のうち直�
 ${o.autoPr ? "prompt_changed には、この差分が、AIに渡す指示（プロンプト。AIを呼ぶときの system・user の文や、その組み立て・渡す材料の選び方）を変えていれば true、変えていなければ false を入れる。言い回しを少し変えただけでも true。\n" : ""}日本語で、最大8件。形式: {"summary":"全体の所感を1文",${o.autoPr ? '"prompt_changed":true か false,' : ""}"findings":[{"file":"パス","line":行番号,"severity":"high|medium|low","issue":"何が問題か","why":"どんな条件で何が起きるか","fix":"直し方"}]}`;
 }
 
+// 差分が上限を超えるときは、テスト（tests/・e2e/）のファイルの差分を外す（本体のコードを先に全部見せるため）。外したファイルは名前を伝える
+export function fitDiff(diff: string): { diff: string; droppedTests: string[] } {
+  if (diff.length <= MAX_DIFF) return { diff, droppedTests: [] };
+  const parts = diff.split(/(?=^diff --git )/m);
+  const pathOf = (part: string) => part.match(/^diff --git a\/(\S+)/)?.[1] ?? "";
+  const kept = parts.filter((part) => !TEST_FILE.test(pathOf(part)));
+  const droppedTests = parts.filter((part) => TEST_FILE.test(pathOf(part))).map(pathOf);
+  return { diff: kept.join(""), droppedTests };
+}
+
 export function reviewInput(o: { prBody?: string; history?: string; omitted?: string; diff: string }): { input: string; cut: boolean } {
   const bodyCut = (o.prBody ?? "").length > MAX_BODY;
-  const cut = o.diff.length > MAX_DIFF || bodyCut;
-  const input = `${o.prBody ? `このPRの要件:\n${o.prBody.slice(0, MAX_BODY)}${bodyCut ? "\n\n（長いため途中まで）" : ""}\n\n` : ""}${o.history ? `${o.history}\n\n` : ""}${o.omitted ? `${o.omitted}\n\n` : ""}差分:\n${cut ? `${o.diff.slice(0, MAX_DIFF)}\n\n（長いため途中まで）` : o.diff}`;
+  const { diff, droppedTests } = fitDiff(o.diff);
+  const diffCut = diff.length > MAX_DIFF;
+  const cut = diffCut || bodyCut;
+  const dropped = droppedTests.length ? `差分が長いため、テストのファイルの差分は渡していない（このPRで変わっている）: ${droppedTests.join("、")}\nテストがないことを理由に指摘しないこと。\n\n` : "";
+  const input = `${o.prBody ? `このPRの要件:\n${o.prBody.slice(0, MAX_BODY)}${bodyCut ? "\n\n（長いため途中まで）" : ""}\n\n` : ""}${o.history ? `${o.history}\n\n` : ""}${o.omitted ? `${o.omitted}\n\n` : ""}${dropped}差分:\n${diffCut ? `${diff.slice(0, MAX_DIFF)}\n\n（長いため途中まで）` : diff}`;
   return { input, cut };
 }
 

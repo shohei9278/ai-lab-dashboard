@@ -1,7 +1,8 @@
 import { routinesWorking } from "./toolRoutine";
 import { HIDDEN, maskCallError, maskEventMessage, maskHandles } from "./viewer";
-import { db, getSettings } from "./db";
-import { activityList, buildingList, ideaRunning, liveNotesList } from "./loop";
+import { db, getSettings, jstThisMonth } from "./db";
+import { activityList, buildingList, ideaRunning, liveNotesList, type Activity } from "./loop";
+import { ongoingCalls } from "./ai";
 import { modelInfo } from "./models";
 import type { AdhocContent } from "./adhoc";
 import { BOTTLENECK_LABEL, type PlanContent } from "./plan";
@@ -147,6 +148,15 @@ function maskFeedForGuest(f: FeedItem): FeedItem {
 // AIの会話（来た人には伏せたもの）。ライブの欄と、オフィスの社員（話している表情・押したときの最近の発言）の両方で使う
 export const liveFeed = ({ guest = false } = {}): FeedItem[] => (guest ? feed().filter((f) => f.kind !== RESEARCH_KIND).map(maskFeedForGuest) : feed());
 
+// いまAIがやっていること。名前の付いた作業（withActivity など）がないときは、呼んでいる途中のAI（ai.ts の ongoingCalls。朝の計画・日報・自動投稿など）を出す
+// マージの前の「本番が動いていないか」（activities と building が空か）で、AIを呼んでいる途中を見落とさないため
+// （本番の入れ替えで呼び出しが途中で切れ、費用だけかかることがある。11/22 の見直しのルーティンが見つけた）
+export function activitiesWithCalls(): Activity[] {
+  const acts = activityList();
+  if (acts.length) return acts;
+  return ongoingCalls().map((c) => ({ key: `call-${c.id}`, title: c.purpose, since: c.since, steps: { [label(c.modelId)]: "AIを呼んでいます" }, models: [c.modelId], projectId: c.projectId }));
+}
+
 export function liveSnapshot({ guest = false } = {}) {
   const s = getSettings();
   const calls = db().prepare(
@@ -158,7 +168,7 @@ export function liveSnapshot({ guest = false } = {}) {
   const today = db().prepare("SELECT COALESCE(SUM(visits), 0) AS v, COALESCE(SUM(signups), 0) AS c FROM metrics WHERE day = date('now', 'localtime')").get() as { v: number; c: number };
   const total = db().prepare("SELECT COALESCE(SUM(visits), 0) AS v, COALESCE(SUM(signups), 0) AS c FROM metrics").get() as { v: number; c: number };
   const costToday = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s, COUNT(*) AS n FROM ai_calls WHERE at >= datetime('now', 'localtime', 'start of day', 'utc')").get() as { s: number; n: number });
-  const costMonth = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_calls WHERE strftime('%Y-%m', at) = strftime('%Y-%m', 'now')").get() as { s: number }).s;
+  const costMonth = (db().prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_calls WHERE ${jstThisMonth("at")}`).get() as { s: number }).s;
   const postsToday = (db().prepare("SELECT COUNT(*) AS n FROM sns_posts WHERE status = 'posted' AND posted_at >= datetime('now', 'localtime', 'start of day', 'utc')").get() as { n: number }).n;
   const live = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE stage = 'live' AND demo = 0").get() as { n: number }).n;
   const titles = new Map((db().prepare("SELECT id, title FROM projects").all() as { id: number; title: string }[]).map((p) => [p.id, p.title]));
@@ -172,7 +182,7 @@ export function liveSnapshot({ guest = false } = {}) {
     killSwitch: s.killSwitch,
     // ダッシュボードの中で作っているものと、クラウドの Claude Code（ルーティン）が作っているもの（同じ案件が両方にあれば、中のほうを出す）
     building: [...buildingList(), ...routinesWorking().filter((r) => !buildingList().some((b) => b.id === r.id))].map((b) => ({ ...b, title: titles.get(b.id) ?? `#${b.id}` })),
-    activities: activityList(),
+    activities: activitiesWithCalls(),
     ideaBusy: ideaRunning(),
     numbers: {
       visitsToday: today.v, convToday: today.c, visitsTotal: total.v, convTotal: total.c,

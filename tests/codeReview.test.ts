@@ -20,6 +20,9 @@ const TOPICS: [string, string, string][] = [
   ["週のまとめの集計で日付がずれる", "src/lib/weekly.ts の集計を日本時間の0時からにそろえる", "UTC の日付で切っていることを読んだ"],
   ["動画の台本の検証にテストがない", "tests に playVideo の台本の確かめのテストを足す", "台本の形を確かめる関数にテストがないことを確かめた"],
   ["ツールのエラーの通知が重なる", "src/lib/funnel.ts の通知を1日1回にまとめる", "同じエラーで毎回通知していることを読んだ"],
+  ["議事録に話した社員の名前が出ない", "src/lib/meetings.ts の議事録の各発言に、話した社員の名前を付ける", "議事録の本文に発言者がなく、誰の意見か分からないことを確かめた"],
+  ["評価が再起動のあと実行中のまま残る", "src/lib/runner.ts で起動したときに古い running を閉じる", "runs の status を閉じる処理がないことを確かめた"],
+  ["公開サイトの一覧の並びが毎回変わる", "lp-site/src/app/page.tsx の並びを公開した日の新しい順に固定する", "読み込むたびに並びが入れ替わることを確かめた"],
 ];
 const item = (n: number) => ({ title: TOPICS[n - 1][0], how: TOPICS[n - 1][1], why: TOPICS[n - 1][2] });
 
@@ -45,26 +48,27 @@ test("コードの見直し: 仕組みの改善として、出どころ「コー
   assert.match(again.skipped[0], /同じ題か同じ趣旨/);
 });
 
-test("コードの見直し: 2日のあいだに5件まで。形のおかしいものは入れずに理由を返す", () => {
+test("コードの見直し: 2日のあいだに8件まで（確かめる所が多い間、運営者が5件から上げた）。形のおかしいものは入れずに理由を返す", () => {
   clear();
   const first = addReviewFindings([item(1), item(2), item(3)]);
   assert.equal(first.added.length, 3);
   const bad = addReviewFindings([{ title: "題だけ" }, { title: "x".repeat(81), how: "h", why: "w" }]);
   assert.equal(bad.added.length, 0);
   assert.equal(bad.skipped.length, 2);
-  const rest = addReviewFindings([item(4), item(5), item(6)]);
+  assert.equal(REVIEW_MAX, 8);
+  const rest = addReviewFindings([4, 5, 6, 7, 8, 9].map(item));
   assert.equal(rest.added.length, REVIEW_MAX - 3);
-  assert.match(rest.skipped.at(-1)!, /5件を超えた/);
+  assert.match(rest.skipped.at(-1)!, /8件を超えた/);
   // 7日前に入ったものは数えない
   db().prepare("UPDATE plan_requests SET created_at = datetime('now', '-7 days') WHERE source = 'review'").run();
-  assert.equal(addReviewFindings([item(7)]).added.length, 1);
+  assert.equal(addReviewFindings([item(10)]).added.length, 1);
   assert.throws(() => addReviewFindings("not array"));
 });
 
-test("コードの見直し: 一度に送れるのは5件まで（超えた分は読まない）", () => {
+test("コードの見直し: 一度に送れるのは8件まで（超えた分は読まない）", () => {
   clear();
-  const r = addReviewFindings([1, 2, 3, 4, 5, 6, 7].map(item));
-  assert.equal(r.added.length, 5);
+  const r = addReviewFindings([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item));
+  assert.equal(r.added.length, 8);
   assert.match(r.skipped.at(-1)!, /2件/);
 });
 
@@ -84,14 +88,14 @@ test("コードの見直し: 入口は合言葉がないと 401。読むと仕�
 
 test("コードの見直し: 上限に達したあとも、同じ趣旨の提案が返事待ちなら「何回出たか」を数える", () => {
   clear();
-  const first = addReviewFindings([1, 2, 3, 4, 5].map(item));
-  assert.equal(first.added.length, 5);
+  const first = addReviewFindings([1, 2, 3, 4, 5, 6, 7, 8].map(item));
+  assert.equal(first.added.length, 8);
   const target = first.added[0];
   const near = { ...item(1), title: "来訪者の案件の画面で、下書きの版が見えてしまう" };
-  const r = addReviewFindings([near, item(6)]);
+  const r = addReviewFindings([near, item(9)]);
   assert.equal(r.added.length, 0);
   assert.match(r.skipped[0], /同じ題か同じ趣旨/);
-  assert.match(r.skipped[1], /5件を超えた/);
+  assert.match(r.skipped[1], /8件を超えた/);
   assert.equal((db().prepare("SELECT repeats FROM plan_requests WHERE id = ?").get(target) as { repeats: number }).repeats, 1);
 });
 

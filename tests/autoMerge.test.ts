@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { afterDeliberation, FIX_TEXT_MAX, HISTORY_MAX_COMMENTS, HUMAN_MARK, afterReview, beforeReview, changedPaths, fireRejected, fixMarker, fixRequested, fixRounds, fixText, handedToHuman, MAX_REVIEW_FAILS, promptChanged, TOKEN_WARN_DAYS, tokenDaysLeft, protectedFiles, readyForHuman, smokeResult, reviewFailMarker, reviewFailures, reviewHistory, reviewMarker, type PrComment } from "../scripts/auto-merge-rules";
-import { deliberationComment, MAX_BODY, parseDeliberation, parseReview, reviewInput, reviewInstructions, type Review } from "../scripts/ai-review-core";
+import { deliberationComment, fitDiff, MAX_BODY, MAX_DIFF, parseDeliberation, parseReview, reviewInput, reviewInstructions, type Review } from "../scripts/ai-review-core";
 import { OMITTED } from "../scripts/ai-review-omitted";
 
 // 自動マージの決まり: ルーティンが作った PR を、マージ・直させる・人に回す・待つ、のどれにするか
@@ -214,4 +214,21 @@ test("トークンの期限: GitHub の答えの期限の日付から、残り�
   assert.equal(tokenDaysLeft(null, now), null);
   assert.equal(tokenDaysLeft("いつか", now), null);
   assert.equal(TOKEN_WARN_DAYS, 14);
+});
+
+test("レビューに渡す差分: 上限を超えたら、先にテストの差分を外して本体を全部見せる。外したファイルは名前を伝える。それでも超えたら途中まで", () => {
+  const file = (path: string, size: number) => `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n+${"x".repeat(size)}\n`;
+  const small = file("src/lib/a.ts", 100) + file("tests/a.test.ts", 100);
+  assert.deepEqual(fitDiff(small), { diff: small, droppedTests: [] }, "上限より短ければそのまま");
+  const big = file("src/lib/a.ts", MAX_DIFF - 1000) + file("tests/a.test.ts", 5000) + file("e2e/b.spec.ts", 5000) + file("src/lib/b.ts", 100);
+  const fit = fitDiff(big);
+  assert.deepEqual(fit.droppedTests, ["tests/a.test.ts", "e2e/b.spec.ts"]);
+  assert.match(fit.diff, /src\/lib\/a\.ts[^]*src\/lib\/b\.ts/);
+  assert.doesNotMatch(fit.diff, /tests\/a\.test\.ts/);
+  const r = reviewInput({ diff: big });
+  assert.equal(r.cut, false, "テストを外して収まれば、途中までにはしない");
+  assert.match(r.input, /テストのファイルの差分は渡していない[^]*tests\/a\.test\.ts、e2e\/b\.spec\.ts/);
+  const huge = reviewInput({ diff: file("src/lib/a.ts", MAX_DIFF + 10) });
+  assert.equal(huge.cut, true);
+  assert.match(huge.input, /（長いため途中まで）$/);
 });

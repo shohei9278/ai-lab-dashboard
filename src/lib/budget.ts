@@ -1,4 +1,4 @@
-import { db, getSettings, monthSpendUsd } from "./db";
+import { JST_TODAY_START, db, getSettings, jstThisMonth, monthSpendUsd } from "./db";
 
 // 月のAI予算のペース配分。1件ごとの作り方（品質）は変えずに、新しく作る案件の数を予算に合わせる
 // - 予算の一部（RESERVE）は、SNSへの投稿・コメントへの返信の案・判断のために残す（1回数円で、止めると損が大きいため）
@@ -33,7 +33,7 @@ export function budgetState() {
   // 月の初めから今日までの使い方が続いたときの、月末の見込み
   const projected = (spent / Math.max(1, day)) * daysInMonth;
   // 今日、新しい案件に使ってよい額（今日すでに使った分は、今月の使用額に含まれている）
-  const spentBeforeToday = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_calls WHERE strftime('%Y-%m', at) = strftime('%Y-%m', 'now') AND at < datetime('now', 'start of day')").get() as { s: number }).s * s.usdJpy;
+  const spentBeforeToday = (db().prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_calls WHERE ${jstThisMonth("at")} AND at < ${JST_TODAY_START}`).get() as { s: number }).s * s.usdJpy;
   const spentToday = spent - spentBeforeToday;
   const allowanceToday = Math.max(0, (creativeCap - spentBeforeToday) / daysLeft - spentToday);
   const perProject = costPerProjectJpy();
