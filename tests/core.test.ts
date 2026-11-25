@@ -793,6 +793,12 @@ test("LP作成に渡すツールの注意書き: 結果は目安だと断る文�
   // 例外の文言とは別に取り出す（注意書きは、例外の文言には入らない）
   assert.equal(toolExceptionTexts(html), "");
   assert.equal(toolCaveatTexts(`<button>はかる</button>`), "");
+  // 操作の案内だけの文は、注意書きにしない（結果や数値を指す言葉と一緒のときだけ取り出す）
+  assert.equal(toolCaveatTexts(`<p>入力内容を確認してください</p><p>もう一度試してください</p><p>設定の参考にしてください</p><script>alert("数字を確かめてください");</script>`), "");
+  const weak = toolCaveatTexts(`<p>入力内容を確認してください</p><p>結果は実際の寸法で確認してください</p><p>計算の結果は参考にとどめてください</p>`);
+  assert.match(weak, /結果は実際の寸法で確認してください/);
+  assert.match(weak, /計算の結果は参考にとどめてください/);
+  assert.doesNotMatch(weak, /入力内容を確認してください/);
   const many = Array.from({ length: 20 }, (_, i) => `<p>${i}番目の値は目安です</p>`).join("");
   const cut = toolCaveatTexts(many, 40);
   assert.ok(cut.length <= 40);
