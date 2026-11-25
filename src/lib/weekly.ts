@@ -15,6 +15,7 @@ import { doneEffectsText } from "./effects";
 import { waitsText } from "./waits";
 import { exploreStatsText } from "./explore";
 import { toolCheckText } from "./toolCheckStats";
+import { flowText } from "./flowStats";
 
 // 週の定例会議（毎週月曜）
 // 1. 3社のAIが、同じ材料（1週間の数字・計画と達成度・提案箱の返事など）から、それぞれ振り返りと改善案を出す
@@ -68,6 +69,8 @@ ${postStatsText() || "効いた手の集計: まだ投稿がない"}${xPlayRevie
 ${exploreStatsText()}
 
 ${toolCheckText()}
+
+${flowText()}
 
 提案箱（これまでの提案と、運営者の返事。返事待ち・見送りと同じ提案は出さない）:
 ${reqs.join("\n") || "（まだなし）"}
