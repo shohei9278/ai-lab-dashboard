@@ -1,5 +1,5 @@
 import { db, getSettings } from "./db";
-import { MODELS, RETIRED, hasKey, type ModelDef } from "./models";
+import { MODELS, RETIRED, hasKey, isRetired, type ModelDef } from "./models";
 import { PAGE_RIVALS, TOOL_MODELS, ideaAuthors, shadowModels } from "./loop";
 import { PAGE_JUDGES } from "./freePage";
 import { PLAN_MODELS } from "./plan";
@@ -53,5 +53,5 @@ export function staffList(list: Ranking[]): Staff[] {
     })
     .filter((x) => x.roles.length || x.calls)
     // 今の社員を先に、一覧から外したモデルは最後に並べる
-    .sort((a, b) => Number(a.model.id in RETIRED) - Number(b.model.id in RETIRED) || b.calls - a.calls);
+    .sort((a, b) => Number(isRetired(a.model.id)) - Number(isRetired(b.model.id)) || b.calls - a.calls);
 }

@@ -49,12 +49,24 @@ export const PROVIDER_ENV: Record<Provider, string> = {
 export const RETIRED: Record<string, { label: string; provider: Provider; replacedBy: string }> = {
   "gpt-5.6-sol": { label: "GPT-5.6 Sol", provider: "openai", replacedBy: "gpt-6.2-sol" },
 };
-export const currentModelId = (id: string) => RETIRED[id]?.replacedBy ?? id;
+// 登録した ID だけを、外したモデルとして扱う（constructor など、オブジェクトがもともと持つ名前に当たらないように。PR #189 の ai-review の指摘）
+const retiredOf = (id: string) => (Object.hasOwn(RETIRED, id) ? RETIRED[id] : undefined);
+export const isRetired = (id: string) => !!retiredOf(id);
+export const currentModelId = (id: string) => retiredOf(id)?.replacedBy ?? id;
 // 「担当した回数」などの数を、いまのモデルの ID にまとめる
 export function countByCurrent(rows: { m: string; n: number }[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const r of rows) out.set(currentModelId(r.m), (out.get(currentModelId(r.m)) ?? 0) + r.n);
   return out;
+}
+// 案件ごとの担当の数（同じ案件は1件）を、いまのモデルの ID にまとめる。前のモデルが作り、代わりのモデルが直した案件を、二重に数えない（PR #189 の ai-review の指摘）
+export function projectsByCurrent(rows: { m: string; p: number }[]): Map<string, number> {
+  const seen = new Map<string, Set<number>>();
+  for (const r of rows) {
+    const id = currentModelId(r.m);
+    seen.set(id, (seen.get(id) ?? new Set()).add(r.p));
+  }
+  return new Map([...seen].map(([id, s]) => [id, s.size]));
 }
 
 export function getModel(id: string): ModelDef {
@@ -67,7 +79,7 @@ export function getModel(id: string): ModelDef {
 export function modelInfo(id: string): Pick<ModelDef, "id" | "label" | "provider" | "tier"> {
   const m = MODELS.find((x) => x.id === id);
   if (m) return m;
-  const old = RETIRED[id];
+  const old = retiredOf(id);
   if (old) return { id, label: `${old.label}（旧）`, provider: old.provider, tier: "top" };
   if (id === "gpt-image-2") return { id, label: "GPT Image 2（画像）", provider: "openai", tier: "top" };
   if (id === "gemini-3.1-flash-image") return { id, label: "Gemini（画像）", provider: "google", tier: "light" };

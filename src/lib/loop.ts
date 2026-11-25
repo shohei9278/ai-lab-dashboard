@@ -16,7 +16,7 @@ import { DESIGN_OPTIONS, ICONS, ILLUSTRATION_STYLES, PREVIEW_KINDS, SECTIONS, TH
 import { toolAssets, toolImages } from "./toolAssets";
 import { TOOL_STORE_MAX } from "../../lp-site/src/lp/toolStore";
 import { hasResultsTag, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
-import { MODELS, countByCurrent, currentModelId, hasKey, modelInfo } from "./models";
+import { MODELS, countByCurrent, currentModelId, hasKey, modelInfo, projectsByCurrent } from "./models";
 import { firstShotNote, screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
 import { trendsText } from "./trends";
@@ -1299,7 +1299,7 @@ function toolModelFor(p: ProjectRow): string {
   const current = written ? currentModelId(written) : undefined;
   if (current && usable.includes(current)) return current;
   if (!usable.length) return getSettings().loopModel;
-  const counts = countByCurrent(db().prepare("SELECT tool_model AS m, COUNT(DISTINCT project_id) AS n FROM lp_versions WHERE tool_model IS NOT NULL GROUP BY tool_model").all() as { m: string; n: number }[]);
+  const counts = projectsByCurrent(db().prepare("SELECT DISTINCT tool_model AS m, project_id AS p FROM lp_versions WHERE tool_model IS NOT NULL").all() as { m: string; p: number }[]);
   return [...usable].sort((a, b) => (counts.get(a) ?? 0) - (counts.get(b) ?? 0) || Math.random() - 0.5)[0];
 }
 
@@ -1784,8 +1784,8 @@ export function routineTurnForNew(p: Pick<ProjectRow, "id" | "kind" | "deep" | "
   if (p.created_at < ROUTINE_NORMAL_SINCE) return false;
   const usable = TOOL_MODELS.filter((id) => hasKey(modelInfo(id).provider));
   if (!usable.length) return true;
-  const ai = countByCurrent(db().prepare(`SELECT v.tool_model AS m, COUNT(DISTINCT v.project_id) AS n FROM lp_versions v JOIN projects p ON p.id = v.project_id
-    WHERE v.tool_model IS NOT NULL AND p.deep = 0 AND p.demo = 0 AND p.tool_maker IS NULL AND p.created_at >= ? GROUP BY v.tool_model`).all(ROUTINE_NORMAL_SINCE) as { m: string; n: number }[]);
+  const ai = projectsByCurrent(db().prepare(`SELECT DISTINCT v.tool_model AS m, v.project_id AS p FROM lp_versions v JOIN projects p ON p.id = v.project_id
+    WHERE v.tool_model IS NOT NULL AND p.deep = 0 AND p.demo = 0 AND p.tool_maker IS NULL AND p.created_at >= ?`).all(ROUTINE_NORMAL_SINCE) as { m: string; p: number }[]);
   const mine = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE tool_maker = 'claude-code' AND deep = 0 AND demo = 0 AND created_at >= ?").get(ROUTINE_NORMAL_SINCE) as { n: number }).n;
   return mine <= Math.min(...usable.map((id) => ai.get(id) ?? 0));
 }

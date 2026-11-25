@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
-import { countByCurrent, currentModelId, getModel, modelInfo, MODELS } from "../src/lib/models";
+import { countByCurrent, currentModelId, getModel, isRetired, modelInfo, MODELS, projectsByCurrent } from "../src/lib/models";
 import { chairFor } from "../src/lib/weekly";
 import { scoreProvisional } from "../src/lib/provisionalScore";
 
@@ -15,6 +15,10 @@ test("モデルの切り替え: 古い ID で呼ぶと代わりのモデルに�
   assert.equal(getModel("gpt-5.6-sol").id, "gpt-6.2-sol");
   assert.deepEqual([modelInfo("gpt-5.6-sol").label, modelInfo("gpt-5.6-sol").provider], ["GPT-5.6 Sol（旧）", "openai"]);
   assert.equal(modelInfo("gpt-6.2-sol").label, "GPT-6.2 Sol");
+  // オブジェクトがもともと持つ名前は、外したモデルとして扱わない（PR #189 の ai-review の指摘）
+  for (const id of ["constructor", "toString", "__proto__"]) {
+    assert.deepEqual([isRetired(id), currentModelId(id), modelInfo(id).label], [false, id, `${id}（旧）`], id);
+  }
 });
 
 test("モデルの切り替え: 設定で古いモデルが選ばれたままでも、代わりのモデルとして読む", () => {
@@ -29,6 +33,8 @@ test("モデルの切り替え: 設定で古いモデルが選ばれたままで
 
 test("モデルの切り替え: 交代の順番では、古い ID の回数も代わりのモデルの回数として数える（代わりのモデルが続けて選ばれない）", () => {
   assert.deepEqual([...countByCurrent([{ m: "gpt-5.6-sol", n: 3 }, { m: "gpt-6.2-sol", n: 1 }, { m: "claude-opus-5-5", n: 2 }])], [["gpt-6.2-sol", 4], ["claude-opus-5-5", 2]]);
+  // 前の GPT が作り、新しい GPT が直した案件は、1件と数える（PR #189 の ai-review の指摘）
+  assert.deepEqual([...projectsByCurrent([{ m: "gpt-5.6-sol", p: 1 }, { m: "gpt-6.2-sol", p: 1 }, { m: "gpt-6.2-sol", p: 2 }, { m: "claude-opus-5-5", p: 1 }])], [["gpt-6.2-sol", 2], ["claude-opus-5-5", 1]]);
   db().exec("DELETE FROM meetings");
   const ins = db().prepare("INSERT INTO meetings (period_start, period_end, chair_model, content) VALUES ('2026-11-01', '2026-11-07', ?, '{}')");
   for (const m of ["gpt-5.6-sol", "gpt-5.6-sol", "claude-opus-5-5", "gemini-3.1-pro-preview"]) ins.run(m);
