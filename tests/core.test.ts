@@ -803,6 +803,13 @@ test("LP作成に渡すツールの注意書き: 結果は目安だと断る文�
   assert.equal(toolCaveatTexts(`<p>計算を始めます。入力内容を確認してください。</p><script>const m = "結果を表示します。もう一度試してください。";</script>`), "");
   const mixed = toolCaveatTexts(`<p>計算を始めます。結果は実際の寸法で確認してください。入力内容を確認してください。</p>`);
   assert.equal(mixed, "結果は実際の寸法で確認してください。");
+  // 「保証」は打ち消す形だけを注意書きにする（「動作を保証します」は取り出さない）
+  assert.equal(toolCaveatTexts(`<p>動作を保証します</p><p>品質を保証し、すぐに使えます</p><p>保証は1年です</p>`), "");
+  const warranty = toolCaveatTexts(`<p>動作を保証します。</p><p>計算の正しさは保証しません。</p><p>結果の正確さは保証できません。</p><p>仕上がりの保証はありません。</p>`);
+  assert.match(warranty, /計算の正しさは保証しません。/);
+  assert.match(warranty, /結果の正確さは保証できません。/);
+  assert.match(warranty, /仕上がりの保証はありません。/);
+  assert.doesNotMatch(warranty, /動作を保証します/);
   const many = Array.from({ length: 20 }, (_, i) => `<p>${i}番目の値は目安です</p>`).join("");
   const cut = toolCaveatTexts(many, 40);
   assert.ok(cut.length <= 40);
