@@ -33,17 +33,20 @@ export function trialBranches(t: Pick<TrialRow, "branches">): TrialBranch[] {
     return [];
   }
 }
-// 朝会が出した結果ごとの次の手を読む。条件と次の手のどちらも書いたものが2〜3個そろわなければ null（試しを入れない）
+// 朝会が出した結果ごとの次の手を読む。2〜3個で、どれも条件と次の手の両方を書いたときだけ受け取り、それ以外は null（試しを入れない）
+// 欠けたものや4個目を黙って落とすと、決めていなかった場合が「どの条件にも当たらなかった」と残るため（PR #190 の ai-review の指摘）
 export function parseBranches(raw: unknown): TrialBranch[] | null {
-  if (!Array.isArray(raw)) return null;
-  const out = raw.flatMap((b) => {
-    if (!b || typeof b !== "object") return [];
+  if (!Array.isArray(raw) || raw.length < TRIAL_BRANCHES.min || raw.length > TRIAL_BRANCHES.max) return null;
+  const out: TrialBranch[] = [];
+  for (const b of raw) {
+    if (!b || typeof b !== "object") return null;
     const r = b as Record<string, unknown>;
     const c = typeof r.if === "string" ? r.if.trim() : "";
     const t = typeof r.then === "string" ? r.then.trim() : "";
-    return c && t ? [{ if: c.slice(0, BRANCH_MAX), then: t.slice(0, BRANCH_MAX) }] : [];
-  }).slice(0, TRIAL_BRANCHES.max);
-  return out.length >= TRIAL_BRANCHES.min ? out : null;
+    if (!c || !t) return null;
+    out.push({ if: c.slice(0, BRANCH_MAX), then: t.slice(0, BRANCH_MAX) });
+  }
+  return out;
 }
 const branchesLine = (bs: TrialBranch[]) => bs.map((b, i) => `${i + 1}. ${b.if} → ${b.then}`).join(" / ");
 export const TRIAL_MAX_OPEN = 3; // 同時に試すのは3件まで（多いと、どれも数字が足りなくなる）

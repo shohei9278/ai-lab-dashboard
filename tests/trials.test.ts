@@ -129,7 +129,7 @@ test("朝会: 判定日時が来た試しを材料に渡して結論を入れさ
         // 判定した試しは、数字（訪問25・利用2）に合う条件2を選び、その次の手を同じ案件の直しとして今日の予定に入れる
         tasks: [{ time: "23:59", kind: "improve", project_id: a, angle: "最初の画面に使い方の例を出す", reason: "先に決めた条件2（登録・利用が0〜2）に当たった" }],
         trial_results: [{ id: due.id, verdict: "lose", branch: 2, result: "訪問25で利用2。前と変わらない" }],
-        trials: [{ project_id: a, question: "使い方の例を出すと使われるか", change: "静止画と短い動画を同じ時間帯に出す", metric: "conversions", judge_after_hours: 48, min_visits: 20, focus: true, branches: BR }] };
+        trials: [{ project_id: a, question: "使い方の例を出すと使われるか", change: "最初の画面に使い方の例を出す", metric: "conversions", judge_after_hours: 48, min_visits: 20, focus: true, branches: BR }] };
     } else if (o.purpose === "朝会（意見）") v = { opinion: "意見" };
     else if (o.purpose === "投稿の切り口の分類") v = { types: [] };
     else throw new Error(`想定していない呼び出し: ${o.purpose}`);
@@ -151,16 +151,21 @@ test("朝会: 判定日時が来た試しを材料に渡して結論を入れさ
   const plan = db().prepare("SELECT id FROM daily_plans ORDER BY id DESC LIMIT 1").get() as { id: number };
   assert.deepEqual(db().prepare("SELECT kind, project_id, angle FROM plan_tasks WHERE plan_id = ?").all(plan.id), [{ kind: "improve", project_id: a, angle: "最初の画面に使い方の例を出す" }]);
   const started = openTrials();
-  assert.deepEqual(started.map((t) => [t.project_id, t.metric, t.focus]), [[a, "conversions", 1]]);
+  // 新しく始めた試しも、選んだ次の手と同じ変更を記録する
+  assert.deepEqual(started.map((t) => [t.project_id, t.metric, t.focus, t.change]), [[a, "conversions", 1, "最初の画面に使い方の例を出す"]]);
 });
 
 test("試し: 結果ごとの次の手を始める前に決め（ない試しは入れない）、判定ではどの条件に当たったかを残す", () => {
   db().exec("DELETE FROM plan_trials");
-  // 次の手の読み方: 条件と次の手の両方があるものだけ・3個まで。2個そろわなければ入れない
+  // 次の手の読み方: 2〜3個で、どれも条件と次の手の両方があるときだけ受け取る
   assert.equal(parseBranches(undefined), null);
   assert.equal(parseBranches([{ if: "a", then: "b" }]), null);
-  assert.equal(parseBranches([{ if: "a", then: "" }, { if: " c ", then: " d " }, "x"]), null);
-  assert.deepEqual(parseBranches([{ if: " a ", then: "b" }, { if: "c", then: "d" }, { if: "e", then: "f" }, { if: "g", then: "h" }]), [{ if: "a", then: "b" }, { if: "c", then: "d" }, { if: "e", then: "f" }]);
+  // そろった2件に、欠けたもの・形の違うものが1件でも混ざれば、試し全体を入れない（黙って落とさない。PR #190 の ai-review の指摘）
+  assert.equal(parseBranches([{ if: "a", then: "b" }, { if: "c", then: "d" }, { if: "e", then: "" }]), null);
+  assert.equal(parseBranches([{ if: "a", then: "b" }, { if: "c", then: "d" }, "x"]), null);
+  // 4件以上も、黙って3件に切らずに入れない
+  assert.equal(parseBranches([{ if: "a", then: "b" }, { if: "c", then: "d" }, { if: "e", then: "f" }, { if: "g", then: "h" }]), null);
+  assert.deepEqual(parseBranches([{ if: " a ", then: "b" }, { if: "c", then: " d " }, { if: "e", then: "f" }]), [{ if: "a", then: "b" }, { if: "c", then: "d" }, { if: "e", then: "f" }]);
   const a = live("次の手なし"), b = live("次の手あり"), c = live("当たらない"), d = live("番号の外");
   const start = Date.now();
   const n = addTrials(1, [
