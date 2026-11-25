@@ -91,6 +91,8 @@ test("ツールの画像: Claude Code への依頼文に、入れた画像と使
   const t = devRequestText(id, "## 一言で\nドーム", null);
   assert.match(t, /- night: image\/jpeg・500KB → window\.labAssets\.images\.night/);
   assert.match(t, /crossOrigin = "anonymous"/);
+  assert.match(t, /当たり範囲/);
+  assert.match(t, /比率ごとに見える範囲を計算/);
   assert.match(t, /scripts\/tool-preview\.mts <ツールのHTML> --image 名前=ファイル/);
   assert.deepEqual(toolImages(id), { night: URL1 });
 });
