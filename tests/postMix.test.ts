@@ -59,4 +59,18 @@ test("朝会: 費用は1成果あたりで比べ、X を費用だけで避けな
   assert.match(user, /場所ごとの宣伝の投稿の成績[^]*1成果 約/);
   const content = JSON.parse(todayPlan()!.content) as { post_mix?: string };
   assert.match(content.post_mix ?? "", /X 宣伝3/);
+  // 当たりの兆しの宣伝も、数は成績と予算から決める（「2〜3件」と決めない。PR #175 の ai-review の指摘）
+  assert.doesNotMatch(system, /2〜3件/);
+});
+
+test("投稿の数: 画面には、AIが書いた数ではなく、実際に予定に入った場所ごとの数を出す（取りやめた予定は数えない）", async () => {
+  const { planProgress, postCountsText, todayPlan } = await import("../src/lib/plan");
+  assert.equal(postCountsText([{ kind: "promo", platform: "x" }, { kind: "promo", platform: "x" }, { kind: "plain", platform: "threads" }, { kind: "promo", platform: "threads" }, { kind: "improve", platform: null }]), "X 宣伝2 / Threads 宣伝1・普通1");
+  assert.equal(postCountsText([]), "");
+  const plan = todayPlan()!;
+  const ins = db().prepare("INSERT INTO plan_tasks (plan_id, at_time, kind, platform, project_id, angle, reason, status) VALUES (?, '23:00', ?, ?, NULL, 'a', 'r', ?)");
+  ins.run(plan.id, "promo", "x", "pending");
+  ins.run(plan.id, "promo", "x", "cancelled");
+  ins.run(plan.id, "plain", "bluesky", "done");
+  assert.equal(planProgress(plan).postCounts, "X 宣伝1 / Bluesky 普通1");
 });
