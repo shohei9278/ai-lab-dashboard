@@ -550,6 +550,18 @@ CREATE TABLE IF NOT EXISTS check_evals (
   cost_usd REAL,
   error TEXT
 );
+-- ツールのチェックの記録（運営者が決めた）: 1回ごとに、AIのチェックが止めたか・指摘・自動テストと決まりの指摘の数を残す。
+-- 公開前チェックのテスト（check_evals）は紹介ページのチェックだけを測っていて、項目が増え続けるツールのチェックの止めすぎを見られなかった（toolCheckStats.ts）
+CREATE TABLE IF NOT EXISTS tool_checks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  project_id INTEGER REFERENCES projects(id),
+  by TEXT NOT NULL, -- ai = AIが書いたツール / claude-code = Claude Code で作ったツール
+  ai_ok INTEGER NOT NULL, -- AIのチェック（reviewTool）で止めなかったか。1 = 止めなかった（ok で、指摘も0件）。公開を止める条件と同じ（PR #185 の ai-review の指摘）
+  ai_issues TEXT NOT NULL, -- JSON（AIのチェックの指摘。全部）
+  static_issues INTEGER NOT NULL DEFAULT 0, -- 決まり（staticToolIssues）の指摘の数
+  test_issues INTEGER NOT NULL DEFAULT 0 -- ブラウザでの自動テストの指摘の数
+);
 CREATE TABLE IF NOT EXISTS check_eval_results (
   eval_id INTEGER NOT NULL REFERENCES check_evals(id),
   case_id TEXT NOT NULL,

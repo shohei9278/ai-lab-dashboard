@@ -1336,7 +1336,12 @@ async function buildTool(p: ProjectRow, shotName: string, instruction?: string, 
   const check = async (h: string): Promise<{ review: Review; test: ToolTest }> => {
     const [ai, test] = await Promise.all([reviewTool(p, h, instruction), testTool(h, shotName, { ...frame, short: shortToolPage(p.aim) })]);
     // Claude Code で作ったツールは、長さの上限をふつうのツールと同じ（80,000文字）にする（AIが1回で書くときだけ、じっくり案件はコードを短めにさせる）
-    const issues = [...staticToolIssues(h, !!deep && given === undefined), ...ai.issues, ...testIssues(test)];
+    const statics = staticToolIssues(h, !!deep && given === undefined);
+    const tests = testIssues(test);
+    const issues = [...statics, ...ai.issues, ...tests];
+    // 1回ごとに残す（ツールのチェックの止めた割合を AIの成績に出す。toolCheckStats.ts）
+    db().prepare("INSERT INTO tool_checks (project_id, by, ai_ok, ai_issues, static_issues, test_issues) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(p.id, given !== undefined ? "claude-code" : "ai", ai.ok && ai.issues.length === 0 ? 1 : 0, JSON.stringify(ai.issues), statics.length, tests.length);
     return { review: { ok: issues.length === 0 && ai.ok, issues }, test };
   };
   if (given !== undefined) {
