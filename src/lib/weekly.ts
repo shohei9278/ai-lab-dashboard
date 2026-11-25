@@ -24,6 +24,10 @@ import { exploreStatsText } from "./explore";
 type Proposal = { title: string; how: string; why: string; target: "human" | "system" };
 type MemberOut = { review: string; proposals: (Proposal & { axis?: unknown })[]; voice?: string };
 const NEW_AXIS = "別軸: "; // まだ試していない手の案に付ける（提案箱でも見分けられるように）
+// 提案の採点の決まり（観点・別軸の案の見方・点の付け方）。定例会議と、朝会の仮の採点（provisionalScore.ts）で同じ文を使う（PR #183 の ai-review の指摘）
+export const SCORE_RULES = `観点: 材料の数字に根拠があるか / 実際にやれるか / やったら成果（訪問・登録・利用）に効きそうか / スパムや作り話にならないか
+「別軸:」で始まる案は、まだ実績がないので数字の根拠では比べない。今のネックに効く理屈があるか、小さく試せるか、うまくいかなかったときの損が小さいかで見る
+1〜10点で、甘くしないこと（平凡なら5点前後）。並んだ案どうしを比べて、良いものと良くないものに差を付ける（全部に同じ点を付けない）`;
 
 const day = (d: Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(d);
 
@@ -147,9 +151,7 @@ export async function createWeeklyMeeting(): Promise<number> {
       purpose: "定例会議（提案の採点）",
       modelId: m.modelId,
       system: `週の定例会議で出た改善案を採点します。だれの案かは伏せてあります。
-観点: 材料の数字に根拠があるか / 実際にやれるか / やったら成果（訪問・登録・利用）に効きそうか / スパムや作り話にならないか
-「別軸:」で始まる案は、まだ実績がないので数字の根拠では比べない。今のネックに効く理屈があるか、小さく試せるか、うまくいかなかったときの損が小さいかで見る
-1〜10点で、甘くしないこと（平凡なら5点前後）。並んだ案どうしを比べて、良いものと良くないものに差を付ける（全部に同じ点を付けない）
+${SCORE_RULES}
 same: 言い方は違っても、やることが同じ案の組（例: [["P2","P5"]]）。片方をやれば、もう片方をやる意味がなくなるものだけ。似た話題・同じ場所を直すだけの別の案は入れない。なければ空の配列
 形式: {"scores":[{"id":"P1","score":点}],"same":[["P1","P4"]]}`,
       user: `${mat}\n\n採点する案:\n${mine.map((x) => `【${label(x.i)}】（${x.p.target === "system" ? "仕組み" : "運営者"}向け）${x.p.title}: ${x.p.how}（根拠: ${x.p.why}）`).join("\n")}`,
@@ -202,13 +204,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
       if (gone && db().prepare("DELETE FROM plan_requests WHERE id = ? AND status = 'open'").run(p.existingId).changes) { bump(k, 1 + gone.repeats); mergedSame++; }
       continue;
     }
-    const sc = Math.round(p.score * 10) / 10;
-    if (p.score < 5) {
-      // 採点の途中で Claude Code に頼まれたものは見送りにしない（PR #126 の ai-review の指摘）
-      closed += db().prepare("UPDATE plan_requests SET score = ?, status = 'declined', note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open' AND ai_fix_at IS NULL").run(sc, `定例会議で低評価（平均${sc}点）のため自動で見送り`, p.existingId).changes;
-    } else {
-      db().prepare("UPDATE plan_requests SET score = ? WHERE id = ?").run(sc, p.existingId);
-    }
+    if (applyMeetingScore(p.existingId!, p.score)) closed++;
   }
 
   // 4. 議長が議事録のまとめと発信用の下書きを書く
@@ -237,6 +233,17 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
   return id;
 }
 
+// 定例会議の点を、提案箱の提案に付ける。5点未満なら見送りにする（見送りにしたら true）
+// - 点の書き換えは必ず行う（朝会の仮の点も、ここで正式な点に置き換える）
+// - 見送りにするのは、まだ返事待ちで Claude Code に頼んでいないものだけ（採点の途中で頼まれたものは見送りにしない。PR #126 の ai-review の指摘）
+//   見送りの条件に合わないときも、点は正式なものにする（採点の途中で頼まれた低い点の提案が、仮の点のまま残っていた。PR #183 の ai-review の指摘）
+export function applyMeetingScore(id: number, score: number): boolean {
+  const sc = Math.round(score * 10) / 10;
+  db().prepare("UPDATE plan_requests SET score = ?, score_provisional = 0 WHERE id = ?").run(sc, id);
+  if (score >= 5) return false;
+  return db().prepare("UPDATE plan_requests SET status = 'declined', note = ?, decided_at = datetime('now') WHERE id = ? AND status = 'open' AND ai_fix_at IS NULL").run(`定例会議で低評価（平均${sc}点）のため自動で見送り`, id).changes > 0;
+}
+
 // 採点者ごとの甘さ・辛さをならす: 採点者が付けた点から、その採点者の平均を引き、全体の平均を足す（採点者ごとの点を1〜10に収めてから、提案ごとに平均する）
 // 3件以上採点した採点者だけならす（少ないと、平均がその採点者の甘さを表さない）。点のない案は0点
 // 定例会議で、今回の案と一緒に採点する、提案箱の返事待ちの提案（この週に入ったもの・まだ点のないもの）
@@ -246,7 +253,7 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
 // - コードの見直しのルーティンが入れた「守り」（直すべき所）。採点の観点が「訪問・登録・利用に効くか」なので、コードの直しは低い点になりやすく、運営者が見る前に見送りや、まとめての消し込みになっていた（見直しのルーティンの1回目が見つけた）
 // 見直しの「攻め」（足すとよい機能）は採点する。点の高いものを自動でルーティンに頼むため（autoAsk.ts）
 export function scoringExisting(): RequestRow[] {
-  return db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source != 'human' AND NOT (source = 'review' AND COALESCE(scene, '') != ?) AND (source != 'meeting' OR scene LIKE '臨時会議%') AND (created_at >= datetime('now', '-8 days') OR score IS NULL) AND ai_fix_at IS NULL").all(GROWTH_SCENE) as RequestRow[];
+  return db().prepare("SELECT * FROM plan_requests WHERE status = 'open' AND source != 'human' AND NOT (source = 'review' AND COALESCE(scene, '') != ?) AND (source != 'meeting' OR scene LIKE '臨時会議%') AND (created_at >= datetime('now', '-8 days') OR score IS NULL OR score_provisional = 1) AND ai_fix_at IS NULL").all(GROWTH_SCENE) as RequestRow[];
 }
 
 export function adjustScores(items: { who: string; score: number }[][]): number[] {

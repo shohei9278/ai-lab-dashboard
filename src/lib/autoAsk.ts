@@ -11,6 +11,7 @@ import type { Fetch } from "./routine";
 //   1. コードの見直しの守り（直すべき所）: 入ってから1日たっても見送られなければ（その間に運営者が見送れば頼まない）
 //   2. 運営者が書いた提案: 入ってから1時間たっても見送られなければ（書いてすぐ頼まれると、取り消す間がないため）
 //   3. 3社の採点の平均が7点以上の提案（見直しの攻め・AIの社員・会議・エラーの見張りなど）: 点の高い順・入った日時の古い順
+//   （3・4 の点は定例会議の点。朝会の仮の点（provisionalScore.ts）は、7点以上のときだけ 3 に入れる）
 //   4. 5点以上7点未満の提案: 7点以上がなくなってから、点の高い順（5点未満は定例会議が自動で見送る。5〜7点が頼まれも見送られもせずにたまっていたため。運営者が決めた）
 // - 頼まれたルーティンが「直さなくて良い」と判断したら、見送りにする（/api/code-review/skip。docs/routine-proposal-fix.md）
 // - できた PR は、自動マージ（scripts/auto-merge.ts）が、CI と GPT・Gemini のレビューを見てマージする
@@ -21,7 +22,7 @@ export const DAILY_MAX = 6;
 const FIX_WAIT = "-1 day";
 const HUMAN_WAIT = "-1 hour";
 
-type Row = { id: number; title: string; scene: string; score: number | null; source?: string };
+type Row = { id: number; title: string; scene: string; score: number | null; source?: string; score_provisional?: number };
 export type AutoKind = "auto-fix" | "auto-growth" | "auto-box";
 
 const ASK_KINDS = "('auto-ask-fix', 'auto-ask-growth', 'auto-ask-box')";
@@ -49,7 +50,8 @@ function candidate(): { next: { row: Row; why: string; kind: AutoKind } | null; 
   const fixes = db().prepare(`SELECT id, title, scene, score FROM plan_requests WHERE source = 'review' AND scene = ? AND ${open} AND created_at <= datetime('now', ?) ORDER BY repeats DESC, created_at, id`).all(REVIEW_SCENE, FIX_WAIT) as Row[];
   const humans = db().prepare(`SELECT id, title, scene, score FROM plan_requests WHERE source = 'human' AND ${open} AND created_at <= datetime('now', ?) ORDER BY created_at, id`).all(HUMAN_WAIT) as Row[];
   // 採点で決めるもの（見直しの攻め・AIの社員・会議など）。見直しの守りは、採点されても上の待ちで頼む
-  const scored = db().prepare(`SELECT id, title, scene, score, source FROM plan_requests WHERE source != 'human' AND NOT (source = 'review' AND scene = ?) AND ${open} AND score >= ? ORDER BY score DESC, created_at, id`).all(REVIEW_SCENE, AUTO_MIN_SCORE) as Row[];
+  // 朝会の仮の点（provisionalScore.ts）は、7点以上のものだけ頼む（重要そうなものを月曜を待たずに直す。5〜7点は、月曜の定例会議の正式な点を待つ。運営者が決めた）
+  const scored = db().prepare(`SELECT id, title, scene, score, source, score_provisional FROM plan_requests WHERE source != 'human' AND NOT (source = 'review' AND scene = ?) AND ${open} AND score >= ? AND (score_provisional = 0 OR score >= ?) ORDER BY score DESC, created_at, id`).all(REVIEW_SCENE, AUTO_MIN_SCORE, GROWTH_MIN_SCORE) as Row[];
   const waiting = fixes.length + humans.length + scored.length;
   if (fixes[0]) return { next: { row: fixes[0], why: "自動: コードの見直しの守りの提案で、1日たっても見送られなかった", kind: "auto-fix" }, waiting };
   if (humans[0]) return { next: { row: humans[0], why: "自動: 運営者が書いた提案で、1時間たっても見送られなかった", kind: "auto-box" }, waiting };
@@ -57,7 +59,7 @@ function candidate(): { next: { row: Row; why: string; kind: AutoKind } | null; 
   if (!top) return { next: null, waiting };
   const growth = top.source === "review" && top.scene === GROWTH_SCENE;
   const low = top.score! < GROWTH_MIN_SCORE ? `（${GROWTH_MIN_SCORE}点未満。${GROWTH_MIN_SCORE}点以上の提案がなくなったので頼む）` : "";
-  return { next: { row: top, why: `自動: ${growth ? "コードの見直しの攻めの提案" : "提案箱の提案"}で、定例会議で3社の平均${top.score!.toFixed(1)}点${low}`, kind: growth ? "auto-growth" : "auto-box" }, waiting };
+  return { next: { row: top, why: `自動: ${growth ? "コードの見直しの攻めの提案" : "提案箱の提案"}で、${top.score_provisional ? `朝会の仮の採点で3社の平均${top.score!.toFixed(1)}点（7点以上なので、月曜の定例会議を待たずに頼む）` : `定例会議で3社の平均${top.score!.toFixed(1)}点${low}`}`, kind: growth ? "auto-growth" : "auto-box" }, waiting };
 }
 
 // 次に自動で頼む提案（なければ null）と、その理由

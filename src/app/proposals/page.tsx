@@ -62,7 +62,7 @@ function Item({ r, owner, aiFix = false }: { r: RequestRow; owner: boolean; aiFi
         {/* 番号を出す（「#66 をやった」など、運営者とAIのやり取りで指すため。運営者が、番号が画面にないと分からないと言った） */}
         <span className="num text-xs text-muted">#{r.id}</span>
         <span className="font-medium">{r.title}</span>
-        {r.score !== null && <span className="num rounded bg-surface-2 px-1.5 text-xs">ほかのAIの評価 {r.score.toFixed(1)}点</span>}
+        {r.score !== null && <span className="num rounded bg-surface-2 px-1.5 text-xs" title={r.score_provisional ? "朝会で付けた仮の点。月曜の定例会議で採点し直します" : undefined}>ほかのAIの評価 {r.score.toFixed(1)}点{r.score_provisional ? "（仮）" : ""}</span>}
         {r.repeats > 0 && <span className="num rounded bg-surface-2 px-1.5 text-xs">同じ趣旨の提案 ほかに{r.repeats}回</span>}
         {owner && r.status === "open" && (
           <span className="ml-auto inline-flex gap-2">
@@ -111,7 +111,7 @@ export default async function ProposalsPage() {
     <div className="space-y-6">
       <PageIntro title="提案箱">
         AIの社員たちが「やると効きそう」と考えたことと、{owner ? "あなた" : "運営者"}の提案を入れる場所です。朝会・定例会議のほか、判断・教訓・LPやツールのチェック・アイデアの採点などの途中でも、気づいたことが入ります。
-        同じ趣旨の提案は入れずに回数を数え、作業の途中で入るものは1日5件まで。週の定例会議で3社が採点し（点のないものも採点します。コードの見直しで入った提案は採点しません）、5点未満は自動で見送りにします。返事がないまま30日たった提案も見送りにします（何度も出た提案・Claude Code に頼んだ提案は残し、同じ提案がまた出てきたら入れます）。返事（やった・見送り、ひとこと）は、次の朝会と会議でAIが振り返ります。
+        同じ趣旨の提案は入れずに回数を数え、作業の途中で入るものは1日5件まで。点のない提案は、毎朝の朝会のあとに3社が仮の点を付け（7点以上なら、月曜を待たずに直す対象になります）、週の定例会議で1週間分をまとめて採点し直します（コードの見直しで入った守りの提案は採点しません）。定例会議の点で5点未満は、自動で見送りにします。返事がないまま30日たった提案も見送りにします（何度も出た提案・Claude Code に頼んだ提案は残し、同じ提案がまた出てきたら入れます）。返事（やった・見送り、ひとこと）は、次の朝会と会議でAIが振り返ります。
       </PageIntro>
 
       <section className="card space-y-3 p-4">
@@ -125,7 +125,7 @@ export default async function ProposalsPage() {
           <p className="text-xs text-muted">
             ダッシュボードの動き方（AIへの指示・集計・自動化の決まりなど）を変える提案です。
             {linked
-              ? `押さなくても、1時間に1回、1件ずつ自動でクラウドの Claude Code に頼みます（1日${autoAsk.max}件まで）。頼む順は、コードの見直しの守り（入ってから1日後）→ 運営者の提案（1時間後）→ 定例会議の採点の高い順（${GROWTH_MIN_SCORE}点以上が先、${AUTO_MIN_SCORE}点以上まで）。Claude Code が直して PR を作り、CI と2社のレビューが通れば自動でマージし、「やった」になります。直さなくてよいと判断したものは見送ります。${aiFix ? "急ぐものは「AIに直させる」で先に頼めます。" : ""}`
+              ? `押さなくても、1時間に1回、1件ずつ自動でクラウドの Claude Code に頼みます（1日${autoAsk.max}件まで）。頼む順は、コードの見直しの守り（入ってから1日後）→ 運営者の提案（1時間後）→ 採点の高い順（${GROWTH_MIN_SCORE}点以上が先、${AUTO_MIN_SCORE}点以上まで。朝会の仮の点は${GROWTH_MIN_SCORE}点以上のときだけ）。Claude Code が直して PR を作り、CI と2社のレビューが通れば自動でマージし、「やった」になります。直さなくてよいと判断したものは見送ります。${aiFix ? "急ぐものは「AIに直させる」で先に頼めます。" : ""}`
               : `直すときは、Claude Code に「提案箱の〇〇をやって」と伝えてください。${owner ? "Claude Code のルーティンをつなぐと、ここから頼めます（docs/SETUP-AI-FIX.md）。" : ""}`}
           </p>
         </div>
@@ -153,7 +153,7 @@ export default async function ProposalsPage() {
                 <span style={{ color: r.status === "done" ? "var(--good)" : "var(--muted)" }}>{r.status === "done" ? "✓ やった" : "– 見送り"}</span>
                 <span className="num ml-2 text-xs text-muted">#{r.id}</span>
                 <span className="ml-1">{r.title}</span>
-                <span className="ml-2 text-xs text-muted">{r.source === "human" ? "あなたの提案" : r.target === "system" ? "仕組み" : "あなたへ"}・{sourceLabel(r)}{r.score !== null ? `・${r.score.toFixed(1)}点` : ""}</span>
+                <span className="ml-2 text-xs text-muted">{r.source === "human" ? "あなたの提案" : r.target === "system" ? "仕組み" : "あなたへ"}・{sourceLabel(r)}{r.score !== null ? `・${r.score.toFixed(1)}点${r.score_provisional ? "（仮）" : ""}` : ""}</span>
                 {r.note && <span className="ml-2 text-xs text-ink-2">（{r.note}）</span>}
               </li>
             ))}
