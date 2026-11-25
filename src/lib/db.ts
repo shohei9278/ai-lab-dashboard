@@ -820,6 +820,8 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "explore", "INTEGER NOT NULL DEFAULT 0"], // 1 = アイデア出しの実験枠（過去の数字・効いた手・人気のジャンルを渡さずに出させた案。explore.ts）
   ["idea_candidates", "explore", "INTEGER NOT NULL DEFAULT 0"], // 1 = 実験枠で出させた案
   ["projects", "mode_confidence", "REAL"], // モードを決めたときに使った自信（毎日の実行では他社の採点の平均、手動では自己申告）
+  ["plan_trials", "branches", "TEXT"], // 試しを始めるときに決めた、結果ごとの次の手（JSON: [{"if":"条件","then":"次の手"}]。trials.ts）
+  ["plan_trials", "matched_branch", "INTEGER"], // 判定で当たった条件（1始まり。0 はどれにも当たらなかった。空は決めていない古い試し）
 ];
 
 function addColumns(conn: Database.Database) {

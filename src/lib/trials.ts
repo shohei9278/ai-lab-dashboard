@@ -9,6 +9,9 @@ import { jstDay } from "./sns";
 // - 判定日時が来るまでは結論を出さない（朝会の材料でも「まだ判断しない」と渡す）
 // - 判定日時に訪問が下限に届いていなければ、判断を保留して1回だけ延ばす。延ばしても届かなければ「判断できなかった」で閉じる
 // - focus: 新しい案件づくりを休んで、すでに利用が出た公開中の案件の紹介の仕方を変えて比べるもの（既存のツールの集客の実験）
+// - branches: 始めるときに、結果ごとの次の手（「訪問があり遊ぶところまで進めば、同じ見せ方を別の題材でも試す」など）を2〜3個決めて残す（運営者が決めた）。
+//   判定の朝は、どの条件に当たったか（matched_branch）を選ばせ、その次の手を今日の予定に入れさせる。
+//   結果を見てから、もっともらしい理由を付けて方針を変える余地を減らし、AIが何を根拠に方針を変えたかを、あとから追えるようにするため
 
 export type TrialMetric = "visits" | "conversions";
 export type TrialRow = {
@@ -16,7 +19,33 @@ export type TrialRow = {
   judge_at: string; hours: number; min_visits: number; focus: number; extended: number; status: "open" | "decided" | "expired";
   verdict: "win" | "lose" | "unclear" | null; result: string | null; decided_at: string | null; decided_by: string | null;
   final_visits: number | null; final_conversions: number | null;
+  branches: string | null; matched_branch: number | null;
 };
+export type TrialBranch = { if: string; then: string };
+export const TRIAL_BRANCHES = { min: 2, max: 3 };
+const BRANCH_MAX = 120;
+// 結果ごとの次の手（保存したもの）。読めなければ空
+export function trialBranches(t: Pick<TrialRow, "branches">): TrialBranch[] {
+  try {
+    const v = JSON.parse(t.branches ?? "[]") as unknown;
+    return Array.isArray(v) ? v.filter((b): b is TrialBranch => !!b && typeof b.if === "string" && typeof b.then === "string") : [];
+  } catch {
+    return [];
+  }
+}
+// 朝会が出した結果ごとの次の手を読む。条件と次の手のどちらも書いたものが2〜3個そろわなければ null（試しを入れない）
+export function parseBranches(raw: unknown): TrialBranch[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out = raw.flatMap((b) => {
+    if (!b || typeof b !== "object") return [];
+    const r = b as Record<string, unknown>;
+    const c = typeof r.if === "string" ? r.if.trim() : "";
+    const t = typeof r.then === "string" ? r.then.trim() : "";
+    return c && t ? [{ if: c.slice(0, BRANCH_MAX), then: t.slice(0, BRANCH_MAX) }] : [];
+  }).slice(0, TRIAL_BRANCHES.max);
+  return out.length >= TRIAL_BRANCHES.min ? out : null;
+}
+const branchesLine = (bs: TrialBranch[]) => bs.map((b, i) => `${i + 1}. ${b.if} → ${b.then}`).join(" / ");
 export const TRIAL_MAX_OPEN = 3; // 同時に試すのは3件まで（多いと、どれも数字が足りなくなる）
 export const TRIAL_MAX_NEW = 2; // 1回の朝会で始めるのは2件まで
 export const TRIAL_HOURS = { min: 24, max: 168 };
@@ -55,7 +84,7 @@ export function addTrials(planId: number, raw: unknown, opts: { live: Set<number
   const now = opts.now ?? Date.now();
   let room = Math.min(TRIAL_MAX_NEW, TRIAL_MAX_OPEN - openTrials().length);
   let n = 0;
-  const ins = db().prepare("INSERT INTO plan_trials (plan_id, project_id, created_at, question, change, metric, judge_at, hours, min_visits, focus) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  const ins = db().prepare("INSERT INTO plan_trials (plan_id, project_id, created_at, question, change, metric, judge_at, hours, min_visits, focus, branches) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   for (const x of raw) {
     if (room <= 0) break;
     if (!x || typeof x !== "object") continue;
@@ -63,7 +92,9 @@ export function addTrials(planId: number, raw: unknown, opts: { live: Set<number
     const pid = Number(t.project_id);
     const question = typeof t.question === "string" ? t.question.trim() : "";
     const change = typeof t.change === "string" ? t.change.trim() : "";
-    if (!opts.live.has(pid) || !question || !change) continue;
+    // 結果ごとの次の手を、始める前に決めていない試しは入れない（結果を見てから理由を付けないため。運営者が決めた）
+    const branches = parseBranches(t.branches);
+    if (!opts.live.has(pid) || !question || !change || !branches) continue;
     const kinds = new Set(opts.tasks.filter((x) => x.project_id === pid && (x.kind === "promo" || x.kind === "improve")).map((x) => x.kind));
     if (!kinds.size) continue;
     // 同じ案件で、まだ判定日時を待っている試しがあれば重ねない（どちらの効果か分からなくなるため）
@@ -74,7 +105,7 @@ export function addTrials(planId: number, raw: unknown, opts: { live: Set<number
     // 既存の案件の集客の実験は、すでに登録・利用が出た案件だけ（利用が0の案件では、紹介の仕方の差が見えないため）
     const used = (db().prepare("SELECT COALESCE(SUM(signups), 0) AS c FROM metrics WHERE project_id = ? AND source != 'simulated'").get(pid) as { c: number }).c;
     const focus = t.focus === true && opts.focusNeed !== null && kinds.has(opts.focusNeed) && used > 0 ? 1 : 0;
-    ins.run(planId, pid, utc(now), question.slice(0, 200), change.slice(0, 300), metric, utc(now + hours * 3_600_000), hours, minVisits, focus);
+    ins.run(planId, pid, utc(now), question.slice(0, 200), change.slice(0, 300), metric, utc(now + hours * 3_600_000), hours, minVisits, focus, JSON.stringify(branches));
     logEvent(pid, "ai", "trial", `試しを始めました（${modelInfo(opts.model).label}）: ${question.slice(0, 80)}。${hours}時間後に${METRIC_LABEL[metric]}で判断します（訪問${minVisits}人に届かなければ保留）${focus ? "。新しい案件を休んで、この案件の集客を試します" : ""}`);
     room--;
     n++;
@@ -121,9 +152,14 @@ export function applyTrialResults(raw: unknown, due: TrialRow[], model: string):
     if (!ids.has(id) || !verdict || !result) continue;
     const t = due.find((d) => d.id === id)!;
     const s = trialStats(t);
-    db().prepare("UPDATE plan_trials SET status = 'decided', verdict = ?, result = ?, decided_at = datetime('now'), decided_by = ?, final_visits = ?, final_conversions = ? WHERE id = ? AND status = 'open'")
-      .run(verdict, result.slice(0, 400), model, s.visits, s.conversions, id);
-    logEvent(t.project_id, "ai", "trial", `試し「${t.question.slice(0, 60)}」の結論（${modelInfo(model).label}）: ${VERDICT_LABEL[verdict]}。${result.slice(0, 160)}`);
+    // 当たった条件（1始まり。0 はどれにも当たらなかった）。先に決めた次の手がない古い試し・範囲の外の番号は、空のまま
+    const bs = trialBranches(t);
+    const b = Number(r.branch);
+    const matched = bs.length && Number.isInteger(b) && b >= 0 && b <= bs.length ? b : null;
+    db().prepare("UPDATE plan_trials SET status = 'decided', verdict = ?, result = ?, decided_at = datetime('now'), decided_by = ?, final_visits = ?, final_conversions = ?, matched_branch = ? WHERE id = ? AND status = 'open'")
+      .run(verdict, result.slice(0, 400), model, s.visits, s.conversions, matched, id);
+    const hit = matched ? `。当たった条件: ${bs[matched - 1].if} → 次の手: ${bs[matched - 1].then}` : matched === 0 ? "。先に決めた条件のどれにも当たらなかった" : "";
+    logEvent(t.project_id, "ai", "trial", `試し「${t.question.slice(0, 60)}」の結論（${modelInfo(model).label}）: ${VERDICT_LABEL[verdict]}。${result.slice(0, 160)}${hit}`);
     ids.delete(id);
     n++;
   }
@@ -136,13 +172,14 @@ export function trialsText(due: TrialRow[], now = Date.now()): string {
   const line = (t: TrialRow) => {
     const s = trialStats(t);
     const posts = s.posts.map((p) => `${p.platform}「${p.angle.slice(0, 30)}」訪問${p.visits}・成果${p.conversions}`).join(" / ");
-    return `【${t.id}】#${t.project_id} ${title(t.project_id)}: ${t.question}（変えたこと: ${t.change}・見る数字: ${METRIC_LABEL[t.metric]}・判定 ${jstDateTime(t.judge_at)}${t.extended ? "（延長済み）" : ""}・下限 訪問${t.min_visits}人）今の数字: 訪問${s.visits}・登録/利用${s.conversions}${posts ? `／この間の投稿: ${posts}` : ""}`;
+    const bs = trialBranches(t);
+    return `【${t.id}】#${t.project_id} ${title(t.project_id)}: ${t.question}（変えたこと: ${t.change}・見る数字: ${METRIC_LABEL[t.metric]}・判定 ${jstDateTime(t.judge_at)}${t.extended ? "（延長済み）" : ""}・下限 訪問${t.min_visits}人）${bs.length ? `先に決めた次の手: ${branchesLine(bs)}。` : ""}今の数字: 訪問${s.visits}・登録/利用${s.conversions}${posts ? `／この間の投稿: ${posts}` : ""}`;
   };
   const waiting = openTrials().filter((t) => ms(t.judge_at) > now);
   const done = db().prepare("SELECT * FROM plan_trials WHERE status != 'open' ORDER BY id DESC LIMIT 5").all() as TrialRow[];
   return [
-    `判定日時が来た試し（数字はそろっている。trial_results で、それぞれ win / lose / unclear と理由を必ず返す）:\n${due.map(line).join("\n") || "（なし）"}`,
+    `判定日時が来た試し（数字はそろっている。trial_results で、それぞれ win / lose / unclear と理由を必ず返す。先に決めた次の手があれば、どの条件に当たったかを branch で返し、その次の手を今日の tasks か trials に入れる）:\n${due.map(line).join("\n") || "（なし）"}`,
     `判定日時が来ていない試し（まだ結論を出さない。この案件の数字だけで勝ち負けを決めず、振り返りでは「判断保留」と書く。同じ案件に新しい試しを重ねない）:\n${waiting.map(line).join("\n") || "（なし）"}`,
-    `最近終わった試し:\n${done.map((t) => `- #${t.project_id} ${title(t.project_id)}: ${t.question} → ${t.verdict ? VERDICT_LABEL[t.verdict] : "判断できなかった"}（${t.result ?? ""}）`).join("\n") || "（なし）"}`,
+    `最近終わった試し:\n${done.map((t) => { const bs = trialBranches(t); const m = t.matched_branch; return `- #${t.project_id} ${title(t.project_id)}: ${t.question} → ${t.verdict ? VERDICT_LABEL[t.verdict] : "判断できなかった"}（${t.result ?? ""}）${m && bs[m - 1] ? `・当たった条件: ${bs[m - 1].if} → 決めていた次の手: ${bs[m - 1].then}` : m === 0 ? "・先に決めた条件のどれにも当たらなかった" : ""}`; }).join("\n") || "（なし）"}`,
   ].join("\n\n");
 }
