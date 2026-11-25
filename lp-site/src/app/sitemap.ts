@@ -13,6 +13,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/`, changeFrequency: "daily", priority: 1 },
     ...tools.map((p) => ({ url: `${base}/${p.slug}`, changeFrequency: "weekly" as const, priority: 0.8 })),
     ...lps.map((p) => ({ url: `${base}/${p.slug}`, changeFrequency: "weekly" as const, priority: 0.5 })),
+    // 検索で見つかる解説ページ（提案箱 #60）
+    { url: `${base}/guide/bingo-prize-budget`, changeFrequency: "monthly", priority: 0.7 },
     { url: `${base}/privacy`, changeFrequency: "yearly", priority: 0.1 },
   ];
 }
