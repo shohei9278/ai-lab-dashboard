@@ -6,7 +6,7 @@ import { capRows, cleanRows, deepAllowance, isDeepSpec, isPositionalGroup, parse
 import { abandonStuck, decide, deepDataStuck, getProject, isDeepIdea, staticToolIssues, uploadDeepData, type Idea } from "../src/lib/loop";
 import { pendingApprovals } from "../src/lib/views";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
-import { TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, normalizeLp } from "../lp-site/src/lp/content";
+import { TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, normalizeLp } from "../lp-site/src/lp/content";
 
 const FIELDS: DeepField[] = [{ key: "name", label: "市町村名", kind: "fact" }, { key: "mood", label: "雰囲気", kind: "view" }];
 
@@ -35,9 +35,13 @@ test("じっくり案件の中身: 上限を超えるデータは公開する中
   const big = normalizeLp({ ...base, tool: { html: "<script></script>", shareText: "x", data: Array.from({ length: TOOL_DATA_ROWS_MAX + 1 }, (_, i) => ({ i })) } });
   assert.equal(big.tool?.data, undefined);
   assert.equal(normalizeLp({ ...base, tool: { html: "<script></script>", shareText: "x", fonts: "yes" } }).tool?.fonts, undefined);
-  const long = `<script>${"x".repeat(TOOL_DEEP_CODE_MAX)}</script>`;
-  assert.equal(normalizeLp({ ...base, tool: { html: long, shareText: "x", data: [{ name: "札幌市" }] } }).tool, undefined);
-  assert.ok(normalizeLp({ ...base, tool: { html: long, shareText: "x" } }).tool);
+  // コードの保存の上限は、データがあっても TOOL_HTML_MAX（Claude Code で作った約64,000文字のじっくり案件のツールが捨てられた。#74）
+  const deepCode = `<script>${"x".repeat(TOOL_DEEP_CODE_MAX + 4000)}</script>`;
+  assert.ok(normalizeLp({ ...base, tool: { html: deepCode, shareText: "x", data: [{ name: "札幌市" }] } }).tool?.data);
+  const tooLong = `<script>${"x".repeat(TOOL_HTML_MAX)}</script>`;
+  assert.equal(normalizeLp({ ...base, tool: { html: tooLong, shareText: "x", data: [{ name: "札幌市" }] } }).tool, undefined);
+  assert.equal(normalizeLp({ ...base, tool: { html: tooLong, shareText: "x" } }).tool, undefined);
+  assert.equal(normalizeLp({ ...base, tool: { html: "  ", shareText: "x" } }).tool, undefined, "空のツールは入れない");
 });
 
 test("じっくり案件のコードの決まり: Google Fonts の読み込みだけを許し、ほかの外部ファイルや通信は止める", () => {
