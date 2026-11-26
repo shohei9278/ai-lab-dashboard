@@ -18,7 +18,7 @@ import { outsideText, recordVoiceEffects } from "./outside";
 import { addResearch, researchText, runResearch } from "./research";
 import { maskHandles } from "./viewer";
 import { doneEffectsText } from "./effects";
-import { LESSON_USE_RULE, recordPlanLessonEffects } from "./lessons";
+import { LESSON_USE_RULE, lessonsJson, recordLessonUses } from "./lessons";
 import { aimJudgeLine } from "./judgeBasis";
 import { CHECK_METRICS, checkJson, checkRule, improveChecksText, metricsFor } from "./improveCheck";
 import { waitsText } from "./waits";
@@ -69,7 +69,7 @@ export type TaskRow = {
   id: number; plan_id: number; at_time: string; kind: TaskKind; platform: string | null; project_id: number | null;
   angle: string | null; reason: string | null; status: TaskStatus; result: string | null; result_url: string | null; done_at: string | null;
   angle_type: string | null; likes: number | null; replies: number | null; reposts: number | null; reactions_at: string | null;
-  human_review: string | null; human_note: string | null; plain_facts: string | null; improve_check: string | null;
+  human_review: string | null; human_note: string | null; plain_facts: string | null; improve_check: string | null; lessons: string | null;
 };
 export const TASK_KIND_LABEL: Record<TaskKind, string> = { promo: "宣伝の投稿", plain: "普通の投稿", improve: "ページを直す" };
 
@@ -314,7 +314,7 @@ function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: Hot
     improveChecksText(null, 8) || "ページの直しの答え合わせ: まだない",
     waitsText(),
     decisionsText(),
-    `教訓（${LESSON_USE_RULE}。lesson_effects に書く）:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
+    `教訓（${LESSON_USE_RULE}。変えた予定・試しの lessons に書く）:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
     `保留中の案件（人が決めたもの。宣伝も改善も予定に入れない）:\n${(db().prepare("SELECT id, title, hold_until FROM projects WHERE stage = 'hold' AND demo = 0 ORDER BY id").all() as { id: number; title: string; hold_until: string | null }[]).map((p) => `- #${p.id} ${p.title}（${p.hold_until ? `${p.hold_until}に再開` : "再開日なし"}）`).join("\n") || "（なし）"}`,
   ].join("\n\n") + viralHints("sns") + badPostsText();
 }
@@ -330,7 +330,7 @@ type PlanOut = PlanContent & {
   research?: { question?: unknown; why?: unknown; how?: unknown; project_id?: unknown } | null;
   trials?: unknown; // 試し（trials.ts の addTrials）
   trial_results?: unknown; // 判定日時が来た試しの結論（trials.ts の applyTrialResults）
-  tasks: { time: string; kind: TaskKind; platform?: string; project_id?: number; type?: string; angle: string; reason: string; check?: unknown }[];
+  tasks: { time: string; kind: TaskKind; platform?: string; project_id?: number; type?: string; angle: string; reason: string; check?: unknown; lessons?: unknown }[];
 };
 
 const isPlanOut = (v: unknown): v is PlanOut =>
@@ -451,7 +451,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
 - 宣伝先の配分（どの場所に、どの型の案件の宣伝を出すか）は、訪問の平均ではなく、「宣伝の投稿の成績（場所×案件の型）」の直近14日の利用数（事前登録LPなら登録数）と利用率で決める。直近14日で登録・利用が2件以上出た場所×型は、週の件数を決めずに増やしてよい（1成果あたりの費用と、増やしたあとの1投稿あたりの成果を見て決める。運営者が止めている場所は、材料に許しが書いてある分だけ）。件数が少ないので偶然の可能性も高く、決めつけない
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
-形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"post_mix":"場所ごとの投稿の数と理由","pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"lesson_effects":[{"lesson_ids":[教訓の番号],"project_id":変えた先の案件の番号,"what":"improve|trial|promo|plain|other","change":"何をどう変えたか"}]（教訓を見て予定を変えたときだけ。なければ空の配列）,"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"trials":[],"trial_results":[],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由","check":{"why":"予想","metric":"見る数字","min_visits":30,"days":7}（improve のときだけ）}]}`,
+形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"post_mix":"場所ごとの投稿の数と理由","pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"trials":[],"trial_results":[],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由","check":{"why":"予想","metric":"見る数字","min_visits":30,"days":7}（improve のときだけ）,"lessons":[{"id":教訓の番号,"change":"その教訓を見て、この予定をどう変えたか"}]（教訓を見て変えたときだけ）}]}`,
       user: material + opinionsText(opinions),
       validate: isPlanOut,
     });
@@ -526,22 +526,22 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
     return Number(conn.prepare("INSERT INTO daily_plans (day, model_id, content, pause_new, idea_note) VALUES (?, ?, ?, ?, ?)")
       .run(now.day, model, JSON.stringify(content), out.pause_new ? 1 : 0, out.idea_note?.trim().slice(0, 300) || null).lastInsertRowid);
   })();
-  const ins = conn.prepare("INSERT INTO plan_tasks (plan_id, at_time, kind, platform, project_id, angle, reason, angle_type, plain_facts, improve_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  // 朝会に渡した教訓の番号だけを受け付ける（PR #211 の ai-review の指摘）
+  const shownLessons = new Set(activeLessons().slice(0, 10).map((l) => l.id));
+  const ins = conn.prepare("INSERT INTO plan_tasks (plan_id, at_time, kind, platform, project_id, angle, reason, angle_type, plain_facts, improve_check, lessons) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   for (const t of tasks) {
     const type = t.kind === "improve" ? null : isAngleType(t.type) ? t.type : "other";
-    ins.run(id, t.time, t.kind, t.kind === "improve" ? null : t.platform, t.kind === "plain" ? null : Number(t.project_id), String(t.angle ?? "").slice(0, 300), String(t.reason ?? "").slice(0, 300), type, t.kind === "plain" ? numbersAtPlan : null, t.kind === "improve" ? checkJson(t.check) : null);
+    ins.run(id, t.time, t.kind, t.kind === "improve" ? null : t.platform, t.kind === "plain" ? null : Number(t.project_id), String(t.angle ?? "").slice(0, 300), String(t.reason ?? "").slice(0, 300), type, t.kind === "plain" ? numbersAtPlan : null, t.kind === "improve" ? checkJson(t.check) : null, lessonsJson(t.lessons, shownLessons));
   }
   // 試し（判定日時と見る数字・下限）と、判定日時が来た試しの結論
   applyTrialResults(out.trial_results, due, model);
   const focusNeed = out.pause_new !== true ? null : bottleneck === "reach" ? "promo" : bottleneck === "use" ? "improve" : null;
-  const trialsAdded = addTrials(id, out.trials, { live, model, tasks: tasks.map((t) => ({ kind: t.kind, project_id: t.kind === "plain" ? null : Number(t.project_id) })), focusNeed });
+  const trialsAdded = addTrials(id, out.trials, { live, model, tasks: tasks.map((t) => ({ kind: t.kind, project_id: t.kind === "plain" ? null : Number(t.project_id) })), focusNeed, lessons: { allowed: shownLessons, modelId: model } });
   // お願い（返事がまだのものと同じ題は入れない）
   const reqs = (Array.isArray(out.requests) ? out.requests : []).filter((r) => isObj(r) && isStr(r.title)).slice(0, 2)
     .filter((r) => addProposal({ title: r.title, how: String(r.how ?? ""), why: String(r.why ?? ""), target: "human", source: "plan", proposer: model, scene: "朝会", planId: id }));
   if (isStr(out.voice)) addVoice({ modelId: model, scene: "朝会", text: out.voice });
   recordVoiceEffects(out.voice_effects, { scene: "朝会", modelId: model });
-  // 教訓を見て予定を変えたときの使い方を残す（あとで、変えた先の結果とつなぐ。lessons.ts）
-  recordPlanLessonEffects((out as { lesson_effects?: unknown }).lesson_effects, { modelId: model });
   // 調べもの（1件だけ）。画面を待たせないよう、裏で調べる
   const rq = out.research;
   if (rq && isStr(rq.question)) {
@@ -623,7 +623,17 @@ async function writePlain(platform: AutoPlatform, angle: string, atPlan: string 
   return { text: limitTags(out.text.trim(), def.plainTagMax), facts };
 }
 
-async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string; url?: string }> {
+function taskLessons(t: TaskRow, version: number | null) {
+  let raw: unknown = null;
+  try { raw = JSON.parse(t.lessons ?? "null"); } catch { raw = null; }
+  if (!Array.isArray(raw)) return;
+  const kind = t.kind === "improve" ? "improve" : t.kind === "promo" ? "promo" : "plain";
+  if (kind === "improve" && !version) return;
+  const allowed = new Set(raw.map((x) => Number((x as { id?: unknown }).id)).filter((n) => Number.isInteger(n)));
+  recordLessonUses(raw, { allowed, scene: "朝会", modelId: null, projectId: t.project_id, kind, refId: kind === "improve" ? version : t.id });
+}
+
+async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string; url?: string; version?: number }> {
   const s = getSettings();
   // 計画を立てたあとで人が保留にした案件には、宣伝も改善もしない
   if (t.project_id && (db().prepare("SELECT stage FROM projects WHERE id = ?").get(t.project_id) as { stage: string } | undefined)?.stage === "hold") {
@@ -636,7 +646,7 @@ async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string
     let check: unknown = null;
     try { check = t.improve_check ? JSON.parse(t.improve_check) : null; } catch { check = null; }
     const r = await planImprove(t.project_id, t.angle ?? "", check);
-    return r.kind === "published" ? { status: "done", result: `ページを直して公開しました: ${r.detail}` }
+    return r.kind === "published" ? { status: "done", result: `ページを直して公開しました: ${r.detail}`, version: r.version }
       : r.kind === "held" ? { status: "held", result: r.detail }
       : { status: "skipped", result: `直しませんでした（${r.detail}）` };
   }
@@ -698,13 +708,15 @@ export async function runPlanTasks(): Promise<void> {
   if (!t) return;
   // 実行中に次の見回りで二重に実行しないよう、先に印を付ける
   db().prepare("UPDATE plan_tasks SET status = 'running', done_at = datetime('now') WHERE id = ? AND status = 'pending'").run(t.id);
-  let r: { status: TaskStatus; result: string; url?: string };
+  let r: { status: TaskStatus; result: string; url?: string; version?: number };
   try {
     r = await runTask(t);
   } catch (e) {
     r = { status: "failed", result: (e instanceof Error ? e.message : String(e)).slice(0, 300) };
   }
   db().prepare("UPDATE plan_tasks SET status = ?, result = ?, result_url = ?, done_at = datetime('now') WHERE id = ?").run(r.status, r.result.slice(0, 600), r.url ?? null, t.id);
+  // 教訓を見て変えた予定は、実際に行えたときだけ使い方を残す（ページの直しは公開した版、投稿はこの予定を、変えた先として番号で残す。lessons.ts）
+  if (r.status === "done" && t.lessons) taskLessons(t, r.version ?? null);
   const label = `${t.at_time} ${TASK_KIND_LABEL[t.kind]}${t.platform ? `（${AUTO_PLATFORMS[t.platform as AutoPlatform]?.label ?? t.platform}）` : ""}`;
   logEvent(t.project_id, r.status === "failed" ? "system" : "ai", r.status === "failed" ? "plan-task-error" : "plan-task",
     `今日の計画の予定「${label}」: ${r.status === "done" ? "済み" : r.status === "held" ? `承認待ち・未公開（${r.result.slice(0, 120)}）` : r.status === "failed" ? `失敗（${r.result.slice(0, 120)}）` : `見送り（${r.result.slice(0, 120)}）`}`);

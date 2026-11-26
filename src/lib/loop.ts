@@ -26,7 +26,7 @@ import { buildPage, judgePages, pageTexts, type PageCheck } from "./freePage";
 import { funnelText } from "./funnel";
 import { aimBasis, aimJudgeLine, capacityBasis, judgeAim, judgeBasis, parseJudgeAdjust } from "./judgeBasis";
 import { jstDateTime } from "./format";
-import { LESSON_USE_RULE, recordIdeaLessons } from "./lessons";
+import { LESSON_USE_RULE, recordLessonUses } from "./lessons";
 import { checkRule, improveChecksText, parseCheck, pendingCheck, saveCheck } from "./improveCheck";
 import { planIdeaNote, planPausesNew } from "./plan";
 import { EXPLORE_LABEL, exploreDone, exploreSlots, madeGenres } from "./explore";
@@ -385,7 +385,8 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
   );
   logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${AIMS[aimOfIdea(idea)].label}${isStr(idea.genre) && idea.genre.trim() ? `・${idea.genre.trim().slice(0, 30)}` : ""}${isDeepIdea(idea) ? "・じっくり案件" : ""}${explore ? `・${EXPLORE_LABEL}` : ""}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
   // 教訓を見て変えた案なら、その使い方を残す（案件になった案だけ。lessons.ts）
-  recordIdeaLessons(idea.lessons_used, id, ideaModel);
+  // その回に渡した教訓の番号だけを受け付ける（実験枠は教訓を渡さないので受け付けない。PR #211 の ai-review の指摘）
+  recordLessonUses(idea.lessons_used, { allowed: explore ? new Set() : new Set(activeLessons().map((l) => l.id)), scene: "アイデア出し", modelId: ideaModel, projectId: id, kind: "idea", refId: id });
   if (adjust) logEvent(id, "ai", "judge-adjust", `この案件の判断の基準を、${[adjust.visits !== null ? `訪問${adjust.visits}人` : "", adjust.days !== null ? `${adjust.days}日` : ""].filter(Boolean).join("・")}にしました（ほかはねらいの基準のまま。ねらいの基準と違う理由: ${adjust.reason}）`);
   return id;
 }
@@ -2343,7 +2344,7 @@ export function debateStats() {
 
 // 毎日の計画から呼ぶ: 集客中の案件のページ（ツールなら画面）を、決めた内容で直して差し替える（チェックを通らなければ人に回す）
 // 判断からの改善と同じ条件（improveBlocked）を通す。結果: published = 直して公開した / held = チェックで問題が残り承認待ちにした / blocked = 条件に合わず直さなかった
-export type ImproveOutcome = { kind: "published" | "held" | "blocked"; detail: string };
+export type ImproveOutcome = { kind: "published" | "held" | "blocked"; detail: string; version?: number };
 export async function planImprove(projectId: number, instruction: string, check?: unknown): Promise<ImproveOutcome> {
   const p = getProject(projectId);
   if (!p || p.demo || p.stage !== "live") return { kind: "blocked", detail: "集客中の案件ではないため" };
@@ -2386,7 +2387,7 @@ async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutco
     return { kind: "held", detail: `第${version}版に直したが、公開中の版は替わっていない（公開サイトに出していない案件）` };
   }
   saveCheck(projectId, version, { ...plan, at: new Date().toISOString() });
-  return { kind: "published", detail: `第${version}版に直して公開した` };
+  return { kind: "published", detail: `第${version}版に直して公開した`, version };
 }
 
 // ---- 4. 教訓メモ ----
