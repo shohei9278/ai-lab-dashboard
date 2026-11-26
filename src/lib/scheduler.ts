@@ -17,6 +17,7 @@ import { expireStaleProposals, mergeSimilarOpen, proposeFromErrors } from "./voi
 import { syncAiFixPrs } from "./aiFix";
 import { maybeAutoAsk } from "./autoAsk";
 import { checkToolCheckJump } from "./toolCheckStats";
+import { checkFlowJump } from "./flowStats";
 import { autoToolRoutine } from "./toolRoutine";
 import { notifyLongWaits } from "./waits";
 
@@ -142,6 +143,12 @@ async function tickNow() {
     checkToolCheckJump();
   } catch (e) {
     logEvent(null, "system", "tool-check-alert-error", `ツールのチェックの止めた割合の確かめでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
+  }
+  // 仕組みの詰まり（工程ごとに止まっていた時間）が急に増えていたら知らせる（1週に1回まで。AIは呼ばない。flowStats.ts）
+  try {
+    checkFlowJump();
+  } catch (e) {
+    logEvent(null, "system", "flow-alert-error", `仕組みの詰まりの確かめでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
   }
   // 投稿についた反応を取り込む（計画を作る前に。1時間に1回）
   await syncReactions().catch(() => 0);
