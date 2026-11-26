@@ -2370,7 +2370,11 @@ async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutco
   // すでに公開中なら、新しい版に差し替える
   if (getProject(projectId)!.public_slug) await announcePublish(projectId);
   // 公開中の版が新しい版に替わったときだけ、その時刻から答え合わせを始める（承認待ちになった版・公開サイトに出していない案件には付けない。PR #208 の ai-review の指摘）
-  if (getProject(projectId)!.public_version === version) saveCheck(projectId, version, { ...plan, at: new Date().toISOString() });
+  if (getProject(projectId)!.public_version !== version) {
+    // 公開中の版が替わらなかったときは「公開した」と記録しない（翌朝のAIが、直した結果と読み違えないように。PR #208 の ai-review の指摘）
+    return { kind: "held", detail: `第${version}版に直したが、公開中の版は替わっていない（公開サイトに出していない案件）` };
+  }
+  saveCheck(projectId, version, { ...plan, at: new Date().toISOString() });
   return { kind: "published", detail: `第${version}版に直して公開した` };
 }
 

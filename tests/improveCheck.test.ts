@@ -44,7 +44,7 @@ test("答え合わせ: 決めた訪問に届くまでは待ち（その間は直
   const r = db().prepare("SELECT check_verdict, check_result FROM lp_versions WHERE project_id = ? AND version = 2").get(id) as { check_verdict: string; check_result: string };
   assert.equal(r.check_verdict, "better");
   assert.match(r.check_result, /見た数字: 事前登録した割合（訪問に対して）。直す前（第1版） 5%（2\/40人） → 直したあと（第2版） 26%（9\/35人）（\+21ポイント）/);
-  assert.match(r.check_result, /流入元 直す前（第1版）: 記録なし \/ 直したあと（第2版）: 記録なし・直したあとの投稿: なし/);
+  assert.match(r.check_result, /流入元（版ごとの累計） 直す前（第1版）: 記録なし \/ 直したあと（第2版）: 記録なし・直したあとの投稿: なし/);
   assert.equal(pendingCheck(id), null);
   assert.match(improveChecksText(id), /第2版: 予想「ボタンが目に入らない」→ 変えた所「ボタンを上に」→ 見る数字「事前登録した割合（訪問に対して）」→ 結果: 良くなった/);
   const ck = checkSummary(db().prepare("SELECT improve_check, check_verdict, check_result FROM lp_versions WHERE project_id = ? AND version = 2").get(id) as { improve_check: string; check_verdict: string; check_result: string });
@@ -61,7 +61,8 @@ test("答え合わせ: 期限までに訪問が届かない・直す前の版が
   assert.equal(judgeCheck(get(a), 2, ca, now), null);
   const late = judgeCheck(get(a), 2, ca, now + 3 * DAY + 60_000);
   assert.equal(late?.verdict, "unclear");
-  assert.match(late!.result, /判断できなかった理由: 期限（3日）までに、新しい版の訪問が決めた50人に届かなかった（12人）/);
+  assert.match(late!.result, /判断できなかった理由: 期限（3日）までに、新しい版の訪問が決めた50人に届かなかった（参考: 見回りの時点の累計で、直す前 5%（2\/40人）・直したあと 8%（1\/12人）・訪問12人。期限のあとの分も入る）/);
+  assert.doesNotMatch(late!.result, /→ 直したあと/); // 比べた割合としては残さない
   saveCheck(a, 2, { ...ca, at: new Date(now - 4 * DAY).toISOString() });
   assert.equal(pendingCheck(a), null);
   // 直す前の版の訪問が少ない
@@ -90,7 +91,7 @@ test("答え合わせ: 答えが出る前に次の版に替わったら、比べ
   const r = db().prepare("SELECT check_verdict, check_result FROM lp_versions WHERE project_id = ? AND version = 2").get(id) as { check_verdict: string; check_result: string };
   assert.equal(r.check_verdict, "unclear");
   // 替わるまでの届け方も一緒に残す（PR #208 の ai-review の指摘）
-  assert.match(r.check_result, /^判断できなかった理由: 答え合わせの前に、次の版に替わった\n流入元 直す前（第1版）: 記録なし \/ 直したあと（第2版）: 記録なし・直したあとの投稿: なし/);
+  assert.match(r.check_result, /^判断できなかった理由: 答え合わせの前に、次の版に替わった\n流入元（版ごとの累計） 直す前（第1版）: 記録なし \/ 直したあと（第2版）: 記録なし・直したあとの投稿: なし/);
 });
 
 test("答え合わせ: 待っている間は、自動の改善を止める理由になる（判断では人に回さず、今の版のまま集客を続ける）", async () => {
@@ -152,7 +153,12 @@ test("答え合わせ: 朝会の check は、要る項目だけを取り出し�
   const o = JSON.parse(j) as Record<string, unknown>;
   assert.deepEqual(Object.keys(o).sort(), ["days", "metric", "min_visits", "why"]);
   assert.equal((o.why as string).length, 200);
-  assert.equal(o.days, 5);
+  assert.equal(o.days, "5"); // 変換せずに残し、答え合わせを決めるときに確かめる
+  // 朝会から来ても、判断から来たときと同じ確かめ方になる（"0x28" や "3.0" は使わない）
+  const viaPlan = parseCheck(JSON.parse(checkJson({ min_visits: "0x28", days: "3.0" })!), { kind: "lp", aim: null }, "x", 1);
+  const direct = parseCheck({ min_visits: "0x28", days: "3.0" }, { kind: "lp", aim: null }, "x", 1);
+  assert.deepEqual([viaPlan.minVisits, viaPlan.days], [direct.minVisits, direct.days]);
+  assert.deepEqual([viaPlan.minVisits, viaPlan.days], [CHECK_MIN_VISITS.default, CHECK_DAYS.default]);
   assert.equal(checkJson(null), null);
 });
 

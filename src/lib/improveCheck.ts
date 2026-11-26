@@ -90,7 +90,8 @@ export function checkJson(raw: unknown): string | null {
   const pick: Record<string, unknown> = {};
   if (typeof o.why === "string") pick.why = o.why.slice(0, 200);
   if (typeof o.metric === "string") pick.metric = o.metric.slice(0, 20);
-  for (const k of ["min_visits", "days"] as const) if (typeof o[k] === "number" || typeof o[k] === "string") pick[k] = Number(o[k]);
+  // 人数・日数は変換せずに残す（答え合わせを決めるときの parseCheck で、判断から来たときと同じように確かめる。PR #208 の ai-review の指摘）
+  for (const k of ["min_visits", "days"] as const) if (typeof o[k] === "number") pick[k] = o[k]; else if (typeof o[k] === "string") pick[k] = (o[k] as string).slice(0, 10);
   return Object.keys(pick).length ? JSON.stringify(pick) : null;
 }
 
@@ -128,7 +129,8 @@ function reachText(p: ProjectRow, before: number, after: number, from: string, u
   const [f, u] = [sql(from), sql(until)];
   const posts = db().prepare("SELECT platform, COUNT(*) AS n FROM sns_posts WHERE project_id = ? AND status = 'posted' AND posted_at >= ? AND posted_at < ? GROUP BY platform").all(p.id, f, u) as { platform: string; n: number }[];
   const trials = (db().prepare("SELECT question FROM plan_trials WHERE project_id = ? AND created_at >= ? AND created_at < ?").all(p.id, f, u) as { question: string }[]).map((t) => t.question.slice(0, 40));
-  return `流入元 直す前（第${before}版）: ${top(before)} / 直したあと（第${after}版）: ${top(after)}・直したあとの投稿: ${posts.map((x) => `${x.platform} ${x.n}件`).join("・") || "なし"}${trials.length ? `・この間の試し: ${trials.join(" / ")}` : ""}`;
+  // 流入元は版ごとの累計（時刻で区切れないため、期間の内訳ではない。PR #208 の ai-review の指摘）
+  return `流入元（版ごとの累計） 直す前（第${before}版）: ${top(before)} / 直したあと（第${after}版）: ${top(after)}・直したあとの投稿: ${posts.map((x) => `${x.platform} ${x.n}件`).join("・") || "なし"}${trials.length ? `・この間の試し: ${trials.join(" / ")}` : ""}`;
 }
 
 // 1つの版の答え合わせ（決めた人数に届くか、期限が来たら）。まだ判断しないときは null
@@ -146,9 +148,12 @@ export function judgeCheck(p: ProjectRow, version: number, c: ImproveCheck, now 
   // 期限を過ぎてから見るときは、判断しない。決めた人数に届けば、期限の前でも見回り（5分ごと）ですぐ答え合わせするので、
   // 期限を過ぎて初めて見るのは、届かなかったか、期限のうちに届いたかを確かめられないとき（訪問の記録には日にちしかなく、期限の時刻で区切れない。PR #208 の ai-review の指摘）
   if (expired) {
-    return unclear(after.visits < c.minVisits
-      ? `期限（${c.days}日）までに、新しい版の訪問が決めた${c.minVisits}人に届かなかった（${after.visits}人）`
-      : `期限（${jstDateTime(new Date(deadline(c)).toISOString())}）のうちに、決めた${c.minVisits}人に届いたかを確かめられない（期限のあとに届いた分が混ざる）`);
+    // 期限のあとの分も入った数字なので、比べた割合としては残さず、参考の値だと分かる形で残す（PR #208 の ai-review の指摘）
+    const ref = `（参考: 見回りの時点の累計で、直す前 ${pct(b)}・直したあと ${pct(a)}・訪問${after.visits}人。期限のあとの分も入る）`;
+    const why = after.visits < c.minVisits
+      ? `期限（${c.days}日）までに、新しい版の訪問が決めた${c.minVisits}人に届かなかった`
+      : `期限（${jstDateTime(new Date(deadline(c)).toISOString())}）のうちに、決めた${c.minVisits}人に届いたかを確かめられない（期限のあとに届いた分が混ざる）`;
+    return { verdict: "unclear", result: `見た数字: ${m.label}。判断できなかった理由: ${why}${ref}\n${reach}` };
   }
   if (before.visits < CHECK_BEFORE_MIN) return unclear(`直す前の版の訪問が少ない（${before.visits}人）`);
   if (!a || !b || !a.den || !b.den) return unclear("この数字の記録が、直す前か直したあとの版に届いていない");
