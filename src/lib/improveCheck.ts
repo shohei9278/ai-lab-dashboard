@@ -36,6 +36,9 @@ export const CHECK_DAYS = { min: 3, max: 14, default: 7 };
 export const CHECK_BEFORE_MIN = 10;
 // 割合の差がこれより小さいときは「差がはっきりしない」とする（人数が少ないので、小さな差は偶然の可能性が高い）
 export const CHECK_DIFF = 0.05;
+// 期限からこれより遅れて答え合わせしたときは、期限のあとの訪問が混ざるので、判断できなかったとする（見回りは5分ごと。サーバーが止まっていたときなど。
+// 訪問の記録には日にちしかなく、期限の時刻で区切って数え直せないため。PR #208 の ai-review の指摘）
+export const CHECK_LATE_MS = 15 * 60_000;
 
 export type ImproveCheck = { why: string; part: string; metric: CheckMetric; minVisits: number; days: number; defaulted: string[]; before: number; at: string };
 export type CheckVerdict = "better" | "worse" | "flat" | "unclear";
@@ -55,7 +58,7 @@ export function metricsFor(kind: string): CheckMetric[] {
 
 // AIへの指示（判断・朝会で、改善を選ぶときに書かせる）
 export function checkRule(kind: string): string {
-  return `改善を選ぶときは、check も書く: why（なぜ今の数字になっていると予想するか。1文）・part（変える箇所。1か所）・metric（直したあとに見る数字。${metricsFor(kind).map((k) => `${k}=${CHECK_METRICS[k].label}`).join(" / ")}）・min_visits（判断に要る新しい版の訪問。${CHECK_MIN_VISITS.min}〜${CHECK_MIN_VISITS.max}）・days（判断する期限の日数。${CHECK_DAYS.min}〜${CHECK_DAYS.max}）。結果が出てから見る数字を変えないよう、先に決める。答え合わせが終わるまで、同じ案件のページは自動では直さない`;
+  return `改善を選ぶときは、check も書く: why（なぜ今の数字になっていると予想するか。1文）・metric（直したあとに見る数字。${metricsFor(kind).map((k) => `${k}=${CHECK_METRICS[k].label}`).join(" / ")}）・min_visits（判断に要る新しい版の訪問。${CHECK_MIN_VISITS.min}〜${CHECK_MIN_VISITS.max}）・days（判断する期限の日数。${CHECK_DAYS.min}〜${CHECK_DAYS.max}）。結果が出てから見る数字を変えないよう、先に決める。答え合わせが終わるまで、同じ案件のページは自動では直さない`;
 }
 
 const clampInt = (v: unknown, r: { min: number; max: number }): number | null => {
@@ -74,11 +77,23 @@ export function parseCheck(raw: unknown, p: Pick<ProjectRow, "kind" | "aim">, in
     return fallback;
   };
   const why = str("why", "（予想は書かれなかった）");
-  const part = str("part", instruction.slice(0, 200) || "（書かれなかった）");
+  // 変えた所は、実際に直す指示そのもの（別に書かせると、直した所と記録が食い違うことがあるため。PR #208 の ai-review の指摘）
+  const part = instruction.trim().slice(0, 200) || "（書かれなかった）";
   const metric = typeof o.metric === "string" && metricsFor(p.kind).includes(o.metric as CheckMetric) ? (o.metric as CheckMetric) : (defaulted.push("metric"), defaultMetric(p));
   const minVisits = clampInt(o.min_visits, CHECK_MIN_VISITS) ?? (defaulted.push("min_visits"), CHECK_MIN_VISITS.default);
   const days = clampInt(o.days, CHECK_DAYS) ?? (defaulted.push("days"), CHECK_DAYS.default);
   return { why, part, metric, minVisits, days, defaulted, before, at };
+}
+
+// 朝会の予定に残す形（要る項目だけを取り出し、項目ごとに長さを切ってから JSON にする。JSON にしてから切ると壊れるため。PR #208 の ai-review の指摘）
+export function checkJson(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const pick: Record<string, unknown> = {};
+  if (typeof o.why === "string") pick.why = o.why.slice(0, 200);
+  if (typeof o.metric === "string") pick.metric = o.metric.slice(0, 20);
+  for (const k of ["min_visits", "days"] as const) if (typeof o[k] === "number" || typeof o[k] === "string") pick[k] = Number(o[k]);
+  return Object.keys(pick).length ? JSON.stringify(pick) : null;
 }
 
 // 新しい版に、答え合わせの予定を残す
@@ -128,11 +143,14 @@ export function judgeCheck(p: ProjectRow, version: number, c: ImproveCheck, now 
   const head = `見た数字: ${m.label}。直す前（第${c.before}版） ${pct(b)} → 直したあと（第${version}版） ${pct(a)}`;
   const reach = reachText(p, c.before, version, c.at);
   const unclear = (why: string) => ({ verdict: "unclear" as const, result: `${head}。判断できなかった理由: ${why}\n${reach}` });
+  if (expired && now - deadline(c) > CHECK_LATE_MS) return unclear(`期限（${jstDateTime(new Date(deadline(c)).toISOString())}）を過ぎてから答え合わせしたため、期限のあとの訪問と分けられない`);
   if (after.visits < c.minVisits) return unclear(`期限（${c.days}日）までに、新しい版の訪問が決めた${c.minVisits}人に届かなかった（${after.visits}人）`);
   if (before.visits < CHECK_BEFORE_MIN) return unclear(`直す前の版の訪問が少ない（${before.visits}人）`);
   if (!a || !b || !a.den || !b.den) return unclear("この数字の記録が、直す前か直したあとの版に届いていない");
   const diff = a.n / a.den - b.n / b.den;
-  const verdict: CheckVerdict = Math.abs(diff) < CHECK_DIFF ? "flat" : diff > 0 ? "better" : "worse";
+  // 割合を小数で引くと、ちょうど5ポイントの差が誤差で「差がはっきりしない」になるので、整数のかけ算で比べる（PR #208 の ai-review の指摘）
+  const cross = a.n * b.den - b.n * a.den; // 符号は差の向き
+  const verdict: CheckVerdict = Math.abs(cross) * 100 < Math.round(CHECK_DIFF * 100) * a.den * b.den ? "flat" : cross > 0 ? "better" : "worse";
   return { verdict, result: `${head}（${diff >= 0 ? "+" : ""}${Math.round(diff * 100)}ポイント）\n${reach}` };
 }
 
@@ -147,7 +165,7 @@ export function evaluateImproveChecks(now = Date.now()): number {
     // 答え合わせの前に次の版に替わったら、比べられない（2か所を変えたことになる）
     const newer = db().prepare("SELECT 1 FROM lp_versions WHERE project_id = ? AND version > ?").get(r.project_id, r.version);
     const out = newer && (p.public_version ?? p.lp_version) !== r.version
-      ? { verdict: "unclear" as const, result: "判断できなかった理由: 答え合わせの前に、次の版に替わった" }
+      ? { verdict: "unclear" as const, result: `判断できなかった理由: 答え合わせの前に、次の版に替わった\n${reachText(p, c.before, r.version, c.at)}` }
       : judgeCheck(p, r.version, c, now);
     if (!out) continue;
     db().prepare("UPDATE lp_versions SET check_verdict = ?, check_result = ?, check_decided_at = datetime('now') WHERE project_id = ? AND version = ?").run(out.verdict, out.result.slice(0, 1000), r.project_id, r.version);

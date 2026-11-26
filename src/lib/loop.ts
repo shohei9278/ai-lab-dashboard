@@ -1913,7 +1913,7 @@ improve の場合、next_action には「どこを、どう変えるか」を1�
 improve の場合は、${checkRule(p.kind)}。材料の「ページの直しの答え合わせ」に結果があれば、予想が当たったかを次の判断に活かす。
 rethink の場合、next_action には「どこで（具体的な場所・ハッシュタグ・検索される言葉）、誰に、どんな切り口で届けるか」を具体的に書くこと。これまでの届け方と同じことは書かない。自動で投稿できるのは X・Threads・Bluesky の自分の投稿だけで、それ以外の場所は運営者の手作業になるので、自分の投稿の切り口を中心にする。他人の投稿やQ&Aサイトに宣伝のための返信・回答をする案は出さない。${slowNote}
 外の声（実際の人の反応）があれば、数字と同じかそれ以上に重く見る。外の声や調べたことを根拠に判断や next_action を変えたら、voice_effects に声の番号（voice_ids）・調べものの番号（research_ids）と、何をどう変えたかを書く（なければ空の配列）。
-形式: {"decision":"${growing ? "improve|rethink|collect|kill" : "continue|improve|collect|rethink|kill"}","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること","check":{"why":"予想","part":"変える箇所","metric":"見る数字","min_visits":30,"days":7}（improve のときだけ）,"voice_effects":[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"change":"何をどう変えたか"}]}`,
+形式: {"decision":"${growing ? "improve|rethink|collect|kill" : "continue|improve|collect|rethink|kill"}","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること","check":{"why":"予想","metric":"見る数字","min_visits":30,"days":7}（improve のときだけ）,"voice_effects":[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"change":"何をどう変えたか"}]}`,
     user: `サービス: ${p.title}（対象: ${p.target}）
 仮説: ${p.hypothesis}
 企画のときに決めた最初の届け方: ${p.first_channel ?? "（なし）"}
@@ -1974,6 +1974,10 @@ async function startGrowth(projectId: number, reason: string) {
 // budget: 今月の予算の残りが少ない（作り直さずに今のまま集客を続ける扱いにする）
 export function improveBlocked(p: ProjectRow, adSpendJpy = projectTotals(p.id).adSpendJpy): { reason: string; budget?: boolean; wait?: boolean } | null {
   const s = getSettings();
+  // 前の直しの答え合わせを待っている間は、自動では直さない（2か所を同時に変えると、何が効いたか分からなくなるため。improveCheck.ts）
+  // ほかの止める理由より先に見る（ほかの理由が重なっても、人の判断に回さず、今の版のまま集客を続けるため。PR #208 の ai-review の指摘）
+  const wait = pendingCheck(p.id);
+  if (wait) return { reason: `前の直し（第${wait.version}版）の答え合わせを待っているため（新しい版の訪問${wait.check.minVisits}人か、${jstDateTime(wait.until)}まで）`, wait: true };
   // 今の版になってから人が改善を却下していたら、その意思を優先して自動では変えない
   const humanSaidNo = db()
     .prepare("SELECT 1 FROM approvals WHERE project_id = ? AND kind = 'decision' AND status = 'rejected' AND proposal = ? AND lp_version = ?")
@@ -1990,9 +1994,6 @@ export function improveBlocked(p: ProjectRow, adSpendJpy = projectTotals(p.id).a
     : null;
   if (reason) return { reason };
   if (!budgetState().creativeOk) return { reason: "今月の予算の残りが少ないため", budget: true };
-  // 前の直しの答え合わせを待っている間は、自動では直さない（2か所を同時に変えると、何が効いたか分からなくなるため。improveCheck.ts）
-  const wait = pendingCheck(p.id);
-  if (wait) return { reason: `前の直し（第${wait.version}版）の答え合わせを待っているため（新しい版の訪問${wait.check.minVisits}人か、${jstDateTime(wait.until)}まで）`, wait: true };
   return null;
 }
 
@@ -2345,10 +2346,10 @@ export async function planImprove(projectId: number, instruction: string, check?
 async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutcome> {
   const p0 = getProject(projectId)!;
   const before = p0.public_version ?? p0.lp_version;
+  // 答え合わせ（予想・見る数字・いつ判断するか）は、直す前に決めておく（変えた所は、実際に直す指示そのもの。improveCheck.ts）
+  const plan = parseCheck(d.check, p0, d.next_action, before);
   const built = await buildLpVersion(projectId, { instruction: d.next_action, note: `自動改善: ${d.next_action}`, keepCore: true });
   const { version } = built;
-  // 直す前に決めた答え合わせを、新しい版に残す（予想・変える所・見る数字・いつ判断するか。improveCheck.ts）
-  saveCheck(projectId, version, parseCheck(d.check, p0, d.next_action, before));
   let review = built.review;
   // 動くツールは、ブラウザでの自動テストも通ったものだけ自動で差し替える
   if (getProject(projectId)!.kind === "tool") {
@@ -2368,6 +2369,8 @@ async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutco
   logEvent(projectId, "system", "auto-improve", `自動で${getProject(projectId)!.kind === "tool" ? "ツール" : "LP"}を改善し、第${version}版で集客を再開（人の承認なし）`);
   // すでに公開中なら、新しい版に差し替える
   if (getProject(projectId)!.public_slug) await announcePublish(projectId);
+  // 自動で公開できたときだけ、公開した時刻から答え合わせを始める（承認待ちになった版には付けない。PR #208 の ai-review の指摘）
+  saveCheck(projectId, version, { ...plan, at: new Date().toISOString() });
   return { kind: "published", detail: `第${version}版に直して公開した` };
 }
 
