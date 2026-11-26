@@ -42,7 +42,10 @@ test("判断の基準: ねらいごとの値がなければ一括の値。ねら
 test("判断の基準: 案件ごとの調整は、理由があるときだけ、ねらいの基準の半分〜1.5倍に収める", () => {
   const base = { visits: 100, days: 10 };
   assert.deepEqual(parseJudgeAdjust({ visits: 300, days: 2, why: "季節もので数日しか需要がない" }, base), { visits: 150, days: 5, reason: "季節もので数日しか需要がない" });
-  assert.deepEqual(parseJudgeAdjust({ visits: 80, why: "対象が狭い" }, base), { visits: 80, days: 10, reason: "対象が狭い" });
+  // 片方だけ調整したら、もう片方は残さない（ねらいの基準に付いていく。PR #209 の ai-review の指摘）
+  assert.deepEqual(parseJudgeAdjust({ visits: 80, why: "対象が狭い" }, base), { visits: 80, days: null, reason: "対象が狭い" });
+  // 本物の数でない値は、その項目の調整なし
+  assert.equal(parseJudgeAdjust({ visits: true, days: "20", why: "x" }, base), null);
   assert.equal(parseJudgeAdjust({ visits: 80 }, base), null); // 理由がなければ調整しない
   assert.equal(parseJudgeAdjust({ visits: 100, days: 10, why: "同じ" }, base), null); // 基準と同じなら調整しない
   assert.equal(parseJudgeAdjust(null, base), null);
@@ -117,4 +120,27 @@ test("設定の見直し: 訪問の中央値は、全部の訪問を足した値
   assert.equal(medianOf([500, 20, 80]), 80);
   assert.equal(medianOf([500, 20, 80, 120]), 100);
   assert.equal(medianOf([]), 0);
+});
+
+test("設定の見直しの材料: 届いたかは、ねらいの基準で、版ごとの訪問で見る。届くまでの日数は日本時間の日付どうしで比べる（PR #209 の ai-review の指摘）", () => {
+  reset();
+  const s = getSettings();
+  db().exec("DELETE FROM metrics");
+  const add = (title: string, judgeVisits: number | null) => Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, judge_visits, published_at) VALUES (?, 't', 'p', 's', 'h', 'r', 'live', 'claude', 'tool', 'useful', ?, ?)").run(title, judgeVisits, "2026-11-01 09:00:00").lastInsertRowid);
+  const m = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, source, lp_version) VALUES (?, ?, ?, 0, 'real', ?)");
+  // 版をまたぐと110人だが、どの版も100人に届いていない → 届いていない
+  const a = add("版をまたぐ", null);
+  m.run(a, "2026-11-02", 70, 1);
+  m.run(a, "2026-11-03", 40, 2);
+  // 案件の基準は60人に調整しているが、ねらいの基準（100人）では届いていない → 届いていない（調整した案件として数える）
+  const b = add("調整した", 60);
+  m.run(b, "2026-11-02", 70, 1);
+  // 公開（日本時間 18時）の翌日に届いた → 1日
+  const c = add("翌日に届いた", null);
+  m.run(c, "2026-11-02", 120, 1);
+  const text = settingsReviewText(s);
+  assert.match(text, /- 役に立つ: 基準 訪問100人か7日（一括の値）・直近60日に公開した3件のうち、1つの版の訪問で基準に届いたのは1件（届くまで平均1日）・訪問の中央値110人・撤退0件・うち1件は案件ごとに基準を調整している/);
+  db().exec("DELETE FROM metrics");
+  db().prepare("DELETE FROM projects WHERE id IN (?, ?, ?)").run(a, b, c);
+  restore();
 });

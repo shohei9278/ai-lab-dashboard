@@ -51,23 +51,27 @@ export function settingsReviewText(s: Settings = getSettings()): string {
     const b = aimBasis(a, s);
     const ps = projects.filter((p) => judgeAim(p) === a);
     if (!ps.length) return `- ${AIMS[a].label}: 基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した案件なし`;
+    // 届いたかは、表示しているねらいの基準で、実際の判断と同じく版ごとの訪問で見る（案件ごとに調整した基準や、版をまたいだ合計では数えない。PR #209 の ai-review の指摘）
+    // 届くまでの日数は、公開日と届いた日を日本時間の日付どうしで比べる
     const reach = ps.map((p) => {
-      const basis = judgeBasis(p, s);
-      const rows = db().prepare("SELECT day, SUM(visits) AS v FROM metrics WHERE project_id = ? AND source != 'simulated' GROUP BY day ORDER BY day").all(p.id) as { day: string; v: number }[];
-      // 全部の日を足しながら、基準に届いた最初の日だけを覚える（届いたあとの訪問も、合計に入れる。PR #209 の ai-review の指摘）
-      let sum = 0;
-      let hit: { day: string } | undefined;
+      const rows = db().prepare("SELECT lp_version AS ver, day, SUM(visits) AS v FROM metrics WHERE project_id = ? AND source != 'simulated' GROUP BY lp_version, day ORDER BY day").all(p.id) as { ver: number | null; day: string; v: number }[];
+      const perVer = new Map<number | null, number>();
+      let total = 0;
+      let hit: string | null = null;
       for (const r of rows) {
-        sum += r.v;
-        if (!hit && sum >= basis.visits) hit = r;
+        total += r.v;
+        const n = (perVer.get(r.ver) ?? 0) + r.v;
+        perVer.set(r.ver, n);
+        if (!hit && n >= b.visits) hit = r.day;
       }
-      const pub = Date.parse(`${p.published_at!.replace(" ", "T")}Z`);
-      return { reached: !!hit, days: hit ? Math.max(0, Math.round((Date.parse(`${hit.day}T00:00:00+09:00`) - pub) / 86_400_000)) : null, total: sum, stage: p.stage };
+      const pubDay = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(Date.parse(`${p.published_at!.replace(" ", "T")}Z`)));
+      const days = hit ? Math.max(0, Math.round((Date.parse(`${hit}T00:00:00Z`) - Date.parse(`${pubDay}T00:00:00Z`)) / 86_400_000)) : null;
+      return { reached: !!hit, days, total, stage: p.stage, adjusted: judgeBasis(p, s).adjusted };
     });
     const ok = reach.filter((r) => r.reached);
     const avgDays = ok.length ? Math.round(ok.reduce((n, r) => n + (r.days ?? 0), 0) / ok.length) : null;
     const median = medianOf(reach.map((r) => r.total));
-    return `- ${AIMS[a].label}: 基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した${ps.length}件のうち、基準の訪問に届いたのは${ok.length}件${avgDays !== null ? `（届くまで平均${avgDays}日）` : ""}・訪問の中央値${median}人・撤退${reach.filter((r) => r.stage === "killed").length}件`;
+    return `- ${AIMS[a].label}: 基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した${ps.length}件のうち、1つの版の訪問で基準に届いたのは${ok.length}件${avgDays !== null ? `（届くまで平均${avgDays}日）` : ""}・訪問の中央値${median}人・撤退${reach.filter((r) => r.stage === "killed").length}件${reach.some((r) => r.adjusted) ? `・うち${reach.filter((r) => r.adjusted).length}件は案件ごとに基準を調整している` : ""}`;
   });
   const keys = Object.keys(REVIEWABLE) as (keyof Settings)[];
   return `設定の物差し（運営者が設定の画面で決めている値。AIは書き換えない）:

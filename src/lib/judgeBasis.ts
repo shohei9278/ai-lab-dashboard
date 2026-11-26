@@ -46,20 +46,22 @@ export function judgeBasis(p: Pick<ProjectRow, "aim" | "kind" | "judge_visits" |
 }
 
 // アイデアを案件にするときの、AIの案件ごとの調整（ねらいの基準の半分〜1.5倍。範囲の外は端に寄せる。理由がなければ調整しない）
-export function parseJudgeAdjust(raw: unknown, base: { visits: number; days: number }): { visits: number; days: number; reason: string } | null {
+export function parseJudgeAdjust(raw: unknown, base: { visits: number; days: number }): { visits: number | null; days: number | null; reason: string } | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const reason = typeof o.why === "string" ? o.why.trim().slice(0, 200) : "";
   if (!reason) return null;
-  const fit = (v: unknown, b: number, min: number) => {
-    const n = Math.round(Number(v));
-    if (!Number.isFinite(n) || n <= 0) return b;
+  // 本物の数のときだけ調整する（true・文字・配列などは、その項目の調整なし）。基準と同じになった項目も、調整なし（null）として残さない
+  // （片方だけ調整した案件で、もう片方はねらいの基準に付いていくように。PR #209 の ai-review の指摘）
+  const fit = (v: unknown, b: number): number | null => {
+    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
     // 幅は、下限を切り上げ・上限を切り捨てで求める（7日の1.5倍の10.5日を11日にしない。PR #209 の ai-review の指摘）
-    return Math.max(min, Math.min(Math.floor(b * ADJUST_RANGE.max), Math.max(Math.ceil(b * ADJUST_RANGE.min), n)));
+    const n = Math.max(1, Math.min(Math.floor(b * ADJUST_RANGE.max), Math.max(Math.ceil(b * ADJUST_RANGE.min), Math.round(v))));
+    return n === b ? null : n;
   };
-  const visits = fit(o.visits, base.visits, 1);
-  const days = fit(o.days, base.days, 1);
-  if (visits === base.visits && days === base.days) return null;
+  const visits = fit(o.visits, base.visits);
+  const days = fit(o.days, base.days);
+  if (visits === null && days === null) return null;
   return { visits, days, reason };
 }
 

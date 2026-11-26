@@ -379,7 +379,7 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
       .lastInsertRowid,
   );
   logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${AIMS[aimOfIdea(idea)].label}${isStr(idea.genre) && idea.genre.trim() ? `・${idea.genre.trim().slice(0, 30)}` : ""}${isDeepIdea(idea) ? "・じっくり案件" : ""}${explore ? `・${EXPLORE_LABEL}` : ""}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
-  if (adjust) logEvent(id, "ai", "judge-adjust", `この案件の判断の基準を、訪問${adjust.visits}人・${adjust.days}日にしました（ねらいの基準と違う理由: ${adjust.reason}）`);
+  if (adjust) logEvent(id, "ai", "judge-adjust", `この案件の判断の基準を、${[adjust.visits !== null ? `訪問${adjust.visits}人` : "", adjust.days !== null ? `${adjust.days}日` : ""].filter(Boolean).join("・")}にしました（ほかはねらいの基準のまま。ねらいの基準と違う理由: ${adjust.reason}）`);
   return id;
 }
 
