@@ -36,9 +36,6 @@ export const CHECK_DAYS = { min: 3, max: 14, default: 7 };
 export const CHECK_BEFORE_MIN = 10;
 // 割合の差がこれより小さいときは「差がはっきりしない」とする（人数が少ないので、小さな差は偶然の可能性が高い）
 export const CHECK_DIFF = 0.05;
-// 期限からこれより遅れて答え合わせしたときは、期限のあとの訪問が混ざるので、判断できなかったとする（見回りは5分ごと。サーバーが止まっていたときなど。
-// 訪問の記録には日にちしかなく、期限の時刻で区切って数え直せないため。PR #208 の ai-review の指摘）
-export const CHECK_LATE_MS = 15 * 60_000;
 
 export type ImproveCheck = { why: string; part: string; metric: CheckMetric; minVisits: number; days: number; defaulted: string[]; before: number; at: string };
 export type CheckVerdict = "better" | "worse" | "flat" | "unclear";
@@ -61,9 +58,10 @@ export function checkRule(kind: string): string {
   return `改善を選ぶときは、check も書く: why（なぜ今の数字になっていると予想するか。1文）・metric（直したあとに見る数字。${metricsFor(kind).map((k) => `${k}=${CHECK_METRICS[k].label}`).join(" / ")}）・min_visits（判断に要る新しい版の訪問。${CHECK_MIN_VISITS.min}〜${CHECK_MIN_VISITS.max}）・days（判断する期限の日数。${CHECK_DAYS.min}〜${CHECK_DAYS.max}）。結果が出てから見る数字を変えないよう、先に決める。答え合わせが終わるまで、同じ案件のページは自動では直さない`;
 }
 
+// 人数・日数は、数か数の文字だけを受け付け、丸める前に「整数で範囲の中」かを確かめる（変な形の値・小数・範囲の外は使わず、決まった値にする。PR #208 の ai-review の指摘）
 const clampInt = (v: unknown, r: { min: number; max: number }): number | null => {
-  const n = Math.round(Number(v));
-  return Number.isFinite(n) && n >= r.min && n <= r.max ? n : null;
+  const n = typeof v === "number" ? v : typeof v === "string" && /^\s*\d+\s*$/.test(v) ? Number(v) : NaN;
+  return Number.isInteger(n) && n >= r.min && n <= r.max ? n : null;
 };
 
 // AIが書いた check を整える。書かなかった・範囲の外の項目は、決まった値を入れて defaulted に残す
@@ -123,11 +121,13 @@ export function pendingCheck(projectId: number, now = Date.now()): { version: nu
 }
 
 // 同じ期間の届け方（流入元の内訳と、投稿・試し）。結果と並べて残す（届け方が変わった分を、直しの効果と読み違えないように）
-function reachText(p: ProjectRow, before: number, after: number, from: string): string {
+// 投稿と試しは、答え合わせを始めた時刻から until（期限・次の版に替わった時刻・今）までで区切る（あとの分が混ざらないように。PR #208 の ai-review の指摘）
+function reachText(p: ProjectRow, before: number, after: number, from: string, until: string): string {
   const top = (v: number) => channelRows(p.id, v, true).sort((a, b) => b.visitors - a.visitors).slice(0, 3).map((c) => `${c.label} ${c.visitors}人`).join("・") || "記録なし";
-  const fromSql = from.slice(0, 19).replace("T", " ");
-  const posts = db().prepare("SELECT platform, COUNT(*) AS n FROM sns_posts WHERE project_id = ? AND status = 'posted' AND posted_at >= ? GROUP BY platform").all(p.id, fromSql) as { platform: string; n: number }[];
-  const trials = (db().prepare("SELECT question FROM plan_trials WHERE project_id = ? AND created_at >= ?").all(p.id, fromSql) as { question: string }[]).map((t) => t.question.slice(0, 40));
+  const sql = (t: string) => (t.includes("T") ? new Date(t).toISOString() : `${t.replace(" ", "T")}Z`).slice(0, 19).replace("T", " ");
+  const [f, u] = [sql(from), sql(until)];
+  const posts = db().prepare("SELECT platform, COUNT(*) AS n FROM sns_posts WHERE project_id = ? AND status = 'posted' AND posted_at >= ? AND posted_at < ? GROUP BY platform").all(p.id, f, u) as { platform: string; n: number }[];
+  const trials = (db().prepare("SELECT question FROM plan_trials WHERE project_id = ? AND created_at >= ? AND created_at < ?").all(p.id, f, u) as { question: string }[]).map((t) => t.question.slice(0, 40));
   return `流入元 直す前（第${before}版）: ${top(before)} / 直したあと（第${after}版）: ${top(after)}・直したあとの投稿: ${posts.map((x) => `${x.platform} ${x.n}件`).join("・") || "なし"}${trials.length ? `・この間の試し: ${trials.join(" / ")}` : ""}`;
 }
 
@@ -141,10 +141,15 @@ export function judgeCheck(p: ProjectRow, version: number, c: ImproveCheck, now 
   const b = m.rate(before);
   const a = m.rate(after);
   const head = `見た数字: ${m.label}。直す前（第${c.before}版） ${pct(b)} → 直したあと（第${version}版） ${pct(a)}`;
-  const reach = reachText(p, c.before, version, c.at);
+  const reach = reachText(p, c.before, version, c.at, new Date(Math.min(now, deadline(c))).toISOString());
   const unclear = (why: string) => ({ verdict: "unclear" as const, result: `${head}。判断できなかった理由: ${why}\n${reach}` });
-  if (expired && now - deadline(c) > CHECK_LATE_MS) return unclear(`期限（${jstDateTime(new Date(deadline(c)).toISOString())}）を過ぎてから答え合わせしたため、期限のあとの訪問と分けられない`);
-  if (after.visits < c.minVisits) return unclear(`期限（${c.days}日）までに、新しい版の訪問が決めた${c.minVisits}人に届かなかった（${after.visits}人）`);
+  // 期限を過ぎてから見るときは、判断しない。決めた人数に届けば、期限の前でも見回り（5分ごと）ですぐ答え合わせするので、
+  // 期限を過ぎて初めて見るのは、届かなかったか、期限のうちに届いたかを確かめられないとき（訪問の記録には日にちしかなく、期限の時刻で区切れない。PR #208 の ai-review の指摘）
+  if (expired) {
+    return unclear(after.visits < c.minVisits
+      ? `期限（${c.days}日）までに、新しい版の訪問が決めた${c.minVisits}人に届かなかった（${after.visits}人）`
+      : `期限（${jstDateTime(new Date(deadline(c)).toISOString())}）のうちに、決めた${c.minVisits}人に届いたかを確かめられない（期限のあとに届いた分が混ざる）`);
+  }
   if (before.visits < CHECK_BEFORE_MIN) return unclear(`直す前の版の訪問が少ない（${before.visits}人）`);
   if (!a || !b || !a.den || !b.den) return unclear("この数字の記録が、直す前か直したあとの版に届いていない");
   const diff = a.n / a.den - b.n / b.den;
@@ -163,9 +168,9 @@ export function evaluateImproveChecks(now = Date.now()): number {
     const c = parse(r);
     if (!p || !c) continue;
     // 答え合わせの前に次の版に替わったら、比べられない（2か所を変えたことになる）
-    const newer = db().prepare("SELECT 1 FROM lp_versions WHERE project_id = ? AND version > ?").get(r.project_id, r.version);
+    const newer = db().prepare("SELECT created_at FROM lp_versions WHERE project_id = ? AND version > ? ORDER BY version LIMIT 1").get(r.project_id, r.version) as { created_at: string } | undefined;
     const out = newer && (p.public_version ?? p.lp_version) !== r.version
-      ? { verdict: "unclear" as const, result: `判断できなかった理由: 答え合わせの前に、次の版に替わった\n${reachText(p, c.before, r.version, c.at)}` }
+      ? { verdict: "unclear" as const, result: `判断できなかった理由: 答え合わせの前に、次の版に替わった\n${reachText(p, c.before, r.version, c.at, newer.created_at)}` }
       : judgeCheck(p, r.version, c, now);
     if (!out) continue;
     db().prepare("UPDATE lp_versions SET check_verdict = ?, check_result = ?, check_decided_at = datetime('now') WHERE project_id = ? AND version = ?").run(out.verdict, out.result.slice(0, 1000), r.project_id, r.version);
@@ -205,6 +210,7 @@ export function checkSummary(v: { improve_check: string | null; check_verdict: s
   return {
     verdict,
     plan: `予想「${c.why}」→ 変える所「${c.part}」→ 見る数字「${CHECK_METRICS[c.metric]?.label ?? c.metric}」`,
-    result: verdict ? (v.check_result ?? "").split("\n")[0] : `答え合わせ待ち（新しい版の訪問${c.minVisits}人か、${jstDateTime(new Date(deadline(c)).toISOString())}まで）`,
+    // 判定と一緒に、同じ期間の届け方（2行目）も出す（判定を読むときに要るため。PR #208 の ai-review の指摘）
+    result: verdict ? (v.check_result ?? "") : `答え合わせ待ち（新しい版の訪問${c.minVisits}人か、${jstDateTime(new Date(deadline(c)).toISOString())}まで）`,
   };
 }

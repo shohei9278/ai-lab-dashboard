@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, type ProjectRow } from "../src/lib/db";
-import { CHECK_DAYS, CHECK_LATE_MS, CHECK_MIN_VISITS, checkJson, checkSummary, evaluateImproveChecks, improveChecksText, judgeCheck, parseCheck, pendingCheck, saveCheck } from "../src/lib/improveCheck";
+import { CHECK_DAYS, CHECK_MIN_VISITS, checkJson, checkSummary, evaluateImproveChecks, improveChecksText, judgeCheck, parseCheck, pendingCheck, saveCheck } from "../src/lib/improveCheck";
 import { jstDay } from "../src/lib/sns";
 
 // ページの直しの答え合わせ（11/26 に運営者が決めた）: 直す前に予想・変える所・見る数字・いつ判断するかを決めて版に残し、
@@ -105,23 +105,45 @@ test("答え合わせ: 待っている間は、自動の改善を止める理由
   assert.match(gate!.reason, /前の直し（第2版）の答え合わせを待っているため（新しい版の訪問30人か、/);
 });
 
-test("答え合わせ: 期限を過ぎてから遅れて見たときは、期限のあとの訪問が混ざるので判断しない。ちょうど5ポイントの差は差として扱う（PR #208 の ai-review の指摘）", () => {
+test("答え合わせ: 期限を過ぎてから見たときは判断しない（期限のうちに届いたか確かめられない）。ちょうど5ポイントの差は差として扱う（PR #208 の ai-review の指摘）", () => {
   const now = Date.now();
   const a = project("lp");
-  const c = parseCheck({ metric: "signup", min_visits: 30, days: 3 }, { kind: "lp", aim: null }, "x", 1, new Date(now - 3 * DAY).toISOString());
+  const c = parseCheck({ metric: "signup", min_visits: 30, days: 3 }, { kind: "lp", aim: null }, "x", 1, new Date(now - DAY).toISOString());
   visits(a, 1, 40, 4);
   visits(a, 2, 40, 6);
-  // 期限の直後（見回りの間隔のうち）なら判断する。4/40 → 6/40 はちょうど+5ポイントなので「良くなった」
-  assert.equal(judgeCheck(get(a), 2, c, now + 60_000)?.verdict, "better");
-  // 期限から15分より遅れたら、判断できなかったとする
-  const late = judgeCheck(get(a), 2, c, now + CHECK_LATE_MS + 60_000);
+  // 期限の前に届いていれば判断する。4/40 → 6/40 はちょうど+5ポイントなので「良くなった」
+  assert.equal(judgeCheck(get(a), 2, c, now)?.verdict, "better");
+  // 期限を過ぎてから初めて見るときは、届いていても判断しない
+  const late = judgeCheck(get(a), 2, c, now + 2 * DAY + 60_000);
   assert.equal(late?.verdict, "unclear");
-  assert.match(late!.result, /を過ぎてから答え合わせしたため、期限のあとの訪問と分けられない/);
+  assert.match(late!.result, /のうちに、決めた30人に届いたかを確かめられない（期限のあとに届いた分が混ざる）/);
   // ちょうど-5ポイントは「悪くなった」
   const b = project("lp");
   visits(b, 1, 40, 6);
   visits(b, 2, 40, 4);
   assert.equal(judgeCheck(get(b), 2, parseCheck({ metric: "signup", min_visits: 30 }, { kind: "lp", aim: null }, "x", 1), now)?.verdict, "worse");
+});
+
+test("答え合わせ: 人数・日数は、整数で範囲の中のものだけを使い、変な形の値は決まった値にする（PR #208 の ai-review の指摘）", () => {
+  const f = (raw: unknown) => parseCheck(raw, { kind: "lp", aim: null }, "x", 1);
+  assert.deepEqual([f({ min_visits: "40", days: 5 }).minVisits, f({ min_visits: "40", days: 5 }).days], [40, 5]);
+  const odd = f({ min_visits: 100.4, days: 2.9 });
+  assert.deepEqual([odd.minVisits, odd.days], [CHECK_MIN_VISITS.default, CHECK_DAYS.default]);
+  assert.deepEqual(odd.defaulted.filter((k) => k === "min_visits" || k === "days"), ["min_visits", "days"]);
+  assert.equal(f({ min_visits: { valueOf: null, toString: null }, days: null }).minVisits, CHECK_MIN_VISITS.default);
+});
+
+test("答え合わせ: 次の版に替わったときは、替わった時刻までの投稿だけを残す（PR #208 の ai-review の指摘）", () => {
+  const id = project("lp");
+  saveCheck(id, 2, parseCheck({ metric: "signup", min_visits: 30 }, { kind: "lp", aim: null }, "x", 1, new Date(Date.now() - 2 * DAY).toISOString()));
+  const post = db().prepare("INSERT INTO sns_posts (project_id, platform, text, status, author, post_url, posted_at, visits, conversions, code) VALUES (?, ?, 't', 'posted', 'ai', ?, datetime('now', ?), 0, 0, ?)");
+  post.run(id, "threads", `https://www.threads.net/p/ic-a${id}`, "-1 days", `ica${id}`); // 替わる前
+  db().prepare("INSERT INTO lp_versions (project_id, version, lp, note, created_at) VALUES (?, 3, '{}', '人が直した', datetime('now', '-12 hours'))").run(id);
+  db().prepare("UPDATE projects SET lp_version = 3, public_version = 3 WHERE id = ?").run(id);
+  post.run(id, "x", `https://x.com/u/status/ic-b${id}`, "-1 hours", `icb${id}`); // 替わったあと
+  evaluateImproveChecks();
+  const r = db().prepare("SELECT check_result FROM lp_versions WHERE project_id = ? AND version = 2").get(id) as { check_result: string };
+  assert.match(r.check_result, /直したあとの投稿: threads 1件$/);
 });
 
 test("答え合わせ: 朝会の check は、要る項目だけを取り出して、項目ごとに長さを切ってから残す（JSON が壊れない）", () => {

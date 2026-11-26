@@ -2369,8 +2369,8 @@ async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutco
   logEvent(projectId, "system", "auto-improve", `自動で${getProject(projectId)!.kind === "tool" ? "ツール" : "LP"}を改善し、第${version}版で集客を再開（人の承認なし）`);
   // すでに公開中なら、新しい版に差し替える
   if (getProject(projectId)!.public_slug) await announcePublish(projectId);
-  // 自動で公開できたときだけ、公開した時刻から答え合わせを始める（承認待ちになった版には付けない。PR #208 の ai-review の指摘）
-  saveCheck(projectId, version, { ...plan, at: new Date().toISOString() });
+  // 公開中の版が新しい版に替わったときだけ、その時刻から答え合わせを始める（承認待ちになった版・公開サイトに出していない案件には付けない。PR #208 の ai-review の指摘）
+  if (getProject(projectId)!.public_version === version) saveCheck(projectId, version, { ...plan, at: new Date().toISOString() });
   return { kind: "published", detail: `第${version}版に直して公開した` };
 }
 

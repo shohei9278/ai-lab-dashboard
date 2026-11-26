@@ -276,7 +276,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                         return (
                           <div className="mt-1 space-y-0.5 text-xs text-ink-2">
                             <div>答え合わせ: {ck.plan}</div>
-                            <div>
+                            <div className="whitespace-pre-line">
                               {ck.verdict && <span className="mr-2 font-medium" style={{ color: ck.verdict === "better" ? "var(--good)" : ck.verdict === "worse" ? "var(--critical)" : undefined }}>{VERDICT_LABEL[ck.verdict]}</span>}
                               {ck.result}
                             </div>
