@@ -32,6 +32,15 @@ test("遊びの深さの文: 人数と、遊び始めた人に対する割合を
   assert.match(playText({ kind: "tool", aim: null }, d), /見方: ねらいが決まっていない案件: 遊んだ時間の長さだけで良し悪しを決めない/);
   // 遊び始めた人が少ないうちは、偶然の差だと書き添える
   assert.match(playText({ kind: "tool", aim: "spread" }, playDepth(rows(PLAY_FEW_USERS - 1))), new RegExp(`遊び始めた人が${PLAY_FEW_USERS}人未満のうちは、割合の差は偶然の可能性が高い`));
+  // 見方で使う区切り（15秒・1分・結果2回）は、0人でも出す。ほかの区切りは、人がいるときだけ（PR #207 の ai-review の指摘）
+  const none = playText({ kind: "tool", aim: "spread" }, playDepth([{ name: "play_time", detail: "0", visitors: 25 }]));
+  assert.match(none, /遊び始めた 25人 \/ 遊んだ時間: 15秒以上 0人（0%）・1分以上 0人（0%） \/ 結果を出した回数: 2回以上 0人（0%） \/ 別の日にまた来た 0人/);
+  assert.doesNotMatch(none, /30秒以上|3回以上|種類以上/);
+  // 遊びの記録が届いていないのに再訪だけあるときは、「遊び始めた 0人」と書かず、記録がないと書く
+  const onlyRevisit = playText({ kind: "tool", aim: "return" }, playDepth([{ name: "revisit", detail: "", visitors: 4 }]));
+  assert.match(onlyRevisit, /遊びの深さ: 遊びの記録はまだ届いていない（別の日にまた来た 4人。遊ばずにページだけ見た人も入る）/);
+  assert.match(onlyRevisit, /見方: ねらいは「また来てもらう」/);
+  assert.doesNotMatch(onlyRevisit, /遊び始めた/);
   // LP や、記録が届いていないツールには足さない
   assert.equal(playText({ kind: "lp", aim: null }, d), "");
   assert.equal(playText({ kind: "tool", aim: "spread" }, playDepth([])), "");

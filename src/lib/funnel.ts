@@ -135,11 +135,16 @@ export function playLens(aim: string | null): string {
 }
 
 // AIの判断に渡す、遊びの深さ（動くツールで、記録が届いているときだけ）。人数と、遊び始めた人に対する割合を並べる（再訪は人数だけ）
+// 見方で使う区切りは、0人でも出す（0人だったのか、測っていないのかを区別できるように。PR #207 の ai-review の指摘）
+const KEY_TIME_MARKS: number[] = [15, 60];
+const KEY_RESULT_MARKS: number[] = [2];
 export function playText(p: Pick<ProjectRow, "kind" | "aim">, d: PlayDepth | null): string {
   if (p.kind !== "tool" || !d || (!d.hasData && !d.revisit)) return "";
+  // 遊びの記録がまだ届いていないときは、「遊び始めた 0人」と書かない（誰も遊ばなかったと読めるため）。再訪の人数だけ渡す（PR #207 の ai-review の指摘）
+  if (!d.hasData) return `\n遊びの深さ: 遊びの記録はまだ届いていない（別の日にまた来た ${d.revisit}人。遊ばずにページだけ見た人も入る）\n見方: ${playLens(p.aim)}`;
   const pc = (n: number) => (d.users ? `${Math.round((n / d.users) * 100)}%` : "—");
-  const time = d.time.filter((x) => x.visitors > 0).map((x) => `${x.mark < 60 ? `${x.mark}秒` : `${x.mark / 60}分`}以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
-  const results = d.results.filter((x) => x.visitors > 0).map((x) => `${x.mark}回以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
+  const time = d.time.filter((x) => x.visitors > 0 || KEY_TIME_MARKS.includes(x.mark)).map((x) => `${x.mark < 60 ? `${x.mark}秒` : `${x.mark / 60}分`}以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
+  const results = d.results.filter((x) => x.visitors > 0 || KEY_RESULT_MARKS.includes(x.mark)).map((x) => `${x.mark}回以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
   const kinds = d.kinds.filter((x) => x.visitors > 0).map((x) => `${x.mark}種類以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
   const parts = [
     `遊び始めた ${d.users}人`,
