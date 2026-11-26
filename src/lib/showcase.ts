@@ -1,6 +1,7 @@
 import { db, getSettings, type ProjectRow } from "./db";
 import { CONV, ideaAuthorStats, projectTotals } from "./loop";
 import { modelInfo } from "./models";
+import { aimJudgeLine, judgeBasis } from "./judgeBasis";
 import { MEMBERS, type Member } from "./officeShared";
 
 // 概要ページ（/showcase）に載せるもの。来訪者が見るので、公開した・終わった実案件と、集計した数字だけを扱う
@@ -117,12 +118,14 @@ export async function showcaseLearnings(): Promise<Learning[]> {
     });
   }
   const visits = projects.map((p) => projectTotals(p.id).visits);
+  // 判断の目安は、ねらいごと（案件ごとに調整したものはそれ。judgeBasis.ts）
+  const reached = projects.filter((p, i) => visits[i] >= judgeBasis(p, s).visits).length;
   const total = visits.reduce((a, b) => a + b, 0);
   const plans = recentPlans(14).map((p) => planProgress(p).content.bottleneck);
   if (projects.length) {
     out.push({
       title: "ネックは、作ることより届けること",
-      body: `訪問は累計${total}人で、判断の目安（${s.judgeMinVisits}人）に届いた案件は${visits.filter((v) => v >= s.judgeMinVisits).length}件です。${plans.length ? `直近${plans.length}日の朝の計画で、AIがネックに挙げたのは${plans.filter((b) => b === "reach").length}日が「届かない」でした。` : ""}SNSの自動投稿だけでは足りず、人の手で対象の人がいる場所に届ける段取りを入れています。`,
+      body: `訪問は累計${total}人で、判断の目安（ねらいごとに ${aimJudgeLine(s)}）の訪問に届いた案件は${reached}件です。${plans.length ? `直近${plans.length}日の朝の計画で、AIがネックに挙げたのは${plans.filter((b) => b === "reach").length}日が「届かない」でした。` : ""}SNSの自動投稿だけでは足りず、人の手で対象の人がいる場所に届ける段取りを入れています。`,
     });
   }
   // 1件も判定できなかった評価（APIのエラーなど）は、結果として出さない

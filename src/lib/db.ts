@@ -799,6 +799,9 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "deep", "INTEGER NOT NULL DEFAULT 0"], // じっくり案件（大きなデータ・素材・磨く段を使い、人が要所で確かめる）
   ["projects", "deep_need", "TEXT"], // じっくり案件で要るデータ（アイデアに書かれたもの。大きなデータが要らないじっくり案件は空）
   ["projects", "deep_plan", "TEXT"], // じっくり案件で何を作り込むか（アイデアに書かれたもの）
+  ["projects", "judge_visits", "INTEGER"], // 公開の前に決めた、この案件の判断に入る訪問（空はねらいの基準。judgeBasis.ts）
+  ["projects", "judge_days", "INTEGER"],
+  ["projects", "judge_reason", "TEXT"],
   ["projects", "aim", "TEXT"], // ねらい（spread 広がる / useful 役に立つ / return また来てもらう / demand 需要を確かめる。aims.ts）。前からある案件は空
   ["projects", "genre", "TEXT"], // ジャンル（自由な短い言葉。例: ガチャ・診断）
   ["projects", "site_category", "TEXT"], // 公開サイトの一覧のカテゴリを運営者が選んだもの（lp-site の categories.ts。空ならAIの判定を使う。siteCategory.ts）
@@ -950,6 +953,15 @@ export type Settings = {
   autoPost: boolean; // 集客中の案件を、AIが X に自動で投稿する（X のAPIキーが必要）
   autoPostPerDay: number; // 自動投稿の上限（直近24時間）
   judgeAfterDays: number; // 訪問が少なくても、公開（または前の判断）からこの日数がたったらAIに判断させる
+  // ねらいごとの判断の基準（0 は一括の値 judgeMinVisits・judgeAfterDays を使う。judgeBasis.ts）
+  judgeVisitsSpread: number;
+  judgeDaysSpread: number;
+  judgeVisitsUseful: number;
+  judgeDaysUseful: number;
+  judgeVisitsReturn: number;
+  judgeDaysReturn: number;
+  judgeVisitsDemand: number;
+  judgeDaysDemand: number;
   lastDigest: string; // 最後に1日のまとめを送った日（日本時間の YYYY-MM-DD）
   notifyLive: boolean; // AIが何かを始めた・終えたときに、その場で通知する（1日のまとめとは別）
   notifyOff: string; // その場の通知で送らない種類（カンマ区切り。liveNotify.ts の NOTIFY_KINDS）
@@ -1005,6 +1017,14 @@ const DEFAULTS: Settings = {
   autoPost: false,
   autoPostPerDay: 2,
   judgeAfterDays: 7,
+  judgeVisitsSpread: 0,
+  judgeDaysSpread: 0,
+  judgeVisitsUseful: 0,
+  judgeDaysUseful: 0,
+  judgeVisitsReturn: 0,
+  judgeDaysReturn: 0,
+  judgeVisitsDemand: 0,
+  judgeDaysDemand: 0,
   lastDigest: "",
   notifyLive: true,
   notifyOff: "",
@@ -1153,6 +1173,9 @@ export type ProjectRow = {
   deep_need: string | null; // 大きなデータが要るじっくり案件だけ
   deep_plan: string | null;
   aim: string | null; // ねらい（aims.ts の Aim）。前からある案件は null
+  judge_visits: number | null; // 公開の前に決めた、この案件の判断に入る訪問（空はねらいの基準。judgeBasis.ts）
+  judge_days: number | null; // 同じく、訪問が少なくても判断する日数
+  judge_reason: string | null; // 案件ごとに調整した理由
   site_category: string | null; // 公開サイトの一覧のカテゴリを運営者が選んだもの（空ならAIの判定を使う）
   site_category_auto: string | null; // 公開するときに軽いAIが選んだカテゴリ（合うものがなければ none）
   genre: string | null;

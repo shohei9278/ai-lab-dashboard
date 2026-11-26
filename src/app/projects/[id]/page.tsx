@@ -38,6 +38,7 @@ import { publicUrl } from "@/lib/publish";
 import { ShadowJudgments } from "@/components/ShadowJudgments";
 import { plainIssue } from "@/lib/issueText";
 import { hasUnpublishedVersion, versionLabel } from "@/lib/versions";
+import { judgeBasis } from "@/lib/judgeBasis";
 import { VERDICT_LABEL, checkSummary } from "@/lib/improveCheck";
 import { AIMS, isAim, problemLabel } from "@/lib/aims";
 import { SITE_CATEGORIES, isSiteCategory, siteCategoryOf } from "@/lib/siteCategory";
@@ -70,6 +71,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const stepIndex = ended ? STEPS.length : STEPS.indexOf((p.stage === "hold" ? "live" : p.stage) as (typeof STEPS)[number]);
   const adRatio = s.adBudgetPerProjectJpy ? t.adSpendJpy / s.adBudgetPerProjectJpy : 0;
   const versions = lpVersions(p.id);
+  // 判断の基準（ねらいごと。公開の前に案件ごとに調整したものはそれ。judgeBasis.ts）
+  const basis = judgeBasis(p, s);
   const conv = CONV[p.kind];
   const target = targetRate(p.kind, s);
   const isTool = p.kind === "tool";
@@ -137,7 +140,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <AutoReviewCard id={p.id} review={p.human_review} note={p.human_review_note} at={p.human_review_at} url={publicUrl(p.id)} />
       )}
 
-      <ProjectActions needs={p.needs && !p.needs_done ? needsOf(JSON.parse(p.needs)).map((n) => ({ label: NEED_KINDS[n.kind].label, what: n.what, why: n.why, ready: NEED_KINDS[n.kind].ready })) : null} demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} resume={resumeNote(p)} deepNoData={!!p.deep && !!p.deep_need && !approvedDeepData(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={s.judgeMinVisits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
+      <ProjectActions needs={p.needs && !p.needs_done ? needsOf(JSON.parse(p.needs)).map((n) => ({ label: NEED_KINDS[n.kind].label, what: n.what, why: n.why, ready: NEED_KINDS[n.kind].ready })) : null} demo={!!p.demo} isTool={isTool} building={buildingNow(p.id)} resume={resumeNote(p)} deepNoData={!!p.deep && !!p.deep_need && !approvedDeepData(p.id)} id={p.id} convNoun={conv.noun} stage={p.stage} hasLp={!!lp} hasPending={approvals.length > 0} judgeMinVisits={basis.visits} publicUrl={p.public_slug ? publicUrl(p.id) ?? `(URL未設定)/${p.public_slug}` : null} />
 
       {owner && !p.demo && ["live", "hold"].includes(p.stage) && (
         <HoldPanel id={p.id} held={p.stage === "hold"} reason={p.hold_reason} until={p.hold_until} today={jstToday()} blocked={approvals.length > 0 || !!buildingNow(p.id)} />
@@ -151,7 +154,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <section className="space-y-2">
           <h2 className="font-bold">集客の結果{t.simulated && <span className="ml-2 text-xs font-normal text-muted">シミュレーションを含む</span>}</h2>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-            <Stat label="訪問" value={`${t.visits}人`} sub={`判断の目安 ${s.judgeMinVisits}人`} />
+            <Stat label="訪問" value={`${t.visits}人`} sub={`判断の目安 ${basis.visits}人・${basis.days}日${basis.adjusted ? "（この案件だけ調整）" : ""}`} />
             <Stat label={isTool ? "使った人" : "事前登録"} value={`${t.signups}人`} sub={isTool ? `シェア ${shares}人` : undefined} />
             <Stat
               label={conv.rate}

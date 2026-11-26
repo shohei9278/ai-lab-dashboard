@@ -18,6 +18,7 @@ import { outsideText, recordVoiceEffects } from "./outside";
 import { addResearch, researchText, runResearch } from "./research";
 import { maskHandles } from "./viewer";
 import { doneEffectsText } from "./effects";
+import { aimJudgeLine } from "./judgeBasis";
 import { CHECK_METRICS, checkJson, checkRule, improveChecksText, metricsFor } from "./improveCheck";
 import { waitsText } from "./waits";
 import { decisionsText } from "./meetings";
@@ -305,7 +306,7 @@ function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: Hot
     `公開サイトの一覧から来た人（投稿のリンクとは別。累計）: ${(() => { const r = db().prepare("SELECT COALESCE(SUM(index_visits), 0) AS v, COALESCE(SUM(index_uses), 0) AS u FROM projects WHERE demo = 0").get() as { v: number; u: number }; return `訪問${r.v}人・登録/利用${r.u}人`; })()}`,
     postStatsText() || "効いた手の集計: まだ投稿がない",
     platformCostText(),
-    (() => { const c = trafficCapacity(); return `今の流入で育てられる案件の数: 直近7日の訪問は1日あたり約${c.perDay}人。判断の基準（1件${s.judgeMinVisits}人）まで${s.judgeAfterDays * 2}日で届けられるのは${c.projects}件くらい（公開中の案件がこれより多いと、1件あたりの訪問が薄まって、どれも判断できない。宣伝の投稿は、見込みのある少数の案件に集める）`; })(),
+    (() => { const c = trafficCapacity(); return `今の流入で育てられる案件の数: 直近7日の訪問は1日あたり約${c.perDay}人。判断の基準（ねらいの配分で重み付けして1件${c.visits}人。ねらいごとは ${aimJudgeLine(s)}）まで${c.days * 2}日で届けられるのは${c.projects}件くらい（公開中の案件がこれより多いと、1件あたりの訪問が薄まって、どれも判断できない。宣伝の投稿は、見込みのある少数の案件に集める）`; })(),
     `運営者からの提案（提案箱にあなたが入れたもの。返事待ち）:\n${(db().prepare("SELECT id, title, how FROM plan_requests WHERE source = 'human' AND status = 'open' ORDER BY id DESC LIMIT 10").all() as { id: number; title: string; how: string | null }[]).map((r) => `- 【${r.id}】${r.title}${r.how ? `: ${r.how}` : ""}`).join("\n") || "（なし）"}`,
     `提案箱（あなたたちAIからのお願い・定例会議の提案。直近30日）:\n${(db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-30 days') ORDER BY id DESC").all() as RequestRow[]).map((r) => `- 「${r.title}」→ ${r.status === "open" ? "まだ返事なし" : r.status === "done" ? `やった${r.decided_at ? `（${jstDateTime(r.decided_at)}）` : ""}` : "見送り"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`).join("\n") || "（まだなし）"}`,
     doneEffectsText(),

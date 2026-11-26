@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ApprovalMode, Settings } from "@/lib/db";
 import { AIMS, AIM_KEYS, GENRES, genresOf, type Aim } from "@/lib/aims";
+import { AIM_JUDGE_KEYS } from "@/lib/judgeBasis";
 
 // ねらいと、設定の項目の名前
 const AIM_SETTING = { spread: "aimSpread", useful: "aimUseful", return: "aimReturn", demand: "aimDemand" } as const satisfies Record<Aim, string>;
@@ -31,6 +32,10 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
     useRatePct: Math.round(initial.targetUseRate * 100),
   });
   const [msg, setMsg] = useState<string | null>(null);
+  // ねらいごとの判断の基準を、全部のねらいにまとめて入れる欄（保存はしない。入れたあと「保存」で保存する）
+  const [bulk, setBulk] = useState({ visits: initial.judgeMinVisits, days: initial.judgeAfterDays });
+  const setAllAims = (visits: number, days: number) =>
+    setV((s) => ({ ...s, ...Object.fromEntries(AIM_KEYS.flatMap((a) => [[AIM_JUDGE_KEYS[a].visits, visits], [AIM_JUDGE_KEYS[a].days, days]])) }));
   // 保存していない変更があるか（保存の帯に出し、ページを離れる前に知らせる）
   const [saved, setSaved] = useState(() => JSON.stringify(v));
   const dirty = JSON.stringify(v) !== saved;
@@ -278,10 +283,10 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
           >
             <input type="number" min={0} {...num("improveExtraBudgetJpy")} className={input} />
           </Field>
-          <Field label="判断に入る訪問数" note="今のLPの版での訪問がこの人数を超えたら、AIが続ける・改善・撤退を提案します。">
+          <Field label="判断に入る訪問数（一括の値）" note="今のLPの版での訪問がこの人数を超えたら、AIが続ける・改善・撤退を提案します。下の「ねらいごとの基準」が空のねらいは、この値を使います。">
             <input type="number" min={1} {...num("judgeMinVisits")} className={input} />
           </Field>
-          <Field label="訪問が少なくても判断する日数" note="公開（または前の判断）からこの日数がたったら、訪問が少なくてもAIが判断します。人が来ていないときは、ページを変えずに投稿の切り口・場所・対象を見直す（集客の見直し）を選べます。見直しは2回まで。">
+          <Field label="訪問が少なくても判断する日数（一括の値）" note="下の「ねらいごとの基準」が空のねらいは、この値を使います。公開（または前の判断）からこの日数がたったら、訪問が少なくてもAIが判断します。人が来ていないときは、ページを変えずに投稿の切り口・場所・対象を見直す（集客の見直し）を選べます。見直しは2回まで。">
             <input type="number" min={1} max={60} {...num("judgeAfterDays")} className={input} />
           </Field>
           <Field label="登録率の目標（%）" note="事前登録LPの案件で、これを下回ると撤退の候補になります。">
@@ -290,6 +295,49 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
           <Field label="ツールの利用率の目標（%）" note="動くツールの案件で、訪問者のうち実際に使った人の割合。これを下回ると撤退の候補になります。">
             <input type="number" min={1} max={100} {...num("useRatePct")} className={input} />
           </Field>
+        </div>
+        <div className="space-y-2 border-t border-line pt-3">
+          <h3 className="text-sm font-bold">ねらいごとの基準</h3>
+          <p className="text-xs text-muted">
+            ねらいによって、答えが出るまでの時間が違います（広がるはシェアが数日で見え、また来てもらうは再訪に日がかかる）。空のねらいは、上の一括の値を使います。
+            アイデアを案件にするときに限って、AIがこの基準の半分〜1.5倍の範囲で、案件ごとに理由をつけて調整することがあります（公開したあとは変えません）。
+            見直しは週の定例会議でAIが提案箱に出しますが、変えるのはこの画面だけです。
+          </p>
+          <div className="flex flex-wrap items-end gap-2 rounded-lg bg-surface-2 p-2 text-sm">
+            <span className="text-xs text-muted">全部のねらいに</span>
+            <label className="text-xs">訪問 <input type="number" min={1} value={bulk.visits} onChange={(e) => setBulk((b) => ({ ...b, visits: Number(e.target.value) }))} className="num w-24 rounded-lg border border-line bg-surface px-2 py-1" /> 人</label>
+            <label className="text-xs">日数 <input type="number" min={1} max={60} value={bulk.days} onChange={(e) => setBulk((b) => ({ ...b, days: Number(e.target.value) }))} className="num w-20 rounded-lg border border-line bg-surface px-2 py-1" /> 日</label>
+            <button type="button" onClick={() => setAllAims(bulk.visits, bulk.days)} className="rounded-lg border border-line px-3 py-1 text-xs">まとめて入れる</button>
+            <button type="button" onClick={() => setAllAims(0, 0)} className="rounded-lg border border-line px-3 py-1 text-xs">全部を空にする（一括の値に戻す）</button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-muted">
+                  <th className="py-1 pr-2 font-normal">ねらい</th>
+                  <th className="py-1 pr-2 font-normal">判断に入る訪問（人）</th>
+                  <th className="py-1 font-normal">訪問が少なくても判断する日数</th>
+                </tr>
+              </thead>
+              <tbody>
+                {AIM_KEYS.map((a) => {
+                  const k = AIM_JUDGE_KEYS[a];
+                  return (
+                    <tr key={a} className="border-t border-line">
+                      <td className="py-1.5 pr-2">{AIMS[a].label}</td>
+                      <td className="py-1.5 pr-2">
+                        <input type="number" min={0} aria-label={`${AIMS[a].label}の判断に入る訪問`} value={(v[k.visits] as number) || ""} placeholder={String(v.judgeMinVisits)} onChange={(e) => set(k.visits, (Number(e.target.value) || 0) as never)} className="num w-24 rounded-lg border border-line bg-surface px-2 py-1" />
+                      </td>
+                      <td className="py-1.5">
+                        <input type="number" min={0} max={60} aria-label={`${AIMS[a].label}の判断する日数`} value={(v[k.days] as number) || ""} placeholder={String(v.judgeAfterDays)} onChange={(e) => set(k.days, (Number(e.target.value) || 0) as never)} className="num w-20 rounded-lg border border-line bg-surface px-2 py-1" />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-muted">「広がる」は、これとは別に、「毎日の自動アイデア出し」にある『「広がる」を判定するまでの日数』で、遊んだ人とシェアの数だけの早い判定もします。</p>
         </div>
       </section>
 

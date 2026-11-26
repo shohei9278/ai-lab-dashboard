@@ -11,6 +11,8 @@ export type ProposalSource = "plan" | "meeting" | "scene" | "error" | "revival" 
 export type NewProposal = {
   title: string; how?: string; why?: string; target: "human" | "system"; source: ProposalSource;
   proposer?: string | null; scene?: string; projectId?: number | null; refId?: number | null; score?: number | null; meetingId?: number | null; planId?: number | null;
+  // 似た提案をまとめる判定（言葉の重なり）を使わず、同じ題だけを重複とみなす（設定の見直しは、項目ごとに自分で重複を見るため。settingsReview.ts）
+  exact?: boolean;
 };
 
 const CAPPED: ProposalSource[] = ["scene", "error", "revival"];
@@ -44,17 +46,21 @@ export function similarity(a: { title: string; how?: string | null }, b: { title
 }
 type Near = { id: number; title: string; how: string | null; status: string; target: string };
 // AIの提案（運営者が入れたもの以外）のうち、同じ趣旨のもの。返事待ち・見送り（返事がないまま見送ったものを除く）・7日以内にやったものから探す
+// 似た提案をまとめる判定から外す題（設定の見直しは、題も中身も同じ言い回しで、項目だけが違うため。項目ごとの重複は settingsReview.ts が見る）
+export const EXACT_TITLE_PREFIX = "設定の見直し: ";
+const NOT_EXACT = `title NOT LIKE '${EXACT_TITLE_PREFIX}%'`;
+
 function similarOf(p: { title: string; how?: string; target: string }): Near | undefined {
-  const rows = db().prepare(`SELECT id, title, how, status, target FROM plan_requests WHERE source != 'human' AND target = ? AND ${BLOCKING}`).all(p.target, STALE_NOTE) as Near[];
+  const rows = db().prepare(`SELECT id, title, how, status, target FROM plan_requests WHERE source != 'human' AND target = ? AND ${NOT_EXACT} AND ${BLOCKING}`).all(p.target, STALE_NOTE) as Near[];
   return rows.find((r) => similarity(r, p) >= SIMILAR);
 }
 
 // 同じ題・同じ趣旨の提案がすでにあるか。あれば true（同じ趣旨のものが返事待ちなら「何回出たか」を数える。何度も出る提案は、優先して見る価値がある）
 // 新しく入れられないとき（コードの見直しの上限に達したときなど）も、回数だけは数えられるよう、addProposal から分けた（PR #141 の ai-review の指摘）
-export function countRepeat(p: Pick<NewProposal, "title" | "how" | "target" | "source">): boolean {
+export function countRepeat(p: Pick<NewProposal, "title" | "how" | "target" | "source" | "exact">): boolean {
   const title = p.title.trim().slice(0, 80);
   if (duplicate(title)) return true;
-  if (p.source === "human") return false;
+  if (p.source === "human" || p.exact) return false;
   const near = similarOf({ title, how: p.how, target: p.target });
   if (!near) return false;
   if (near.status === "open") db().prepare("UPDATE plan_requests SET repeats = repeats + 1 WHERE id = ?").run(near.id);
@@ -85,7 +91,7 @@ export function mergeSimilarOpen(force = false): number {
   if (!force && gMerge.__aiLabMergeCheck && Date.now() - gMerge.__aiLabMergeCheck < 3_600_000) return 0;
   gMerge.__aiLabMergeCheck = Date.now();
   type Row = Near & { score: number | null; repeats: number; ai_fix_at: string | null; voiced: number; reviewed: number };
-  const rows = db().prepare("SELECT r.id, r.title, r.how, r.status, r.target, r.score, r.repeats, r.ai_fix_at, EXISTS (SELECT 1 FROM voices v WHERE v.request_id = r.id) AS voiced, r.source = 'review' AS reviewed FROM plan_requests r WHERE r.status = 'open' AND r.source != 'human' ORDER BY r.id").all() as Row[];
+  const rows = db().prepare(`SELECT r.id, r.title, r.how, r.status, r.target, r.score, r.repeats, r.ai_fix_at, EXISTS (SELECT 1 FROM voices v WHERE v.request_id = r.id) AS voiced, r.source = 'review' AS reviewed FROM plan_requests r WHERE r.status = 'open' AND r.source != 'human' AND r.${NOT_EXACT} ORDER BY r.id`).all() as Row[];
   const rank = (r: Row) => [r.ai_fix_at ? 0 : 1, r.voiced || r.reviewed ? 0 : 1, -(r.score ?? 0), r.id];
   const better = (a: Row, b: Row) => { const x = rank(a), y = rank(b); for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] < y[i]; return false; };
   const gone = new Set<number>();

@@ -167,23 +167,25 @@ test("外部バックアップ: 日付つきの写しだけを数えて、古い
 });
 
 test("育てられる案件の数: 直近7日の本物の訪問から出し、シミュレーションは数えない・最低2件", () => {
+  // 基準は、ねらいの配分で重み付けした値（judgeBasis.ts）。ここでは件数と1日あたりの訪問だけを見る
+  const cap = () => { const c = trafficCapacity(); return { perDay: c.perDay, projects: c.projects }; };
   saveSettings({ judgeMinVisits: 100, judgeAfterDays: 7 });
   db().prepare("DELETE FROM metrics").run();
-  assert.deepEqual(trafficCapacity(), { perDay: 0, projects: 2 });
+  assert.deepEqual(cap(), { perDay: 0, projects: 2 });
   const id = addProject();
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 91, 0, 0, 'real')").run(id, day(-1));
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 5000, 0, 0, 'simulated')").run(id, day(-1));
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 700, 0, 0, 'real')").run(id, day(-20));
   // 91人 / 7日 = 1日13人。14日で182人なので、100人に届くのは1件 → 最低の2件
-  assert.deepEqual(trafficCapacity(), { perDay: 13, projects: 2 });
+  assert.deepEqual(cap(), { perDay: 13, projects: 2 });
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 259, 0, 0, 'real')").run(id, day(-2));
   // 350人 / 7日 = 1日50人。14日で700人なので7件
-  assert.deepEqual(trafficCapacity(), { perDay: 50, projects: 7 });
+  assert.deepEqual(cap(), { perDay: 50, projects: 7 });
   // 境界: 6日前は数え、7日前と明日（日本時間）は数えない
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 7, 0, 0, 'real')").run(id, day(-6));
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 1000, 0, 0, 'real')").run(id, day(-7));
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, ad_spend_jpy, source) VALUES (?, ?, 1000, 0, 0, 'real')").run(id, day(1));
-  assert.deepEqual(trafficCapacity(), { perDay: 51, projects: 7 });
+  assert.deepEqual(cap(), { perDay: 51, projects: 7 });
 });
 
 test("ツールの利用: 入力欄を押しただけでは数えず、結果の一文をシェア用に知らせられる", () => {
@@ -845,7 +847,7 @@ test("概要ページの「分かったこと」: 公開した案件があると
   const l = await showcaseLearnings();
   assert.equal(l.length, 2);
   assert.match(l[0].body, /公開した1件のうち1件は、人の承認なしでAIが公開しました。人があとから見て「出すべきでなかった」としたのは、確認した1件のうち0件です。/);
-  assert.match(l[1].body, /判断の目安（\d+人）に届いた案件は0件/);
+  assert.match(l[1].body, /判断の目安（ねらいごとに 広がる 訪問\d+人か\d+日 .*）の訪問に届いた案件は0件/);
   // 1件も判定できなかった評価は出さず、取れなかった例があれば数を出す
   const e1 = Number(db().prepare("INSERT INTO check_evals (model_id, prompt_hash, status) VALUES ('claude-opus-5-5', 'x', 'done')").run().lastInsertRowid);
   db().prepare("INSERT INTO check_eval_results (eval_id, case_id, expect, got_ok, error) VALUES (?, 'a', 'ng', NULL, 'err')").run(e1);
