@@ -5,7 +5,8 @@ import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
 import { LibraryTabs } from "@/components/LabTabs";
 import { CERTAINTY_LABEL, activeLessons } from "@/lib/loop";
-import { NoteActions, NoteEditor } from "./NoteEditor";
+import { NoteActions, NoteEditor, RestoreLesson } from "./NoteEditor";
+import { OUTCOME_LABEL, USE_KIND_LABEL, inactiveLessons, lessonStats, type LessonStat } from "@/lib/lessons";
 import { jstDate } from "@/lib/format";
 import { isOwner } from "@/lib/viewer";
 
@@ -18,6 +19,9 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
   const owner = await isOwner();
   const notes = listNotes(topic);
   const lessons = activeLessons();
+  // 教訓ごとの使われ方と結果（lessons.ts）と、定例会議で保留・直した教訓
+  const stats = lessonStats();
+  const inactive = inactiveLessons();
   const all = listNotes();
   const projects = db().prepare("SELECT id, title FROM projects ORDER BY id DESC").all() as { id: number; title: string }[];
   const topics = Object.entries(NOTE_TOPICS).map(([id, label]) => ({ id, label }));
@@ -35,21 +39,55 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
       <section className="space-y-2">
         <div>
           <h2 className="font-bold">AIの教訓（{lessons.length}件）</h2>
-          <p className="text-xs text-muted">終わった案件からAIが学んだこと。事実・仮の解釈・まだ分からないことに分けて残し、次のアイデア出しで参照されます。訪問が判断の基準に届かなかった案件の教訓は、確かさ「低（保留）」になります。</p>
+          <p className="text-xs text-muted">終わった案件からAIが学んだこと。事実・仮の解釈・まだ分からないことに分けて残し、次のアイデア出しと朝会に番号つきで渡します。教訓を見て判断を変えたときだけ記録し、その結果を数えます。結果の出た使い方が2件以上ある教訓は、週の定例会議でAIが維持・直す・保留を決めます。訪問が判断の基準に届かなかった案件の教訓は、確かさ「低（保留）」になります。</p>
         </div>
         <div className="card divide-y divide-line text-sm">
           {lessons.length ? lessons.map((l) => (
             <div key={l.id} className="space-y-1 p-3">
               <div>
+                <span className="mr-2 text-xs text-muted">教訓{l.id}</span>
                 {l.certainty && <span className="mr-2 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">確かさ {CERTAINTY_LABEL[l.certainty]}</span>}
                 {l.interpretation ?? l.text}
                 {l.project_id && <Link href={`/projects/${l.project_id}`} className="ml-2 text-xs text-accent underline">案件</Link>}
               </div>
               {l.fact && <div className="text-xs text-ink-2">事実: {l.fact}</div>}
               {l.unknown && <div className="text-xs text-muted">まだ分からない: {l.unknown}</div>}
+              {l.revised_from && <div className="text-xs text-muted">定例会議で、教訓{l.revised_from}を直したもの</div>}
+              {(() => {
+                const st = stats.get(l.id);
+                if (!st) return null;
+                return (
+                  <div className="space-y-0.5 text-xs text-ink-2">
+                    <div>判断を変えるのに使われた {st.uses}回（{(["good", "bad", "unclear", "pending"] as const).filter((k) => st[k]).map((k) => `${OUTCOME_LABEL[k]} ${st[k]}`).join("・") || "結果を測れない使い方だけ"}）</div>
+                    {/* 運営者には、どの案件のどの判断に使われ、結果がどうだったかの明細を出す（PR #211 の ai-review の指摘） */}
+                    {owner && <UseDetails st={st} />}
+                  </div>
+                );
+              })()}
+              {owner && l.review_note && <div className="text-xs text-muted">前回の見直し: {l.review_note}</div>}
             </div>
           )) : <div className="p-3 text-ink-2">まだありません。案件が終わると、AIが教訓を書きます。</div>}
         </div>
+        {(inactive.held.length > 0 || inactive.replaced.length > 0) && (
+          <details className="text-sm">
+            <summary data-demo-ok className="cursor-pointer text-xs text-muted">定例会議で保留・直した教訓（保留{inactive.held.length}件・直した{inactive.replaced.length}件。アイデア出しと朝会には渡していません）</summary>
+            <div className="card mt-2 divide-y divide-line">
+              {[...inactive.held, ...inactive.replaced].map((l) => (
+                <div key={l.id} className="space-y-1 p-3">
+                  <div className="text-ink-2"><span className="mr-2 text-xs text-muted">教訓{l.id}</span>{l.interpretation ?? l.text}</div>
+                  <div className="text-xs text-muted">
+                    {l.replaced_by ? `直して教訓${l.replaced_by}にした` : "保留"}
+                    {/* 見直しの理由（議長のAIが書いた文）は運営者だけに出す。来訪者には状態と後継の番号だけ（PR #211 の ai-review の指摘） */}
+                    {!owner ? "" : l.hold_reason && !l.replaced_by ? `: ${l.hold_reason}` : l.replaced_by && l.review_note ? `（${l.review_note}）` : ""}
+                  </div>
+                  {/* 保留・置き換えた教訓も、見直しの根拠（使われ方の明細）をたどれるようにする（PR #211 の ai-review の指摘） */}
+                  {owner && stats.get(l.id) && <div className="text-xs text-ink-2"><UseDetails st={stats.get(l.id)!} /></div>}
+                  {owner && !l.replaced_by && <RestoreLesson id={l.id} />}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </section>
 
       <h2 className="font-bold">実験メモ</h2>
@@ -106,5 +144,25 @@ function Chip({ href, active, children }: { href: string; active: boolean; child
     <Link href={href} className={`num rounded-full border px-3 py-1 ${active ? "border-accent bg-accent text-accent-ink" : "border-line text-ink-2 hover:text-ink"}`}>
       {children}
     </Link>
+  );
+}
+
+// 教訓の使われ方の明細（運営者だけ）。どの案件の、どの版・予定を変え、結果がどうだったか（lessons.ts）
+function UseDetails({ st }: { st: LessonStat }) {
+  return (
+    <details>
+      <summary data-demo-ok className="cursor-pointer text-muted">使われ方の明細（{st.list.length}件）</summary>
+      <ul className="mt-1 space-y-0.5">
+        {st.list.map((u, i) => (
+          <li key={i}>
+            {USE_KIND_LABEL[u.kind]}
+            {u.projectId && <Link href={`/projects/${u.projectId}`} className="ml-1 text-accent underline">#{u.projectId}</Link>}
+            {u.refId && u.kind === "improve" && <span className="ml-1">第{u.refId}版</span>}
+            {u.refId && (u.kind === "promo" || u.kind === "plain") && <span className="ml-1">朝会の予定{u.refId}</span>}
+            ：「{u.change}」→ {OUTCOME_LABEL[u.outcome]}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

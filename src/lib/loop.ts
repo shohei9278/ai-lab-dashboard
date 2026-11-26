@@ -26,6 +26,7 @@ import { buildPage, judgePages, pageTexts, type PageCheck } from "./freePage";
 import { funnelText } from "./funnel";
 import { aimBasis, aimJudgeLine, capacityBasis, judgeAim, judgeBasis, parseJudgeAdjust } from "./judgeBasis";
 import { jstDateTime } from "./format";
+import { LESSON_USE_RULE, recordLessonUses } from "./lessons";
 import { checkRule, improveChecksText, parseCheck, pendingCheck, saveCheck } from "./improveCheck";
 import { planIdeaNote, planPausesNew } from "./plan";
 import { EXPLORE_LABEL, exploreDone, exploreSlots, madeGenres } from "./explore";
@@ -56,7 +57,8 @@ export type Idea = {
   kind?: ProductKind; // 出し方（AIが選ぶ。無ければ事前登録LP）
   channel?: string; // 最初の利用者がいる場所（どこで、どう届けるか）
   first_test?: string; // 最初の1週間で、何人に届けて何を確かめるか
-  judge?: { visits?: number; days?: number; why?: string }; // この案件だけ判断の基準を調整するとき（ねらいの基準の半分〜1.5倍。judgeBasis.ts）
+  judge?: { visits?: number; days?: number; why?: string };
+  lessons_used?: unknown; // 教訓を見て案を変えたときの、教訓の番号と変えたこと（lessons.ts） // この案件だけ判断の基準を調整するとき（ねらいの基準の半分〜1.5倍。judgeBasis.ts）
   alternative?: string; // 代わりになる既存の無料サービス（名前）と、それとの違い
   season?: "seasonal" | "evergreen"; // 季節もの（その時期だけ）か、1年中ある困りごとか
   want_id?: number; // 元にした「欲しい」の声（user_wants）の番号
@@ -347,9 +349,9 @@ genre には、アイデアのジャンルを短い言葉で書く（例: ${GENR
 - 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案や、知らない人へのDM・個別の勧誘は出さない（スパム扱いされやすいため）
 - 自分の投稿だけ（フォロワーほぼ0では、ほとんど表示されない）にせず、運営者が手でできる直接の接点を最低1つ、数つきで channel に入れる（first_test には書かない）。例: 対象の人が集まるコミュニティ・グループの管理者に、紹介してよいか相談する（2か所）/ 対象に当てはまる知人に使ってもらい、感想を聞く（3人）/ ルールで紹介が認められている場（自己紹介・成果物の共有の場など）に1回だけ載せる
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
-形式: {"ideas":[{"aim":"spread・useful・return・demand のどれか","genre":"ジャンル（短い言葉）","kind":"lp または tool（aim から決まる）","title":"サービス名","target":"誰向けか（具体的に）","problem":"useful・demand は、その人が困っていること・欲しいこと。spread は、その人のどんな気持ちに刺さるか。return は、毎日来る動機（考える順番のとおり）","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","judge":{"visits":判断に入る訪問,"days":訪問が少なくても判断する日数,"why":"この案件だけ基準を変える理由"}（ねらいの基準と違う時間がかかる理由があるときだけ。なければ書かない）,"alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 何を作り込むか","deep_data":"じっくり案件で大きなデータが要るときだけ: 要るデータ","needs":[{"kind":"store・api・ai・asset・other のどれか（じっくり案件で、今はない仕組みが要るときだけ）","what":"何が要るか（短く）","why":"なぜ要るか"}],"api_wish":{"name":"使いたい API の名前（あるときだけ）","purpose":"何に使うか","key":true または false（鍵が要るか）,"sends":"訪問者のどんな情報を送ることになるか（送らないなら「なし」）"}}]}`,
+形式: {"ideas":[{"aim":"spread・useful・return・demand のどれか","genre":"ジャンル（短い言葉）","kind":"lp または tool（aim から決まる）","title":"サービス名","target":"誰向けか（具体的に）","problem":"useful・demand は、その人が困っていること・欲しいこと。spread は、その人のどんな気持ちに刺さるか。return は、毎日来る動機（考える順番のとおり）","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","judge":{"visits":判断に入る訪問,"days":訪問が少なくても判断する日数,"why":"この案件だけ基準を変える理由"}（ねらいの基準と違う時間がかかる理由があるときだけ。なければ書かない）,"lessons_used":[{"id":教訓の番号,"change":"その教訓を見て、この案のどこをどう変えたか"}]（教訓を見て案を変えたときだけ。なければ空の配列）,"alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 何を作り込むか","deep_data":"じっくり案件で大きなデータが要るときだけ: 要るデータ","needs":[{"kind":"store・api・ai・asset・other のどれか（じっくり案件で、今はない仕組みが要るときだけ）","what":"何が要るか（短く）","why":"なぜ要るか"}],"api_wish":{"name":"使いたい API の名前（あるときだけ）","purpose":"何に使うか","key":true または false（鍵が要るか）,"sends":"訪問者のどんな情報を送ることになるか（送らないなら「なし」）"}}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
-    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}${aims.length ? `\n今回のねらい（この順に1件ずつ出す）: ${aims.map((a, i) => `${i + 1}件目=${a}（${AIMS[a].label}）`).join("、")}` : ""}\nジャンル: ${explore ? `これまで作ったジャンル（これ以外から選ぶ）: ${madeGenres().join("・") || "まだなし"}` : genres.length ? `運営者が選んだもの（合うものがなければ、ないジャンルを使ってよい）: ${genres.join("・")}` : `おまかせ（最近の案件のジャンル: ${recentGenres.join("・") || "まだなし"}。同じジャンルが続かないようにする）`}${explore ? `\n今回は${EXPLORE_LABEL}: まだ作ったことのないジャンルや形（遊び方・見た目・使う場面）を1つ選び、過去の成功に似せないこと。これまでの数字・効いた手・人気のジャンルは、わざと渡していない。題材や対象者も、既にある案件の言い換えにしない` : ""}${deepOnly ? "\n今回は運営者の依頼で、すべてをじっくり案件（kind は tool、deep に何を作り込むかを書く。大きなデータが要るときは deep_data も書く）で出すこと。ふつうの tool の制限では面白さが出ない題材を選ぶ" : ""}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上（シェア数も参考にする）\n- 判断に入る基準（ねらいごと）: ${aimJudgeLine(s)}。この案件だけ違う時間がかかる理由（例: 週に1回しか使わない道具なので再訪に日がかかる）があれば、judge に書く（ねらいの基準の半分〜1.5倍まで。公開のあとは変えられない）。judge で変わるのは、判断に入る訪問と、訪問が少なくても判断する日数だけ。「広がる」では当たったあとの基準にだけ使い、最初の当たりの判定（公開から${s.spreadJudgeDays}日・遊んだ人${s.spreadHitPlays}人・シェア${s.spreadHitShares}件）は案件ごとには変えられない\n- spread は上の tool の基準に加えて、公開から${s.spreadJudgeDays}日の、遊んだ人の数とシェアの数も見る。return は、何日かあとにまた来た人がいるかも見る${explore ? "" : `\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}${hitsText()}${hotIdeaHint()}`}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${explore ? "" : `${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`}`,
+    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}${aims.length ? `\n今回のねらい（この順に1件ずつ出す）: ${aims.map((a, i) => `${i + 1}件目=${a}（${AIMS[a].label}）`).join("、")}` : ""}\nジャンル: ${explore ? `これまで作ったジャンル（これ以外から選ぶ）: ${madeGenres().join("・") || "まだなし"}` : genres.length ? `運営者が選んだもの（合うものがなければ、ないジャンルを使ってよい）: ${genres.join("・")}` : `おまかせ（最近の案件のジャンル: ${recentGenres.join("・") || "まだなし"}。同じジャンルが続かないようにする）`}${explore ? `\n今回は${EXPLORE_LABEL}: まだ作ったことのないジャンルや形（遊び方・見た目・使う場面）を1つ選び、過去の成功に似せないこと。これまでの数字・効いた手・人気のジャンルは、わざと渡していない。題材や対象者も、既にある案件の言い換えにしない` : ""}${deepOnly ? "\n今回は運営者の依頼で、すべてをじっくり案件（kind は tool、deep に何を作り込むかを書く。大きなデータが要るときは deep_data も書く）で出すこと。ふつうの tool の制限では面白さが出ない題材を選ぶ" : ""}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上（シェア数も参考にする）\n- 判断に入る基準（ねらいごと）: ${aimJudgeLine(s)}。この案件だけ違う時間がかかる理由（例: 週に1回しか使わない道具なので再訪に日がかかる）があれば、judge に書く（ねらいの基準の半分〜1.5倍まで。公開のあとは変えられない）。judge で変わるのは、判断に入る訪問と、訪問が少なくても判断する日数だけ。「広がる」では当たったあとの基準にだけ使い、最初の当たりの判定（公開から${s.spreadJudgeDays}日・遊んだ人${s.spreadHitPlays}人・シェア${s.spreadHitShares}件）は案件ごとには変えられない\n- spread は上の tool の基準に加えて、公開から${s.spreadJudgeDays}日の、遊んだ人の数とシェアの数も見る。return は、何日かあとにまた来た人がいるかも見る${explore ? "" : `\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓（${LESSON_USE_RULE}。lessons_used に書く）:\n${lessons}${hitsText()}${hotIdeaHint()}`}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${explore ? "" : `${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
   // ねらいと形をそろえる。頼んだねらいにない案は候補にしない（運営者が絞ったねらい・配分を0にしたねらいの案件ができないように）
@@ -382,6 +384,9 @@ function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confide
       .lastInsertRowid,
   );
   logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${AIMS[aimOfIdea(idea)].label}${isStr(idea.genre) && idea.genre.trim() ? `・${idea.genre.trim().slice(0, 30)}` : ""}${isDeepIdea(idea) ? "・じっくり案件" : ""}${explore ? `・${EXPLORE_LABEL}` : ""}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
+  // 教訓を見て変えた案なら、その使い方を残す（案件になった案だけ。lessons.ts）
+  // その回に渡した教訓の番号だけを受け付ける（実験枠は教訓を渡さないので受け付けない。PR #211 の ai-review の指摘）
+  recordLessonUses(idea.lessons_used, { allowed: explore ? new Set() : new Set(activeLessons().map((l) => l.id)), scene: "アイデア出し", modelId: ideaModel, projectId: id, kind: "idea", refId: id });
   if (adjust) logEvent(id, "ai", "judge-adjust", `この案件の判断の基準を、${[adjust.visits !== null ? `訪問${adjust.visits}人` : "", adjust.days !== null ? `${adjust.days}日` : ""].filter(Boolean).join("・")}にしました（ほかはねらいの基準のまま。ねらいの基準と違う理由: ${adjust.reason}）`);
   return id;
 }
@@ -2339,7 +2344,7 @@ export function debateStats() {
 
 // 毎日の計画から呼ぶ: 集客中の案件のページ（ツールなら画面）を、決めた内容で直して差し替える（チェックを通らなければ人に回す）
 // 判断からの改善と同じ条件（improveBlocked）を通す。結果: published = 直して公開した / held = チェックで問題が残り承認待ちにした / blocked = 条件に合わず直さなかった
-export type ImproveOutcome = { kind: "published" | "held" | "blocked"; detail: string };
+export type ImproveOutcome = { kind: "published" | "held" | "blocked"; detail: string; version?: number };
 export async function planImprove(projectId: number, instruction: string, check?: unknown): Promise<ImproveOutcome> {
   const p = getProject(projectId);
   if (!p || p.demo || p.stage !== "live") return { kind: "blocked", detail: "集客中の案件ではないため" };
@@ -2382,7 +2387,7 @@ async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutco
     return { kind: "held", detail: `第${version}版に直したが、公開中の版は替わっていない（公開サイトに出していない案件）` };
   }
   saveCheck(projectId, version, { ...plan, at: new Date().toISOString() });
-  return { kind: "published", detail: `第${version}版に直して公開した` };
+  return { kind: "published", detail: `第${version}版に直して公開した`, version };
 }
 
 // ---- 4. 教訓メモ ----
@@ -2425,9 +2430,10 @@ ${EXTRAS_RULE}`,
 }
 
 // アイデア出しに渡す形（確かさと、まだ分からないことも一緒に渡す）
+// 教訓は番号つきで渡す（教訓を見て判断を変えたときに、どの教訓かを書けるように。lessons.ts）
 export function lessonLine(l: LessonRow): string {
-  if (!l.fact) return `- ${l.text}`;
-  return `- [確かさ: ${CERTAINTY_LABEL[l.certainty ?? "low"]}] 事実: ${l.fact} / 仮の解釈: ${l.interpretation ?? l.text}${l.unknown ? ` / まだ分からない: ${l.unknown}` : ""}`;
+  if (!l.fact) return `- 【教訓${l.id}】${l.text}`;
+  return `- 【教訓${l.id}】[確かさ: ${CERTAINTY_LABEL[l.certainty ?? "low"]}] 事実: ${l.fact} / 仮の解釈: ${l.interpretation ?? l.text}${l.unknown ? ` / まだ分からない: ${l.unknown}` : ""}`;
 }
 
 // ---- 人間の承認 ----

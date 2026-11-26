@@ -81,3 +81,36 @@ export function NoteActions({ draft, topics, certainties, projects }: { draft: N
     </div>
   );
 }
+
+// 定例会議で保留した教訓を、AIに渡す教訓に戻す（lessons.ts）
+export function RestoreLesson({ id }: { id: number }) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="text-xs">
+      <button
+        type="button"
+        onClick={async () => {
+          if (!window.confirm(`教訓${id}を、アイデア出しと朝会に渡す教訓に戻しますか？`)) return;
+          setError(null);
+          // 失敗したら、理由を画面に出す（PR #211 の ai-review の指摘）
+          try {
+            const res = await fetch("/api/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "restore-lesson", id }) });
+            if (!res.ok) {
+              const body = (await res.json().catch(() => ({}))) as { error?: string };
+              setError(body.error ?? `戻せませんでした（${res.status}）`);
+              return;
+            }
+            router.refresh();
+          } catch {
+            setError("通信できませんでした。もう一度押してください");
+          }
+        }}
+        className="text-accent underline"
+      >
+        戻す
+      </button>
+      {error && <span role="alert" className="ml-2" style={{ color: "var(--critical)" }}>{error}</span>}
+    </div>
+  );
+}
