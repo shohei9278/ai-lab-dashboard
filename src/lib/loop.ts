@@ -24,6 +24,8 @@ import { trendsText } from "./trends";
 import { withIllustration } from "./illustration";
 import { buildPage, judgePages, pageTexts, type PageCheck } from "./freePage";
 import { funnelText } from "./funnel";
+import { jstDateTime } from "./format";
+import { checkRule, improveChecksText, parseCheck, pendingCheck, saveCheck } from "./improveCheck";
 import { planIdeaNote, planPausesNew } from "./plan";
 import { EXPLORE_LABEL, exploreDone, exploreSlots, madeGenres } from "./explore";
 import { EXTRAS_RULE, addProposal, takeExtras } from "./voices";
@@ -83,6 +85,7 @@ export type Decision = {
   reason: string;
   confidence: number;
   next_action: string;
+  check?: unknown; // 改善を選んだときの答え合わせ（予想・変える所・見る数字・いつ判断するか。improveCheck.ts）
 };
 
 export type Review = { ok: boolean; issues: string[] };
@@ -1907,9 +1910,10 @@ improve は「今すぐ変える」場合だけに使う。「もう少し様子
 「ページの中での動き」があれば、どこで離脱しているか（読まれていない・ボタンが押されない・入力したのに登録しない など）を理由と next_action に活かすこと。
 「遊びの深さ」があれば、書き添えた「見方」（案件のねらいごとの、良い結果の見方）に沿って読むこと。役に立つツールでは、短い時間で終わるのを悪い結果とみなさない。
 improve の場合、next_action には「どこを、どう変えるか」を1か所だけ、条件を付けずに具体的に書くこと（一度に複数を変えると、何が効いたか分からなくなるため）。
+improve の場合は、${checkRule(p.kind)}。材料の「ページの直しの答え合わせ」に結果があれば、予想が当たったかを次の判断に活かす。
 rethink の場合、next_action には「どこで（具体的な場所・ハッシュタグ・検索される言葉）、誰に、どんな切り口で届けるか」を具体的に書くこと。これまでの届け方と同じことは書かない。自動で投稿できるのは X・Threads・Bluesky の自分の投稿だけで、それ以外の場所は運営者の手作業になるので、自分の投稿の切り口を中心にする。他人の投稿やQ&Aサイトに宣伝のための返信・回答をする案は出さない。${slowNote}
 外の声（実際の人の反応）があれば、数字と同じかそれ以上に重く見る。外の声や調べたことを根拠に判断や next_action を変えたら、voice_effects に声の番号（voice_ids）・調べものの番号（research_ids）と、何をどう変えたかを書く（なければ空の配列）。
-形式: {"decision":"${growing ? "improve|rethink|collect|kill" : "continue|improve|collect|rethink|kill"}","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること","voice_effects":[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"change":"何をどう変えたか"}]}`,
+形式: {"decision":"${growing ? "improve|rethink|collect|kill" : "continue|improve|collect|rethink|kill"}","reason":"判断理由（数字を引用）","confidence":0から1,"next_action":"次にやること","check":{"why":"予想","part":"変える箇所","metric":"見る数字","min_visits":30,"days":7}（improve のときだけ）,"voice_effects":[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"change":"何をどう変えたか"}]}`,
     user: `サービス: ${p.title}（対象: ${p.target}）
 仮説: ${p.hypothesis}
 企画のときに決めた最初の届け方: ${p.first_channel ?? "（なし）"}
@@ -1919,7 +1923,7 @@ ${p.growth_focus ? `いまの集客の方針（前回の見直しで決めたも
 SNSへの投稿: ${posts}${split}
 今の${isTool ? "版" : "LP"}（第${p.lp_version}版）での結果: 訪問 ${cur.visits}人 / ${c.noun} ${cur.signups}人 / ${c.rate} ${(cur.rate * 100).toFixed(1)}%
 全体の結果: 訪問 ${all.visits}人 / ${c.noun} ${all.signups}人 / ${c.rate} ${(all.rate * 100).toFixed(1)}%${isTool ? ` / シェア ${shares}人` : ""} / 広告費 ${all.adSpendJpy}円
-${funnelText(p)}
+${funnelText(p)}${(() => { const t = improveChecksText(p.id, 3); return t ? `\n${t}` : ""; })()}
 目標の${c.rate}: ${(targetRate(p.kind, s) * 100).toFixed(1)}% / 1案件の広告費上限: ${s.adBudgetPerProjectJpy}円 / 上限を超えたあと改善に使える追加の広告費: ${s.improveExtraBudgetJpy}円 / これまでの改善回数: ${p.improve_count}回
 これまでの経過:
 ${history}
@@ -1968,7 +1972,7 @@ async function startGrowth(projectId: number, reason: string) {
 
 // 人の承認なしで改善してよいか（判断からの改善・朝会からの改善で共通）。だめなら理由を返す
 // budget: 今月の予算の残りが少ない（作り直さずに今のまま集客を続ける扱いにする）
-export function improveBlocked(p: ProjectRow, adSpendJpy = projectTotals(p.id).adSpendJpy): { reason: string; budget?: boolean } | null {
+export function improveBlocked(p: ProjectRow, adSpendJpy = projectTotals(p.id).adSpendJpy): { reason: string; budget?: boolean; wait?: boolean } | null {
   const s = getSettings();
   // 今の版になってから人が改善を却下していたら、その意思を優先して自動では変えない
   const humanSaidNo = db()
@@ -1986,6 +1990,9 @@ export function improveBlocked(p: ProjectRow, adSpendJpy = projectTotals(p.id).a
     : null;
   if (reason) return { reason };
   if (!budgetState().creativeOk) return { reason: "今月の予算の残りが少ないため", budget: true };
+  // 前の直しの答え合わせを待っている間は、自動では直さない（2か所を同時に変えると、何が効いたか分からなくなるため。improveCheck.ts）
+  const wait = pendingCheck(p.id);
+  if (wait) return { reason: `前の直し（第${wait.version}版）の答え合わせを待っているため（新しい版の訪問${wait.check.minVisits}人か、${jstDateTime(wait.until)}まで）`, wait: true };
   return null;
 }
 
@@ -2007,6 +2014,12 @@ async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Pr
       // 予算の残りが少ないときは、作り直さずに今のまま集客を続ける（投稿と判断の分を残す）
       setStage(projectId, "live");
       logEvent(projectId, "system", "collect", `改善の判断でしたが、今月の予算の残りが少ないため、作り直さずに今のまま集客を続けます: ${d.next_action}`);
+      return null;
+    }
+    if (gate?.wait) {
+      // 答え合わせを待っている間は、人の判断にも回さず、今の版のまま集客を続ける（答えが出てから、次の判断で直す）
+      setStage(projectId, "live");
+      logEvent(projectId, "system", "collect", `改善の判断でしたが、${gate.reason}、今の版のまま集客を続けます: ${d.next_action}`);
       return null;
     }
     if (!gate) {
@@ -2319,19 +2332,23 @@ export function debateStats() {
 // 毎日の計画から呼ぶ: 集客中の案件のページ（ツールなら画面）を、決めた内容で直して差し替える（チェックを通らなければ人に回す）
 // 判断からの改善と同じ条件（improveBlocked）を通す。結果: published = 直して公開した / held = チェックで問題が残り承認待ちにした / blocked = 条件に合わず直さなかった
 export type ImproveOutcome = { kind: "published" | "held" | "blocked"; detail: string };
-export async function planImprove(projectId: number, instruction: string): Promise<ImproveOutcome> {
+export async function planImprove(projectId: number, instruction: string, check?: unknown): Promise<ImproveOutcome> {
   const p = getProject(projectId);
   if (!p || p.demo || p.stage !== "live") return { kind: "blocked", detail: "集客中の案件ではないため" };
   if (buildingNow(projectId)) return { kind: "blocked", detail: "この案件は、いま作業中のため" };
   if (db().prepare("SELECT 1 FROM approvals WHERE project_id = ? AND status = 'pending'").get(projectId)) return { kind: "blocked", detail: "この案件には承認待ちがあるため" };
   const gate = improveBlocked(p);
   if (gate) return { kind: "blocked", detail: gate.reason };
-  return autoImprove(projectId, { next_action: instruction } as Decision);
+  return autoImprove(projectId, { next_action: instruction, check } as Decision);
 }
 
 async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutcome> {
+  const p0 = getProject(projectId)!;
+  const before = p0.public_version ?? p0.lp_version;
   const built = await buildLpVersion(projectId, { instruction: d.next_action, note: `自動改善: ${d.next_action}`, keepCore: true });
   const { version } = built;
+  // 直す前に決めた答え合わせを、新しい版に残す（予想・変える所・見る数字・いつ判断するか。improveCheck.ts）
+  saveCheck(projectId, version, parseCheck(d.check, p0, d.next_action, before));
   let review = built.review;
   // 動くツールは、ブラウザでの自動テストも通ったものだけ自動で差し替える
   if (getProject(projectId)!.kind === "tool") {

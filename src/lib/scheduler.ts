@@ -19,6 +19,7 @@ import { maybeAutoAsk } from "./autoAsk";
 import { checkToolCheckJump } from "./toolCheckStats";
 import { maybeResearchWants } from "./wants";
 import { checkFlowJump } from "./flowStats";
+import { evaluateImproveChecks } from "./improveCheck";
 import { autoToolRoutine } from "./toolRoutine";
 import { notifyLongWaits } from "./waits";
 
@@ -150,6 +151,12 @@ async function tickNow() {
     checkFlowJump();
   } catch (e) {
     logEvent(null, "system", "flow-alert-error", `仕組みの詰まりの確かめでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
+  }
+  // ページの直しの答え合わせ（決めた訪問か期限に届いた版を、直す前の版と比べる。AIは呼ばない。improveCheck.ts）
+  try {
+    evaluateImproveChecks();
+  } catch (e) {
+    logEvent(null, "system", "improve-check-error", `ページの直しの答え合わせでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
   }
   // アイデアが何度も欲しがった仕組みに使えるサービスを調べる（週に1回まで。AIの費用は調べもの1回分。wants.ts）
   try {

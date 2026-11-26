@@ -18,6 +18,7 @@ import { outsideText, recordVoiceEffects } from "./outside";
 import { addResearch, researchText, runResearch } from "./research";
 import { maskHandles } from "./viewer";
 import { doneEffectsText } from "./effects";
+import { CHECK_METRICS, checkRule, improveChecksText, metricsFor } from "./improveCheck";
 import { waitsText } from "./waits";
 import { decisionsText } from "./meetings";
 import { projectType } from "./aims";
@@ -66,7 +67,7 @@ export type TaskRow = {
   id: number; plan_id: number; at_time: string; kind: TaskKind; platform: string | null; project_id: number | null;
   angle: string | null; reason: string | null; status: TaskStatus; result: string | null; result_url: string | null; done_at: string | null;
   angle_type: string | null; likes: number | null; replies: number | null; reposts: number | null; reactions_at: string | null;
-  human_review: string | null; human_note: string | null; plain_facts: string | null;
+  human_review: string | null; human_note: string | null; plain_facts: string | null; improve_check: string | null;
 };
 export const TASK_KIND_LABEL: Record<TaskKind, string> = { promo: "宣伝の投稿", plain: "普通の投稿", improve: "ページを直す" };
 
@@ -308,6 +309,7 @@ function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: Hot
     `運営者からの提案（提案箱にあなたが入れたもの。返事待ち）:\n${(db().prepare("SELECT id, title, how FROM plan_requests WHERE source = 'human' AND status = 'open' ORDER BY id DESC LIMIT 10").all() as { id: number; title: string; how: string | null }[]).map((r) => `- 【${r.id}】${r.title}${r.how ? `: ${r.how}` : ""}`).join("\n") || "（なし）"}`,
     `提案箱（あなたたちAIからのお願い・定例会議の提案。直近30日）:\n${(db().prepare("SELECT * FROM plan_requests WHERE created_at >= datetime('now', '-30 days') ORDER BY id DESC").all() as RequestRow[]).map((r) => `- 「${r.title}」→ ${r.status === "open" ? "まだ返事なし" : r.status === "done" ? `やった${r.decided_at ? `（${jstDateTime(r.decided_at)}）` : ""}` : "見送り"}${r.note ? `・運営者のひとこと: ${r.note}` : ""}`).join("\n") || "（まだなし）"}`,
     doneEffectsText(),
+    improveChecksText(null, 8) || "ページの直しの答え合わせ: まだない",
     waitsText(),
     decisionsText(),
     `教訓:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
@@ -326,7 +328,7 @@ type PlanOut = PlanContent & {
   research?: { question?: unknown; why?: unknown; how?: unknown; project_id?: unknown } | null;
   trials?: unknown; // 試し（trials.ts の addTrials）
   trial_results?: unknown; // 判定日時が来た試しの結論（trials.ts の applyTrialResults）
-  tasks: { time: string; kind: TaskKind; platform?: string; project_id?: number; type?: string; angle: string; reason: string }[];
+  tasks: { time: string; kind: TaskKind; platform?: string; project_id?: number; type?: string; angle: string; reason: string; check?: unknown }[];
 };
 
 const isPlanOut = (v: unknown): v is PlanOut =>
@@ -418,6 +420,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - plain: 宣伝ではない普通の投稿（リンクなし。運営アカウント「Hitoride」の投稿）。platform と angle（話題）を決める。話題は次のどれか: 実験の記録（本物の数字）/ 作る裏側（実際にあった出来事）/ 案件の対象の人に役立つ小ネタ / そのまま使える文例・チェックリスト / 気軽な問いかけ
 - promo と plain には、切り口の型（type）も付ける: ${Object.entries(ANGLE_TYPES).map(([k, v]) => `${k}（${v}）`).join(" / ")}
 - improve: 集客中の案件のページ（ツールなら画面）を直す。project_id と angle（何をどう直すか、具体的に）を決める。1日1件まで。訪問がある程度あるのに登録・利用されない案件で、材料に「ページの自動改善: できる」とある案件だけ。結果が「held」（直したが承認待ちで未公開）の改善は、公開ページは変わっていないので、改善の効果として数字を読まない
+- improve の ${checkRule("tool")}。LP の案件の metric は ${metricsFor("lp").map((k) => `${k}=${CHECK_METRICS[k].label}`).join(" / ")} から選ぶ。材料の各案件の「ページの自動改善: できない」に答え合わせ待ちとある案件は直さない
 決めること:
 - 投稿の回数・時刻・場所・宣伝と普通の投稿の割合は、あなたが決める。数に決まりはない。材料の「場所ごとの宣伝の投稿の成績」から、場所ごとに決める: 1投稿あたりの成果が高い場所は増やし、投稿を増やしても1投稿あたりの訪問・成果が落ちている場所（同じ人に何度も見せている・宣伝ばかりに見える）は減らす。無料でも成果が出ない場所に数を積んでも効かない。数字が少ない場所は、少しずつ試す。宣伝ばかりのアカウントに見えないよう、普通の投稿も混ぜる。同じ時刻に固めず、間をあける
 - post_mix: 今日の場所ごとの投稿の数（宣伝・普通）と、その数にした理由を、場所ごとに1文で。tasks と同じ数にする（画面には、実際に予定に入った数と並べて出す）（例: "X 宣伝3（1投稿あたりの成果がいちばん高いので増やす）/ Threads 宣伝2・普通1（訪問は多いが成果が少ないので減らす）"）
@@ -446,7 +449,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
 - 宣伝先の配分（どの場所に、どの型の案件の宣伝を出すか）は、訪問の平均ではなく、「宣伝の投稿の成績（場所×案件の型）」の直近14日の利用数（事前登録LPなら登録数）と利用率で決める。直近14日で登録・利用が2件以上出た場所×型は、週の件数を決めずに増やしてよい（1成果あたりの費用と、増やしたあとの1投稿あたりの成果を見て決める。運営者が止めている場所は、材料に許しが書いてある分だけ）。件数が少ないので偶然の可能性も高く、決めつけない
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
-形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"post_mix":"場所ごとの投稿の数と理由","pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"trials":[],"trial_results":[],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由"}]}`,
+形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"post_mix":"場所ごとの投稿の数と理由","pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"trials":[],"trial_results":[],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由","check":{"why":"予想","part":"変える箇所","metric":"見る数字","min_visits":30,"days":7}（improve のときだけ）}]}`,
       user: material + opinionsText(opinions),
       validate: isPlanOut,
     });
@@ -521,10 +524,10 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
     return Number(conn.prepare("INSERT INTO daily_plans (day, model_id, content, pause_new, idea_note) VALUES (?, ?, ?, ?, ?)")
       .run(now.day, model, JSON.stringify(content), out.pause_new ? 1 : 0, out.idea_note?.trim().slice(0, 300) || null).lastInsertRowid);
   })();
-  const ins = conn.prepare("INSERT INTO plan_tasks (plan_id, at_time, kind, platform, project_id, angle, reason, angle_type, plain_facts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+  const ins = conn.prepare("INSERT INTO plan_tasks (plan_id, at_time, kind, platform, project_id, angle, reason, angle_type, plain_facts, improve_check) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
   for (const t of tasks) {
     const type = t.kind === "improve" ? null : isAngleType(t.type) ? t.type : "other";
-    ins.run(id, t.time, t.kind, t.kind === "improve" ? null : t.platform, t.kind === "plain" ? null : Number(t.project_id), String(t.angle ?? "").slice(0, 300), String(t.reason ?? "").slice(0, 300), type, t.kind === "plain" ? numbersAtPlan : null);
+    ins.run(id, t.time, t.kind, t.kind === "improve" ? null : t.platform, t.kind === "plain" ? null : Number(t.project_id), String(t.angle ?? "").slice(0, 300), String(t.reason ?? "").slice(0, 300), type, t.kind === "plain" ? numbersAtPlan : null, t.kind === "improve" && isObj(t.check) ? JSON.stringify(t.check).slice(0, 2000) : null);
   }
   // 試し（判定日時と見る数字・下限）と、判定日時が来た試しの結論
   applyTrialResults(out.trial_results, due, model);
@@ -625,7 +628,10 @@ async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string
   if (t.kind === "improve") {
     if (!t.project_id) return { status: "skipped", result: "案件が決まっていない" };
     // 公開した・承認待ちにした・条件に合わず直さなかった、を分けて残す（翌朝のAIが「直した結果」と読み違えないように）
-    const r = await planImprove(t.project_id, t.angle ?? "");
+    // 朝会が決めた答え合わせ（予想・変える所・見る数字・いつ判断するか）も渡す（improveCheck.ts）
+    let check: unknown = null;
+    try { check = t.improve_check ? JSON.parse(t.improve_check) : null; } catch { check = null; }
+    const r = await planImprove(t.project_id, t.angle ?? "", check);
     return r.kind === "published" ? { status: "done", result: `ページを直して公開しました: ${r.detail}` }
       : r.kind === "held" ? { status: "held", result: r.detail }
       : { status: "skipped", result: `直しませんでした（${r.detail}）` };
