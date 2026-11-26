@@ -1898,7 +1898,7 @@ export function judgePrompt(p: ProjectRow, trigger: JudgeTrigger = "visits") {
 - collect: 今のまま、もう少し集客してから判断する
 - kill: 需要が見込めないので撤退する`;
   const slowNote = trigger === "slow"
-    ? `\n今回は、公開（または前回の判断）から${judgeBasis(p, s).days}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。訪問が判断の基準（${s.judgeMinVisits}人）に届いていない間の kill は、自動では実行されず人の判断に回る。最初の届け方をまだやっていない（または見送った）なら、需要の問題ではなく届け方の問題として扱い、それを理由に書くこと。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
+    ? `\n今回は、公開（または前回の判断）から${judgeBasis(p, s).days}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。訪問が判断の基準（${judgeBasis(p, s).visits}人）に届いていない間の kill は、自動では実行されず人の判断に回る。最初の届け方をまだやっていない（または見送った）なら、需要の問題ではなく届け方の問題として扱い、それを理由に書くこと。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
     : "";
   const spreadNote = trigger === "spread"
     ? `\n今回は、ねらいが「広がる」（遊び・ネタで、見た人が触ってシェアし、フォロワーが増える）の案件が、公開（または前回の判断）から${s.spreadJudgeDays}日で、当たりの基準（遊んだ人${s.spreadHitPlays}人以上か、シェア${s.spreadHitShares}件以上）を超えたので判断する。広がっているので kill は選ばない。役に立つかではなく、もっと遊ばれ・シェアされるか（結果を見せたくなる工夫・次も遊びたくなる工夫）で考える。`

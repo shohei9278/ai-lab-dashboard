@@ -40,7 +40,9 @@ export function judgeBasis(p: Pick<ProjectRow, "aim" | "kind" | "judge_visits" |
   const base = aimBasis(aim, s);
   const visits = p.judge_visits && p.judge_visits > 0 ? p.judge_visits : base.visits;
   const days = p.judge_days && p.judge_days > 0 ? p.judge_days : base.days;
-  return { aim, visits, days, base: { visits: base.visits, days: base.days }, adjusted: visits !== base.visits || days !== base.days, reason: p.judge_reason ?? null };
+  // 調整したかは、案件の値が残っているかで決める（あとでねらいの基準と同じ値になっても、案件の値が効いていると分かるように。PR #209 の ai-review の指摘）
+  const own = (p.judge_visits ?? 0) > 0 || (p.judge_days ?? 0) > 0;
+  return { aim, visits, days, base: { visits: base.visits, days: base.days }, adjusted: own, reason: p.judge_reason ?? null };
 }
 
 // アイデアを案件にするときの、AIの案件ごとの調整（ねらいの基準の半分〜1.5倍。範囲の外は端に寄せる。理由がなければ調整しない）
@@ -52,7 +54,8 @@ export function parseJudgeAdjust(raw: unknown, base: { visits: number; days: num
   const fit = (v: unknown, b: number, min: number) => {
     const n = Math.round(Number(v));
     if (!Number.isFinite(n) || n <= 0) return b;
-    return Math.max(min, Math.min(Math.round(b * ADJUST_RANGE.max), Math.max(Math.round(b * ADJUST_RANGE.min), n)));
+    // 幅は、下限を切り上げ・上限を切り捨てで求める（7日の1.5倍の10.5日を11日にしない。PR #209 の ai-review の指摘）
+    return Math.max(min, Math.min(Math.floor(b * ADJUST_RANGE.max), Math.max(Math.ceil(b * ADJUST_RANGE.min), n)));
   };
   const visits = fit(o.visits, base.visits, 1);
   const days = fit(o.days, base.days, 1);

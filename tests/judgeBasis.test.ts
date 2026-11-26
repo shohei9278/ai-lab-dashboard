@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings, type ProjectRow } from "../src/lib/db";
 import { aimBasis, aimJudgeLine, capacityBasis, judgeBasis, parseJudgeAdjust } from "../src/lib/judgeBasis";
-import { SETTING_TITLE, addSettingProposals, settingsReviewText } from "../src/lib/settingsReview";
+import { SETTING_TITLE, addSettingProposals, medianOf, settingsReviewText } from "../src/lib/settingsReview";
 import { EXACT_TITLE_PREFIX } from "../src/lib/voices";
 
 // 判断に入る基準をねらいごとにする（11/26 に運営者が決めた）。案件ごとの調整は公開の前だけ。見直しはAIが提案し、運営者が決める
@@ -34,6 +34,8 @@ test("判断の基準: ねらいごとの値がなければ一括の値。ねら
   // 案件ごとに調整した値があれば、それを使う
   const adj = judgeBasis(row({ aim: "return", judge_visits: 40, judge_days: 21, judge_reason: "週に1回しか使わない" }), s);
   assert.deepEqual([adj.visits, adj.days, adj.adjusted, adj.reason], [40, 21, true, "週に1回しか使わない"]);
+  // あとでねらいの基準と同じ値になっても、案件の値が残っていれば「調整した」と分かる（PR #209 の ai-review の指摘）
+  assert.equal(judgeBasis(row({ aim: "return", judge_days: 14, judge_reason: "r" }), s).adjusted, true);
   restore();
 });
 
@@ -44,6 +46,10 @@ test("判断の基準: 案件ごとの調整は、理由があるときだけ、
   assert.equal(parseJudgeAdjust({ visits: 80 }, base), null); // 理由がなければ調整しない
   assert.equal(parseJudgeAdjust({ visits: 100, days: 10, why: "同じ" }, base), null); // 基準と同じなら調整しない
   assert.equal(parseJudgeAdjust(null, base), null);
+  // 幅は、下限を切り上げ・上限を切り捨て（7日の1.5倍は10日まで。1日なら1日のまま。PR #209 の ai-review の指摘）
+  assert.equal(parseJudgeAdjust({ days: 30, why: "長い" }, { visits: 100, days: 7 })?.days, 10);
+  assert.equal(parseJudgeAdjust({ days: 3, why: "長い" }, { visits: 100, days: 1 }), null);
+  assert.equal(parseJudgeAdjust({ visits: 1, why: "短い" }, { visits: 3, days: 7 })?.visits, 2);
 });
 
 test("判断の基準: 今の流入で育てられる案件の数は、「広がる」を除いて、ねらいの配分で重み付けした基準で見る", () => {
@@ -76,6 +82,17 @@ test("設定の見直し: 定例会議の案は、物差しの項目だけ・範
   assert.match(rows[1].how, /利用率の目標」（targetUseRate）を 30% から 20% にする/);
   // 同じ項目は14日のあいだ出さない
   assert.equal(addSettingProposals([{ raw: { key: "judgeDaysReturn", value: 21, why: "もう一度" }, proposer: "gpt" }], null, s), 0);
+  // 週2件は、同じ週に会議を開き直しても超えない（直近7日に入った分も数える。PR #209 の ai-review の指摘）
+  assert.equal(addSettingProposals([{ raw: { key: "maxAutoImprove", value: 3, why: "開き直した会議" }, proposer: "gpt" }], null, s), 0);
+  db().exec("DELETE FROM plan_requests");
+  // 登録していない項目名（継承した名前）・本物の数でない値・画面で保てない刻みは受け付けない
+  assert.equal(addSettingProposals([
+    { raw: { key: "constructor", value: 1, why: "x" }, proposer: "gpt" },
+    { raw: { key: "judgeVisitsReturn", value: null, why: "x" }, proposer: "gpt" },
+    { raw: { key: "judgeVisitsReturn", value: "60", why: "x" }, proposer: "gpt" },
+    { raw: { key: "targetUseRate", value: 0.005, why: "x" }, proposer: "gpt" },
+    { raw: { key: "judgeDaysReturn", value: 10.5, why: "x" }, proposer: "gpt" },
+  ], null, s), 0);
   db().exec("DELETE FROM plan_requests");
   restore();
 });
@@ -94,4 +111,10 @@ test("設定の見直し: 項目だけが違う設定の見直しどうしは、
   assert.equal((db().prepare("SELECT COUNT(*) AS n FROM plan_requests WHERE status = 'open'").get() as { n: number }).n, 2);
   db().exec("DELETE FROM plan_requests");
   restore();
+});
+
+test("設定の見直し: 訪問の中央値は、全部の訪問を足した値から出し、件数が偶数なら真ん中2つの平均（PR #209 の ai-review の指摘）", () => {
+  assert.equal(medianOf([500, 20, 80]), 80);
+  assert.equal(medianOf([500, 20, 80, 120]), 100);
+  assert.equal(medianOf([]), 0);
 });
