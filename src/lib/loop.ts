@@ -11,7 +11,7 @@ import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs"
 import { fixInstruction, pageOnlyIssues } from "./fixText";
 import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
-import { decideSameSource, parseSameSource, sameSourceGroups, sameSourceLine, type SameSourceChoice } from "./sameSource";
+import { decideSameSource, parseSameSource, sameSourceGate, sameSourceGroups, sameSourceLine, type SameSourceChoice } from "./sameSource";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, ILLUSTRATION_STYLES, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
 import { toolAssets, toolImages } from "./toolAssets";
@@ -3144,7 +3144,6 @@ ${groups.length ? `同じ元の声から出た案の組（最後に並べたも�
   // 同じ元の声の組の決め（過半数が「作り分ける」なら両方、ほかは1つに絞る）。絞る組は、点の高い順で先に選ばれた1件だけを案件にする
   const sameDecided = new Map<number, SameSourceChoice>(groups.map((g) => [g.wantId, decideSameSource(sameVotes.get(g.wantId) ?? [])]));
   const wantOf = new Map<number, number>(groups.flatMap((g) => g.items.map((x) => [x.c.id, g.wantId] as [number, number])));
-  const keptWants = new Set<number>();
   if (groups.length) {
     const text = groups.map((g) => {
       const votes = sameVotes.get(g.wantId) ?? [];
@@ -3154,16 +3153,10 @@ ${groups.length ? `同じ元の声から出た案の組（最後に並べたも�
     if (!practice) logEvent(null, "system", "same-source", `同じ元の声から出た案の決め:\n${text}`);
   }
   // dry: 確かめるだけ（経過に残さず、件数も減らさない。推し枠で、平均点なら何を選ぶかを先に見るため）
-  const accept = (x: { c: Candidate; aim: Aim }, dry = false) => {
-    const w = wantOf.get(x.c.id);
-    if (w !== undefined && sameDecided.get(w) === "one" && keptWants.has(w)) {
-      if (!dry) logEvent(null, "system", "same-source-skipped", `アイデア「${x.c.idea.title}」は、同じ元の声（声${w}）から出た案をもう案件にしていて、1つに絞ると決めたため、案件にしません`);
-      return false;
-    }
-    const ok = acceptOne(x, dry);
-    if (ok && !dry && w !== undefined) keptWants.add(w);
-    return ok;
-  };
+  // 同じ元の声で1つに絞る組は、本選考でも推し枠の事前選考でも2件目を通さない（事前選考は、選考ごとに別の集合で数える。sameSource.ts）
+  const gate = sameSourceGate<{ c: Candidate; aim: Aim }>((x) => wantOf.get(x.c.id), sameDecided, (x, dry) => acceptOne(x, dry), (x, w) =>
+    logEvent(null, "system", "same-source-skipped", `アイデア「${x.c.idea.title}」は、同じ元の声（声${w}）から出た案をもう案件にしていて、1つに絞ると決めたため、案件にしません`));
+  const accept = gate.accept;
   const acceptOne = ({ c, aim }: { c: Candidate; aim: Aim }, dry = false) => {
     const skip = (kind: string, text: string) => { if (!dry) logEvent(null, "system", kind, text); return false; };
     // 「広がる」は今回案件にしてよい件数まで（同時に集客中の上限・1日の上限）、じっくり案件は直近7日の上限まで
@@ -3205,7 +3198,7 @@ ${groups.length ? `同じ元の声から出た案の組（最後に並べたも�
   const list = candidates.map((c) => ({ c, aim: aimOfIdea(c.idea), avg: c.avg, author: c.author, top: c.top }));
   const champSlot = !practice && !!opts.champion && keep >= 2;
   const { picked, champion } = champSlot
-    ? pickWithChampion(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept, (x) => accept(x, true))
+    ? pickWithChampion(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept, gate.peek())
     : { picked: pickByAims(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept), champion: null };
   if (champion) champion.c.pick = "champion";
   const kept = picked.map((x) => x.c);

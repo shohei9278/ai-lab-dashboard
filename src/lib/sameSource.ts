@@ -47,3 +47,23 @@ export function decideSameSource(votes: SameSourceChoice[]): SameSourceChoice {
   const both = votes.filter((v) => v === "both").length;
   return both * 2 > votes.length ? "both" : "one";
 }
+
+// 1つに絞る組から、案件にするのを1件だけにする関門（accept をくるむ）
+// peek() は、推し枠の事前選考（平均点なら何を選ぶかを件数を減らさずに見る）1回分の確かめを作る。事前選考の中でも本選考と同じく組の2件目を通さないよう、
+// 事前選考ごとに新しい「通した声」の集合を持つ。その集合は本選考に引き継がない（本選考で通した声は、事前選考でも通さない）
+export function sameSourceGate<T>(
+  wantOf: (x: T) => number | undefined, decided: Map<number, SameSourceChoice>, inner: (x: T, dry: boolean) => boolean, onSkip: (x: T, wantId: number) => void = () => {},
+): { accept: (x: T) => boolean; peek: () => (x: T) => boolean } {
+  const kept = new Set<number>();
+  const make = (dry: boolean, taken: Set<number>) => (x: T) => {
+    const w = wantOf(x);
+    if (w !== undefined && decided.get(w) === "one" && (kept.has(w) || taken.has(w))) {
+      if (!dry) onSkip(x, w);
+      return false;
+    }
+    const ok = inner(x, dry);
+    if (ok && w !== undefined) taken.add(w);
+    return ok;
+  };
+  return { accept: make(false, kept), peek: () => make(true, new Set()) };
+}

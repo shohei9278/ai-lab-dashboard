@@ -1,7 +1,8 @@
 import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decideSameSource, parseSameSource, sameSourceGroups, sameSourceLine } from "../src/lib/sameSource";
+import { pickByAims } from "../src/lib/aims";
+import { decideSameSource, parseSameSource, sameSourceGate, sameSourceGroups, sameSourceLine } from "../src/lib/sameSource";
 
 const it = (label: string, wantId: number | null, extra: Partial<{ solution: string; target: string; channel: string }> = {}) =>
   ({ label, wantId, title: `案${label}`, solution: extra.solution ?? "家計を記録する", target: extra.target ?? "一人暮らし", channel: extra.channel });
@@ -31,4 +32,29 @@ test("同じ元の声: 作り分けるのは過半数が答えたときだけ。
   assert.equal(decideSameSource(["both", "one"]), "one");
   assert.equal(decideSameSource([]), "one");
   assert.equal(decideSameSource(["one", "one", "both"]), "one");
+});
+
+test("同じ元の声: 推し枠の事前選考でも、1つに絞る組の2件目を飛ばして次点に進む。事前選考の集合は本選考に引き継がない", () => {
+  type X = { id: string; aim: "useful"; avg: number; author: string };
+  const x = (id: string, avg: number, author: string): X => ({ id, aim: "useful", avg, author });
+  const A = x("A", 9, "claude"), B = x("B", 8, "gpt"), C = x("C", 7, "gemini");
+  const want = new Map([["A", 7], ["B", 7]]);
+  const skipped: string[] = [];
+  const dryCalls: string[] = [];
+  const gate = sameSourceGate<X>((v) => want.get(v.id), new Map([[7, "one" as const]]), (v, dry) => { if (dry) dryCalls.push(v.id); return true; }, (v) => skipped.push(v.id));
+  const pick = (accept: (v: X) => boolean) => pickByAims([A, B, C], 2, { useful: 1, spread: 0, return: 0, demand: 0 }, {}, ["useful"], 0, accept).map((v) => v.id);
+  // 2枠の事前選考: 同じ組の B を飛ばして C に進む（経過には残さない）
+  assert.deepEqual(pick(gate.peek()), ["A", "C"]);
+  assert.deepEqual(dryCalls, ["A", "C"]);
+  assert.deepEqual(skipped, []);
+  // 事前選考ごとに新しい集合（前の事前選考で A を通していても、次の事前選考で A を通せる）
+  assert.deepEqual(pick(gate.peek()), ["A", "C"]);
+  // 本選考は事前選考の集合を引き継がない（A を通せる）。本選考でも B は飛ばし、経過に残す
+  assert.deepEqual(pick(gate.accept), ["A", "C"]);
+  assert.deepEqual(skipped, ["B"]);
+  // 本選考で通した声は、そのあとの事前選考でも通さない
+  assert.deepEqual(pick(gate.peek()), ["C"]);
+  // 作り分ける組は両方通す
+  const both = sameSourceGate<X>((v) => want.get(v.id), new Map([[7, "both" as const]]), () => true);
+  assert.deepEqual(pick(both.peek()), ["A", "B"]);
 });
