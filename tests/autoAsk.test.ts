@@ -28,14 +28,14 @@ const TEXT: Record<string, [string, string]> = {
 const fix = (t: string) => ({ title: t, how: TEXT[t][0], why: TEXT[t][1] });
 const grow = (t: string) => ({ ...fix(t), kind: "growth" });
 
-test("攻めの提案: kind=growth は「攻め」として入り、1回（2日のあいだ）に2件まで。知らない kind は入れない", () => {
+test("攻めの提案: kind=growth は「攻め」として入り、1回（2日のあいだ）に3件まで。知らない kind は入れない", () => {
   clear();
-  const r = addReviewFindings([grow("届く先を増やす"), grow("シェアの導線を足す"), grow("通知を足す"), { ...fix("x"), kind: "other" }]);
-  assert.equal(r.added.length, 2);
-  assert.match(r.skipped.join("\n"), /攻めの2件を超えた/);
+  const r = addReviewFindings([grow("届く先を増やす"), grow("シェアの導線を足す"), grow("通知を足す"), grow("攻めの機能"), { ...fix("x"), kind: "other" }]);
+  assert.equal(r.added.length, 3);
+  assert.match(r.skipped.join("\n"), /攻めの3件を超えた/);
   assert.match(r.skipped.join("\n"), /kind は fix/);
   const scenes = (db().prepare("SELECT scene FROM plan_requests ORDER BY id").all() as { scene: string }[]).map((x) => x.scene);
-  assert.deepEqual(scenes, [GROWTH_SCENE, GROWTH_SCENE]);
+  assert.deepEqual(scenes, [GROWTH_SCENE, GROWTH_SCENE, GROWTH_SCENE]);
 });
 
 test("攻めの提案: 定例会議で3社が採点する（守りは採点しない）", () => {
