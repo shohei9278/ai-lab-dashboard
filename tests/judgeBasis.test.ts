@@ -164,3 +164,23 @@ test("判断の基準の文: 「広がる」は、実際の判定と同じく、
   assert.equal(judgedByVisits({ aim: "useful", growth_phase: 0 }), true);
   restore();
 });
+
+test("設定の見直しの材料: 「広がる」の訪問の基準に届いた件数は、育てる段階に入った案件だけで数える（外れた案件・判定前の案件は入れない。PR #210 の ai-review の指摘）", () => {
+  reset();
+  const s = getSettings();
+  db().exec("DELETE FROM metrics");
+  const jst = (t: number) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(t));
+  const pubDay = jst(Date.now() - 10 * 86_400_000);
+  const add = (title: string, hit: number | null, growth: number) => Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, spread_hit, growth_phase, published_at) VALUES (?, 't', 'p', 's', 'h', 'r', 'live', 'claude', 'tool', 'spread', ?, ?, ?)").run(title, hit, growth, `${pubDay} 09:00:00`).lastInsertRowid);
+  const m = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, source, lp_version) VALUES (?, ?, ?, 0, 'real', 1)");
+  const miss = add("外れたが訪問は多い", 0, 0);
+  m.run(miss, jst(Date.parse(`${pubDay}T00:00:00Z`) + 86_400_000), 150);
+  const grown = add("当たって育てる段階", 1, 1);
+  m.run(grown, jst(Date.parse(`${pubDay}T00:00:00Z`) + 2 * 86_400_000), 120);
+  const line = settingsReviewText(s).split("\n").find((l) => l.startsWith("- 広がる:"))!;
+  assert.match(line, /当たったのは1件（外れ1件）/);
+  assert.match(line, /直近60日に公開した2件（訪問の基準で判断するのは、育てる段階に入った1件）のうち、1つの版の訪問で基準に届いたのは1件（届くまで平均2日）・訪問の中央値120人/);
+  db().exec("DELETE FROM metrics");
+  db().prepare("DELETE FROM projects WHERE id IN (?, ?)").run(miss, grown);
+  restore();
+});

@@ -1,6 +1,6 @@
 import { db, getSettings, type ProjectRow, type Settings } from "./db";
 import { AIMS, AIM_KEYS } from "./aims";
-import { AIM_JUDGE_KEYS, aimBasis, judgeAim, judgeBasis } from "./judgeBasis";
+import { AIM_JUDGE_KEYS, aimBasis, judgeAim, judgeBasis, judgedByVisits } from "./judgeBasis";
 import { logEvent } from "./loop";
 import { addProposal } from "./voices";
 
@@ -55,7 +55,9 @@ export function settingsReviewText(s: Settings = getSettings()): string {
     if (!ps.length) return `- ${AIMS[a].label}: ${spreadHead}基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した案件なし`;
     // 届いたかは、表示しているねらいの基準で、実際の判断と同じく版ごとの訪問で見る（案件ごとに調整した基準や、版をまたいだ合計では数えない。PR #209 の ai-review の指摘）
     // 届くまでの日数は、公開日と届いた日を日本時間の日付どうしで比べる
-    const reach = ps.map((p) => {
+    // 訪問の基準に届いたかは、訪問の基準で判断する案件だけで数える（育てる段階の前の「広がる」は、当たり・外れで別に数える。PR #210 の ai-review の指摘）
+    const vs = ps.filter(judgedByVisits);
+    const reach = vs.map((p) => {
       const rows = db().prepare("SELECT lp_version AS ver, day, SUM(visits) AS v FROM metrics WHERE project_id = ? AND source != 'simulated' GROUP BY lp_version, day ORDER BY day").all(p.id) as { ver: number | null; day: string; v: number }[];
       const perVer = new Map<number | null, number>();
       let total = 0;
@@ -68,12 +70,15 @@ export function settingsReviewText(s: Settings = getSettings()): string {
       }
       const pubDay = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(Date.parse(`${p.published_at!.replace(" ", "T")}Z`)));
       const days = hit ? Math.max(0, Math.round((Date.parse(`${hit}T00:00:00Z`) - Date.parse(`${pubDay}T00:00:00Z`)) / 86_400_000)) : null;
-      return { reached: !!hit, days, total, stage: p.stage, adjusted: judgeBasis(p, s).adjusted };
+      return { reached: !!hit, days, total };
     });
     const ok = reach.filter((r) => r.reached);
     const avgDays = ok.length ? Math.round(ok.reduce((n, r) => n + (r.days ?? 0), 0) / ok.length) : null;
     const median = medianOf(reach.map((r) => r.total));
-    return `- ${AIMS[a].label}: ${spreadHead}基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した${ps.length}件のうち、1つの版の訪問で基準に届いたのは${ok.length}件${avgDays !== null ? `（届くまで平均${avgDays}日）` : ""}・訪問の中央値${median}人・撤退${reach.filter((r) => r.stage === "killed").length}件${reach.some((r) => r.adjusted) ? `・うち${reach.filter((r) => r.adjusted).length}件は案件ごとに基準を調整している` : ""}`;
+    const adjusted = ps.filter((p) => judgeBasis(p, s).adjusted).length;
+    const killed = ps.filter((p) => p.stage === "killed").length;
+    const scope = vs.length === ps.length ? "" : `（訪問の基準で判断するのは、育てる段階に入った${vs.length}件）`;
+    return `- ${AIMS[a].label}: ${spreadHead}基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した${ps.length}件${scope}のうち、1つの版の訪問で基準に届いたのは${ok.length}件${avgDays !== null ? `（届くまで平均${avgDays}日）` : ""}・訪問の中央値${vs.length ? `${median}人` : "—"}・撤退${killed}件${adjusted ? `・うち${adjusted}件は案件ごとに基準を調整している` : ""}`;
   });
   const keys = Object.keys(REVIEWABLE) as (keyof Settings)[];
   return `設定の物差し（運営者が設定の画面で決めている値。AIは書き換えない）:
