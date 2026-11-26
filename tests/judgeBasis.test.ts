@@ -126,18 +126,23 @@ test("設定の見直しの材料: 届いたかは、ねらいの基準で、版
   reset();
   const s = getSettings();
   db().exec("DELETE FROM metrics");
-  const add = (title: string, judgeVisits: number | null) => Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, judge_visits, published_at) VALUES (?, 't', 'p', 's', 'h', 'r', 'live', 'claude', 'tool', 'useful', ?, ?)").run(title, judgeVisits, "2026-11-01 09:00:00").lastInsertRowid);
+  // 公開日は今日から10日前（日本時間18時。テストを走らせる日に関係なく、直近60日に入るように。PR #209 の ai-review の指摘）
+  const jst = (t: number) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(t));
+  const pubDay = jst(Date.now() - 10 * 86_400_000);
+  const pub = `${pubDay} 09:00:00`;
+  const after = (n: number) => jst(Date.parse(`${pubDay}T00:00:00Z`) + n * 86_400_000);
+  const add = (title: string, judgeVisits: number | null) => Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, judge_visits, published_at) VALUES (?, 't', 'p', 's', 'h', 'r', 'live', 'claude', 'tool', 'useful', ?, ?)").run(title, judgeVisits, pub).lastInsertRowid);
   const m = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, source, lp_version) VALUES (?, ?, ?, 0, 'real', ?)");
   // 版をまたぐと110人だが、どの版も100人に届いていない → 届いていない
   const a = add("版をまたぐ", null);
-  m.run(a, "2026-11-02", 70, 1);
-  m.run(a, "2026-11-03", 40, 2);
+  m.run(a, after(1), 70, 1);
+  m.run(a, after(2), 40, 2);
   // 案件の基準は60人に調整しているが、ねらいの基準（100人）では届いていない → 届いていない（調整した案件として数える）
   const b = add("調整した", 60);
-  m.run(b, "2026-11-02", 70, 1);
+  m.run(b, after(1), 70, 1);
   // 公開（日本時間 18時）の翌日に届いた → 1日
   const c = add("翌日に届いた", null);
-  m.run(c, "2026-11-02", 120, 1);
+  m.run(c, after(1), 120, 1);
   const text = settingsReviewText(s);
   assert.match(text, /- 役に立つ: 基準 訪問100人か7日（一括の値）・直近60日に公開した3件のうち、1つの版の訪問で基準に届いたのは1件（届くまで平均1日）・訪問の中央値110人・撤退0件・うち1件は案件ごとに基準を調整している/);
   db().exec("DELETE FROM metrics");
