@@ -3099,7 +3099,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
 - tool なら、外部の通信なしで本当に作れるか
 - 季節が過ぎても需要が残るか。季節もの（その時期だけ使われるもの）は、時期が過ぎたあとも使われる理由がなければ減点する（公開から判断まで1〜3週間かかり、育てる時間もいるため）
 点数は甘くしないこと（平凡なものは5点前後）。
-${groups.length ? `同じ元の声から出た案の組（最後に並べたもの）は、組ごとに、どれか1つに絞る（one）か、作り分ける（both）かも答える。機能も届け先も重なり、両方作ると検証の訪問者や運営者の手間が分かれるだけなら one。機能か届け先がはっきり違い、別々に確かめる意味があるなら both。点数はそれぞれの案の中身で付ける（絞るかどうかで点を変えない）\n` : ""}形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]${groups.length ? `,"same_source":[{"voice":声の番号,"choice":"one" または "both","reason":"理由を1文で"}]` : ""}}${practice ? "" : `\n${EXTRAS_RULE}`}`,
+${groups.length ? `同じ元の声から出た案の組（最後に並べたもの）は、組ごとに、どれか1つに絞る（one）か、作り分ける（both）かも答える。both は特定の2案を選ぶ答えではなく、組のすべての案を採用候補に残す答え（one なら組から1つだけが残る）。3件以上の組でも、組全体を見て決める。組の中に機能も届け先も重なる案があり、すべて作ると検証の訪問者や運営者の手間が分かれるだけなら one。組のどの案どうしも機能か届け先がはっきり違い、すべてを別々に確かめる意味があるなら both。点数はそれぞれの案の中身で付ける（絞るかどうかで点を変えない）\n` : ""}形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]${groups.length ? `,"same_source":[{"voice":声の番号,"choice":"one" または "both","reason":"理由を1文で"}]` : ""}}${practice ? "" : `\n${EXTRAS_RULE}`}`,
           user: `${opts.theme ? `依頼されたテーマ: ${opts.theme}（テーマから外れたものは減点する）\n\n` : ""}${sheet}${sameSheet}`,
           validate: (v): v is { scores: { label: string; score: number; reason: string }[] } =>
             isObj(v) && Array.isArray(v.scores) && v.scores.every((x) => isObj(x) && isStr(x.label) && typeof x.score === "number"),
@@ -3141,7 +3141,7 @@ ${groups.length ? `同じ元の声から出た案の組（最後に並べたも�
     if (isAim(r.aim)) aimCounts[r.aim] = r.n;
   }
   let spreadLeft = practice ? Infinity : opts.spreadRoom ?? Infinity;
-  // 同じ元の声の組の決め（過半数が「作り分ける」なら両方、ほかは1つに絞る）。絞る組は、点の高い順で先に選ばれた1件だけを案件にする
+  // 同じ元の声の組の決め（過半数が「作り分ける」なら組のすべて、ほかは1つに絞る）。絞る組は、点の高い順で先に選ばれた1件だけを案件にする
   const sameDecided = new Map<number, SameSourceChoice>(groups.map((g) => [g.wantId, decideSameSource(sameVotes.get(g.wantId) ?? [])]));
   const wantOf = new Map<number, number>(groups.flatMap((g) => g.items.map((x) => [x.c.id, g.wantId] as [number, number])));
   if (groups.length) {
