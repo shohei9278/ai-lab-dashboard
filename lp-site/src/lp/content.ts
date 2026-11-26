@@ -162,7 +162,7 @@ export function normalizeLp(raw: unknown): Lp {
       corners: pick("corners", "round"),
       painStyle: pick("painStyle", "cards"),
       featureStyle: pick("featureStyle", "cards"),
-      // 選ばれなかった部分も、決まった順で後ろに付ける（中身がある部分だけが表示される）
+      // 選ばれなかった部分も、決まった順で後ろに付ける（中身のない部分は、下の中身を整えたあとで外す）
       order: [...order, ...SECTIONS.filter((x) => !order.includes(x))],
       illustration: ill,
     };
@@ -205,5 +205,18 @@ export function normalizeLp(raw: unknown): Lp {
   }
   if (isObj(v.page) && isStr(v.page.html) && v.page.html.length <= PAGE_HTML_MAX) lp.page = { html: v.page.html };
   if (v.short === true && lp.tool) lp.short = true;
+  // 表示順には、中身がある部分だけを残す（order に beforeAfter があるのに中身がなく、チェックで食い違いとされた。提案箱 #71）
+  if (lp.design) lp.design.order = lp.design.order.filter((k) => hasSection(lp, k));
   return lp;
+}
+
+// その部分に、表示する中身があるか
+function hasSection(lp: Lp, k: SectionKey): boolean {
+  switch (k) {
+    case "pains": return lp.pains.length > 0;
+    case "beforeAfter": return !!lp.beforeAfter;
+    case "features": return lp.features.length > 0;
+    case "steps": return !!lp.steps;
+    case "faq": return lp.faq.length > 0;
+  }
 }
