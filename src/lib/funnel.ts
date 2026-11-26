@@ -50,7 +50,8 @@ export function checkToolErrors(p: ProjectRow): void {
   logEvent(p.id, "system", "tool-runtime-error", `公開中の第${v}版のツールで、来た人の画面でエラーが起きました（のべ${n}人: ${errs.slice(0, 3).map((e) => `${toolErrorLabel(e)} ${e.visitors}人`).join("・")}）`);
 }
 
-// 遊びの深さ: 来た人1人あたり、どれだけ遊んだか（来た人数に左右されない、面白さの目安。まずは見るだけで、当たりの判定やAIの判断には使わない）
+// 遊びの深さ: 来た人1人あたり、どれだけ遊んだか（来た人数に左右されない、面白さの目安）
+// AIの判断の材料には、案件のねらいに合わせた見方と一緒に渡す（playText。11/26 に運営者が決めた）。当たりの判定（hits.ts）には、まだ使わない
 // 公開サイトが、遊んだ時間・結果を出した回数・結果の種類が決まった区切りを超えたときに記録する（lp-site/src/lp/playDepth.ts）
 // 人数は、ほかの段と同じく訪問者ごと・1日1回で数える
 export type PlayDepth = {
@@ -122,6 +123,35 @@ export function playDepth(all: { name: string; detail: string; visitors: number 
   };
 }
 
+// 遊び始めた人がこれより少ないうちは、割合の差を信じすぎないよう書き添える
+export const PLAY_FEW_USERS = 20;
+
+// ねらいごとの、遊びの深さの見方（一律に「長く遊ばせる」方向へ直させない。役に立つツールは、すぐ用が済むのも良い結果）
+export function playLens(aim: string | null): string {
+  if (aim === "spread") return "ねらいは「広がる」: 触ったあとも遊び続けたか（60秒以上）と、結果を何回も出したか（2回以上）を良い結果として見る。シェアの数も合わせて見る";
+  if (aim === "return") return "ねらいは「また来てもらう」: 別の日にまた来た人をいちばん重く見る。1回の遊んだ時間は参考にとどめる";
+  if (aim === "useful") return "ねらいは「役に立つ」: 目的の操作まで行けたか（ツールを操作した人）を見る。短い時間で終わるのは、すぐ用が済んだということで悪くない。遊んだ時間や結果を出した回数を増やすための変更はしない";
+  return "ねらいが決まっていない案件: 遊んだ時間の長さだけで良し悪しを決めない";
+}
+
+// AIの判断に渡す、遊びの深さ（動くツールで、記録が届いているときだけ）。人数と、遊び始めた人に対する割合を並べる
+export function playText(p: Pick<ProjectRow, "kind" | "aim">, d: PlayDepth | null): string {
+  if (p.kind !== "tool" || !d || (!d.hasData && !d.revisit)) return "";
+  const pc = (n: number) => (d.users ? `${Math.round((n / d.users) * 100)}%` : "—");
+  const time = d.time.filter((x) => x.visitors > 0).map((x) => `${x.mark < 60 ? `${x.mark}秒` : `${x.mark / 60}分`}以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
+  const results = d.results.filter((x) => x.visitors > 0).map((x) => `${x.mark}回以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
+  const kinds = d.kinds.filter((x) => x.visitors > 0).map((x) => `${x.mark}種類以上 ${x.visitors}人`).join("・");
+  const parts = [
+    `遊び始めた ${d.users}人`,
+    time ? `遊んだ時間: ${time}` : "",
+    results ? `結果を出した回数: ${results}` : "",
+    kinds ? `出した結果の種類: ${kinds}` : "",
+    `別の日にまた来た ${d.revisit}人`,
+  ].filter(Boolean);
+  const few = d.users < PLAY_FEW_USERS ? `（遊び始めた人が${PLAY_FEW_USERS}人未満のうちは、割合の差は偶然の可能性が高い）` : "";
+  return `\n遊びの深さ（今の版。割合は遊び始めた人に対して）: ${parts.join(" / ")}${few}\n見方: ${playLens(p.aim)}`;
+}
+
 // AIの判断に渡す文
 export function funnelText(p: ProjectRow): string {
   const f = funnel(p);
@@ -133,9 +163,11 @@ export function funnelText(p: ProjectRow): string {
   // 来た人の画面で起きたツールのエラーは、AIの判断にも渡す（遊べていないかもしれないため）
   const errs = f.toolErrors.length ? `\n来た人の画面で起きたツールのエラー: ${f.toolErrors.slice(0, 5).map((e) => `${toolErrorLabel(e)} ${e.visitors}人`).join(" / ")}` : "";
   const prev = previousText(p, f.version);
-  if (!f.hasEvents) return `${channels}${errs}${prev}`.trim();
+  // 遊びの深さ（遊んだ時間・結果を出した回数・再訪）は、ねらいに合わせた見方と一緒に渡す
+  const play = playText(p, f.play);
+  if (!f.hasEvents) return `${channels}${play}${errs}${prev}`.trim();
   return `ページの中での動き（第${f.version}版・訪問者に対する割合）: ${f.steps.map((s) => `${s.label} ${s.visitors}人（${pc(s.ofVisits)}）`).join(" → ")}
-読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}${channels ? `\n${channels}` : ""}${errs}${prev}`;
+読んだ深さ: ${f.depth.map((d) => `${d.percent}%まで ${d.visitors}人`).join(" / ")}${f.errors ? ` / 登録の失敗 ${f.errors}人` : ""}${channels ? `\n${channels}` : ""}${play}${errs}${prev}`;
 }
 
 // 前の版との比べ: ページを直して新しい版になると、新しい版の少ない数字しか見えず、直しが効いたかを比べられなかった（運営者が、毎日の直しが過去に基づいているかを尋ね、足すと決めた）
