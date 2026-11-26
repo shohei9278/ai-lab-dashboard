@@ -5,8 +5,8 @@ import { logEvent } from "./loop";
 import type { Fetch } from "./routine";
 
 // 提案箱の「仕組みの改善」を、運営者が押さなくても、自動でルーティンに頼む（運営者が決めた。人の出番を減らす4つ目と、その続き）
-// - 一度に頼むのは1件だけ（前に頼んだ PR がまだ開いている・PR ができていない間は頼まない）。終わったら、次の見回り（1時間に1回）で次を頼む
-// - 全部合わせて1日（24時間）に DAILY_MAX 件まで（暴走したときの歯止め。種類ごとの上限はやめた。運営者が「1日1件だと遅い」と言い、決めた。たまっていたので、運営者が4件から6件に上げた）
+// - 一度に頼むのは1件だけ（前に頼んだ PR がまだ開いている・PR ができていない間は頼まない）。終わったら、次の見回り（15分に1回）で次を頼む
+// - 全部合わせて1日（24時間）に DAILY_MAX 件まで（暴走したときの歯止め。種類ごとの上限はやめた。運営者が「1日1件だと遅い」と言い、決めた。たまっていたので、運営者が4件から6件に、11/26 に6件から10件に上げた。仕組みの詰まりで、提案箱の依頼待ちがいちばん長く、上限で止まっていたため）
 // - 頼む順:
 //   1. コードの見直しの守り（直すべき所）: 入ってから1日たっても見送られなければ（その間に運営者が見送れば頼まない）
 //   2. 運営者が書いた提案: 入ってから1時間たっても見送られなければ（書いてすぐ頼まれると、取り消す間がないため）
@@ -20,7 +20,10 @@ import type { Fetch } from "./routine";
 // - 設定の「提案箱の提案を自動で頼む」で切れる。緊急停止の間・PR の状態の読み直しに失敗している間は頼まない
 export const GROWTH_MIN_SCORE = 7;
 export const AUTO_MIN_SCORE = 5;
-export const DAILY_MAX = 6;
+export const DAILY_MAX = 10;
+// 見回りの間。頼む提案がない・進めている提案がある・上限に達しているときは何もしないので、短くしても費用はかからない
+// （1時間に1回だと、PR がマージされてから次を頼むまで最大1時間あいていた。11/26 に運営者が15分に縮めると決めた）
+export const ASK_EVERY_MS = 15 * 60_000;
 const FIX_WAIT = "-1 day";
 const HUMAN_WAIT = "-1 hour";
 
@@ -95,14 +98,14 @@ export function autoAskStatus(): AutoAskStatus {
     asked: asked.length, max: DAILY_MAX, resumeAt,
     next: c.next ? { id: c.next.row.id, title: c.next.row.title, why: c.next.why } : null,
     waiting: c.waiting,
-    nextCheckAt: g.__aiLabAutoAskAt ? g.__aiLabAutoAskAt + 3_600_000 : null,
+    nextCheckAt: g.__aiLabAutoAskAt ? g.__aiLabAutoAskAt + ASK_EVERY_MS : null,
   };
 }
 
-// 定期の処理から呼ぶ（1時間に1回）。頼んだら true
+// 定期の処理から呼ぶ（ASK_EVERY_MS ごと。15分に1回）。頼んだら true
 const g = globalThis as unknown as { __aiLabAutoAskAt?: number };
 export async function maybeAutoAsk(fetchImpl: Fetch = fetch, force = false): Promise<boolean> {
-  if (!force && g.__aiLabAutoAskAt && Date.now() - g.__aiLabAutoAskAt < 3_600_000) return false;
+  if (!force && g.__aiLabAutoAskAt && Date.now() - g.__aiLabAutoAskAt < ASK_EVERY_MS) return false;
   // 人の依頼を送っている途中なら、今回は見送る（次の見回りで、その依頼を数えて決める）
   if (aiFixSending()) return false;
   // PR の状態の読み直しに失敗している間は頼まない（GitHub にある PR を数えそこねて、2件目を頼まないように。PR #154 の ai-review の指摘）

@@ -46,7 +46,7 @@ function AutoAskPanel({ st }: { st: AutoAskStatus }) {
           <p className="text-xs text-muted">理由: {st.next.why.replace(/^自動: /, "")}</p>
         </>
       )}
-      {!st.off && <p className="mt-1 text-xs text-muted">次に見る時刻: {check ? `${at(check)}ごろ` : resume ? `${at(resume)} のあとの最初の見回り` : "次の見回り（5分以内）"}（1時間に1回見て、1件ずつ頼みます）</p>}
+      {!st.off && <p className="mt-1 text-xs text-muted">次に見る時刻: {check ? `${at(check)}ごろ` : resume ? `${at(resume)} のあとの最初の見回り` : "次の見回り（5分以内）"}（15分に1回見て、1件ずつ頼みます）</p>}
     </div>
   );
 }
@@ -125,7 +125,7 @@ export default async function ProposalsPage() {
           <p className="text-xs text-muted">
             ダッシュボードの動き方（AIへの指示・集計・自動化の決まりなど）を変える提案です。
             {linked
-              ? `押さなくても、1時間に1回、1件ずつ自動でクラウドの Claude Code に頼みます（1日${autoAsk.max}件まで）。頼む順は、コードの見直しの守り（入ってから1日後）→ 運営者の提案（1時間後）→ 採点の高い順（${GROWTH_MIN_SCORE}点以上が先、${AUTO_MIN_SCORE}点以上まで。朝会の仮の点は${GROWTH_MIN_SCORE}点以上のときだけ）。Claude Code が直して PR を作り、CI と2社のレビューが通れば自動でマージし、「やった」になります。直さなくてよいと判断したものは見送ります。${aiFix ? "急ぐものは「AIに直させる」で先に頼めます。" : ""}`
+              ? `押さなくても、15分に1回見て、1件ずつ自動でクラウドの Claude Code に頼みます（1日${autoAsk.max}件まで）。頼む順は、コードの見直しの守り（入ってから1日後）→ 運営者の提案（1時間後）→ 採点の高い順（${GROWTH_MIN_SCORE}点以上が先、${AUTO_MIN_SCORE}点以上まで。朝会の仮の点は${GROWTH_MIN_SCORE}点以上のときだけ）。Claude Code が直して PR を作り、CI と2社のレビューが通れば自動でマージし、「やった」になります。直さなくてよいと判断したものは見送ります。${aiFix ? "急ぐものは「AIに直させる」で先に頼めます。" : ""}`
               : `直すときは、Claude Code に「提案箱の〇〇をやって」と伝えてください。${owner ? "Claude Code のルーティンをつなぐと、ここから頼めます（docs/SETUP-AI-FIX.md）。" : ""}`}
           </p>
         </div>
