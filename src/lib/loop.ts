@@ -998,7 +998,7 @@ ${p.kind === "tool"
 問題がなければ {"ok":true,"issues":[]}。
 形式: {"ok":true または false,"issues":["問題点"]}
 ${EXTRAS_RULE}`,
-    user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}${toolFacts ? `\n\nツールの中身（tool.html から取り出した、選択肢・入力欄の最初の値・画面に出る文言。${toolFacts.endsWith(TOOL_FACTS_CUT) ? "長いので途中までしか渡していない。ここにないからといって、ツールで作れないとは言い切らない" : "ここにない選択肢や例文は、ツールでは作れない"}）:\n${toolFacts}` : ""}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(beforeForReview(before))}` : ""}`,
+    user: `対象読者: ${p.target}\nサービスの中身: ${p.solution}${toolFacts ? `\n\nツールの中身（tool.html から取り出した、選択肢・入力欄の最初の値・画面に出る文言。${toolFacts.includes(TOOL_FACTS_CUT) ? "長いので途中までしか渡していない。ここにないからといって、ツールで作れないとは言い切らない" : "ここにない選択肢や例文は、ツールでは作れない"}）:\n${toolFacts}` : ""}\n\nチェックするLP:\n${JSON.stringify(lp)}${before ? `\n\n前の版:\n${JSON.stringify(beforeForReview(before))}` : ""}`,
   };
 }
 
@@ -1032,8 +1032,8 @@ export function toolFactsForReview(html: string, max = 3000): string {
   const TEXT_TYPES = new Set(["text", "search", "email", "tel", "url", "password", "textarea"]);
   const field = (a: Map<string, string>, type: string, value?: string) => {
     const name = a.get("aria-label") || a.get("name") || a.get("id") || "";
-    const maxLength = a.get("maxlength")?.trim();
-    const parts = [value !== undefined && value !== "" ? `最初の値 ${value}` : "", a.get("min") ? `最小 ${a.get("min")}` : "", a.get("max") ? `最大 ${a.get("max")}` : "", TEXT_TYPES.has(type.toLowerCase()) ? (maxLength ? `文字数の上限 ${maxLength}` : "文字数の上限なし") : "", a.get("placeholder") ? `入力例 ${a.get("placeholder")}` : "", a.has("checked") ? "最初から選ばれている" : ""].filter(Boolean);
+    const maxLength = maxLengthOf(a.get("maxlength"));
+    const parts = [value !== undefined && value !== "" ? `最初の値 ${value}` : "", a.get("min") ? `最小 ${a.get("min")}` : "", a.get("max") ? `最大 ${a.get("max")}` : "", TEXT_TYPES.has(type.toLowerCase()) ? (maxLength !== undefined ? `文字数の上限 ${maxLength}` : "文字数の上限なし") : "", a.get("placeholder") ? `入力例 ${a.get("placeholder")}` : "", a.has("checked") ? "最初から選ばれている" : ""].filter(Boolean);
     return parts.length || type === "radio" || type === "checkbox" ? `${name || type}（${type}${parts.length ? `・${parts.join("・")}` : ""}）` : "";
   };
   const inputs = [
@@ -1047,7 +1047,27 @@ export function toolFactsForReview(html: string, max = 3000): string {
   const strings = scriptStrings(scripts).map((x) => x.replace(/\s+/g, " ").trim()).filter((x) => /[ぁ-んァ-ヶ一-龠]/.test(x));
   if (strings.length) lines.push(`スクリプトの中の文言: ${[...new Set(strings)].join(" / ")}`);
   const out = lines.join("\n");
-  return out.length > max ? `${out.slice(0, Math.max(0, max - TOOL_FACTS_CUT.length))}${TOOL_FACTS_CUT}` : out;
+  if (out.length <= max) return out;
+  // 長いときは、区分（選択肢・入力欄・ボタンや見出し・スクリプトの文言）ごとに枠を分け、1つの区分だけで枠を使い切らないようにする。
+  // 短い区分はそのまま入れ、余った分を長い区分で分ける（入力欄が多いと、後ろのボタンやスクリプトの文言が切られて照らせなかった。PR #213 のレビュー）
+  const caps: number[] = new Array(lines.length).fill(0);
+  let left = max - (lines.length - 1);
+  lines.map((_, i) => i).sort((x, y) => lines[x].length - lines[y].length).forEach((i, k, order) => {
+    caps[i] = Math.min(lines[i].length, Math.floor(left / (order.length - k)));
+    left -= caps[i];
+  });
+  const fitted = lines.map((l, i) => (l.length <= caps[i] ? l : caps[i] > TOOL_FACTS_CUT.length ? `${l.slice(0, caps[i] - TOOL_FACTS_CUT.length)}${TOOL_FACTS_CUT}` : ""));
+  // 枠がとても小さく、区分ごとに分けると入らないときは、全体を頭から切る
+  return fitted.every(Boolean) ? fitted.join("\n") : `${out.slice(0, Math.max(0, max - TOOL_FACTS_CUT.length))}${TOOL_FACTS_CUT}`;
+}
+
+// 文字数の上限（maxlength）を、HTML の負でない整数の読み方で読む（頭の空白は飛ばし、数字の後ろは無視する）。
+// 読めない値・負の値は、ブラウザーでは上限にならないので「上限なし」（undefined）として扱う。0 は上限 0 として扱う
+export function maxLengthOf(v: string | undefined): number | undefined {
+  const m = v?.match(/^[\t\n\f\r ]*([+-]?)(\d+)/);
+  if (!m) return undefined;
+  const n = Number(m[2]);
+  return m[1] === "-" && n !== 0 ? undefined : n;
 }
 
 // ツールの中の、エラーや代わりの動き（センサーが使えない・保存できない など）の文言を取り出す。LP作成に別枠で渡し、よくある質問で触れてもらう

@@ -764,6 +764,20 @@ test("LPのチェックに渡すツールの中身: 選択肢・最初の値・�
   assert.match(ml, /nick（TEXT・文字数の上限なし）/);
   assert.match(ml, /n（number・最小 1）/);
   assert.match(ml, /c（checkbox）/);
+  // 上限として働かない値（負・数でない・空）は「上限なし」。0 は上限 0。数字の後ろは無視する（HTML の読み方）
+  const bad = toolFactsForReview(`<input name="neg" maxlength="-1"><input name="abc" maxlength="abc"><input name="empty" maxlength=""><input name="zero" maxlength="0"><input name="sp" maxlength=" 30px">`);
+  assert.match(bad, /neg（text・文字数の上限なし）/);
+  assert.match(bad, /abc（text・文字数の上限なし）/);
+  assert.match(bad, /empty（text・文字数の上限なし）/);
+  assert.match(bad, /zero（text・文字数の上限 0）/);
+  assert.match(bad, /sp（text・文字数の上限 30）/);
+  // 入力欄が多くても、その区分だけで枠を使い切らず、後ろのボタンやスクリプトの文言が残る
+  const crowded = toolFactsForReview(`${Array.from({ length: 200 }, (_, i) => `<input name="field${i}">`).join("")}<button>結果を見る</button><script>const t = "あなたの結果です";</script>`);
+  assert.ok(crowded.length <= 3000);
+  assert.match(crowded, /入力欄: field0（text・文字数の上限なし）[^\n]*…（長いので途中まで）\n/);
+  assert.match(crowded, /ボタン・見出し: 結果を見る/);
+  assert.match(crowded, /スクリプトの中の文言: あなたの結果です/);
+  assert.match(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, { headline: "h", subheadline: "s", cta: "c", pains: [], features: [], faq: [] } as never, undefined, crowded).user, /途中までしか渡していない/);
   // 正規表現の中の引用符で、文の読み取りがずれない（割り算はそのまま）
   assert.match(toolFactsForReview(`<script>const a = t.replace(/"/g, "日本語"); const r = 10 / 2; const b = '二つ目';</script>`), /日本語 \/ 二つ目/);
   // 長いボタンも捨てず、切ったあとも max を超えない
