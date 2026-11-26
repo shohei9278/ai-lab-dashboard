@@ -26,12 +26,13 @@ export async function openFirst(tries: BrowserTry[], strict = false): Promise<Br
     try {
       return await t.launch();
     } catch (e) {
-      const msg = (e instanceof Error ? e.message : String(e)).split("\n")[0].slice(0, 300);
-      if (strict) throw new Error(`${t.name}を開けませんでした（AI_LAB_BROWSER_STRICT のため、ほかのブラウザは使いません）: ${msg}`);
-      errors.push(`${t.name}: ${msg}`);
+      // CI では、元のエラーをそのまま投げ直す（スタックや起動の診断を消さない。PR #204 の ai-review の指摘）
+      if (strict) throw e;
+      // 原因は2行目より後に書かれることがあるので、全文を残す（長すぎる分だけ切る）
+      errors.push(`${t.name}: ${(e instanceof Error ? e.message : String(e)).slice(0, 4000)}`);
     }
   }
-  console.error(`ブラウザを開けませんでした\n${errors.map((x) => `- ${x}`).join("\n")}`);
+  console.error(`ブラウザを開けませんでした（AI_LAB_BROWSER_STRICT=1 では、最初の1つだけを試し、元のエラーで落とす）\n${errors.map((x) => `- ${x}`).join("\n")}`);
   return null;
 }
 

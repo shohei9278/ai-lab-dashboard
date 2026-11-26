@@ -127,11 +127,19 @@ test("自動の依頼: 見回りは15分に1回。頼める提案があり、頼
   };
   assert.equal(ASK_EVERY_MS, 15 * 60_000);
   const g = globalThis as unknown as { __aiLabAutoAskAt?: number };
-  g.__aiLabAutoAskAt = Date.now() - 14 * 60_000;
-  assert.equal(await maybeAutoAsk(ok), false);
-  assert.equal(calls.length, 0);
-  g.__aiLabAutoAskAt = Date.now() - 15 * 60_000 - 1000;
-  assert.equal(await maybeAutoAsk(ok), true);
+  // 時計を止めて、14分では頼まず、15分ちょうどで頼むことを見る
+  const now = Date.now();
+  const realNow = Date.now;
+  Date.now = () => now;
+  try {
+    g.__aiLabAutoAskAt = now - 14 * 60_000;
+    assert.equal(await maybeAutoAsk(ok), false);
+    assert.equal(calls.length, 0);
+    g.__aiLabAutoAskAt = now - 15 * 60_000;
+    assert.equal(await maybeAutoAsk(ok), true);
+  } finally {
+    Date.now = realNow;
+  }
   assert.equal(calls.length, 1);
   saveSettings({ autoAskReview: keep.autoAskReview, killSwitch: keep.killSwitch });
   delete process.env.CLAUDE_ROUTINE_TOKEN;
