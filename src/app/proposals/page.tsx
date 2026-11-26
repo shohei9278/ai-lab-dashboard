@@ -7,7 +7,10 @@ import { modelInfo } from "@/lib/models";
 import { openRequests, recentRequests, sourceLabel, type RequestRow } from "@/lib/plan";
 import { AddProposal, AiFixRequest, AnswerRequest, ReviveIdea } from "../plan/PlanActions";
 import { aiFixConfigured, aiFixPrLabel, aiFixPrUrl, aiFixPrsUrl, aiFixRetryable } from "@/lib/aiFix";
-import { AUTO_MIN_SCORE, GROWTH_MIN_SCORE, autoAskStatus, type AutoAskStatus } from "@/lib/autoAsk";
+import { ASK_EVERY_MS, AUTO_MIN_SCORE, GROWTH_MIN_SCORE, autoAskStatus, type AutoAskStatus } from "@/lib/autoAsk";
+
+// 見回りの間隔（分）。説明の文は、実装の間隔から作る（PR #200 の ai-review の指摘）
+const ASK_EVERY_MIN = Math.round(ASK_EVERY_MS / 60_000);
 
 // 自動の依頼の今の様子（運営者が決めた。たまっているときに、止まっているのか・上限で待っているのか・いつ次を見るのかを分かるように）
 function AutoAskPanel({ st }: { st: AutoAskStatus }) {
@@ -46,7 +49,7 @@ function AutoAskPanel({ st }: { st: AutoAskStatus }) {
           <p className="text-xs text-muted">理由: {st.next.why.replace(/^自動: /, "")}</p>
         </>
       )}
-      {!st.off && <p className="mt-1 text-xs text-muted">次に見る時刻: {check ? `${at(check)}ごろ` : resume ? `${at(resume)} のあとの最初の見回り` : "次の見回り（5分以内）"}（15分に1回見て、1件ずつ頼みます）</p>}
+      {!st.off && <p className="mt-1 text-xs text-muted">次に見る時刻: {check ? `${at(check)}ごろ` : resume ? `${at(resume)} のあとの最初の見回り` : "次の見回り（5分以内）"}（{ASK_EVERY_MIN}分に1回見て、1件ずつ頼みます）</p>}
     </div>
   );
 }
@@ -125,7 +128,7 @@ export default async function ProposalsPage() {
           <p className="text-xs text-muted">
             ダッシュボードの動き方（AIへの指示・集計・自動化の決まりなど）を変える提案です。
             {linked
-              ? `押さなくても、15分に1回見て、1件ずつ自動でクラウドの Claude Code に頼みます（1日${autoAsk.max}件まで）。頼む順は、コードの見直しの守り（入ってから1日後）→ 運営者の提案（1時間後）→ 採点の高い順（${GROWTH_MIN_SCORE}点以上が先、${AUTO_MIN_SCORE}点以上まで。朝会の仮の点は${GROWTH_MIN_SCORE}点以上のときだけ）。Claude Code が直して PR を作り、CI と2社のレビューが通れば自動でマージし、「やった」になります。直さなくてよいと判断したものは見送ります。${aiFix ? "急ぐものは「AIに直させる」で先に頼めます。" : ""}`
+              ? `押さなくても、${ASK_EVERY_MIN}分に1回見て、1件ずつ自動でクラウドの Claude Code に頼みます（1日${autoAsk.max}件まで）。頼む順は、コードの見直しの守り（入ってから1日後）→ 運営者の提案（1時間後）→ 採点の高い順（${GROWTH_MIN_SCORE}点以上が先、${AUTO_MIN_SCORE}点以上まで。朝会の仮の点は${GROWTH_MIN_SCORE}点以上のときだけ）。Claude Code が直して PR を作り、CI と2社のレビューが通れば自動でマージし、「やった」になります。直さなくてよいと判断したものは見送ります。${aiFix ? "急ぐものは「AIに直させる」で先に頼めます。" : ""}`
               : `直すときは、Claude Code に「提案箱の〇〇をやって」と伝えてください。${owner ? "Claude Code のルーティンをつなぐと、ここから頼めます（docs/SETUP-AI-FIX.md）。" : ""}`}
           </p>
         </div>

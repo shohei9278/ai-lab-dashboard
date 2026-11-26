@@ -101,17 +101,46 @@ test("自動の依頼: 設定でオフ・緊急停止・ルーティンがつな
   saveSettings({ killSwitch: false });
   assert.equal(await maybeAutoAsk(ok, true), true);
   assert.equal(calls.length, 1);
-  // 見回りは15分に1回（前に見てから15分たつまでは、force なしでは見ない）
-  assert.equal(ASK_EVERY_MS, 15 * 60_000);
-  const g = globalThis as unknown as { __aiLabAutoAskAt?: number };
-  g.__aiLabAutoAskAt = Date.now() - 14 * 60_000;
-  assert.equal(await maybeAutoAsk(ok), false);
-  assert.equal(calls.length, 1);
   const r = db().prepare("SELECT ai_fix_note, ai_fix_url FROM plan_requests WHERE id = ?").get(f) as { ai_fix_note: string; ai_fix_url: string };
   assert.match(r.ai_fix_note, /^自動: /);
   assert.equal(r.ai_fix_url, "https://claude.ai/code/session_x");
   assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-ask-fix'").get() as { n: number }).n, 1);
   assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-ask-growth'").get() as { n: number }).n, 0);
+  saveSettings({ autoAskReview: keep.autoAskReview, killSwitch: keep.killSwitch });
+  delete process.env.CLAUDE_ROUTINE_TOKEN;
+});
+
+test("自動の依頼: 見回りは15分に1回。頼める提案があり、頼んでいる途中のものがなくても、前に見てから15分たつまでは force なしでは頼まない（PR #200 の ai-review の指摘）", async () => {
+  clear();
+  db().prepare("DELETE FROM events WHERE kind LIKE 'auto-ask%'").run();
+  const [f] = addReviewFindings([fix("守りA")]).added;
+  old(f);
+  process.env.CLAUDE_ROUTINE_FIRE_URL = FIRE;
+  process.env.CLAUDE_ROUTINE_TOKEN = "t";
+  await syncAiFixPrs(async () => new Response("[]", { status: 200 }), true);
+  const keep = getSettings();
+  saveSettings({ autoAskReview: true, killSwitch: false });
+  const calls: string[] = [];
+  const ok = async (_url: string, init: RequestInit) => {
+    calls.push(String(init.body));
+    return new Response(JSON.stringify({ claude_code_session_url: "https://claude.ai/code/session_y" }), { status: 200 });
+  };
+  assert.equal(ASK_EVERY_MS, 15 * 60_000);
+  const g = globalThis as unknown as { __aiLabAutoAskAt?: number };
+  // 時計を止めて、14分では頼まず、15分ちょうどで頼むことを見る
+  const now = Date.now();
+  const realNow = Date.now;
+  Date.now = () => now;
+  try {
+    g.__aiLabAutoAskAt = now - 14 * 60_000;
+    assert.equal(await maybeAutoAsk(ok), false);
+    assert.equal(calls.length, 0);
+    g.__aiLabAutoAskAt = now - 15 * 60_000;
+    assert.equal(await maybeAutoAsk(ok), true);
+  } finally {
+    Date.now = realNow;
+  }
+  assert.equal(calls.length, 1);
   saveSettings({ autoAskReview: keep.autoAskReview, killSwitch: keep.killSwitch });
   delete process.env.CLAUDE_ROUTINE_TOKEN;
 });

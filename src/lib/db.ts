@@ -775,6 +775,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["sns_posts", "human_note", "TEXT"],
   ["plan_tasks", "human_review", "TEXT"],
   ["plan_tasks", "human_note", "TEXT"], // JSON: 採点したAIごとの点数 [{modelId, a, b, reason}]（a が先に作った案）
+  ["plan_tasks", "plain_facts", "TEXT"], // 普通の投稿の予定: 朝会が見た数字（直近7日の日ごとの数字・宣伝の投稿の成績）。投稿のときに、今の数字と一緒に材料にする（plan.ts）
   ["page_candidates", "model", "TEXT"], // その案のページを書いたAI（空なら、参考のあり・なしで比べていたころの案で、Claude が書いた）
   ["lessons", "fact", "TEXT"], // 観測した事実（数字など）
   ["lessons", "interpretation", "TEXT"], // 仮の解釈

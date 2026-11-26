@@ -66,7 +66,7 @@ export type TaskRow = {
   id: number; plan_id: number; at_time: string; kind: TaskKind; platform: string | null; project_id: number | null;
   angle: string | null; reason: string | null; status: TaskStatus; result: string | null; result_url: string | null; done_at: string | null;
   angle_type: string | null; likes: number | null; replies: number | null; reposts: number | null; reactions_at: string | null;
-  human_review: string | null; human_note: string | null;
+  human_review: string | null; human_note: string | null; plain_facts: string | null;
 };
 export const TASK_KIND_LABEL: Record<TaskKind, string> = { promo: "宣伝の投稿", plain: "普通の投稿", improve: "ページを直す" };
 
@@ -400,6 +400,8 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   // 見つけた時点で記録する（朝会のAIが失敗しても、次のアイデア出しに派生の候補として渡るように。同じ日・同じ案件は1件だけ。PR #174 の ai-review の指摘）
   recordHot(hot, now.day);
   const material = planMaterial(await weather(now.day).catch(() => []), due, hot);
+  // 朝会が見た数字を、普通の投稿の予定に残す（投稿までに数字が変わっても、朝会のときの正しい数字を書いた投稿を止めないため。PR #197 の ai-review の指摘）
+  const numbersAtPlan = `朝会が見た数字（${now.day} ${now.hm} の時点）:\n${plainNumbersText()}`;
   const standup = { key: `standup-${Date.now()}`, title: `${now.day.slice(5).replace("-", "/")}の朝会` };
   let opinions: PlanOpinion[] = [];
   let out: PlanOut;
@@ -519,10 +521,10 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
     return Number(conn.prepare("INSERT INTO daily_plans (day, model_id, content, pause_new, idea_note) VALUES (?, ?, ?, ?, ?)")
       .run(now.day, model, JSON.stringify(content), out.pause_new ? 1 : 0, out.idea_note?.trim().slice(0, 300) || null).lastInsertRowid);
   })();
-  const ins = conn.prepare("INSERT INTO plan_tasks (plan_id, at_time, kind, platform, project_id, angle, reason, angle_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+  const ins = conn.prepare("INSERT INTO plan_tasks (plan_id, at_time, kind, platform, project_id, angle, reason, angle_type, plain_facts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
   for (const t of tasks) {
     const type = t.kind === "improve" ? null : isAngleType(t.type) ? t.type : "other";
-    ins.run(id, t.time, t.kind, t.kind === "improve" ? null : t.platform, t.kind === "plain" ? null : Number(t.project_id), String(t.angle ?? "").slice(0, 300), String(t.reason ?? "").slice(0, 300), type);
+    ins.run(id, t.time, t.kind, t.kind === "improve" ? null : t.platform, t.kind === "plain" ? null : Number(t.project_id), String(t.angle ?? "").slice(0, 300), String(t.reason ?? "").slice(0, 300), type, t.kind === "plain" ? numbersAtPlan : null);
   }
   // 試し（判定日時と見る数字・下限）と、判定日時が来た試しの結論
   applyTrialResults(out.trial_results, due, model);
@@ -574,21 +576,27 @@ export async function maybeCreatePlan() {
 // ---- 予定を実行する ----
 
 // 普通の投稿の材料で、数字を照らすときの本物の材料にもなるもの（実験の累計・公開中の案件・直近7日の数字・宣伝の投稿の成績・最近の出来事。numberCheck.ts）
-export function plainFacts(): string {
+// 普通の投稿の材料のうち、時間で変わる数字（直近7日の日ごとの数字・宣伝の投稿の成績）。基準の時刻は1回だけ取る（途中で日付をまたいでも、7日がずれないように。PR #197 の ai-review の指摘）
+export function plainNumbersText(now = Date.now()): string {
+  const days = Array.from({ length: 7 }, (_, i) => jstDay(new Date(now - (i + 1) * 86_400_000))).reverse();
+  const daily = days.map((d) => { const a = dayActuals(d); return `${d.slice(5)} 訪問${a.visits}人・登録/利用${a.conversions}人`; }).join(" / ");
+  return `直近7日の全案件の数字（日ごと）: ${daily}\n\n${postStatsText() || "宣伝の投稿の成績: まだ投稿がない"}`;
+}
+
+// atPlan: 朝会が見た数字（plan_tasks.plain_facts）。今の数字と一緒に材料にする
+export function plainFacts(atPlan: string | null = null): string {
   const h = headline();
   const live = liveProjects();
   const events = (db().prepare("SELECT at, message FROM events WHERE actor IN ('ai', 'system') AND kind NOT LIKE '%error%' AND at >= datetime('now', '-3 days') ORDER BY id DESC LIMIT 40").all() as { at: string; message: string }[])
     .map((e) => `- ${e.message.slice(0, 120)}`).join("\n");
   // 朝会が見ている数字（宣伝の投稿の成績・直近7日の日ごとの訪問と登録/利用）も材料に入れる。朝会が決めた話題（angle）にそれらの数字が入っていても、
   // 材料にない数字として投稿を止めないため（11/26 に、朝会の見立てにある場所ごとの数字を書いた実験の記録の投稿が止まった）
-  const days = Array.from({ length: 7 }, (_, i) => jstDay(new Date(Date.now() - (i + 1) * 86_400_000))).reverse();
-  const daily = days.map((d) => { const a = dayActuals(d); return `${d.slice(5)} 訪問${a.visits}人・登録/利用${a.conversions}人`; }).join(" / ");
-  const facts = `実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n直近7日の全案件の数字（日ごと）: ${daily}\n\n${postStatsText() || "宣伝の投稿の成績: まだ投稿がない"}\n\n最近の出来事:\n${events || "（なし）"}`;
+  const facts = `実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n${plainNumbersText()}${atPlan ? `\n\n${atPlan}` : ""}\n\n最近の出来事:\n${events || "（なし）"}`;
   return facts;
 }
 
-async function writePlain(platform: AutoPlatform, angle: string): Promise<{ text: string; facts: string }> {
-  const facts = plainFacts();
+async function writePlain(platform: AutoPlatform, angle: string, atPlan: string | null = null): Promise<{ text: string; facts: string }> {
+  const facts = plainFacts(atPlan);
   const past = (db().prepare("SELECT result FROM plan_tasks WHERE kind = 'plain' AND status = 'done' ORDER BY id DESC LIMIT 8").all() as { result: string }[]).map((x) => `- ${x.result}`).join("\n");
   const def = AUTO_PLATFORMS[platform];
   const out = await callJson<{ text: string }>({
@@ -643,7 +651,7 @@ async function runTask(t: TaskRow): Promise<{ status: TaskStatus; result: string
   }
   // 普通の投稿
   const def = AUTO_PLATFORMS[platform];
-  const written = await writePlain(platform, t.angle ?? "");
+  const written = await writePlain(platform, t.angle ?? "", t.plain_facts);
   let text = written.text;
   if (/https?:\/\/|(^|\s)@\w/.test(text)) return { status: "skipped", result: `URLやアカウント名が入ったため見送り: ${text.slice(0, 60)}` };
   // 材料にない、実績に見える数字（○人・○件・○% など）が入ったら出さない（numberCheck.ts。ハルシネーション対策）
