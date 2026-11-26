@@ -12,6 +12,7 @@ import { GROWTH_SCENE } from "./codeReview";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { researchText } from "./research";
 import { doneEffectsText } from "./effects";
+import { improveChecksText } from "./improveCheck";
 import { waitsText } from "./waits";
 import { exploreStatsText } from "./explore";
 import { toolCheckText } from "./toolCheckStats";
@@ -77,6 +78,7 @@ ${flowText()}
 ${reqs.join("\n") || "（まだなし）"}
 
 ${doneEffectsText()}
+${improveChecksText(null, 10) || "ページの直しの答え合わせ: まだない"}
 
 ${waitsText()}
 
