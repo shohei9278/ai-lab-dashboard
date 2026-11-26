@@ -30,7 +30,7 @@ test("判断の基準: ねらいごとの値がなければ一括の値。ねら
   assert.equal(judgeBasis(row({ aim: "return" }), s).days, 14);
   assert.equal(judgeBasis(row({ aim: null, kind: "lp" }), s).visits, 150);
   assert.equal(judgeBasis(row({ aim: null, kind: "tool" }), s).visits, 100);
-  assert.match(aimJudgeLine(s), /広がる 訪問100人か7日 \/ 役に立つ 訪問100人か7日 \/ また来てもらう 訪問60人か14日 \/ 需要を確かめる 訪問150人か7日/);
+  assert.match(aimJudgeLine(s), /広がる 公開から3日で遊んだ人20人かシェア3件（当たったあとは 訪問100人か7日） \/ 役に立つ 訪問100人か7日 \/ また来てもらう 訪問60人か14日 \/ 需要を確かめる 訪問150人か7日/);
   // 案件ごとに調整した値があれば、それを使う
   const adj = judgeBasis(row({ aim: "return", judge_visits: 40, judge_days: 21, judge_reason: "週に1回しか使わない" }), s);
   assert.deepEqual([adj.visits, adj.days, adj.adjusted, adj.reason], [40, 21, true, "週に1回しか使わない"]);
@@ -147,5 +147,40 @@ test("設定の見直しの材料: 届いたかは、ねらいの基準で、版
   assert.match(text, /- 役に立つ: 基準 訪問100人か7日（一括の値）・直近60日に公開した3件のうち、1つの版の訪問で基準に届いたのは1件（届くまで平均1日）・訪問の中央値110人・撤退0件・うち1件は案件ごとに基準を調整している/);
   db().exec("DELETE FROM metrics");
   db().prepare("DELETE FROM projects WHERE id IN (?, ?, ?)").run(a, b, c);
+  restore();
+});
+
+test("判断の基準の文: 「広がる」は、実際の判定と同じく、決めた日数の遊んだ人とシェアで書き、設定を変えると文も変わる（提案箱 #107）", async () => {
+  const { judgedByVisits } = await import("../src/lib/judgeBasis");
+  reset();
+  const k = getSettings();
+  saveSettings({ spreadJudgeDays: 5, spreadHitPlays: 30, spreadHitShares: 4 });
+  assert.match(aimJudgeLine(getSettings()), /^広がる 公開から5日で遊んだ人30人かシェア4件（当たったあとは 訪問100人か7日） \/ 役に立つ 訪問100人か7日/);
+  assert.match(settingsReviewText(getSettings()), /- 広がる: 当たりの判定 公開から5日で遊んだ人30人かシェア4件・当たったのは\d+件（外れ\d+件）・当たったあとの基準 訪問100人か7日/);
+  saveSettings({ spreadJudgeDays: k.spreadJudgeDays, spreadHitPlays: k.spreadHitPlays, spreadHitShares: k.spreadHitShares });
+  // 育てる段階の前の「広がる」は、訪問の基準では数えない
+  assert.equal(judgedByVisits({ aim: "spread", growth_phase: 0 }), false);
+  assert.equal(judgedByVisits({ aim: "spread", growth_phase: 1 }), true);
+  assert.equal(judgedByVisits({ aim: "useful", growth_phase: 0 }), true);
+  restore();
+});
+
+test("設定の見直しの材料: 「広がる」の訪問の基準に届いた件数は、育てる段階に入った案件だけで数える（外れた案件・判定前の案件は入れない。PR #210 の ai-review の指摘）", () => {
+  reset();
+  const s = getSettings();
+  db().exec("DELETE FROM metrics");
+  const jst = (t: number) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(t));
+  const pubDay = jst(Date.now() - 10 * 86_400_000);
+  const add = (title: string, hit: number | null, growth: number) => Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, spread_hit, growth_phase, published_at) VALUES (?, 't', 'p', 's', 'h', 'r', 'live', 'claude', 'tool', 'spread', ?, ?, ?)").run(title, hit, growth, `${pubDay} 09:00:00`).lastInsertRowid);
+  const m = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, source, lp_version) VALUES (?, ?, ?, 0, 'real', 1)");
+  const miss = add("外れたが訪問は多い", 0, 0);
+  m.run(miss, jst(Date.parse(`${pubDay}T00:00:00Z`) + 86_400_000), 150);
+  const grown = add("当たって育てる段階", 1, 1);
+  m.run(grown, jst(Date.parse(`${pubDay}T00:00:00Z`) + 2 * 86_400_000), 120);
+  const line = settingsReviewText(s).split("\n").find((l) => l.startsWith("- 広がる:"))!;
+  assert.match(line, /当たったのは1件（外れ1件）/);
+  assert.match(line, /直近60日に公開した2件（訪問の基準で判断するのは、育てる段階に入った1件）のうち、1つの版の訪問で基準に届いたのは1件（届くまで平均2日）・訪問の中央値120人/);
+  db().exec("DELETE FROM metrics");
+  db().prepare("DELETE FROM projects WHERE id IN (?, ?)").run(miss, grown);
   restore();
 });
