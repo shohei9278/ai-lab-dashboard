@@ -17,7 +17,12 @@ export const REVIEW_MIN_DECIDED = 2;
 
 type UseRow = { id: number; at: string; lesson_id: number; scene: string; model_id: string | null; project_id: number | null; kind: LessonUseKind; ref_id: number | null; change: string };
 
-const ids = (v: unknown): number[] => (Array.isArray(v) ? v : [v]).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+// 教訓の番号は、正の整数か、数字だけの文字だけを受け付ける（変な形の値で例外を出して、朝会の保存を途中で止めない。PR #211 の ai-review の指摘）
+const ids = (v: unknown): number[] =>
+  (Array.isArray(v) ? v : [v]).flatMap((x) => {
+    const n = typeof x === "number" ? x : typeof x === "string" && /^\s*\d+\s*$/.test(x) ? Number(x) : NaN;
+    return Number.isSafeInteger(n) && n > 0 ? [n] : [];
+  });
 
 // その回に渡した教訓（アイデア出しは新しい順に20件・実験枠は渡さない、朝会は10件）。渡していない番号は受け付けない（PR #211 の ai-review の指摘）
 export const shownLessonIds = (limit: number): Set<number> =>

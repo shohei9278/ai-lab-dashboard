@@ -35,6 +35,9 @@ test("教訓: 番号つきで渡し、その回に渡した教訓で、変えた
   // 朝会の予定に付ける形: 渡した教訓・変えたことがあるものだけ
   assert.equal(lessonsJson([{ id: a, change: "宣伝を夜に寄せた" }, { id: b, change: "x" }, { id: a }], shown), JSON.stringify([{ id: a, change: "宣伝を夜に寄せた" }]));
   assert.equal(lessonsJson([{ id: b, change: "x" }], shown), null);
+  // 変な形の番号は、例外を出さずに捨てる（PR #211 の ai-review の指摘）
+  assert.equal(lessonsJson([{ id: { toString: null, valueOf: null }, change: "x" }, { id: [a], change: "配列の中の番号も使う" }, { id: `${a}`, change: "数字の文字も使う" }], shown), JSON.stringify([{ id: a, change: "配列の中の番号も使う" }, { id: a, change: "数字の文字も使う" }]));
+  assert.equal(recordLessonUses([{ id: { toString: null }, change: "x" }], { allowed: shown, scene: "朝会", modelId: null, projectId: p, kind: "promo", refId: 1 }), 0);
 });
 
 test("教訓: 結果は、変えた先の番号で引く（同じ案件の別の施策の結果を拾わない）。まだ・判断できなかったものは数えない", () => {

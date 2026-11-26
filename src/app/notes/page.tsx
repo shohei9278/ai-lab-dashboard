@@ -77,7 +77,8 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
                   <div className="text-ink-2"><span className="mr-2 text-xs text-muted">教訓{l.id}</span>{l.interpretation ?? l.text}</div>
                   <div className="text-xs text-muted">
                     {l.replaced_by ? `直して教訓${l.replaced_by}にした` : "保留"}
-                    {l.hold_reason && !l.replaced_by ? `: ${l.hold_reason}` : l.replaced_by && l.review_note ? `（${l.review_note}）` : ""}
+                    {/* 見直しの理由（議長のAIが書いた文）は運営者だけに出す。来訪者には状態と後継の番号だけ（PR #211 の ai-review の指摘） */}
+                    {!owner ? "" : l.hold_reason && !l.replaced_by ? `: ${l.hold_reason}` : l.replaced_by && l.review_note ? `（${l.review_note}）` : ""}
                   </div>
                   {/* 保留・置き換えた教訓も、見直しの根拠（使われ方の明細）をたどれるようにする（PR #211 の ai-review の指摘） */}
                   {owner && stats.get(l.id) && <div className="text-xs text-ink-2"><UseDetails st={stats.get(l.id)!} /></div>}
