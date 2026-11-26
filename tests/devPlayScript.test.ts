@@ -68,6 +68,8 @@ test("動画の台本（lab-play）: Claude Code への依頼文に書き方を�
   assert.match(text, /id="lab-play"/);
   assert.match(text, /scripts\/play-check\.mts/);
   assert.match(text, /- drag: /);
+  // 全部の面に共通する演出は、面ごとではなく共通の処理に一度だけ書く（提案箱 #76）
+  assert.match(text, /必ず通る共通の処理.*に一度だけ書き/);
   const tool = `<button id="b">とじる</button><div id="pad"></div><script>document.getElementById('b').onclick=()=>{}</script>`;
   // 使えない台本は、理由を返して入れない（開発待ちのまま）
   assert.throws(() => startDevUpload(a.id, tool + tag({ steps: [{ do: "wait", ms: 500 }] })), /動画の台本（lab-play）が使えません: 押す・なぞる手順が1つもない/);
