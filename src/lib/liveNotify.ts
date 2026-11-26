@@ -22,6 +22,8 @@ const EVENT_KIND: Record<string, NotifyKind> = {
   meeting: "meeting", proposal: "meeting",
   // ツールのチェックの止めた割合が急に上がった（toolCheckStats.ts）。運営者に見てほしいので「あなたへ」で送る
   "tool-check-alert": "human",
+  // 仕組みの詰まり（工程ごとに止まっていた時間）が急に増えた（flowStats.ts）
+  "flow-alert": "human",
 };
 
 const g = globalThis as unknown as { __aiLabNotifyQueue?: string[]; __aiLabNotifyTimer?: NodeJS.Timeout; __aiLabNotifyErr?: Map<string, number> };

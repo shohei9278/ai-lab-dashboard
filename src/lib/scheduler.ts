@@ -18,6 +18,7 @@ import { syncAiFixPrs } from "./aiFix";
 import { maybeAutoAsk } from "./autoAsk";
 import { checkToolCheckJump } from "./toolCheckStats";
 import { maybeResearchWants } from "./wants";
+import { checkFlowJump } from "./flowStats";
 import { autoToolRoutine } from "./toolRoutine";
 import { notifyLongWaits } from "./waits";
 
@@ -143,6 +144,12 @@ async function tickNow() {
     checkToolCheckJump();
   } catch (e) {
     logEvent(null, "system", "tool-check-alert-error", `ツールのチェックの止めた割合の確かめでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
+  }
+  // 仕組みの詰まり（工程ごとに止まっていた時間）が急に増えていたら知らせる（1週に1回まで。AIは呼ばない。flowStats.ts）
+  try {
+    checkFlowJump();
+  } catch (e) {
+    logEvent(null, "system", "flow-alert-error", `仕組みの詰まりの確かめでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
   }
   // アイデアが何度も欲しがった仕組みに使えるサービスを調べる（週に1回まで。AIの費用は調べもの1回分。wants.ts）
   try {

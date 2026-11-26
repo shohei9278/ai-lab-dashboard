@@ -14,6 +14,7 @@ import { staffList } from "@/lib/staff";
 import { isOwner } from "@/lib/viewer";
 import { CheckEvalCard } from "@/components/CheckEvalCard";
 import { ToolCheckCard } from "@/components/ToolCheckCard";
+import { FlowCard } from "@/components/FlowCard";
 
 export const dynamic = "force-dynamic";
 
@@ -176,6 +177,9 @@ export default async function LabPage() {
 
       {/* ツールのチェックの止めた割合（週ごと。項目が増えて止めすぎが増えていないかを見る） */}
       <ToolCheckCard owner={owner} />
+
+      {/* 仕組みの詰まり（工程ごとに、直近7日に止まっていた時間の合計。flowStats.ts） */}
+      <FlowCard owner={owner} />
 
       {/* LPのデザインのAI */}
       <section className="card space-y-2 p-4">
