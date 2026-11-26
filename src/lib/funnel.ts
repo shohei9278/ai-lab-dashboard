@@ -134,18 +134,19 @@ export function playLens(aim: string | null): string {
   return "ねらいが決まっていない案件: 遊んだ時間の長さだけで良し悪しを決めない";
 }
 
-// AIの判断に渡す、遊びの深さ（動くツールで、記録が届いているときだけ）。人数と、遊び始めた人に対する割合を並べる
+// AIの判断に渡す、遊びの深さ（動くツールで、記録が届いているときだけ）。人数と、遊び始めた人に対する割合を並べる（再訪は人数だけ）
 export function playText(p: Pick<ProjectRow, "kind" | "aim">, d: PlayDepth | null): string {
   if (p.kind !== "tool" || !d || (!d.hasData && !d.revisit)) return "";
   const pc = (n: number) => (d.users ? `${Math.round((n / d.users) * 100)}%` : "—");
   const time = d.time.filter((x) => x.visitors > 0).map((x) => `${x.mark < 60 ? `${x.mark}秒` : `${x.mark / 60}分`}以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
   const results = d.results.filter((x) => x.visitors > 0).map((x) => `${x.mark}回以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
-  const kinds = d.kinds.filter((x) => x.visitors > 0).map((x) => `${x.mark}種類以上 ${x.visitors}人`).join("・");
+  const kinds = d.kinds.filter((x) => x.visitors > 0).map((x) => `${x.mark}種類以上 ${x.visitors}人（${pc(x.visitors)}）`).join("・");
   const parts = [
     `遊び始めた ${d.users}人`,
     time ? `遊んだ時間: ${time}` : "",
     results ? `結果を出した回数: ${results}` : "",
     kinds ? `出した結果の種類: ${kinds}` : "",
+    // 再訪は人数だけ。遊ばずにページだけ見た人も入るので、遊び始めた人で割ると意味がずれる（PR #207 の ai-review の指摘に、運営者が決めた）
     `別の日にまた来た ${d.revisit}人`,
   ].filter(Boolean);
   const few = d.users < PLAY_FEW_USERS ? `（遊び始めた人が${PLAY_FEW_USERS}人未満のうちは、割合の差は偶然の可能性が高い）` : "";
