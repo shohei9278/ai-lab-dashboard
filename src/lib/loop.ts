@@ -11,6 +11,7 @@ import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs"
 import { fixInstruction, pageOnlyIssues } from "./fixText";
 import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
+import { decideSameSource, parseSameSource, sameSourceGate, sameSourceGroups, sameSourceLine, type SameSourceChoice } from "./sameSource";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
 import { DESIGN_OPTIONS, ICONS, ILLUSTRATION_STYLES, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
 import { toolAssets, toolImages } from "./toolAssets";
@@ -3062,6 +3063,15 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   const sheet = candidates
     .map((c) => `【${c.label}】${c.idea.title}（ねらい: ${aimOfIdea(c.idea)}・形: ${c.idea.kind === "tool" ? "tool" : "lp"}${c.idea.genre ? `・ジャンル: ${c.idea.genre}` : ""}）\n対象: ${c.idea.target}\n${aimOfIdea(c.idea) === "spread" ? "刺さる気持ち" : aimOfIdea(c.idea) === "return" ? "毎日来る動機" : "課題"}: ${c.idea.problem}\n解決策: ${c.idea.solution}\n仮説: ${c.idea.hypothesis}\n需要の時期: ${c.idea.season === "seasonal" ? "季節もの" : c.idea.season === "evergreen" ? "1年中" : "（書かれていない）"}\n最初の届け方: ${c.idea.channel ?? "（書かれていない）"}\n最初の1週間の検証: ${c.idea.first_test ?? "（書かれていない）"}\n代わりになる既存の無料サービスとの違い: ${c.idea.alternative ?? "（書かれていない）"}${isDeepIdea(c.idea) ? `\nじっくり案件（ふつうの tool の制限を外して作り込む）: ${c.idea.deep}${isStr(c.idea.deep_data) && c.idea.deep_data.trim() ? `\n要るデータ（AIが下書きし、人が確かめてから作る）: ${c.idea.deep_data}` : ""}` : ""}${wantLine(c.idea.want_id)}`)
     .join("\n\n");
+  // 同じ元の声から出た案は、審査の前に違い（機能・届け先）を1行で並べ、1つに絞るか作り分けるかも答えてもらう（提案箱 #55）
+  const groups = sameSourceGroups(candidates.map((c) => ({
+    c, label: c.label, title: c.idea.title, solution: c.idea.solution, target: c.idea.target, channel: isStr(c.idea.channel) ? c.idea.channel : undefined,
+    wantId: typeof c.idea.want_id === "number" && getWant(c.idea.want_id)?.status === "ok" ? c.idea.want_id : null,
+  })));
+  const sameLines = groups.map(sameSourceLine);
+  if (sameLines.length) liveNote({ who: "システム", provider: null, kind: "同じ元の声の案", text: sameLines.join("\n"), batch: batchId });
+  const sameSheet = sameLines.length ? `\n\n同じ元の声（Xの投稿）から出た案（違いを1行で並べたもの）:\n${sameLines.map((l) => `- ${l}`).join("\n")}` : "";
+  const sameVotes = new Map<number, SameSourceChoice[]>();
   const scoreRow = db().prepare("INSERT INTO idea_scores (candidate_id, scorer_model, score, reason) VALUES (?, ?, ?, ?)");
   authors.forEach((a) => setStep(act, title, modelLabel(a), `作者を伏せた${candidates.length}件を採点しています`));
   await Promise.all(
@@ -3089,12 +3099,13 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
 - tool なら、外部の通信なしで本当に作れるか
 - 季節が過ぎても需要が残るか。季節もの（その時期だけ使われるもの）は、時期が過ぎたあとも使われる理由がなければ減点する（公開から判断まで1〜3週間かかり、育てる時間もいるため）
 点数は甘くしないこと（平凡なものは5点前後）。
-形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]}${practice ? "" : `\n${EXTRAS_RULE}`}`,
-          user: opts.theme ? `依頼されたテーマ: ${opts.theme}（テーマから外れたものは減点する）\n\n${sheet}` : sheet,
+${groups.length ? `同じ元の声から出た案の組（最後に並べたもの）は、組ごとに、どれか1つに絞る（one）か、作り分ける（both）かも答える。both は特定の2案を選ぶ答えではなく、組のすべての案を採用候補に残す答え（one なら組から1つだけが残る）。3件以上の組でも、組全体を見て決める。組の中に機能も届け先も重なる案があり、すべて作ると検証の訪問者や運営者の手間が分かれるだけなら one。組のどの案どうしも機能か届け先がはっきり違い、すべてを別々に確かめる意味があるなら both。点数はそれぞれの案の中身で付ける（絞るかどうかで点を変えない）\n` : ""}形式: {"scores":[{"label":"A","score":1から10の数値,"reason":"理由を1文で"}]${groups.length ? `,"same_source":[{"voice":声の番号,"choice":"one" または "both","reason":"理由を1文で"}]` : ""}}${practice ? "" : `\n${EXTRAS_RULE}`}`,
+          user: `${opts.theme ? `依頼されたテーマ: ${opts.theme}（テーマから外れたものは減点する）\n\n` : ""}${sheet}${sameSheet}`,
           validate: (v): v is { scores: { label: string; score: number; reason: string }[] } =>
             isObj(v) && Array.isArray(v.scores) && v.scores.every((x) => isObj(x) && isStr(x.label) && typeof x.score === "number"),
         });
         if (!practice) takeExtras(out, { modelId: scorer, scene: "アイデア会議の採点" });
+        for (const [w, ch] of parseSameSource((out as { same_source?: unknown }).same_source, groups.map((g) => g.wantId))) sameVotes.set(w, [...(sameVotes.get(w) ?? []), ch]);
         for (const sc of out.scores) {
           const c = candidates.find((x) => x.label === sc.label.trim().replace(/[【】]/g, ""));
           if (c) scoreRow.run(c.id, scorer, Math.max(1, Math.min(10, sc.score)), typeof sc.reason === "string" ? sc.reason : null);
@@ -3130,8 +3141,23 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
     if (isAim(r.aim)) aimCounts[r.aim] = r.n;
   }
   let spreadLeft = practice ? Infinity : opts.spreadRoom ?? Infinity;
+  // 同じ元の声の組の決め（過半数が「作り分ける」なら組のすべて、ほかは1つに絞る）。絞る組は、点の高い順で先に選ばれた1件だけを案件にする
+  const sameDecided = new Map<number, SameSourceChoice>(groups.map((g) => [g.wantId, decideSameSource(sameVotes.get(g.wantId) ?? [])]));
+  const wantOf = new Map<number, number>(groups.flatMap((g) => g.items.map((x) => [x.c.id, g.wantId] as [number, number])));
+  if (groups.length) {
+    const text = groups.map((g) => {
+      const votes = sameVotes.get(g.wantId) ?? [];
+      return `声${g.wantId}（${g.items.map((x) => x.label).join("・")}）: ${sameDecided.get(g.wantId) === "both" ? "作り分ける" : "1つに絞る"}（作り分ける${votes.filter((v) => v === "both").length}社・絞る${votes.filter((v) => v === "one").length}社）`;
+    }).join("\n");
+    liveNote({ who: "システム", provider: null, kind: "同じ元の声の決め", text, batch: batchId });
+    if (!practice) logEvent(null, "system", "same-source", `同じ元の声から出た案の決め:\n${text}`);
+  }
   // dry: 確かめるだけ（経過に残さず、件数も減らさない。推し枠で、平均点なら何を選ぶかを先に見るため）
-  const accept = ({ c, aim }: { c: Candidate; aim: Aim }, dry = false) => {
+  // 同じ元の声で1つに絞る組は、本選考でも推し枠の事前選考でも2件目を通さない（事前選考は、選考ごとに別の集合で数える。sameSource.ts）
+  const gate = sameSourceGate<{ c: Candidate; aim: Aim }>((x) => wantOf.get(x.c.id), sameDecided, (x, dry) => acceptOne(x, dry), (x, w) =>
+    logEvent(null, "system", "same-source-skipped", `アイデア「${x.c.idea.title}」は、同じ元の声（声${w}）から出た案をもう案件にしていて、1つに絞ると決めたため、案件にしません`));
+  const accept = gate.accept;
+  const acceptOne = ({ c, aim }: { c: Candidate; aim: Aim }, dry = false) => {
     const skip = (kind: string, text: string) => { if (!dry) logEvent(null, "system", kind, text); return false; };
     // 「広がる」は今回案件にしてよい件数まで（同時に集客中の上限・1日の上限）、じっくり案件は直近7日の上限まで
     // どちらの条件も通ってから枠を減らす（片方で外れた案が、もう片方の枠を使わないように）
@@ -3172,7 +3198,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   const list = candidates.map((c) => ({ c, aim: aimOfIdea(c.idea), avg: c.avg, author: c.author, top: c.top }));
   const champSlot = !practice && !!opts.champion && keep >= 2;
   const { picked, champion } = champSlot
-    ? pickWithChampion(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept, (x) => accept(x, true))
+    ? pickWithChampion(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept, gate.peek())
     : { picked: pickByAims(list, keep, weights, aimCounts, allowed, AIM_PICK_FLOOR, accept), champion: null };
   if (champion) champion.c.pick = "champion";
   const kept = picked.map((x) => x.c);
