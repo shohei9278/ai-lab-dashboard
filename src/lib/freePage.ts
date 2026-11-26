@@ -1,7 +1,8 @@
 import { viralHints } from "./viralPosts";
 import fs from "node:fs";
 import path from "node:path";
-import { chromium, type Browser } from "playwright-core";
+import type { Browser } from "playwright-core";
+import { launchBrowser } from "./browser";
 import { callClaude, callLong, callVision, isObj, isStr, type ClaudeContent } from "./ai";
 import { getModel, hasKey } from "./models";
 import { refImages, type DesignRef } from "./designRefs";
@@ -189,17 +190,7 @@ export function staticPageIssues(html: string, tool = false): string[] {
 }
 
 export async function launch(): Promise<Browser | string> {
-  const tries = [
-    () => chromium.launch({ channel: "chrome", headless: true }),
-    ...(process.env.CHROMIUM_PATH ? [() => chromium.launch({ executablePath: process.env.CHROMIUM_PATH, headless: true })] : []),
-    () => chromium.launch({ headless: true }),
-  ];
-  for (const t of tries) {
-    try {
-      return await t();
-    } catch {}
-  }
-  return "確認用のブラウザ（Chrome）が見つからないため、スクリーンショットでの確認を飛ばしました";
+  return (await launchBrowser()) ?? "確認用のブラウザ（Chrome）が見つからないため、スクリーンショットでの確認を飛ばしました";
 }
 
 type Shot = { file: string; data: string };
