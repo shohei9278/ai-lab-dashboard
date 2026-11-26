@@ -8,6 +8,7 @@ import { createReport, gather, jstStartUtc } from "./report";
 import { decisionsText, followUpOf, openDecisions, type WeeklyContent } from "./meetings";
 import type { AdhocContent } from "./adhoc";
 import { STALE_NOTE, addProposal, addVoice } from "./voices";
+import { SETTINGS_RULE, addSettingProposals, settingsReviewText } from "./settingsReview";
 import { GROWTH_SCENE } from "./codeReview";
 import { outsideText, recordVoiceEffects } from "./outside";
 import { researchText } from "./research";
@@ -25,7 +26,7 @@ import { flowText } from "./flowStats";
 // 4. 議長（週ごとに交代）が、議事録のまとめと発信用の下書き（Xの投稿・記事）を書く
 
 type Proposal = { title: string; how: string; why: string; target: "human" | "system" };
-type MemberOut = { review: string; proposals: (Proposal & { axis?: unknown })[]; voice?: string };
+type MemberOut = { review: string; proposals: (Proposal & { axis?: unknown })[]; voice?: string; settings?: unknown };
 const NEW_AXIS = "別軸: "; // まだ試していない手の案に付ける（提案箱でも見分けられるように）
 // 提案の採点の決まり（観点・別軸の案の見方・点の付け方）。定例会議と、朝会の仮の採点（provisionalScore.ts）で同じ文を使う（PR #183 の ai-review の指摘）
 export const SCORE_RULES = `観点: 材料の数字に根拠があるか / 実際にやれるか / やったら成果（訪問・登録・利用）に効きそうか / スパムや作り話にならないか
@@ -96,7 +97,8 @@ export async function createWeeklyMeeting(): Promise<number> {
   const end = new Date();
   const start = day(new Date(end.getTime() - 7 * 86_400_000));
   // 欲しい仕組みの集計と、それを根拠に契約を頼むときの決まりは、定例会議だけに渡す（臨時会議の材料には入れない。PR #194 の ai-review の指摘）
-  const mat = `${meetingMaterial(start)}\n\n${wantsText()}`;
+  // 設定の物差しの見直しの材料も、定例会議だけに渡す（settingsReview.ts）
+  const mat = `${meetingMaterial(start)}\n\n${wantsText()}\n\n${settingsReviewText()}`;
 
   // 1. それぞれが振り返りと改善案を出す
   const outs = await Promise.allSettled(list.map((modelId) => callJson<MemberOut>({
@@ -119,6 +121,7 @@ export async function createWeeklyMeeting(): Promise<number> {
     ①届ける（訪問を増やす仕組み）②作るものの質（ツール・LP の作り方・確かめ方。材料の「ツールのチェックの止めた割合」が上がっていれば、チェックの項目の止めすぎも疑い、項目を外す・言い方を変える案も出してよい）③人の手を減らす（材料の「運営者が手でやったこと」を、自動にできないか）④費用（目的別のAI費用）⑤数字の使い方（集めているのに判断に使っていない数字）
   - system の案は、運営者が提案箱で押すと、Claude Code がそのままコードを直して PR にする。how は、何をどう変えれば終わりかが分かる具体さで書く（どの作業の、どの決まり・指示・集計を、どう変えるか）
   - 3件のうち1件は、思いつけば「別軸」の案にしてよい（axis を "new" に）。今のやり方の改善ではなく、まだ試していない手（動画など新しい発信の形・新しい場所・届け方・作るものの形を変えるなど）。how には ①何をするか ②自動でできるか、人の手が要るか（人が手でやる形でもよい）③小さく試す方法 ④何の数字で続けるか決めるか を書く。外のサービスの規約やAPIの制約は、確かでなければ断定せず「要確認」と書く。why には、今のネックにどう効くかを書く
+${SETTINGS_RULE}
 - voice: 今週のひとこと（80文字以内）。感想・気づき・この会社へのダメ出し・試したいことなど何でもよい。遠慮はいらない
 守ること:
 - 材料にある数字だけを使う。件数が少ないときは「まだ偶然の可能性が高い」と書く
@@ -126,7 +129,7 @@ export async function createWeeklyMeeting(): Promise<number> {
 - 他人の投稿への宣伝の返信・DMなど、スパムになる案は出さない（広告や有料のサービスは、運営者に頼む案 human としてなら出してよい）
 - ツールから外につなぐ部分（みんなで共有する保存の場所・外部の API の中継など）を作る案（system）は、運営者が作ると決めるまで出さない（運営者が後回しにしている。契約や用意を頼む human の案は出してよい）
 - voice は必ず書く（空にしない）。数字や出来事は材料にあるものだけを使い、体験談は作らない
-形式: {"review":"振り返り","proposals":[{"title":"短い題","how":"具体的に","why":"根拠","target":"human|system","axis":"new（別軸の案のときだけ）"}],"voice":"今週のひとこと","voice_effects":[]}`,
+形式: {"review":"振り返り","proposals":[{"title":"短い題","how":"具体的に","why":"根拠","target":"human|system","axis":"new（別軸の案のときだけ）"}],"settings":[],"voice":"今週のひとこと","voice_effects":[]}`,
     user: mat,
     // ひとことは必ず書いてもらう（省きがちなので。抜けていたら、1回だけ書き直してもらう）
     validate: (v): v is MemberOut => isObj(v) && isStr(v.review) && Array.isArray(v.proposals) && isStr(v.voice),
@@ -236,6 +239,12 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
     const rid = addProposal({ title: p.title, how: p.how, why: p.why, target: p.target, source: "meeting", proposer: p.proposer, score: Math.round(p.score * 10) / 10, meetingId: id, scene: "週の定例会議" });
     if (rid) { added++; if (extraRepeats.get(p.idx)) db().prepare("UPDATE plan_requests SET repeats = repeats + ? WHERE id = ?").run(extraRepeats.get(p.idx), rid); }
   }
+  // 設定の物差しの見直し（運営者あて。週に2件まで・同じ項目は14日に1回。変えるかは運営者が決める。settingsReview.ts）
+  added += addSettingProposals(list.flatMap((modelId, i) => {
+    const o = outs[i];
+    const raw = o.status === "fulfilled" ? (o.value as MemberOut).settings : null;
+    return Array.isArray(raw) ? raw.slice(0, 1).map((r) => ({ raw: r, proposer: modelId })) : [];
+  }), id);
   // 提案箱にある、残すほうの提案に、まとめた回数を足す
   for (const [i, n] of extraRepeats) if (pool[i].existingId) db().prepare("UPDATE plan_requests SET repeats = repeats + ? WHERE id = ?").run(n, pool[i].existingId);
   logEvent(null, "ai", "meeting", `週の定例会議: ${got.length}社が${pool.length - existing.length}件の改善案を出し合い、${added}件を提案箱に入れました。この週の提案${existing.length}件も採点し、${closed}件を見送りにしました${dupOf.size ? `。同じ提案の組を見つけ、${dupOf.size}件をまとめました（提案箱から消したもの${mergedSame}件）` : ""}${revisited ? `。臨時会議の少数意見を${revisited}件、答え合わせしました` : ""}${settled ? `。臨時会議で「あとで決める」としたことを${settled}件決めました` : ""}（議長 ${modelInfo(chair).label}）`);

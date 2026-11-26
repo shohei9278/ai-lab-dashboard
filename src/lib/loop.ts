@@ -24,6 +24,7 @@ import { trendsText } from "./trends";
 import { withIllustration } from "./illustration";
 import { buildPage, judgePages, pageTexts, type PageCheck } from "./freePage";
 import { funnelText } from "./funnel";
+import { aimBasis, aimJudgeLine, capacityBasis, judgeAim, judgeBasis, parseJudgeAdjust } from "./judgeBasis";
 import { planIdeaNote, planPausesNew } from "./plan";
 import { EXPLORE_LABEL, exploreDone, exploreSlots, madeGenres } from "./explore";
 import { EXTRAS_RULE, addProposal, takeExtras } from "./voices";
@@ -53,6 +54,7 @@ export type Idea = {
   kind?: ProductKind; // 出し方（AIが選ぶ。無ければ事前登録LP）
   channel?: string; // 最初の利用者がいる場所（どこで、どう届けるか）
   first_test?: string; // 最初の1週間で、何人に届けて何を確かめるか
+  judge?: { visits?: number; days?: number; why?: string }; // この案件だけ判断の基準を調整するとき（ねらいの基準の半分〜1.5倍。judgeBasis.ts）
   alternative?: string; // 代わりになる既存の無料サービス（名前）と、それとの違い
   season?: "seasonal" | "evergreen"; // 季節もの（その時期だけ）か、1年中ある困りごとか
   want_id?: number; // 元にした「欲しい」の声（user_wants）の番号
@@ -342,9 +344,9 @@ genre には、アイデアのジャンルを短い言葉で書く（例: ${GENR
 - 最初の利用者にどう届くかも、一緒に考える。広告は使わず、フォロワーがほぼいないSNSアカウント（X・Threads・Bluesky への自動投稿ができる）と、運営者の手作業でできる範囲で。「SNSで宣伝する」のような曖昧な書き方ではなく、その対象者がすでに集まっている具体的な場所（検索される言葉・ハッシュタグ・コミュニティ・時期の話題など）と、そこでの見せ方を書く。他人の投稿やQ&Aサイトの質問に、宣伝のための返信・回答をする案や、知らない人へのDM・個別の勧誘は出さない（スパム扱いされやすいため）
 - 自分の投稿だけ（フォロワーほぼ0では、ほとんど表示されない）にせず、運営者が手でできる直接の接点を最低1つ、数つきで channel に入れる（first_test には書かない）。例: 対象の人が集まるコミュニティ・グループの管理者に、紹介してよいか相談する（2か所）/ 対象に当てはまる知人に使ってもらい、感想を聞く（3人）/ ルールで紹介が認められている場（自己紹介・成果物の共有の場など）に1回だけ載せる
 過去の教訓がある場合は必ず踏まえ、既にある案件と重複しないこと。教訓の確かさが「低」のものは仮説として扱い、それだけで題材や対象者を避けない。「最近出た案」と同じ題材・同じ困りごとの言い換えも出さない（別の対象者・別の困りごとを探す）。
-形式: {"ideas":[{"aim":"spread・useful・return・demand のどれか","genre":"ジャンル（短い言葉）","kind":"lp または tool（aim から決まる）","title":"サービス名","target":"誰向けか（具体的に）","problem":"useful・demand は、その人が困っていること・欲しいこと。spread は、その人のどんな気持ちに刺さるか。return は、毎日来る動機（考える順番のとおり）","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 何を作り込むか","deep_data":"じっくり案件で大きなデータが要るときだけ: 要るデータ","needs":[{"kind":"store・api・ai・asset・other のどれか（じっくり案件で、今はない仕組みが要るときだけ）","what":"何が要るか（短く）","why":"なぜ要るか"}],"api_wish":{"name":"使いたい API の名前（あるときだけ）","purpose":"何に使うか","key":true または false（鍵が要るか）,"sends":"訪問者のどんな情報を送ることになるか（送らないなら「なし」）"}}]}`,
+形式: {"ideas":[{"aim":"spread・useful・return・demand のどれか","genre":"ジャンル（短い言葉）","kind":"lp または tool（aim から決まる）","title":"サービス名","target":"誰向けか（具体的に）","problem":"useful・demand は、その人が困っていること・欲しいこと。spread は、その人のどんな気持ちに刺さるか。return は、毎日来る動機（考える順番のとおり）","solution":"どう解決するか（どんな種類のプロダクトか（Webサービス・スマホアプリなど）も書く。tool なら何ができるツールか。無料か有料か、登録が要るか要らないかも必ず書く）","hypothesis":"検証したい仮説（数字で判定できる形）","channel":"最初の利用者がいる具体的な場所と、そこでの届け方（運営者が手で行う直接の接点も、ここに数つきで書く）","first_test":"公開から最初の1週間の数値と判定の基準だけ（何人に届けて、何が起きれば手応えありとするか。届け方はここに書かない）","judge":{"visits":判断に入る訪問,"days":訪問が少なくても判断する日数,"why":"この案件だけ基準を変える理由"}（ねらいの基準と違う時間がかかる理由があるときだけ。なければ書かない）,"alternative":"代わりになる既存の無料サービスの名前と、それとの違い","season":"seasonal（その時期だけの需要）または evergreen（1年中ある需要）","reason":"このアイデアとこの形を選んだ理由","confidence":0から1の数値（反応がある見込み）,"want_id":元にした「欲しい」の声の番号（声から作ったときだけ。数値）,"deep":"じっくり案件にするときだけ: 何を作り込むか","deep_data":"じっくり案件で大きなデータが要るときだけ: 要るデータ","needs":[{"kind":"store・api・ai・asset・other のどれか（じっくり案件で、今はない仕組みが要るときだけ）","what":"何が要るか（短く）","why":"なぜ要るか"}],"api_wish":{"name":"使いたい API の名前（あるときだけ）","purpose":"何に使うか","key":true または false（鍵が要るか）,"sends":"訪問者のどんな情報を送ることになるか（送らないなら「なし」）"}}]}`,
     // 仮説の基準と、判断で使う目標がずれないように揃える
-    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}${aims.length ? `\n今回のねらい（この順に1件ずつ出す）: ${aims.map((a, i) => `${i + 1}件目=${a}（${AIMS[a].label}）`).join("、")}` : ""}\nジャンル: ${explore ? `これまで作ったジャンル（これ以外から選ぶ）: ${madeGenres().join("・") || "まだなし"}` : genres.length ? `運営者が選んだもの（合うものがなければ、ないジャンルを使ってよい）: ${genres.join("・")}` : `おまかせ（最近の案件のジャンル: ${recentGenres.join("・") || "まだなし"}。同じジャンルが続かないようにする）`}${explore ? `\n今回は${EXPLORE_LABEL}: まだ作ったことのないジャンルや形（遊び方・見た目・使う場面）を1つ選び、過去の成功に似せないこと。これまでの数字・効いた手・人気のジャンルは、わざと渡していない。題材や対象者も、既にある案件の言い換えにしない` : ""}${deepOnly ? "\n今回は運営者の依頼で、すべてをじっくり案件（kind は tool、deep に何を作り込むかを書く。大きなデータが要るときは deep_data も書く）で出すこと。ふつうの tool の制限では面白さが出ない題材を選ぶ" : ""}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上、訪問 ${s.judgeMinVisits}人で判定\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上、訪問 ${s.judgeMinVisits}人で判定（シェア数も参考にする）\n- spread は上の tool の基準に加えて、公開から3日の、遊んだ人の数とシェアの数も見る。return は、何日かあとにまた来た人がいるかも見る${explore ? "" : `\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}${hitsText()}${hotIdeaHint()}`}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${explore ? "" : `${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`}`,
+    user: `テーマ: ${theme || "おまかせ"}\n件数: ${count}${aims.length ? `\n今回のねらい（この順に1件ずつ出す）: ${aims.map((a, i) => `${i + 1}件目=${a}（${AIMS[a].label}）`).join("、")}` : ""}\nジャンル: ${explore ? `これまで作ったジャンル（これ以外から選ぶ）: ${madeGenres().join("・") || "まだなし"}` : genres.length ? `運営者が選んだもの（合うものがなければ、ないジャンルを使ってよい）: ${genres.join("・")}` : `おまかせ（最近の案件のジャンル: ${recentGenres.join("・") || "まだなし"}。同じジャンルが続かないようにする）`}${explore ? `\n今回は${EXPLORE_LABEL}: まだ作ったことのないジャンルや形（遊び方・見た目・使う場面）を1つ選び、過去の成功に似せないこと。これまでの数字・効いた手・人気のジャンルは、わざと渡していない。題材や対象者も、既にある案件の言い換えにしない` : ""}${deepOnly ? "\n今回は運営者の依頼で、すべてをじっくり案件（kind は tool、deep に何を作り込むかを書く。大きなデータが要るときは deep_data も書く）で出すこと。ふつうの tool の制限では面白さが出ない題材を選ぶ" : ""}\n仮説の判定基準（形ごと。この基準を使うこと）:\n- lp: 訪問者の事前登録率 ${(s.targetSignupRate * 100).toFixed(1)}% 以上\n- tool: 訪問者のうち実際に使った人の割合 ${(s.targetUseRate * 100).toFixed(0)}% 以上（シェア数も参考にする）\n- 判断に入る基準（ねらいごと）: ${aimJudgeLine(s)}。この案件だけ違う時間がかかる理由（例: 週に1回しか使わない道具なので再訪に日がかかる）があれば、judge に書く（ねらいの基準の半分〜1.5倍まで。公開のあとは変えられない）\n- spread は上の tool の基準に加えて、公開から3日の、遊んだ人の数とシェアの数も見る。return は、何日かあとにまた来た人がいるかも見る${explore ? "" : `\n\n参考のヒント（使わなくてよい。季節もの以外のアイデアも半分以上出すこと）\n時期のネタ:\n${seasonalContext(new Date(), s.trendNotes)}\n\n${trendsText() || "（いまの話題はまだ取得していません）"}\n\n過去の教訓:\n${lessons}${hitsText()}${hotIdeaHint()}`}\n\n既にある案件:\n${existing}\n\n最近出た案（選ばれなかったものも含む。同じ題材は出さない）:\n${recent}${explore ? "" : `${viralHints("idea")}${wantsText()}${planIdeaNote()}\n\n${outsideText()}（アイデア出しでは、実際の人が何に困ったか・何に反応したかを、題材や届け方の参考にする）\n${researchText()}`}`,
     validate: (v): v is { ideas: Idea[] } => isObj(v) && Array.isArray(v.ideas) && v.ideas.length > 0 && v.ideas.every(isIdea),
   });
   // ねらいと形をそろえる。頼んだねらいにない案は候補にしない（運営者が絞ったねらい・配分を0にしたねらいの案件ができないように）
@@ -359,21 +361,25 @@ genre には、アイデアのジャンルを短い言葉で書く（例: ${GENR
 function insertProject(idea: Idea, theme: string, choice: ModeChoice & { confidence: number | null }, origin: ProjectRow["origin"], ideaModel: string, explore = false): number {
   const conf = typeof idea.confidence === "number" ? Math.max(0, Math.min(1, idea.confidence)) : null;
   const { mode } = choice;
+  // この案件だけ判断の基準を調整するとき（公開の前のここだけ。ねらいの基準の半分〜1.5倍。judgeBasis.ts）
+  const adjust = parseJudgeAdjust(idea.judge, aimBasis(judgeAim({ aim: aimOfIdea(idea), kind: idea.kind === "tool" ? "tool" : "lp" }), getSettings()));
   const id = Number(
     db()
       .prepare(
-        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind, first_channel, first_test, want_id, deep, deep_need, deep_plan, aim, genre, needs, explore)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, ai_confidence, stage, model_id, theme, mode, origin, idea_model, mode_confidence, kind, first_channel, first_test, want_id, deep, deep_need, deep_plan, aim, genre, needs, explore, judge_visits, judge_days, judge_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'idea', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(idea.title, idea.target, idea.problem, idea.solution, idea.hypothesis, idea.reason, conf, getSettings().loopModel, theme || null, mode, origin, ideaModel, choice.confidence, idea.kind === "tool" ? "tool" : "lp",
         isStr(idea.channel) ? idea.channel.slice(0, 500) : null, isStr(idea.first_test) ? idea.first_test.slice(0, 500) : null,
         typeof idea.want_id === "number" && getWant(idea.want_id)?.status === "ok" ? idea.want_id : null,
         isDeepIdea(idea) ? 1 : 0, isDeepIdea(idea) && isStr(idea.deep_data) && idea.deep_data.trim() ? idea.deep_data.slice(0, 500) : null,
         isDeepIdea(idea) ? idea.deep!.slice(0, 500) : null, aimOfIdea(idea), isStr(idea.genre) ? idea.genre.trim().slice(0, 30) : null,
-        isDeepIdea(idea) && needsOf(idea.needs).length ? JSON.stringify(needsOf(idea.needs)) : null, explore ? 1 : 0)
+        isDeepIdea(idea) && needsOf(idea.needs).length ? JSON.stringify(needsOf(idea.needs)) : null, explore ? 1 : 0,
+        adjust?.visits ?? null, adjust?.days ?? null, adjust?.reason ?? null)
       .lastInsertRowid,
   );
   logEvent(id, "ai", "idea", `アイデアを提案: ${idea.title}（${KIND_LABEL[idea.kind === "tool" ? "tool" : "lp"]}・${AIMS[aimOfIdea(idea)].label}${isStr(idea.genre) && idea.genre.trim() ? `・${idea.genre.trim().slice(0, 30)}` : ""}${isDeepIdea(idea) ? "・じっくり案件" : ""}${explore ? `・${EXPLORE_LABEL}` : ""}・${MODE_LABEL[mode]}モード${choice.why === "設定" ? "" : `・${choice.why}`}）`);
+  if (adjust) logEvent(id, "ai", "judge-adjust", `この案件の判断の基準を、訪問${adjust.visits}人・${adjust.days}日にしました（ねらいの基準と違う理由: ${adjust.reason}）`);
   return id;
 }
 
@@ -1892,7 +1898,7 @@ export function judgePrompt(p: ProjectRow, trigger: JudgeTrigger = "visits") {
 - collect: 今のまま、もう少し集客してから判断する
 - kill: 需要が見込めないので撤退する`;
   const slowNote = trigger === "slow"
-    ? `\n今回は、公開（または前回の判断）から${s.judgeAfterDays}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。訪問が判断の基準（${s.judgeMinVisits}人）に届いていない間の kill は、自動では実行されず人の判断に回る。最初の届け方をまだやっていない（または見送った）なら、需要の問題ではなく届け方の問題として扱い、それを理由に書くこと。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
+    ? `\n今回は、公開（または前回の判断）から${judgeBasis(p, s).days}日たっても訪問が少ないので判断する。訪問が少ないことは「需要がない」とは限らず、「届いていない」だけかもしれない。投稿の数・反応も見て、まず届け方の問題（rethink）か、届いているのに反応がない（kill・improve）かを見分けること。訪問が判断の基準（${s.judgeMinVisits}人）に届いていない間の kill は、自動では実行されず人の判断に回る。最初の届け方をまだやっていない（または見送った）なら、需要の問題ではなく届け方の問題として扱い、それを理由に書くこと。${p.rethink_count >= 2 ? `\nこの案件はすでに集客の見直しを${p.rethink_count}回している。これ以上 rethink は選ばず、kill か improve か collect から選ぶこと。` : ""}`
     : "";
   const spreadNote = trigger === "spread"
     ? `\n今回は、ねらいが「広がる」（遊び・ネタで、見た人が触ってシェアし、フォロワーが増える）の案件が、公開（または前回の判断）から${s.spreadJudgeDays}日で、当たりの基準（遊んだ人${s.spreadHitPlays}人以上か、シェア${s.spreadHitShares}件以上）を超えたので判断する。広がっているので kill は選ばない。役に立つかではなく、もっと遊ばれ・シェアされるか（結果を見せたくなる工夫・次も遊びたくなる工夫）で考える。`
@@ -2026,8 +2032,9 @@ async function applyDecision(p: ProjectRow, d: Decision, adSpendJpy: number): Pr
 
   // 訪問が判断の基準に届いていない撤退は、全自動でも人に回す（数人の数字で需要がないと決めないため）
   const visits = projectTotals(projectId).visits;
-  if (d.decision === "kill" && p.mode === "auto" && s.fullAuto && visits < s.judgeMinVisits) {
-    const note = `訪問が${visits}人で、判断の基準（${s.judgeMinVisits}人）に届いていないため、自動では撤退せずに判断をお願いしています`;
+  const basisVisits = judgeBasis(p, s).visits;
+  if (d.decision === "kill" && p.mode === "auto" && s.fullAuto && visits < basisVisits) {
+    const note = `訪問が${visits}人で、判断の基準（${basisVisits}人）に届いていないため、自動では撤退せずに判断をお願いしています`;
     logEvent(projectId, "system", "auto-blocked", note);
     setStage(projectId, "deciding");
     return addApproval(projectId, "decision", DECISION_LABEL[d.decision], `${d.reason}\n（${note}）`, d);
@@ -2365,7 +2372,8 @@ async function writeLesson(projectId: number, outcome: string) {
   const p = getProject(projectId)!;
   const s = getSettings();
   const t = projectTotals(projectId);
-  const enough = t.visits >= s.judgeMinVisits;
+  const basisVisits = judgeBasis(p, s).visits;
+  const enough = t.visits >= basisVisits;
   const reach = classifyEnd(p);
   const posts = (db().prepare("SELECT COUNT(*) AS n FROM sns_posts WHERE project_id = ? AND status = 'posted'").get(projectId) as { n: number }).n;
   const out = await callJson<{ fact: string; interpretation: string; unknown: string; certainty: Certainty }>({
@@ -2377,11 +2385,11 @@ async function writeLesson(projectId: number, outcome: string) {
 - unknown: この結果からは、まだ判断できないこと（例: 届いた人が少なく、需要の有無は分からない）
 - certainty: 解釈の確かさ。low / mid / high
 守ること:
-- 訪問が判断の基準（${s.judgeMinVisits}人）に届いていなければ、certainty は必ず low。需要の有無・対象者の良し悪しについて結論を出さない
+- 訪問が判断の基準（${basisVisits}人）に届いていなければ、certainty は必ず low。需要の有無・対象者の良し悪しについて結論を出さない
 - ほとんど人に届いていない（「届かなかった」）場合、学べるのは届け方のことだけ。「この対象には需要がない」「この題材は弱い」とは書かない
 形式: {"fact":"","interpretation":"","unknown":"","certainty":"low"}
 ${EXTRAS_RULE}`,
-    user: `サービス: ${p.title}（対象: ${p.target}）\n結果: ${outcome}\n形: ${KIND_LABEL[p.kind]}\n訪問 ${t.visits}人（判断の基準 ${s.judgeMinVisits}人${enough ? "に届いている" : "に届いていない"}） / ${CONV[p.kind].noun} ${t.signups}人 / ${CONV[p.kind].rate} ${(t.rate * 100).toFixed(1)}% / 改善 ${p.improve_count}回 / 集客の見直し ${p.rethink_count}回 / SNSへの投稿 ${posts}件\n終わり方の分類: ${END_REASON_LABEL[reach] ?? reach}\n最初の届け方: ${p.first_channel ?? "（なし）"}${p.growth_focus ? `\n最後の集客の方針: ${p.growth_focus}` : ""}`,
+    user: `サービス: ${p.title}（対象: ${p.target}）\n結果: ${outcome}\n形: ${KIND_LABEL[p.kind]}\n訪問 ${t.visits}人（判断の基準 ${basisVisits}人${enough ? "に届いている" : "に届いていない"}） / ${CONV[p.kind].noun} ${t.signups}人 / ${CONV[p.kind].rate} ${(t.rate * 100).toFixed(1)}% / 改善 ${p.improve_count}回 / 集客の見直し ${p.rethink_count}回 / SNSへの投稿 ${posts}件\n終わり方の分類: ${END_REASON_LABEL[reach] ?? reach}\n最初の届け方: ${p.first_channel ?? "（なし）"}${p.growth_focus ? `\n最後の集客の方針: ${p.growth_focus}` : ""}`,
     validate: (v): v is { fact: string; interpretation: string; unknown: string; certainty: Certainty } => isObj(v) && isStr(v.fact) && isStr(v.interpretation),
   });
   takeExtras(out, { modelId: s.loopModel, scene: "教訓を書くとき", projectId });
@@ -2631,7 +2639,7 @@ export const END_REASON_LABEL: Record<string, string> = {
 function classifyEnd(p: ProjectRow): string {
   const s = getSettings();
   const t = projectTotals(p.id);
-  if (t.visits < Math.max(20, s.judgeMinVisits * 0.3)) return "unreached";
+  if (t.visits < Math.max(20, judgeBasis(p, s).visits * 0.3)) return "unreached";
   if (t.rate < targetRate(p.kind, s) * 0.5) return "unused";
   return "unspread";
 }
@@ -2717,8 +2725,10 @@ export async function maybeAutoJudge(projectId: number) {
     return true;
   }
   const all = projectTotals(projectId);
+  // 判断に入る基準は、ねらいごと（公開の前に案件ごとに調整したものはそれ。judgeBasis.ts）
+  const basis = judgeBasis(p, s);
   const enoughVisits =
-    projectTotals(projectId, p.lp_version).visits >= s.judgeMinVisits && all.visits - p.judged_visits >= s.judgeMinVisits / 2;
+    projectTotals(projectId, p.lp_version).visits >= basis.visits && all.visits - p.judged_visits >= basis.visits / 2;
   // 上限と「上限＋改善用の追加分」の2つの線のどちらかを、前回の判断のあとで越えたら判断する
   const lines = [s.adBudgetPerProjectJpy, s.adBudgetPerProjectJpy + s.improveExtraBudgetJpy];
   const budgetHit = lines.some((line) => all.adSpendJpy >= line && p.judged_ad_jpy < line);
@@ -2726,10 +2736,10 @@ export async function maybeAutoJudge(projectId: number) {
   const publishedAt = p.published_at ?? backfillPublishedAt(p);
   // 保留から戻したばかりの案件は、戻した日から数える
   const since = [p.judged_at ?? publishedAt, p.resumed_at].filter((x): x is string => !!x).sort().at(-1);
-  const slow = !!since && daysSinceUtc(since) >= s.judgeAfterDays;
+  const slow = !!since && daysSinceUtc(since) >= basis.days;
   // 日数で判断する2日前に、企画で決めた最初の届け方がまだなら、運営者に1回だけ知らせる
   // （やらないまま判断すると、届け方の問題を需要の問題と取り違えるため）
-  if (since && !slow && !enoughVisits && !budgetHit && daysSinceUtc(since) >= s.judgeAfterDays - 2) remindFirstChannel(p);
+  if (since && !slow && !enoughVisits && !budgetHit && daysSinceUtc(since) >= basis.days - 2) remindFirstChannel(p);
   if (!enoughVisits && !budgetHit && !slow) return false;
   await judge(projectId, enoughVisits ? "visits" : budgetHit ? "budget" : "slow");
   return true;
@@ -2871,15 +2881,17 @@ export type DailyResult = { ran: boolean; message: string; projectIds: number[] 
 
 // 今の流入で、判断の基準の訪問まで届けられる案件の数。案件を増やすほど1件あたりの訪問が薄まり、どれも判断できなくなるため
 // 直近7日の本物の訪問から1日あたりを出し、(判断までの日数 × 2) のうちに基準へ届く件数とする。並行して比べられるよう最低2件
-export function trafficCapacity(): { perDay: number; projects: number } {
+export function trafficCapacity(): { perDay: number; projects: number; visits: number; days: number } {
   const s = getSettings();
   // metrics.day は日本時間の日付。今日を含む7日間（6日前〜今日）を数える
   const today = jstToday();
   const since = new Date(Date.parse(`${today}T00:00:00Z`) - 6 * 86_400_000).toISOString().slice(0, 10);
   const v = (db().prepare("SELECT COALESCE(SUM(m.visits), 0) AS n FROM metrics m JOIN projects p ON p.id = m.project_id WHERE m.source != 'simulated' AND p.demo = 0 AND m.day >= ? AND m.day <= ?").get(since, today) as { n: number }).n;
   const perDay = Math.round((v / 7) * 10) / 10;
-  const projects = Math.max(2, Math.floor((perDay * s.judgeAfterDays * 2) / Math.max(1, s.judgeMinVisits)));
-  return { perDay, projects };
+  // ねらいごとの基準を、ねらいの配分で重み付けした値で見る（「広がる」は除く。judgeBasis.ts）
+  const b = capacityBasis(s);
+  const projects = Math.max(2, Math.floor((perDay * b.days * 2) / Math.max(1, b.visits)));
+  return { perDay, projects, visits: b.visits, days: b.days };
 }
 
 const gDaily = globalThis as unknown as { __aiLabDailyRunning?: boolean };
@@ -2905,7 +2917,7 @@ export async function runDaily({ force = false } = {}): Promise<DailyResult> {
     // 今の流入で、判断の基準まで届けられる件数（「広がる」は自分の投稿で広がるかを見るので、ここでは数えない）
     const cap = trafficCapacity();
     if (live < s.maxLive && live >= cap.projects) {
-      const why = `直近7日の訪問は1日あたり約${cap.perDay}人で、集客中の${live}件を${s.judgeAfterDays * 2}日のうちに判断の基準（${s.judgeMinVisits}人）まで届けられる見込みがない（今の流入で育てられるのは${cap.projects}件まで）`;
+      const why = `直近7日の訪問は1日あたり約${cap.perDay}人で、集客中の${live}件を${cap.days * 2}日のうちに判断の基準（${cap.visits}人）まで届けられる見込みがない（今の流入で育てられるのは${cap.projects}件まで）`;
       for (const a of AIM_KEYS) if (a !== "spread") blocks[a] = why;
     }
     const weights = aimWeightsOf(s);
