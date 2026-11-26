@@ -16,28 +16,30 @@ export const WANT_DAYS = 30;
 export const WANT_RESEARCH_MIN = 3; // この件数の案が欲しがったら調べる
 export const WANT_RESEARCH_EVERY_DAYS = 7;
 
-export type Want = { key: string; label: string; count: number; examples: string[]; detail: string; titles: string[] }; // titles: 欲しがった案の題（全部）
+export type Want = { key: string; label: string; count: number; examples: string[]; detail: string; ids: number[] }; // ids: 欲しがったアイデアの候補の番号（全部）
 
 // 調べものの問いに付ける印（同じ欲しいものを何度も調べないため）
 const MARK_HEAD = "（欲しい仕組みの調べもの: ";
 const mark = (key: string) => `${MARK_HEAD}${key}）`;
-// 「要る仕組み: 外部のAPI」と「使いたいAPI『○○』」は、同じ案が両方に書くことがある。欲しがった案の半分以上が同じなら、同じ需要とみなす
-// （同じ需要を2回調べない。案が違えば、別の需要として調べる。PR #194 の ai-review の指摘）
-const related = (a: Want, b: Want) => (a.key === "need:api" && b.key.startsWith("api:")) || (b.key === "need:api" && a.key.startsWith("api:"));
-const sameDemand = (a: Want, b: Want) => related(a, b) && a.titles.filter((t) => b.titles.includes(t)).length * 2 >= a.titles.length;
+// 「要る仕組み: 外部のAPI」と「使いたいAPI『○○』」は、同じ案が両方に書くことがある。同じ需要を2回調べないよう、
+// 外部のAPIの別のキーを最近調べていて、そのとき元にした案と、今の候補の案が半分以上同じなら、調べたものとみなす（案が違えば、別の需要として調べる）
+// - 比べるのは、アイデアの候補の番号（題は同じでも別の案のことがある）と、調べたときに残した番号（今の集計ではない）（PR #195 の ai-review の指摘）
+// - 半分は、多いほうの案の数で見る（どちらから比べても同じ答えになるように）
+const related = (a: string, b: string) => (a === "need:api" && b.startsWith("api:")) || (b === "need:api" && a.startsWith("api:"));
+export const sameDemand = (a: number[], b: number[]) => a.filter((id) => b.includes(id)).length * 2 >= Math.max(a.length, b.length);
 
 export function wants(days = WANT_DAYS): Want[] {
-  const rows = db().prepare("SELECT title, payload FROM idea_candidates WHERE practice = 0 AND at >= datetime('now', ?) ORDER BY id")
-    .all(`-${days} days`) as { title: string; payload: string }[];
-  const by = new Map<NeedKind, { count: number; examples: string[]; whats: string[]; titles: string[] }>();
-  const apiTitles = new Map<string, string[]>();
+  const rows = db().prepare("SELECT id, title, payload FROM idea_candidates WHERE practice = 0 AND at >= datetime('now', ?) ORDER BY id")
+    .all(`-${days} days`) as { id: number; title: string; payload: string }[];
+  const by = new Map<NeedKind, { count: number; examples: string[]; whats: string[]; ids: number[] }>();
+  const apiIdeas = new Map<string, { id: number; title: string }[]>();
   for (const r of rows) {
     // 使いたいAPI を書いた案の題（会議の材料と調べものの根拠に、どの案が欲しがったかを出すため。PR #194 の ai-review の指摘）
     try {
       const wish = apiWishOf((JSON.parse(r.payload) as { api_wish?: unknown }).api_wish);
       if (wish) {
         const k = wish.name.toLowerCase().replace(/\s+/g, " ");
-        apiTitles.set(k, [...(apiTitles.get(k) ?? []), r.title]);
+        apiIdeas.set(k, [...(apiIdeas.get(k) ?? []), { id: r.id, title: r.title }]);
       }
     } catch { /* 読めない案は、下で飛ばす */ }
     let needs: ReturnType<typeof needsOf> = [];
@@ -45,9 +47,9 @@ export function wants(days = WANT_DAYS): Want[] {
     // 同じ案の中で同じ種類が2つあっても、案の数で数える
     for (const kind of new Set(needs.map((n) => n.kind))) {
       if (NEED_KINDS[kind].ready) continue; // 素材・そのほかは、人が用意できるので数えない
-      const w = by.get(kind) ?? { count: 0, examples: [], whats: [], titles: [] };
+      const w = by.get(kind) ?? { count: 0, examples: [], whats: [], ids: [] };
       w.count++;
-      w.titles.push(r.title);
+      w.ids.push(r.id);
       if (w.examples.length < 3) w.examples.push(r.title);
       const what = needs.find((n) => n.kind === kind)?.what;
       if (what && w.whats.length < 3 && !w.whats.includes(what)) w.whats.push(what);
@@ -56,12 +58,12 @@ export function wants(days = WANT_DAYS): Want[] {
   }
   const needWants: Want[] = [...by].map(([kind, w]) => ({
     key: `need:${kind}`, label: `${NEED_KINDS[kind].label}（${NEED_KINDS[kind].hint}）`, count: w.count, examples: w.examples,
-    detail: w.whats.length ? `欲しかったもの: ${w.whats.join(" / ")}` : "", titles: w.titles,
+    detail: w.whats.length ? `欲しかったもの: ${w.whats.join(" / ")}` : "", ids: w.ids,
   }));
   const apiWants: Want[] = apiWishSummary(days).map((a) => {
-    const titles = apiTitles.get(a.name.toLowerCase().replace(/\s+/g, " ")) ?? [];
+    const ideas = apiIdeas.get(a.name.toLowerCase().replace(/\s+/g, " ")) ?? [];
     return {
-      key: `api:${a.name.toLowerCase().replace(/\s+/g, " ")}`, label: `使いたいAPI「${a.name}」`, count: a.count, examples: titles.slice(0, 3), titles,
+      key: `api:${a.name.toLowerCase().replace(/\s+/g, " ")}`, label: `使いたいAPI「${a.name}」`, count: a.count, examples: ideas.slice(0, 3).map((x) => x.title), ids: ideas.map((x) => x.id),
       detail: [a.purposes.length ? `用途: ${a.purposes.join(" / ")}` : "", `鍵: ${a.key ? "要る" : "要らない"}`, a.sends.length ? `送る情報: ${a.sends.join(" / ")}` : ""].filter(Boolean).join("・"),
     };
   });
@@ -87,12 +89,20 @@ export function maybeResearchWants(opts: { run?: Run } = {}): number | null {
   // 印は文字のまま探す（API の名前の _ や % を LIKE の記号として扱わない。PR #194 の ai-review の指摘）
   const recent = (marks: string[], days: number) => marks.some((m) => !!db().prepare("SELECT 1 FROM research WHERE instr(question, ?) > 0 AND at >= datetime('now', ?)").get(m, `-${days} days`));
   if (recent([MARK_HEAD], WANT_RESEARCH_EVERY_DAYS)) return null;
-  const all = wants();
-  const done = (x: Want) => recent([mark(x.key)], WANT_DAYS) || all.some((y) => sameDemand(x, y) && recent([mark(y.key)], WANT_DAYS));
-  const w = all.find((x) => x.count >= WANT_RESEARCH_MIN && !done(x));
+  // 直近30日の欲しい仕組みの調べもの（キーと、調べたときに元にした案の番号）
+  const past = (db().prepare("SELECT question, want_ideas FROM research WHERE instr(question, ?) > 0 AND at >= datetime('now', ?)").all(MARK_HEAD, `-${WANT_DAYS} days`) as { question: string; want_ideas: string | null }[])
+    .flatMap((r) => {
+      const key = r.question.slice(r.question.indexOf(MARK_HEAD) + MARK_HEAD.length).split("）")[0];
+      let ids: number[] | null = null;
+      try { ids = r.want_ideas ? (JSON.parse(r.want_ideas) as unknown[]).filter((x): x is number => typeof x === "number") : null; } catch { ids = null; }
+      return key ? [{ key, ids }] : [];
+    });
+  // 同じキーは、元にした案に関係なく30日に1回。外部のAPIの別のキーは、元にした案を残した調べもので、案が半分以上同じときだけ（残していない古い調べものでは止めない）
+  const done = (x: Want) => past.some((p) => p.key === x.key || (related(p.key, x.key) && p.ids !== null && sameDemand(x.ids, p.ids)));
+  const w = wants().find((x) => x.count >= WANT_RESEARCH_MIN && !done(x));
   if (!w) return null;
   const q = question(w);
-  const id = addResearch({ planId: null, projectId: null, question: q.question, why: q.why, how: q.how, askedBy: "system" });
+  const id = addResearch({ planId: null, projectId: null, question: q.question, why: q.why, how: q.how, askedBy: "system", wantIdeas: w.ids });
   logEvent(null, "system", "want-research", `アイデアの${w.count}件が欲しがった${w.label}に使えるサービスを調べます`);
   void (opts.run ?? defaultRun)(id).catch((e) => console.error("欲しい仕組みの調べものに失敗しました", e));
   return id;

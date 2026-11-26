@@ -822,6 +822,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "mode_confidence", "REAL"], // モードを決めたときに使った自信（毎日の実行では他社の採点の平均、手動では自己申告）
   ["plan_trials", "branches", "TEXT"], // 試しを始めるときに決めた、結果ごとの次の手（JSON: [{"if":"条件","then":"次の手"}]。trials.ts）
   ["plan_trials", "matched_branch", "INTEGER"], // 判定で当たった条件（1始まり。0 はどれにも当たらなかった。空は決めていない古い試し）
+  ["research", "want_ideas", "TEXT"], // 欲しい仕組みの調べもののとき、調べる元にしたアイデアの候補の番号（JSON の配列。wants.ts）
 ];
 
 function addColumns(conn: Database.Database) {

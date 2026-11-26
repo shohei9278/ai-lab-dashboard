@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
-import { maybeResearchWants, wants, wantsText, WANT_RESEARCH_MIN } from "../src/lib/wants";
+import { maybeResearchWants, sameDemand, wants, wantsText, WANT_RESEARCH_MIN } from "../src/lib/wants";
 
 // 欲しい仕組み（運営者が決めた）: アイデアが「要る」「使いたい」と書いたものを数え、何度も出たら使えるサービスを調べ、定例会議に渡す
 
@@ -105,5 +105,32 @@ test("欲しい仕組み: 集計と契約の決まりは定例会議だけに渡
   reset();
   for (let i = 0; i < 3; i++) idea(`保存の案${i}`, store());
   assert.doesNotMatch(meetingMaterial("2026-11-01"), /欲しい仕組み（直近/);
+  reset();
+});
+
+test("欲しい仕組み: 同じ需要かは、調べたときに元にした案の番号で、多いほうの案の数の半分以上が同じかで決める（PR #195 の ai-review の指摘）", () => {
+  // どちらから比べても同じ答え（8案のうち3案だけが重なるなら、別の需要）
+  assert.deepEqual([sameDemand([1, 2, 3], [1, 2, 3, 4, 5, 6, 7, 8]), sameDemand([1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3])], [false, false]);
+  assert.deepEqual([sameDemand([1, 2, 3], [1, 2, 3, 4]), sameDemand([1, 2, 3, 4], [1, 2, 3])], [true, true]);
+  reset();
+  const run = async () => {};
+  // 天気の3案で「要る仕組み: 外部のAPI」を調べた（調べたときの案の番号が残る）
+  for (let i = 0; i < 3; i++) idea(`天気の案${i}`, { needs: [{ kind: "api", what: "天気", why: "w" }] });
+  const first = maybeResearchWants({ run })!;
+  const saved = JSON.parse((db().prepare("SELECT want_ideas FROM research WHERE id = ?").get(first) as { want_ideas: string }).want_ideas) as number[];
+  assert.equal(saved.length, 3);
+  // そのあと、外部のAPIと地図の両方を書いた別の3案が増えた。今の集計の「外部のAPI」には地図の案も入るが、調べたのは天気の案なので、地図は別の需要として翌週に調べる
+  for (let i = 0; i < 3; i++) idea(`地図の案${i}`, { needs: [{ kind: "api", what: "地図", why: "w" }], api_wish: { name: "MapBox", purpose: "地図", key: true, sends: "なし" } });
+  db().prepare("UPDATE research SET at = datetime('now', '-8 days')").run();
+  const second = maybeResearchWants({ run });
+  assert.match((db().prepare("SELECT question FROM research WHERE id = ?").get(second) as { question: string }).question, /api:mapbox/);
+  // 題が同じでも別の案なら、同じ案とはみなさない（番号で比べる）
+  reset();
+  for (let i = 0; i < 3; i++) idea("同じ題", { needs: [{ kind: "api", what: "天気", why: "w" }] });
+  maybeResearchWants({ run });
+  db().prepare("DELETE FROM idea_candidates").run();
+  for (let i = 0; i < 3; i++) idea("同じ題", { api_wish: { name: "Weather", purpose: "天気", key: true, sends: "なし" } });
+  db().prepare("UPDATE research SET at = datetime('now', '-8 days')").run();
+  assert.match((db().prepare("SELECT question FROM research WHERE id = ?").get(maybeResearchWants({ run })) as { question: string }).question, /api:weather/);
   reset();
 });
