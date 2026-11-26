@@ -114,11 +114,17 @@ test("教訓の見直し: 結果の出た使い方が2件以上ある教訓だ�
   assert.equal(restoreLesson(hold), true);
   assert.equal(get(hold).active, 1);
   assert.equal(restoreLesson(fix), false);
-  // 戻した教訓は、同じ根拠のまますぐ見直さない（新しい結果が出るまで。PR #211 の ai-review の指摘）
+  // 戻した教訓は、同じ根拠のまますぐ見直さない（結果の出た使い方が増えるまで。PR #211 の ai-review の指摘）
   assert.equal(reviewableLessons().some((x) => x.lesson.id === hold), false);
-  db().prepare("UPDATE lessons SET restored_at = datetime('now', '-1 hours'), reviewed_at = datetime('now', '-2 hours') WHERE id = ?").run(hold);
-  idea(hold, project({ stage: "killed" }), "戻したあとに使った");
+  // 戻す前に使っていた案件の結果が、戻したあとに出ても、見直しのきっかけになる（使った日時ではなく、結果の出た数で見る）
+  const later = project();
+  idea(hold, later, "戻す前に使った");
+  assert.equal(reviewableLessons().some((x) => x.lesson.id === hold), false); // まだ結果が出ていない
+  db().prepare("UPDATE projects SET stage = 'killed' WHERE id = ?").run(later);
   assert.equal(reviewableLessons().some((x) => x.lesson.id === hold), true);
+  // 維持した教訓も、結果の出た使い方が増えたら、もう一度見直す
+  idea(keep, project({ growth: 1 }), "維持したあとに使った");
+  assert.equal(reviewableLessons().some((x) => x.lesson.id === keep), true);
 });
 
 test("教訓の見直し: 対象の教訓がなければ、AIを呼ばない", async () => {

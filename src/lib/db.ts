@@ -803,6 +803,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["lessons", "replaced_by", "INTEGER"], // 直して置き換えた先の教訓の番号
   ["lessons", "restored_at", "TEXT"], // 運営者が保留を戻した日時（そのあとに新しい結果が出るまで、見直さない）
   ["lessons", "review_note", "TEXT"], // 前回の見直しで決めたことと理由（維持も含む）
+  ["lessons", "reviewed_decided", "INTEGER"], // 前回の見直し・運営者が戻したときの、結果の出た使い方の数（これより増えたら、もう一度見直す）
   ["plan_tasks", "lessons", "TEXT"], // 朝会の予定に付いた教訓の使い方（JSON。実行して変えた先が決まったら lesson_uses に残す。lessons.ts）
   ["lessons", "fact", "TEXT"], // 観測した事実（数字など）
   ["lessons", "interpretation", "TEXT"], // 仮の解釈
@@ -1253,7 +1254,7 @@ export type ApprovalRow = {
 export type EventRow = { id: number; at: string; project_id: number | null; actor: "ai" | "human" | "system"; kind: string; message: string };
 // signups は「成果」の数: 事前登録LPなら登録、動くツールなら使った人の数
 export type MetricRow = { id: number; project_id: number; day: string; visits: number; signups: number; ad_spend_jpy: number; source: string; lp_version: number; shares: number };
-export type LessonRow = { id: number; at: string; project_id: number | null; text: string; active: number; fact: string | null; interpretation: string | null; unknown: string | null; certainty: "low" | "mid" | "high" | null; hold_reason: string | null; held_at: string | null; reviewed_at: string | null; revised_from: number | null; replaced_by: number | null; restored_at: string | null; review_note: string | null };
+export type LessonRow = { id: number; at: string; project_id: number | null; text: string; active: number; fact: string | null; interpretation: string | null; unknown: string | null; certainty: "low" | "mid" | "high" | null; hold_reason: string | null; held_at: string | null; reviewed_at: string | null; revised_from: number | null; replaced_by: number | null; restored_at: string | null; review_note: string | null; reviewed_decided: number | null };
 
 // 案件の段階: アイデア → LP作成 → 集客中 → 判断待ち → 継続 / 撤退（却下はアイデア段階で止めたもの）
 export type Stage = "idea" | "lp" | "live" | "hold" | "deciding" | "continued" | "killed" | "rejected"; // hold = 公開は続けるが、宣伝・判断・改善を止めている

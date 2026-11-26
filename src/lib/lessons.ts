@@ -75,7 +75,7 @@ export function outcomeOfUse(u: Pick<UseRow, "project_id" | "kind" | "ref_id">):
   return "none";
 }
 
-export type LessonUseView = { at: string; change: string; kind: LessonUseKind; projectId: number | null; outcome: UseOutcome };
+export type LessonUseView = { at: string; change: string; kind: LessonUseKind; projectId: number | null; refId: number | null; outcome: UseOutcome };
 export type LessonStat = { uses: number; good: number; bad: number; unclear: number; pending: number; none: number; list: LessonUseView[] };
 export function lessonStats(): Map<number, LessonStat> {
   const out = new Map<number, LessonStat>();
@@ -84,26 +84,25 @@ export function lessonStats(): Map<number, LessonStat> {
     const o = outcomeOfUse(u);
     s.uses++;
     s[o]++;
-    s.list.push({ at: u.at, change: u.change, kind: u.kind, projectId: u.project_id, outcome: o });
+    s.list.push({ at: u.at, change: u.change, kind: u.kind, projectId: u.project_id, refId: u.ref_id, outcome: o });
     out.set(u.lesson_id, s);
   }
   return out;
 }
-const isDecided = (o: UseOutcome) => o === "good" || o === "bad";
 export const OUTCOME_LABEL: Record<UseOutcome, string> = { good: "良かった", bad: "悪かった", unclear: "判断できなかった", pending: "まだ", none: "測れない" };
 
 const lessonText = (l: LessonRow) => (l.fact ? `事実: ${l.fact} / 仮の解釈: ${l.interpretation ?? l.text}${l.unknown ? ` / まだ分からない: ${l.unknown}` : ""}` : l.text);
 
-// 見直しの対象: 結果の出た使い方が2件以上あり、前に見直した（または運営者が戻した）あとに、結果の出た新しい使い方がある教訓
-// （同じ根拠のまま、毎週見直し直したり、運営者が戻した教訓をすぐ保留し直したりしない。PR #211 の ai-review の指摘）
+// 見直しの対象: 結果の出た使い方が2件以上あり、前に見直した（または運営者が戻した）ときより、結果の出た使い方が増えた教訓
+// （同じ根拠のまま、毎週見直し直したり、運営者が戻した教訓をすぐ保留し直したりしない。使った日時ではなく、結果の出た数で見る。PR #211 の ai-review の指摘）
+export const decidedCount = (s: LessonStat | undefined) => (s ? s.good + s.bad : 0);
 export function reviewableLessons(): { lesson: LessonRow; stat: LessonStat }[] {
   const stats = lessonStats();
   return (db().prepare("SELECT * FROM lessons WHERE active = 1 ORDER BY id").all() as LessonRow[])
     .flatMap((l) => {
       const s = stats.get(l.id);
-      if (!s || s.list.filter((u) => isDecided(u.outcome)).length < REVIEW_MIN_DECIDED) return [];
-      const since = [l.reviewed_at, l.restored_at].filter((x): x is string => !!x).sort().at(-1);
-      if (since && !s.list.some((u) => isDecided(u.outcome) && u.at > since)) return [];
+      const n = decidedCount(s);
+      if (!s || n < REVIEW_MIN_DECIDED || (l.reviewed_decided !== null && n <= l.reviewed_decided)) return [];
       return [{ lesson: l, stat: s }];
     });
 }
@@ -134,6 +133,7 @@ export async function reviewLessons(chair: string, ask: typeof callJson = callJs
     validate: (v): v is { reviews: Review[] } => isObj(v) && Array.isArray(v.reviews),
   });
   const allowed = new Map(list.map((x) => [x.lesson.id, x.lesson]));
+  const decidedNow = new Map(list.map((x) => [x.lesson.id, decidedCount(x.stat)]));
   const conn = db();
   for (const r of out.reviews) {
     if (!isObj(r)) continue;
@@ -144,7 +144,7 @@ export async function reviewLessons(chair: string, ask: typeof callJson = callJs
     if (r.action === "revise" && !(isStr(r.interpretation) && r.interpretation.trim())) continue;
     allowed.delete(l.id);
     if (r.action === "hold") {
-      const n = conn.prepare("UPDATE lessons SET active = 0, hold_reason = ?, review_note = ?, held_at = datetime('now'), reviewed_at = datetime('now') WHERE id = ? AND active = 1").run(why, `保留: ${why}`, l.id).changes;
+      const n = conn.prepare("UPDATE lessons SET active = 0, hold_reason = ?, review_note = ?, held_at = datetime('now'), reviewed_at = datetime('now'), reviewed_decided = ? WHERE id = ? AND active = 1").run(why, `保留: ${why}`, decidedNow.get(l.id) ?? 0, l.id).changes;
       if (!n) continue;
       logEvent(l.project_id, "ai", "lesson-hold", `定例会議で、教訓${l.id}を保留にしました（これからのアイデア出しと朝会に渡しません）: ${why}`);
       res.held++;
@@ -156,14 +156,14 @@ export async function reviewLessons(chair: string, ask: typeof callJson = callJs
         if (!conn.prepare("SELECT 1 FROM lessons WHERE id = ? AND active = 1").get(l.id)) return null;
         const id = Number(conn.prepare("INSERT INTO lessons (project_id, text, fact, interpretation, unknown, certainty, revised_from) VALUES (?, ?, ?, ?, ?, ?, ?)")
           .run(l.project_id, interp, isStr(r.fact) && r.fact.trim() ? r.fact.trim().slice(0, 400) : l.fact, interp, isStr(r.unknown) ? r.unknown.trim().slice(0, 400) : null, certainty, l.id).lastInsertRowid);
-        conn.prepare("UPDATE lessons SET active = 0, replaced_by = ?, hold_reason = ?, review_note = ?, reviewed_at = datetime('now') WHERE id = ?").run(id, `直して教訓${id}にした: ${why}`, `直す: ${why}`, l.id);
+        conn.prepare("UPDATE lessons SET active = 0, replaced_by = ?, hold_reason = ?, review_note = ?, reviewed_at = datetime('now'), reviewed_decided = ? WHERE id = ?").run(id, `直して教訓${id}にした: ${why}`, `直す: ${why}`, decidedNow.get(l.id) ?? 0, l.id);
         return id;
       })();
       if (nid === null) continue;
       logEvent(l.project_id, "ai", "lesson-revise", `定例会議で、教訓${l.id}を直して教訓${nid}にしました: ${why}`);
       res.revised++;
     } else {
-      conn.prepare("UPDATE lessons SET reviewed_at = datetime('now'), review_note = ? WHERE id = ?").run(`維持: ${why}`, l.id);
+      conn.prepare("UPDATE lessons SET reviewed_at = datetime('now'), review_note = ?, reviewed_decided = ? WHERE id = ?").run(`維持: ${why}`, decidedNow.get(l.id) ?? 0, l.id);
       res.kept++;
     }
   }
@@ -172,7 +172,7 @@ export async function reviewLessons(chair: string, ask: typeof callJson = callJs
 
 // 運営者が、保留した教訓を戻す（ノートの画面から。直して置き換えた教訓は戻さない）。戻したあとは、新しい結果が出るまで見直さない
 export function restoreLesson(id: number): boolean {
-  const n = db().prepare("UPDATE lessons SET active = 1, hold_reason = NULL, held_at = NULL, restored_at = datetime('now') WHERE id = ? AND active = 0 AND replaced_by IS NULL AND hold_reason IS NOT NULL").run(id).changes;
+  const n = db().prepare("UPDATE lessons SET active = 1, hold_reason = NULL, held_at = NULL, restored_at = datetime('now'), reviewed_decided = ? WHERE id = ? AND active = 0 AND replaced_by IS NULL AND hold_reason IS NOT NULL").run(decidedCount(lessonStats().get(id)), id).changes;
   if (n) logEvent(null, "human", "lesson-restore", `保留していた教訓${id}を、AIに渡す教訓に戻しました`);
   return n > 0;
 }

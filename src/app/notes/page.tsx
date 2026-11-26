@@ -6,7 +6,7 @@ import { PageIntro } from "@/components/PageIntro";
 import { LibraryTabs } from "@/components/LabTabs";
 import { CERTAINTY_LABEL, activeLessons } from "@/lib/loop";
 import { NoteActions, NoteEditor, RestoreLesson } from "./NoteEditor";
-import { OUTCOME_LABEL, USE_KIND_LABEL, inactiveLessons, lessonStats } from "@/lib/lessons";
+import { OUTCOME_LABEL, USE_KIND_LABEL, inactiveLessons, lessonStats, type LessonStat } from "@/lib/lessons";
 import { jstDate } from "@/lib/format";
 import { isOwner } from "@/lib/viewer";
 
@@ -60,20 +60,7 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
                   <div className="space-y-0.5 text-xs text-ink-2">
                     <div>判断を変えるのに使われた {st.uses}回（{(["good", "bad", "unclear", "pending"] as const).filter((k) => st[k]).map((k) => `${OUTCOME_LABEL[k]} ${st[k]}`).join("・") || "結果を測れない使い方だけ"}）</div>
                     {/* 運営者には、どの案件のどの判断に使われ、結果がどうだったかの明細を出す（PR #211 の ai-review の指摘） */}
-                    {owner && (
-                      <details>
-                        <summary data-demo-ok className="cursor-pointer text-muted">使われ方の明細</summary>
-                        <ul className="mt-1 space-y-0.5">
-                          {st.list.slice(0, 10).map((u, i) => (
-                            <li key={i}>
-                              {USE_KIND_LABEL[u.kind]}
-                              {u.projectId && <Link href={`/projects/${u.projectId}`} className="ml-1 text-accent underline">#{u.projectId}</Link>}
-                              ：「{u.change}」→ {OUTCOME_LABEL[u.outcome]}
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    )}
+                    {owner && <UseDetails st={st} />}
                   </div>
                 );
               })()}
@@ -92,6 +79,8 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
                     {l.replaced_by ? `直して教訓${l.replaced_by}にした` : "保留"}
                     {l.hold_reason && !l.replaced_by ? `: ${l.hold_reason}` : l.replaced_by && l.review_note ? `（${l.review_note}）` : ""}
                   </div>
+                  {/* 保留・置き換えた教訓も、見直しの根拠（使われ方の明細）をたどれるようにする（PR #211 の ai-review の指摘） */}
+                  {owner && stats.get(l.id) && <div className="text-xs text-ink-2"><UseDetails st={stats.get(l.id)!} /></div>}
                   {owner && !l.replaced_by && <RestoreLesson id={l.id} />}
                 </div>
               ))}
@@ -154,5 +143,25 @@ function Chip({ href, active, children }: { href: string; active: boolean; child
     <Link href={href} className={`num rounded-full border px-3 py-1 ${active ? "border-accent bg-accent text-accent-ink" : "border-line text-ink-2 hover:text-ink"}`}>
       {children}
     </Link>
+  );
+}
+
+// 教訓の使われ方の明細（運営者だけ）。どの案件の、どの版・予定を変え、結果がどうだったか（lessons.ts）
+function UseDetails({ st }: { st: LessonStat }) {
+  return (
+    <details>
+      <summary data-demo-ok className="cursor-pointer text-muted">使われ方の明細（{st.list.length}件）</summary>
+      <ul className="mt-1 space-y-0.5">
+        {st.list.map((u, i) => (
+          <li key={i}>
+            {USE_KIND_LABEL[u.kind]}
+            {u.projectId && <Link href={`/projects/${u.projectId}`} className="ml-1 text-accent underline">#{u.projectId}</Link>}
+            {u.refId && u.kind === "improve" && <span className="ml-1">第{u.refId}版</span>}
+            {u.refId && (u.kind === "promo" || u.kind === "plain") && <span className="ml-1">朝会の予定{u.refId}</span>}
+            ：「{u.change}」→ {OUTCOME_LABEL[u.outcome]}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }

@@ -314,7 +314,7 @@ function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: Hot
     improveChecksText(null, 8) || "ページの直しの答え合わせ: まだない",
     waitsText(),
     decisionsText(),
-    `教訓（${LESSON_USE_RULE}。変えた予定・試しの lessons に書く）:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
+    `教訓（${LESSON_USE_RULE}。変えた予定の lessons に書く。試しには書かない）:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
     `保留中の案件（人が決めたもの。宣伝も改善も予定に入れない）:\n${(db().prepare("SELECT id, title, hold_until FROM projects WHERE stage = 'hold' AND demo = 0 ORDER BY id").all() as { id: number; title: string; hold_until: string | null }[]).map((p) => `- #${p.id} ${p.title}（${p.hold_until ? `${p.hold_until}に再開` : "再開日なし"}）`).join("\n") || "（なし）"}`,
   ].join("\n\n") + viralHints("sns") + badPostsText();
 }
@@ -536,7 +536,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   // 試し（判定日時と見る数字・下限）と、判定日時が来た試しの結論
   applyTrialResults(out.trial_results, due, model);
   const focusNeed = out.pause_new !== true ? null : bottleneck === "reach" ? "promo" : bottleneck === "use" ? "improve" : null;
-  const trialsAdded = addTrials(id, out.trials, { live, model, tasks: tasks.map((t) => ({ kind: t.kind, project_id: t.kind === "plain" ? null : Number(t.project_id) })), focusNeed, lessons: { allowed: shownLessons, modelId: model } });
+  const trialsAdded = addTrials(id, out.trials, { live, model, tasks: tasks.map((t) => ({ kind: t.kind, project_id: t.kind === "plain" ? null : Number(t.project_id) })), focusNeed });
   // お願い（返事がまだのものと同じ題は入れない）
   const reqs = (Array.isArray(out.requests) ? out.requests : []).filter((r) => isObj(r) && isStr(r.title)).slice(0, 2)
     .filter((r) => addProposal({ title: r.title, how: String(r.how ?? ""), why: String(r.why ?? ""), target: "human", source: "plan", proposer: model, scene: "朝会", planId: id }));

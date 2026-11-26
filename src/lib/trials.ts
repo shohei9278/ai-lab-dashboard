@@ -1,4 +1,3 @@
-import { recordLessonUses } from "./lessons";
 import { db } from "./db";
 import { jstDateTime } from "./format";
 import { logEvent } from "./loop";
@@ -83,7 +82,7 @@ export function trialStats(t: Pick<TrialRow, "project_id" | "created_at">): { vi
 // 朝会が出した試しを入れる（決まりに合わないものは入れない）。入れた件数を返す
 // tasks: その朝会で決まった予定（決まりで落とした後のもの）。同じ案件の投稿（promo）か直し（improve）がない試しは入れない（何も変えない期間の数字で判定しないため。PR #172 の ai-review の指摘）
 // focusNeed: 既存の案件の集客の実験に要る予定。ネックが reach で新しい案件を休むなら promo、use で休むなら improve、それ以外は null（印のある試しも、ふつうの試しにする）
-export function addTrials(planId: number, raw: unknown, opts: { lessons?: { allowed: Set<number>; modelId: string | null }; live: Set<number>; model: string; tasks: { kind: string; project_id: number | null }[]; focusNeed: "promo" | "improve" | null; now?: number }): number {
+export function addTrials(planId: number, raw: unknown, opts: { live: Set<number>; model: string; tasks: { kind: string; project_id: number | null }[]; focusNeed: "promo" | "improve" | null; now?: number }): number {
   if (!Array.isArray(raw)) return 0;
   const now = opts.now ?? Date.now();
   let room = Math.min(TRIAL_MAX_NEW, TRIAL_MAX_OPEN - openTrials().length);
@@ -109,9 +108,7 @@ export function addTrials(planId: number, raw: unknown, opts: { lessons?: { allo
     // 既存の案件の集客の実験は、すでに登録・利用が出た案件だけ（利用が0の案件では、紹介の仕方の差が見えないため）
     const used = (db().prepare("SELECT COALESCE(SUM(signups), 0) AS c FROM metrics WHERE project_id = ? AND source != 'simulated'").get(pid) as { c: number }).c;
     const focus = t.focus === true && opts.focusNeed !== null && kinds.has(opts.focusNeed) && used > 0 ? 1 : 0;
-    const trialId = Number(ins.run(planId, pid, utc(now), question.slice(0, 200), change.slice(0, 300), metric, utc(now + hours * 3_600_000), hours, minVisits, focus, JSON.stringify(branches)).lastInsertRowid);
-    // 教訓を見て変えた試しなら、その試しを変えた先として番号で残す（試しの判定で結果を引く。lessons.ts）
-    if (opts.lessons) recordLessonUses(t.lessons, { allowed: opts.lessons.allowed, scene: "朝会", modelId: opts.lessons.modelId, projectId: pid, kind: "trial", refId: trialId });
+    ins.run(planId, pid, utc(now), question.slice(0, 200), change.slice(0, 300), metric, utc(now + hours * 3_600_000), hours, minVisits, focus, JSON.stringify(branches));
     logEvent(pid, "ai", "trial", `試しを始めました（${modelInfo(opts.model).label}）: ${question.slice(0, 80)}。${hours}時間後に${METRIC_LABEL[metric]}で判断します（訪問${minVisits}人に届かなければ保留）${focus ? "。新しい案件を休んで、この案件の集客を試します" : ""}`);
     room--;
     n++;
