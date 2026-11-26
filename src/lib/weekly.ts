@@ -73,8 +73,6 @@ ${toolCheckText()}
 
 ${flowText()}
 
-${wantsText()}
-
 提案箱（これまでの提案と、運営者の返事。返事待ち・見送りと同じ提案は出さない）:
 ${reqs.join("\n") || "（まだなし）"}
 
@@ -97,7 +95,8 @@ export async function createWeeklyMeeting(): Promise<number> {
   if (list.length < 2) throw new Error("定例会議には、2社以上のAIのキーが必要です");
   const end = new Date();
   const start = day(new Date(end.getTime() - 7 * 86_400_000));
-  const mat = meetingMaterial(start);
+  // 欲しい仕組みの集計と、それを根拠に契約を頼むときの決まりは、定例会議だけに渡す（臨時会議の材料には入れない。PR #194 の ai-review の指摘）
+  const mat = `${meetingMaterial(start)}\n\n${wantsText()}`;
 
   // 1. それぞれが振り返りと改善案を出す
   const outs = await Promise.allSettled(list.map((modelId) => callJson<MemberOut>({

@@ -28,13 +28,14 @@ test("欲しい仕組み: 直近30日の案の「要る仕組み」と「使い�
   assert.equal(list.find((w) => w.key === "need:api")!.count, 1);
   assert.equal(list.some((w) => w.key === "need:asset"), false);
   const map = list.find((w) => w.key === "api:openstreetmap")!;
-  assert.deepEqual([map.label, map.count], ["使いたいAPI「OpenStreetMap」", 1]);
+  // 使いたいAPI にも、どの案が欲しがったかを残す（PR #194 の ai-review の指摘）
+  assert.deepEqual([map.label, map.count, map.examples], ["使いたいAPI「OpenStreetMap」", 1, ["地図の道具"]]);
   assert.match(map.detail, /用途: 地図を出す・鍵: 要らない/);
   // 定例会議の材料: 数と、契約を頼むときの書き方（鍵の値は書かせない・つなぐ仕組みの案は出させない）
   const text = wantsText();
   assert.match(text, /保存の場所（[^）]*）: 2件（例: 「ランキング診断」・「みんなの投票」）/);
   assert.match(text, /Railway の変数の名前と、値の取り方。値そのものは書かない/);
-  assert.match(text, /調べ終わった結果があるものだけ、運営者に契約や用意を頼んでよい/);
+  assert.match(text, /この集計を根拠に契約や用意を運営者に頼むのは、何度も出ていて、「調べたこと」に調べ終わった結果があるものだけ/);
   assert.match(text, /調べるのは週に1回までなので、まだ調べていないものもある/);
 });
 
@@ -82,11 +83,27 @@ test("欲しい仕組み: 「要る仕組み: 外部のAPI」と「使いたいA
   // 週がたっても、使いたいAPI「Map_Box」は、要る仕組み（外部のAPI）を調べたばかりなので調べない
   db().prepare("UPDATE research SET at = datetime('now', '-8 days')").run();
   assert.equal(maybeResearchWants({ run }), null);
+  // 案が違う、名前のない外部のAPIの需要（天気）は、地図を調べたあとでも、翌週に別の需要として調べる
+  for (let i = 0; i < 3; i++) idea(`天気の案${i}`, { needs: [{ kind: "api", what: "天気", why: "w" }] });
+  db().prepare("DELETE FROM idea_candidates WHERE title LIKE '地図の案%'").run();
+  for (let i = 0; i < 3; i++) idea(`地図だけの案${i}`, { api_wish: { name: "Map_Box", purpose: "地図", key: true, sends: "なし" } });
+  db().prepare("DELETE FROM research").run();
+  db().prepare("INSERT INTO research (at, question, asked_by) VALUES (datetime('now', '-8 days'), '（欲しい仕組みの調べもの: api:map_box）', 'system')").run();
+  const weather = maybeResearchWants({ run });
+  assert.match((db().prepare("SELECT question, why FROM research WHERE id = ?").get(weather) as { question: string }).question, /need:api/);
   // 名前の _ を LIKE の記号として扱わない: 「MapXBox」を調べた記録では、「Map_Box」は止まらない
   reset();
   for (let i = 0; i < 3; i++) idea(`地図の案${i}`, { api_wish: { name: "Map_Box", purpose: "地図", key: true, sends: "なし" } });
   db().prepare("INSERT INTO research (at, question, asked_by) VALUES (datetime('now', '-8 days'), '（欲しい仕組みの調べもの: api:mapxbox）', 'system')").run();
   const id = maybeResearchWants({ run });
   assert.match((db().prepare("SELECT question FROM research WHERE id = ?").get(id) as { question: string }).question, /api:map_box/);
+  reset();
+});
+
+test("欲しい仕組み: 集計と契約の決まりは定例会議だけに渡し、臨時会議の材料（meetingMaterial）には入れない（PR #194 の ai-review の指摘）", async () => {
+  const { meetingMaterial } = await import("../src/lib/weekly");
+  reset();
+  for (let i = 0; i < 3; i++) idea(`保存の案${i}`, store());
+  assert.doesNotMatch(meetingMaterial("2026-11-01"), /欲しい仕組み（直近/);
   reset();
 });
