@@ -753,9 +753,17 @@ test("LPのチェックに渡すツールの中身: 選択肢・最初の値・�
   assert.ok(js.includes(long));
   // textarea の最初の値と入力例、似た名前の属性（data-value・aria-checked）は取り違えない
   const tf = toolFactsForReview(`<textarea name="names" placeholder="山田、佐藤">田中\n鈴木</textarea><input type="checkbox" name="x" aria-checked="false" data-value="9"><select><option aria-selected="true">A</option><option>B</option></select>`);
-  assert.match(tf, /names（textarea・最初の値 田中\n鈴木・入力例 山田、佐藤）/);
+  assert.match(tf, /names（textarea・最初の値 田中\n鈴木・文字数の上限なし・入力例 山田、佐藤）/);
   assert.match(tf, /x（checkbox）/);
   assert.match(tf, /A（最初に選ばれている） \/ B$/m);
+  // 文字を入れる欄は、文字数の上限を必ず書く（ない欄は「上限なし」。数や選ぶ欄には書かない。提案箱 #91）
+  const ml = toolFactsForReview(`<input type="text" name="title" maxlength="20"><input name="memo"><textarea id="body" maxLength='140'></textarea><input type="TEXT" name="nick"><input type="number" name="n" min="1"><input type="checkbox" name="c">`);
+  assert.match(ml, /title（text・文字数の上限 20）/);
+  assert.match(ml, /memo（text・文字数の上限なし）/);
+  assert.match(ml, /body（textarea・文字数の上限 140）/);
+  assert.match(ml, /nick（TEXT・文字数の上限なし）/);
+  assert.match(ml, /n（number・最小 1）/);
+  assert.match(ml, /c（checkbox）/);
   // 正規表現の中の引用符で、文の読み取りがずれない（割り算はそのまま）
   assert.match(toolFactsForReview(`<script>const a = t.replace(/"/g, "日本語"); const r = 10 / 2; const b = '二つ目';</script>`), /日本語 \/ 二つ目/);
   // 長いボタンも捨てず、切ったあとも max を超えない

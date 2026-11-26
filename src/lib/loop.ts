@@ -1014,7 +1014,7 @@ async function reviewLp(p: ProjectRow, lp: Lp, before?: Lp, toolHtml?: string): 
 }
 
 // LPのチェックに渡す、ツールの中身の抜き出し。コード全体は長く費用がかかるので、ページの文言と照らすのに要るものだけにする:
-// 選択肢・入力欄の最初の値（開いた直後の状態）・ボタンや見出しの文言・スクリプトの中の日本語の文（テンプレートの例文など）
+// 選択肢・入力欄の最初の値（開いた直後の状態）と文字数の上限・ボタンや見出しの文言・スクリプトの中の日本語の文（テンプレートの例文など）
 // （材料がないと、チェックが「ツールで出るか確かめられない」として止めていた）
 export const TOOL_FACTS_CUT = "…（長いので途中まで）";
 export function toolFactsForReview(html: string, max = 3000): string {
@@ -1027,9 +1027,13 @@ export function toolFactsForReview(html: string, max = 3000): string {
     return opts.map((o, i) => `${o.text}${o.selected || i === first ? "（最初に選ばれている）" : ""}`).filter(Boolean);
   });
   if (options.length) lines.push(`選択肢: ${[...new Set(options)].join(" / ")}`);
+  // 文字を入れる欄は、文字数の上限（maxlength）を必ず書く。ないときは「上限なし」と書き、書き忘れと区別できるようにする
+  // （LPに「20字まで」とあっても、上限が抜き出されていないのか、本当にないのかを確かめられなかった。提案箱 #91）
+  const TEXT_TYPES = new Set(["text", "search", "email", "tel", "url", "password", "textarea"]);
   const field = (a: Map<string, string>, type: string, value?: string) => {
     const name = a.get("aria-label") || a.get("name") || a.get("id") || "";
-    const parts = [value !== undefined && value !== "" ? `最初の値 ${value}` : "", a.get("min") ? `最小 ${a.get("min")}` : "", a.get("max") ? `最大 ${a.get("max")}` : "", a.get("placeholder") ? `入力例 ${a.get("placeholder")}` : "", a.has("checked") ? "最初から選ばれている" : ""].filter(Boolean);
+    const maxLength = a.get("maxlength")?.trim();
+    const parts = [value !== undefined && value !== "" ? `最初の値 ${value}` : "", a.get("min") ? `最小 ${a.get("min")}` : "", a.get("max") ? `最大 ${a.get("max")}` : "", TEXT_TYPES.has(type.toLowerCase()) ? (maxLength ? `文字数の上限 ${maxLength}` : "文字数の上限なし") : "", a.get("placeholder") ? `入力例 ${a.get("placeholder")}` : "", a.has("checked") ? "最初から選ばれている" : ""].filter(Boolean);
     return parts.length || type === "radio" || type === "checkbox" ? `${name || type}（${type}${parts.length ? `・${parts.join("・")}` : ""}）` : "";
   };
   const inputs = [
