@@ -16,6 +16,7 @@ Next.js の注意（`next dev` が自動で作り、消しても作り直す。N
 - マージは通常のマージ（スカッシュしない）。人の手の記録がコミットIDにリンクしているため
 - 提案箱のルーティンが作った PR（`claude/proposal-<番号>`）は、自動マージ（`.github/workflows/auto-merge.yml`・`scripts/auto-merge.ts`）が、CI と GPT・Gemini のレビューを見てマージする（運営者が決めた。手順は `docs/SETUP-AI-FIX.md`）。このセッションの Claude Code が作る PR は、これまでどおり運営者が言った範囲だけ
 - コミットの末尾に `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`、PR本文の末尾に `🤖 Generated with [Claude Code](https://claude.com/claude-code)`
+- 作業の中で、note の記事の話になりそうな出来事（AI が自分で判断を変えた・仕組みが思わぬ所で止まった・AI どうしや AI と人で判断が割れた・数字がはっきり動いた・人の出番が変わった）があったら、その作業の PR に「話の種」を1件1ファイルで足す（`docs/stories/`。書き方は `docs/stories/README.md`。運営者が決めた）。事実だけを短く書き、感想は書かない。記事の下書きのルーティンが毎朝読み、1つの話を選んで書く
 - 人が見つけた不具合や、人の判断が入った変更の PR には、`src/data/interventions/<key>.json` に「改善の記録」の人の記録を1件1ファイルで足す（`src/lib/interventions.ts` の `FIRST` には足さない。PR を並べたときにぶつからないように）。中身の形は、同じフォルダのほかのファイルに合わせる。人が実際に言ったこと・決めたことだけを書き、言っていない判断を書かない。自動のテストやCIが見つけた不具合には足さない。運営者が画面で直した記録は、`FIRST` を書き換えても上書きされない
 
 ## 確かめること
