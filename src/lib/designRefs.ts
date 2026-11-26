@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { chromium } from "playwright-core";
+import { launchBrowser } from "./browser";
 import { GuardError, aiPaused, callClaude, isObj, isStr, type ClaudeContent } from "./ai";
 import { dataDir, db } from "./db";
 import { logEvent } from "./loop";
@@ -70,7 +70,8 @@ async function processQueue() {
 }
 
 async function capture(r: DesignRef) {
-  const browser = await chromium.launch({ channel: "chrome", headless: true }).catch(() => chromium.launch({ headless: true }));
+  const browser = await launchBrowser();
+  if (!browser) throw new Error("確認用のブラウザ（Chrome）が見つかりません");
   const dir = dataDir("refs");
   let title = "";
   const shots: Record<"pc" | "sp", Buffer> = {} as Record<"pc" | "sp", Buffer>;

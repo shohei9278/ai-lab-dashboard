@@ -31,12 +31,14 @@ jobs:
       - run: npm ci
       - name: lint
         run: npm run lint
+      # テスト（npm test）でも枠の中のツールを動かすので、テストの前に Playwright の Chromium を入れる
+      # （入れる前にテストすると、GitHub 側で更新される Google Chrome で動き、その新しい版が隔離した枠で落ちることがあった。src/lib/browser.ts）
+      - name: ブラウザを入れる
+        run: npx playwright-core install --with-deps chromium
       - name: テスト
         run: npm test
       - name: 本番用のビルド
         run: npm run build
-      - name: ブラウザを入れる
-        run: npx playwright-core install --with-deps chromium
       - name: 来訪者の画面のテスト
         run: npm run test:e2e
       - name: 型チェック

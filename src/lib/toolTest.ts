@@ -1,10 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
-import { chromium, type Browser, type BrowserContext, type Page } from "playwright-core";
+import type { Browser, BrowserContext, Page } from "playwright-core";
 import { wrapToolHtml } from "../../lp-site/src/lp/toolHtml";
 import { PLAY_MIN_HEIGHT } from "../../lp-site/src/lp/inApp";
 import type { ToolImages } from "../../lp-site/src/lp/content";
 import { dataDir } from "./db";
+import { launchBrowser } from "./browser";
 
 // 動くツールを、公開する前に本物のブラウザ（スマホの画面幅）で動かして確かめる
 // - 開いたとき・操作したときにエラーが出ないか
@@ -39,17 +40,7 @@ const PRESSABLE = "button, [role=button], input[type=button], input[type=submit]
 const CONTROLS = `${PRESSABLE}, input:not([type=hidden]), select, textarea`;
 
 async function launch(): Promise<Browser | string> {
-  const tries = [
-    () => chromium.launch({ channel: "chrome", headless: true }),
-    ...(process.env.CHROMIUM_PATH ? [() => chromium.launch({ executablePath: process.env.CHROMIUM_PATH, headless: true })] : []),
-    () => chromium.launch({ headless: true }),
-  ];
-  for (const t of tries) {
-    try {
-      return await t();
-    } catch {}
-  }
-  return "テスト用のブラウザ（Chrome）が見つからないため、自動テストを飛ばしました";
+  return (await launchBrowser()) ?? "テスト用のブラウザ（Chrome）が見つからないため、自動テストを飛ばしました";
 }
 
 // opts: じっくり案件のデータ・人が入れた画像と、Google Fonts を使ってよいか（公開サイトの枠と同じ形で入れて動かす）
