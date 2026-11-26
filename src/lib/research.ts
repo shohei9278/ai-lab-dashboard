@@ -19,9 +19,10 @@ export type Finding = { point: string; url: string; title: string };
 
 const SEARCH_USD = 0.01; // Web検索 1回あたり（$10 / 1,000回）。ページの取得は、読んだ文字の分だけ（モデルの料金）
 
-export function addResearch(r: { planId: number | null; projectId: number | null; question: string; why: string; how: string; askedBy: string }): number {
-  return Number(db().prepare("INSERT INTO research (plan_id, project_id, question, why, how, asked_by) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(r.planId, r.projectId, r.question.slice(0, 300), r.why.slice(0, 300), r.how.slice(0, 300), r.askedBy).lastInsertRowid);
+// wantIdeas: 欲しい仕組みの調べもののとき、調べる元にしたアイデアの候補の番号（同じ需要を2回調べないかを、調べたときの案で比べるため。wants.ts）
+export function addResearch(r: { planId: number | null; projectId: number | null; question: string; why: string; how: string; askedBy: string; wantIdeas?: number[] }): number {
+  return Number(db().prepare("INSERT INTO research (plan_id, project_id, question, why, how, asked_by, want_ideas) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(r.planId, r.projectId, r.question.slice(0, 300), r.why.slice(0, 300), r.how.slice(0, 300), r.askedBy, r.wantIdeas ? JSON.stringify(r.wantIdeas) : null).lastInsertRowid);
 }
 
 export function listResearch(limit = 30): ResearchRow[] {
