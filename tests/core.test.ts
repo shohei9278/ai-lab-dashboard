@@ -771,6 +771,12 @@ test("LPのチェックに渡すツールの中身: 選択肢・最初の値・�
   assert.match(bad, /empty（text・文字数の上限なし）/);
   assert.match(bad, /zero（text・文字数の上限 0）/);
   assert.match(bad, /sp（text・文字数の上限 30）/);
+  // ブラウザーで扱える範囲（0〜2147483647）を超える値は「上限なし」。最大値はそのまま
+  const big = toolFactsForReview(`<input name="maxv" maxlength="2147483647"><input name="over" maxlength="2147483648"><input name="huge" maxlength="${"9".repeat(400)}">`);
+  assert.match(big, /maxv（text・文字数の上限 2147483647）/);
+  assert.match(big, /over（text・文字数の上限なし）/);
+  assert.match(big, /huge（text・文字数の上限なし）/);
+  assert.doesNotMatch(big, /Infinity/);
   // 入力欄が多くても、その区分だけで枠を使い切らず、後ろのボタンやスクリプトの文言が残る
   const crowded = toolFactsForReview(`${Array.from({ length: 200 }, (_, i) => `<input name="field${i}">`).join("")}<button>結果を見る</button><script>const t = "あなたの結果です";</script>`);
   assert.ok(crowded.length <= 3000);

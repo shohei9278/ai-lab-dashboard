@@ -1062,12 +1062,15 @@ export function toolFactsForReview(html: string, max = 3000): string {
 }
 
 // 文字数の上限（maxlength）を、HTML の負でない整数の読み方で読む（頭の空白は飛ばし、数字の後ろは無視する）。
-// 読めない値・負の値は、ブラウザーでは上限にならないので「上限なし」（undefined）として扱う。0 は上限 0 として扱う
+// 読めない値・負の値・ブラウザーで扱える範囲（0〜2147483647）を超える値は、上限にならないので「上限なし」（undefined）として扱う。0 は上限 0 として扱う
+// （2147483648 以上や、とても長い桁列（Infinity）を、そのまま「文字数の上限」として渡していた。PR #213 のレビュー）
+const MAX_LENGTH_LIMIT = 2147483647;
 export function maxLengthOf(v: string | undefined): number | undefined {
   const m = v?.match(/^[\t\n\f\r ]*([+-]?)(\d+)/);
   if (!m) return undefined;
   const n = Number(m[2]);
-  return m[1] === "-" && n !== 0 ? undefined : n;
+  if (m[1] === "-" && n !== 0) return undefined;
+  return Number.isSafeInteger(n) && n <= MAX_LENGTH_LIMIT ? n : undefined;
 }
 
 // ツールの中の、エラーや代わりの動き（センサーが使えない・保存できない など）の文言を取り出す。LP作成に別枠で渡し、よくある質問で触れてもらう
