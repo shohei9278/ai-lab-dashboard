@@ -39,6 +39,7 @@ import { ShadowJudgments } from "@/components/ShadowJudgments";
 import { plainIssue } from "@/lib/issueText";
 import { hasUnpublishedVersion, versionLabel } from "@/lib/versions";
 import { judgeBasis } from "@/lib/judgeBasis";
+import { VERDICT_LABEL, checkSummary } from "@/lib/improveCheck";
 import { AIMS, isAim, problemLabel } from "@/lib/aims";
 import { SITE_CATEGORIES, isSiteCategory, siteCategoryOf } from "@/lib/siteCategory";
 import { SiteCategoryPicker } from "./SiteCategoryPicker";
@@ -271,6 +272,20 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
                           : <span style={{ color: "var(--critical)" }}>! {review.issues.map(plainIssue).join(" / ")}</span>)}
                       </div>
                       <div>{vlp.headline}</div>
+                      {owner && (() => {
+                        // 直す前に決めた答え合わせ（予想・変える所・見る数字）と、その結果（improveCheck.ts）
+                        const ck = checkSummary(v);
+                        if (!ck) return null;
+                        return (
+                          <div className="mt-1 space-y-0.5 text-xs text-ink-2">
+                            <div>答え合わせ: {ck.plan}</div>
+                            <div className="whitespace-pre-line">
+                              {ck.verdict && <span className="mr-2 font-medium" style={{ color: ck.verdict === "better" ? "var(--good)" : ck.verdict === "worse" ? "var(--critical)" : undefined }}>{VERDICT_LABEL[ck.verdict]}</span>}
+                              {ck.result}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </li>
                   );
                 })}

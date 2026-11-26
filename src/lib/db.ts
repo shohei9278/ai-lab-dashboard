@@ -775,6 +775,11 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["sns_posts", "human_note", "TEXT"],
   ["plan_tasks", "human_review", "TEXT"],
   ["plan_tasks", "human_note", "TEXT"], // JSON: 採点したAIごとの点数 [{modelId, a, b, reason}]（a が先に作った案）
+  ["lp_versions", "improve_check", "TEXT"], // 改善の答え合わせ（JSON: 予想・変える所・見る数字・判断に要る訪問・期限・直す前の版。improveCheck.ts）
+  ["lp_versions", "check_verdict", "TEXT"], // 答え合わせの結果（better / worse / flat / unclear）。空は待ち
+  ["lp_versions", "check_result", "TEXT"], // 答え合わせの数字と、判断できなかった理由・同じ期間の届け方
+  ["lp_versions", "check_decided_at", "TEXT"],
+  ["plan_tasks", "improve_check", "TEXT"], // 朝会の「ページを直す」予定に、朝会が決めた答え合わせ（JSON。improveCheck.ts）
   ["plan_tasks", "plain_facts", "TEXT"], // 普通の投稿の予定: 朝会が見た数字（直近7日の日ごとの数字・宣伝の投稿の成績）。投稿のときに、今の数字と一緒に材料にする（plan.ts）
   ["page_candidates", "model", "TEXT"], // その案のページを書いたAI（空なら、参考のあり・なしで比べていたころの案で、Claude が書いた）
   ["lessons", "fact", "TEXT"], // 観測した事実（数字など）
@@ -1198,7 +1203,7 @@ export type ProjectRow = {
 // 出し方（形）。アイデアを出すときにAIが選ぶ
 export type ProductKind = "lp" | "tool";
 
-export type LpVersionRow = { id: number; created_at: string; project_id: number; version: number; lp: string; note: string | null; review: string | null; author_model: string | null; test: string | null; tool_model: string | null; tool_rewrites: number | null };
+export type LpVersionRow = { id: number; created_at: string; project_id: number; version: number; lp: string; note: string | null; review: string | null; author_model: string | null; test: string | null; tool_model: string | null; tool_rewrites: number | null; improve_check: string | null; check_verdict: string | null; check_result: string | null; check_decided_at: string | null };
 export type LpCandidateRow = {
   id: number; at: string; project_id: number; version: number; label: string; author_model: string; lp: string;
   avg_score: number | null; selected: number; human_selected: number;
