@@ -50,7 +50,9 @@ export function settingsReviewText(s: Settings = getSettings()): string {
   const lines = AIM_KEYS.map((a) => {
     const b = aimBasis(a, s);
     const ps = projects.filter((p) => judgeAim(p) === a);
-    if (!ps.length) return `- ${AIMS[a].label}: 基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した案件なし`;
+    // 「広がる」は、育てる段階の前は遊んだ人とシェアで当たりを判定するので、その基準と当たった数も並べる（提案箱 #107）
+    const spreadHead = a === "spread" ? `当たりの判定 公開から${s.spreadJudgeDays}日で遊んだ人${s.spreadHitPlays}人かシェア${s.spreadHitShares}件・当たったのは${ps.filter((p) => p.spread_hit === 1).length}件（外れ${ps.filter((p) => p.spread_hit === 0).length}件）・当たったあとの` : "";
+    if (!ps.length) return `- ${AIMS[a].label}: ${spreadHead}基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した案件なし`;
     // 届いたかは、表示しているねらいの基準で、実際の判断と同じく版ごとの訪問で見る（案件ごとに調整した基準や、版をまたいだ合計では数えない。PR #209 の ai-review の指摘）
     // 届くまでの日数は、公開日と届いた日を日本時間の日付どうしで比べる
     const reach = ps.map((p) => {
@@ -71,7 +73,7 @@ export function settingsReviewText(s: Settings = getSettings()): string {
     const ok = reach.filter((r) => r.reached);
     const avgDays = ok.length ? Math.round(ok.reduce((n, r) => n + (r.days ?? 0), 0) / ok.length) : null;
     const median = medianOf(reach.map((r) => r.total));
-    return `- ${AIMS[a].label}: 基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した${ps.length}件のうち、1つの版の訪問で基準に届いたのは${ok.length}件${avgDays !== null ? `（届くまで平均${avgDays}日）` : ""}・訪問の中央値${median}人・撤退${reach.filter((r) => r.stage === "killed").length}件${reach.some((r) => r.adjusted) ? `・うち${reach.filter((r) => r.adjusted).length}件は案件ごとに基準を調整している` : ""}`;
+    return `- ${AIMS[a].label}: ${spreadHead}基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した${ps.length}件のうち、1つの版の訪問で基準に届いたのは${ok.length}件${avgDays !== null ? `（届くまで平均${avgDays}日）` : ""}・訪問の中央値${median}人・撤退${reach.filter((r) => r.stage === "killed").length}件${reach.some((r) => r.adjusted) ? `・うち${reach.filter((r) => r.adjusted).length}件は案件ごとに基準を調整している` : ""}`;
   });
   const keys = Object.keys(REVIEWABLE) as (keyof Settings)[];
   return `設定の物差し（運営者が設定の画面で決めている値。AIは書き換えない）:

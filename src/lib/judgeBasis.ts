@@ -76,9 +76,15 @@ export function capacityBasis(s: JudgeSettings & Pick<Settings, "aimSpread" | "a
 }
 
 // AIへの指示・材料に使う、ねらいごとの基準の一覧
-export function aimJudgeLine(s: JudgeSettings): string {
+// 「広がる」は、育てる段階の前は、公開から決めた日数の遊んだ人とシェアで当たりを判定する（訪問の基準は、当たったあとに使う）。
+// 実際の判定（loop.ts の maybeAutoJudge）と同じ文にする（提案箱 #107。コードの見直しの指摘）
+export function aimJudgeLine(s: JudgeSettings & Pick<Settings, "spreadJudgeDays" | "spreadHitPlays" | "spreadHitShares">): string {
   return AIM_KEYS.map((a) => {
     const b = aimBasis(a, s);
+    if (a === "spread") return `${AIMS[a].label} 公開から${s.spreadJudgeDays}日で遊んだ人${s.spreadHitPlays}人かシェア${s.spreadHitShares}件（当たったあとは 訪問${b.visits}人か${b.days}日）`;
     return `${AIMS[a].label} 訪問${b.visits}人か${b.days}日`;
   }).join(" / ");
 }
+
+// 訪問の基準で判断する案件か（育てる段階の前の「広がる」は、遊んだ人とシェアで判定するので、訪問の基準では数えない）
+export const judgedByVisits = (p: Pick<ProjectRow, "aim" | "growth_phase">) => !(p.aim === "spread" && !p.growth_phase);

@@ -30,7 +30,7 @@ test("判断の基準: ねらいごとの値がなければ一括の値。ねら
   assert.equal(judgeBasis(row({ aim: "return" }), s).days, 14);
   assert.equal(judgeBasis(row({ aim: null, kind: "lp" }), s).visits, 150);
   assert.equal(judgeBasis(row({ aim: null, kind: "tool" }), s).visits, 100);
-  assert.match(aimJudgeLine(s), /広がる 訪問100人か7日 \/ 役に立つ 訪問100人か7日 \/ また来てもらう 訪問60人か14日 \/ 需要を確かめる 訪問150人か7日/);
+  assert.match(aimJudgeLine(s), /広がる 公開から3日で遊んだ人20人かシェア3件（当たったあとは 訪問100人か7日） \/ 役に立つ 訪問100人か7日 \/ また来てもらう 訪問60人か14日 \/ 需要を確かめる 訪問150人か7日/);
   // 案件ごとに調整した値があれば、それを使う
   const adj = judgeBasis(row({ aim: "return", judge_visits: 40, judge_days: 21, judge_reason: "週に1回しか使わない" }), s);
   assert.deepEqual([adj.visits, adj.days, adj.adjusted, adj.reason], [40, 21, true, "週に1回しか使わない"]);
@@ -147,5 +147,20 @@ test("設定の見直しの材料: 届いたかは、ねらいの基準で、版
   assert.match(text, /- 役に立つ: 基準 訪問100人か7日（一括の値）・直近60日に公開した3件のうち、1つの版の訪問で基準に届いたのは1件（届くまで平均1日）・訪問の中央値110人・撤退0件・うち1件は案件ごとに基準を調整している/);
   db().exec("DELETE FROM metrics");
   db().prepare("DELETE FROM projects WHERE id IN (?, ?, ?)").run(a, b, c);
+  restore();
+});
+
+test("判断の基準の文: 「広がる」は、実際の判定と同じく、決めた日数の遊んだ人とシェアで書き、設定を変えると文も変わる（提案箱 #107）", async () => {
+  const { judgedByVisits } = await import("../src/lib/judgeBasis");
+  reset();
+  const k = getSettings();
+  saveSettings({ spreadJudgeDays: 5, spreadHitPlays: 30, spreadHitShares: 4 });
+  assert.match(aimJudgeLine(getSettings()), /^広がる 公開から5日で遊んだ人30人かシェア4件（当たったあとは 訪問100人か7日） \/ 役に立つ 訪問100人か7日/);
+  assert.match(settingsReviewText(getSettings()), /- 広がる: 当たりの判定 公開から5日で遊んだ人30人かシェア4件・当たったのは\d+件（外れ\d+件）・当たったあとの基準 訪問100人か7日/);
+  saveSettings({ spreadJudgeDays: k.spreadJudgeDays, spreadHitPlays: k.spreadHitPlays, spreadHitShares: k.spreadHitShares });
+  // 育てる段階の前の「広がる」は、訪問の基準では数えない
+  assert.equal(judgedByVisits({ aim: "spread", growth_phase: 0 }), false);
+  assert.equal(judgedByVisits({ aim: "spread", growth_phase: 1 }), true);
+  assert.equal(judgedByVisits({ aim: "useful", growth_phase: 0 }), true);
   restore();
 });
