@@ -573,15 +573,24 @@ export async function maybeCreatePlan() {
 
 // ---- 予定を実行する ----
 
-// 普通の投稿を書かせる。facts は、数字を照らすときの本物の材料（実験の累計・公開中の案件・最近の出来事。numberCheck.ts）
-async function writePlain(platform: AutoPlatform, angle: string): Promise<{ text: string; facts: string }> {
+// 普通の投稿の材料で、数字を照らすときの本物の材料にもなるもの（実験の累計・公開中の案件・直近7日の数字・宣伝の投稿の成績・最近の出来事。numberCheck.ts）
+export function plainFacts(): string {
   const h = headline();
   const live = liveProjects();
   const events = (db().prepare("SELECT at, message FROM events WHERE actor IN ('ai', 'system') AND kind NOT LIKE '%error%' AND at >= datetime('now', '-3 days') ORDER BY id DESC LIMIT 40").all() as { at: string; message: string }[])
     .map((e) => `- ${e.message.slice(0, 120)}`).join("\n");
+  // 朝会が見ている数字（宣伝の投稿の成績・直近7日の日ごとの訪問と登録/利用）も材料に入れる。朝会が決めた話題（angle）にそれらの数字が入っていても、
+  // 材料にない数字として投稿を止めないため（11/26 に、朝会の見立てにある場所ごとの数字を書いた実験の記録の投稿が止まった）
+  const days = Array.from({ length: 7 }, (_, i) => jstDay(new Date(Date.now() - (i + 1) * 86_400_000))).reverse();
+  const daily = days.map((d) => { const a = dayActuals(d); return `${d.slice(5)} 訪問${a.visits}人・登録/利用${a.conversions}人`; }).join(" / ");
+  const facts = `実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n直近7日の全案件の数字（日ごと）: ${daily}\n\n${postStatsText() || "宣伝の投稿の成績: まだ投稿がない"}\n\n最近の出来事:\n${events || "（なし）"}`;
+  return facts;
+}
+
+async function writePlain(platform: AutoPlatform, angle: string): Promise<{ text: string; facts: string }> {
+  const facts = plainFacts();
   const past = (db().prepare("SELECT result FROM plan_tasks WHERE kind = 'plain' AND status = 'done' ORDER BY id DESC LIMIT 8").all() as { result: string }[]).map((x) => `- ${x.result}`).join("\n");
   const def = AUTO_PLATFORMS[platform];
-  const facts = `実験の累計: 案件${h.projects}件・公開${h.published}件・撤退${h.killed}件\n公開中の案件: ${live.map((p) => `${p.title}（対象: ${p.target}）`).join(" / ") || "なし"}\n\n最近の出来事:\n${events || "（なし）"}`;
   const out = await callJson<{ text: string }>({
     purpose: "普通の投稿",
     system: `あなたは、AIにプロダクト作りを任せる実験をしている運営アカウント「Hitoride」として、${def.label}に宣伝ではない普通の投稿を1件書きます。
