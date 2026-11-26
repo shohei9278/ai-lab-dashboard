@@ -5,7 +5,8 @@ import { ShowMore } from "@/components/ShowMore";
 import { PageIntro } from "@/components/PageIntro";
 import { LibraryTabs } from "@/components/LabTabs";
 import { CERTAINTY_LABEL, activeLessons } from "@/lib/loop";
-import { NoteActions, NoteEditor } from "./NoteEditor";
+import { NoteActions, NoteEditor, RestoreLesson } from "./NoteEditor";
+import { OUTCOME_LABEL, inactiveLessons, lessonStats } from "@/lib/lessons";
 import { jstDate } from "@/lib/format";
 import { isOwner } from "@/lib/viewer";
 
@@ -18,6 +19,9 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
   const owner = await isOwner();
   const notes = listNotes(topic);
   const lessons = activeLessons();
+  // 教訓ごとの使われ方と結果（lessons.ts）と、定例会議で保留・直した教訓
+  const stats = lessonStats();
+  const inactive = inactiveLessons();
   const all = listNotes();
   const projects = db().prepare("SELECT id, title FROM projects ORDER BY id DESC").all() as { id: number; title: string }[];
   const topics = Object.entries(NOTE_TOPICS).map(([id, label]) => ({ id, label }));
@@ -35,21 +39,49 @@ export default async function NotesPage({ searchParams }: { searchParams: Promis
       <section className="space-y-2">
         <div>
           <h2 className="font-bold">AIの教訓（{lessons.length}件）</h2>
-          <p className="text-xs text-muted">終わった案件からAIが学んだこと。事実・仮の解釈・まだ分からないことに分けて残し、次のアイデア出しで参照されます。訪問が判断の基準に届かなかった案件の教訓は、確かさ「低（保留）」になります。</p>
+          <p className="text-xs text-muted">終わった案件からAIが学んだこと。事実・仮の解釈・まだ分からないことに分けて残し、次のアイデア出しと朝会に番号つきで渡します。教訓を見て判断を変えたときだけ記録し、その結果を数えます。結果の出た使い方が2件以上ある教訓は、週の定例会議でAIが維持・直す・保留を決めます。訪問が判断の基準に届かなかった案件の教訓は、確かさ「低（保留）」になります。</p>
         </div>
         <div className="card divide-y divide-line text-sm">
           {lessons.length ? lessons.map((l) => (
             <div key={l.id} className="space-y-1 p-3">
               <div>
+                <span className="mr-2 text-xs text-muted">教訓{l.id}</span>
                 {l.certainty && <span className="mr-2 rounded bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">確かさ {CERTAINTY_LABEL[l.certainty]}</span>}
                 {l.interpretation ?? l.text}
                 {l.project_id && <Link href={`/projects/${l.project_id}`} className="ml-2 text-xs text-accent underline">案件</Link>}
               </div>
               {l.fact && <div className="text-xs text-ink-2">事実: {l.fact}</div>}
               {l.unknown && <div className="text-xs text-muted">まだ分からない: {l.unknown}</div>}
+              {l.revised_from && <div className="text-xs text-muted">定例会議で、教訓{l.revised_from}を直したもの</div>}
+              {(() => {
+                const st = stats.get(l.id);
+                if (!st) return null;
+                return (
+                  <div className="text-xs text-ink-2">
+                    判断を変えるのに使われた {st.uses}回（{(["good", "bad", "unclear", "pending"] as const).filter((k) => st[k]).map((k) => `${OUTCOME_LABEL[k]} ${st[k]}`).join("・") || "結果を測れない使い方だけ"}）
+                  </div>
+                );
+              })()}
             </div>
           )) : <div className="p-3 text-ink-2">まだありません。案件が終わると、AIが教訓を書きます。</div>}
         </div>
+        {inactive.length > 0 && (
+          <details className="text-sm">
+            <summary data-demo-ok className="cursor-pointer text-xs text-muted">定例会議で保留・直した教訓（{inactive.length}件。アイデア出しと朝会には渡していません）</summary>
+            <div className="card mt-2 divide-y divide-line">
+              {inactive.map((l) => (
+                <div key={l.id} className="space-y-1 p-3">
+                  <div className="text-ink-2"><span className="mr-2 text-xs text-muted">教訓{l.id}</span>{l.interpretation ?? l.text}</div>
+                  <div className="text-xs text-muted">
+                    {l.replaced_by ? `直して教訓${l.replaced_by}にした` : "保留"}
+                    {l.hold_reason ? `: ${l.hold_reason}` : ""}
+                  </div>
+                  {owner && !l.replaced_by && <RestoreLesson id={l.id} />}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
       </section>
 
       <h2 className="font-bold">実験メモ</h2>

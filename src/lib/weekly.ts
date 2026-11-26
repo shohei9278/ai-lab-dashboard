@@ -8,6 +8,7 @@ import { createReport, gather, jstStartUtc } from "./report";
 import { decisionsText, followUpOf, openDecisions, type WeeklyContent } from "./meetings";
 import type { AdhocContent } from "./adhoc";
 import { STALE_NOTE, addProposal, addVoice } from "./voices";
+import { reviewLessons } from "./lessons";
 import { SETTINGS_RULE, addSettingProposals, settingsReviewText } from "./settingsReview";
 import { GROWTH_SCENE } from "./codeReview";
 import { outsideText, recordVoiceEffects } from "./outside";
@@ -225,6 +226,8 @@ same: 言い方は違っても、やることが同じ案の組（例: [["P2","P
   const chair = chairFor(got.map((m) => m.modelId));
   const revisited = await revisitSplits(chair);
   const settled = await settleDecisions(chair);
+  // 結果の出た使い方が2件以上ある教訓を、議長が維持・直す・保留に分ける（対象がなければAIは呼ばない。lessons.ts）
+  await reviewLessons(chair).catch((e) => logEvent(null, "system", "lesson-review-error", `教訓の見直しでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   const extra = `\n\n定例会議の振り返り（3社）:\n${got.map((m) => `- ${modelInfo(m.modelId).label}: ${m.review}`).join("\n")}\n\n定例会議で採用した提案:\n${adopted.map((p) => `- ${p.title}（${p.score.toFixed(1)}点）`).join("\n") || "（なし）"}`;
   const reportId = await createReport({ extra, modelId: chair, next: adopted.map((p) => `${p.title}（提案箱へ）`) });
   const summary = (JSON.parse((db().prepare("SELECT content FROM reports WHERE id = ?").get(reportId) as { content: string }).content) as { summary: string }).summary;

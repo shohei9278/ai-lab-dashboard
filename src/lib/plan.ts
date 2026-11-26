@@ -18,6 +18,7 @@ import { outsideText, recordVoiceEffects } from "./outside";
 import { addResearch, researchText, runResearch } from "./research";
 import { maskHandles } from "./viewer";
 import { doneEffectsText } from "./effects";
+import { LESSON_USE_RULE, recordPlanLessonEffects } from "./lessons";
 import { aimJudgeLine } from "./judgeBasis";
 import { CHECK_METRICS, checkJson, checkRule, improveChecksText, metricsFor } from "./improveCheck";
 import { waitsText } from "./waits";
@@ -313,7 +314,7 @@ function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: Hot
     improveChecksText(null, 8) || "ページの直しの答え合わせ: まだない",
     waitsText(),
     decisionsText(),
-    `教訓:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
+    `教訓（${LESSON_USE_RULE}。lesson_effects に書く）:\n${activeLessons().slice(0, 10).map(lessonLine).join("\n") || "（まだなし）"}`,
     `保留中の案件（人が決めたもの。宣伝も改善も予定に入れない）:\n${(db().prepare("SELECT id, title, hold_until FROM projects WHERE stage = 'hold' AND demo = 0 ORDER BY id").all() as { id: number; title: string; hold_until: string | null }[]).map((p) => `- #${p.id} ${p.title}（${p.hold_until ? `${p.hold_until}に再開` : "再開日なし"}）`).join("\n") || "（なし）"}`,
   ].join("\n\n") + viralHints("sns") + badPostsText();
 }
@@ -450,7 +451,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - 「効いた手の集計」で訪問・反応が多い組み合わせ（場所・時間帯・切り口の型）を多めに使う。ただし件数が少ないうちは決めつけず、まだ試していない組み合わせも毎日少し混ぜる（1日の投稿の3割くらい）
 - 宣伝先の配分（どの場所に、どの型の案件の宣伝を出すか）は、訪問の平均ではなく、「宣伝の投稿の成績（場所×案件の型）」の直近14日の利用数（事前登録LPなら登録数）と利用率で決める。直近14日で登録・利用が2件以上出た場所×型は、週の件数を決めずに増やしてよい（1成果あたりの費用と、増やしたあとの1投稿あたりの成果を見て決める。運営者が止めている場所は、材料に許しが書いてある分だけ）。件数が少ないので偶然の可能性も高く、決めつけない
 - 返信・フォロー・いいねなど、他人への働きかけの予定は入れない
-形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"post_mix":"場所ごとの投稿の数と理由","pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"trials":[],"trial_results":[],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由","check":{"why":"予想","metric":"見る数字","min_visits":30,"days":7}（improve のときだけ）}]}`,
+形式: {"bottleneck":"reach","evidence":"根拠の数字","certainty":"low|mid|high","review":"振り返り","focus":"今日の方針を1文で","goals":[{"metric":"visits","target":数,"why":"理由"}],"prediction":{"visits":数,"conversions":数,"why":"理由"},"post_mix":"場所ごとの投稿の数と理由","pause_new":false,"pause_reason":"休む理由（休まないなら空）","idea_note":"","requests":[{"title":"短い題","how":"具体的な手順","why":"根拠"}],"voice":"ひとこと","voice_effects":[],"lesson_effects":[{"lesson_ids":[教訓の番号],"project_id":変えた先の案件の番号,"what":"improve|trial|promo|plain|other","change":"何をどう変えたか"}]（教訓を見て予定を変えたときだけ。なければ空の配列）,"research":{"question":"","why":"","how":"","project_id":null} または null,"replies":[{"id":提案の番号,"reply":"返事"}],"trials":[],"trial_results":[],"tasks":[{"time":"HH:MM","kind":"promo|plain|improve","platform":"x|threads|bluesky","project_id":番号,"type":"切り口の型","angle":"切り口・話題・直す内容","reason":"理由","check":{"why":"予想","metric":"見る数字","min_visits":30,"days":7}（improve のときだけ）}]}`,
       user: material + opinionsText(opinions),
       validate: isPlanOut,
     });
@@ -539,6 +540,8 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
     .filter((r) => addProposal({ title: r.title, how: String(r.how ?? ""), why: String(r.why ?? ""), target: "human", source: "plan", proposer: model, scene: "朝会", planId: id }));
   if (isStr(out.voice)) addVoice({ modelId: model, scene: "朝会", text: out.voice });
   recordVoiceEffects(out.voice_effects, { scene: "朝会", modelId: model });
+  // 教訓を見て予定を変えたときの使い方を残す（あとで、変えた先の結果とつなぐ。lessons.ts）
+  recordPlanLessonEffects((out as { lesson_effects?: unknown }).lesson_effects, { modelId: model });
   // 調べもの（1件だけ）。画面を待たせないよう、裏で調べる
   const rq = out.research;
   if (rq && isStr(rq.question)) {

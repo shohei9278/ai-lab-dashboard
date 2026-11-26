@@ -81,3 +81,21 @@ export function NoteActions({ draft, topics, certainties, projects }: { draft: N
     </div>
   );
 }
+
+// 定例会議で保留した教訓を、AIに渡す教訓に戻す（lessons.ts）
+export function RestoreLesson({ id }: { id: number }) {
+  const router = useRouter();
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        if (!window.confirm(`教訓${id}を、アイデア出しと朝会に渡す教訓に戻しますか？`)) return;
+        await fetch("/api/notes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "restore-lesson", id }) });
+        router.refresh();
+      }}
+      className="text-xs text-accent underline"
+    >
+      戻す
+    </button>
+  );
+}

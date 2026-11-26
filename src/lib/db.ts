@@ -649,6 +649,17 @@ CREATE TABLE IF NOT EXISTS plan_trials (
   final_visits INTEGER, -- 判定したとき（閉じたとき）の訪問・登録/利用（終わったあとの流入を足さずに、結論の元の数字を残す）
   final_conversions INTEGER
 );
+-- 教訓が使われた記録（教訓を見て判断や案を変えたときだけ。lessons.ts）
+CREATE TABLE IF NOT EXISTS lesson_uses (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  lesson_id INTEGER NOT NULL REFERENCES lessons(id),
+  scene TEXT NOT NULL, -- アイデア出し / 朝会
+  model_id TEXT,
+  project_id INTEGER, -- 変えた先の案件
+  kind TEXT NOT NULL, -- idea / improve / trial / promo / plain / other
+  change TEXT NOT NULL -- 何をどう変えたか
+);
 CREATE TABLE IF NOT EXISTS lessons (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -782,6 +793,11 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["plan_tasks", "improve_check", "TEXT"], // 朝会の「ページを直す」予定に、朝会が決めた答え合わせ（JSON。improveCheck.ts）
   ["plan_tasks", "plain_facts", "TEXT"], // 普通の投稿の予定: 朝会が見た数字（直近7日の日ごとの数字・宣伝の投稿の成績）。投稿のときに、今の数字と一緒に材料にする（plan.ts）
   ["page_candidates", "model", "TEXT"], // その案のページを書いたAI（空なら、参考のあり・なしで比べていたころの案で、Claude が書いた）
+  ["lessons", "hold_reason", "TEXT"], // 保留した・直して置き換えた理由（定例会議の教訓の見直し。lessons.ts）
+  ["lessons", "held_at", "TEXT"],
+  ["lessons", "reviewed_at", "TEXT"],
+  ["lessons", "revised_from", "INTEGER"], // 直して書き直した教訓の、元の番号
+  ["lessons", "replaced_by", "INTEGER"], // 直して置き換えた先の教訓の番号
   ["lessons", "fact", "TEXT"], // 観測した事実（数字など）
   ["lessons", "interpretation", "TEXT"], // 仮の解釈
   ["lessons", "unknown", "TEXT"], // まだ判断できないこと
@@ -1231,7 +1247,7 @@ export type ApprovalRow = {
 export type EventRow = { id: number; at: string; project_id: number | null; actor: "ai" | "human" | "system"; kind: string; message: string };
 // signups は「成果」の数: 事前登録LPなら登録、動くツールなら使った人の数
 export type MetricRow = { id: number; project_id: number; day: string; visits: number; signups: number; ad_spend_jpy: number; source: string; lp_version: number; shares: number };
-export type LessonRow = { id: number; at: string; project_id: number | null; text: string; active: number; fact: string | null; interpretation: string | null; unknown: string | null; certainty: "low" | "mid" | "high" | null };
+export type LessonRow = { id: number; at: string; project_id: number | null; text: string; active: number; fact: string | null; interpretation: string | null; unknown: string | null; certainty: "low" | "mid" | "high" | null; hold_reason: string | null; held_at: string | null; reviewed_at: string | null; revised_from: number | null; replaced_by: number | null };
 
 // 案件の段階: アイデア → LP作成 → 集客中 → 判断待ち → 継続 / 撤退（却下はアイデア段階で止めたもの）
 export type Stage = "idea" | "lp" | "live" | "hold" | "deciding" | "continued" | "killed" | "rejected"; // hold = 公開は続けるが、宣伝・判断・改善を止めている
