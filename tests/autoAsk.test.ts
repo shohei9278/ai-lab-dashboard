@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
 import { addReviewFindings, GROWTH_SCENE, REVIEW_SCENE } from "../src/lib/codeReview";
-import { DAILY_MAX, maybeAutoAsk, nextAutoAsk } from "../src/lib/autoAsk";
+import { ASK_EVERY_MS, DAILY_MAX, maybeAutoAsk, nextAutoAsk } from "../src/lib/autoAsk";
 import { startAiFix, syncAiFixPrs } from "../src/lib/aiFix";
 import { scoringExisting } from "../src/lib/weekly";
 
@@ -101,6 +101,12 @@ test("自動の依頼: 設定でオフ・緊急停止・ルーティンがつな
   saveSettings({ killSwitch: false });
   assert.equal(await maybeAutoAsk(ok, true), true);
   assert.equal(calls.length, 1);
+  // 見回りは15分に1回（前に見てから15分たつまでは、force なしでは見ない）
+  assert.equal(ASK_EVERY_MS, 15 * 60_000);
+  const g = globalThis as unknown as { __aiLabAutoAskAt?: number };
+  g.__aiLabAutoAskAt = Date.now() - 14 * 60_000;
+  assert.equal(await maybeAutoAsk(ok), false);
+  assert.equal(calls.length, 1);
   const r = db().prepare("SELECT ai_fix_note, ai_fix_url FROM plan_requests WHERE id = ?").get(f) as { ai_fix_note: string; ai_fix_url: string };
   assert.match(r.ai_fix_note, /^自動: /);
   assert.equal(r.ai_fix_url, "https://claude.ai/code/session_x");
@@ -196,10 +202,10 @@ test("提案箱の自動の依頼: AIの社員や会議の提案は採点の点�
   // 運営者が書いた提案は、1時間たったら、点の高い提案より先に頼む
   db().prepare("UPDATE plan_requests SET created_at = datetime('now', '-2 hours') WHERE id = ?").run(fresh);
   assert.deepEqual([nextAutoAsk()?.row.id, nextAutoAsk()?.why], [fresh, "自動: 運営者が書いた提案で、1時間たっても見送られなかった"]);
-  // 種類に関係なく、全部で1日 DAILY_MAX（6）件まで（5件なら、まだ頼める）
-  assert.equal(DAILY_MAX, 6);
+  // 種類に関係なく、全部で1日 DAILY_MAX（10）件まで（9件なら、まだ頼める）
+  assert.equal(DAILY_MAX, 10);
   const ev = db().prepare("INSERT INTO events (project_id, actor, kind, message) VALUES (NULL, 'system', ?, 'x')");
-  for (const k of ["auto-ask-box", "auto-ask-fix", "auto-ask-growth", "auto-ask-box", "auto-ask-fix"]) ev.run(k);
+  for (const k of ["auto-ask-box", "auto-ask-fix", "auto-ask-growth", "auto-ask-box", "auto-ask-fix", "auto-ask-box", "auto-ask-fix", "auto-ask-growth", "auto-ask-box"]) ev.run(k);
   assert.equal(nextAutoAsk()?.row.id, fresh);
   ev.run("auto-ask-box");
   assert.equal(nextAutoAsk(), null);
@@ -251,9 +257,9 @@ test("自動の依頼の様子（運営者が決めた）: 進んでいるもの
   assert.deepEqual([st.busy, st.asked, st.resumeAt, st.next?.id, st.waiting], [null, 0, null, a, 2]);
   // 上限に達したら、いちばん古い依頼から24時間後に再開する
   const ev = db().prepare("INSERT INTO events (project_id, actor, kind, message, at) VALUES (NULL, 'system', 'auto-ask-box', 'x', datetime('now', ?))");
-  for (const ago of ["-20 hours", "-15 hours", "-10 hours", "-5 hours", "-3 hours", "-1 hours"]) ev.run(ago);
+  for (const ago of ["-20 hours", "-19 hours", "-18 hours", "-17 hours", "-15 hours", "-10 hours", "-5 hours", "-3 hours", "-2 hours", "-1 hours"]) ev.run(ago);
   st = autoAskStatus();
-  assert.deepEqual([st.asked, st.max], [6, 6]);
+  assert.deepEqual([st.asked, st.max], [10, 10]);
   assert.ok(st.resumeAt && Math.abs(Date.parse(st.resumeAt) - (Date.now() + 4 * 3_600_000)) < 120_000, st.resumeAt ?? "");
   // 頼んで進んでいるものを出す
   db().prepare("UPDATE plan_requests SET ai_fix_at = datetime('now'), ai_fix_pr = 7, ai_fix_pr_state = 'open' WHERE id = ?").run(a);

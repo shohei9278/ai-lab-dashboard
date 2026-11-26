@@ -137,7 +137,7 @@ async function tickNow() {
   // 開発待ちのツールを、設定の数の範囲でルーティンに頼む
   await autoToolRoutine().catch((e) => logEvent(null, "system", "tool-routine-error", `ツールを作るルーティンに頼む処理でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   await syncAiFixPrs().catch((e) => logEvent(null, "system", "ai-fix-sync-error", `Claude Code に頼んだ改善の PR の状態を読めませんでした: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
-  // 提案箱の「仕組みの改善」を、自動でルーティンに頼む（1時間に1回・一度に1件。autoAsk.ts）
+  // 提案箱の「仕組みの改善」を、自動でルーティンに頼む（15分に1回・一度に1件。autoAsk.ts）
   await maybeAutoAsk().catch((e) => logEvent(null, "system", "auto-ask-error", `提案箱の提案の自動の依頼でエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
   // ツールのチェックの止めた割合が急に上がっていたら知らせる（1週に1回まで。AIは呼ばない。toolCheckStats.ts）
   try {
