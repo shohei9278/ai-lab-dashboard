@@ -34,7 +34,8 @@ test("欲しい仕組み: 直近30日の案の「要る仕組み」と「使い�
   const text = wantsText();
   assert.match(text, /保存の場所（[^）]*）: 2件（例: 「ランキング診断」・「みんなの投票」）/);
   assert.match(text, /Railway の変数の名前と、値の取り方。値そのものは書かない/);
-  assert.match(text, /つなぐ仕組みを作る案（system）は出さない/);
+  assert.match(text, /調べ終わった結果があるものだけ、運営者に契約や用意を頼んでよい/);
+  assert.match(text, /調べるのは週に1回までなので、まだ調べていないものもある/);
 });
 
 test("欲しい仕組み: 同じものが3件以上の案で欲しがられたら、使えるサービスを調べる（同じものは30日に1回・全体で週に1回まで・緊急停止中は調べない）", () => {
@@ -68,5 +69,24 @@ test("欲しい仕組み: 同じものが3件以上の案で欲しがられた�
   } finally {
     saveSettings({ killSwitch: before });
   }
+  reset();
+});
+
+test("欲しい仕組み: 「要る仕組み: 外部のAPI」と「使いたいAPI」は同じものとみなして2回調べない。API の名前の記号は文字のまま探す（PR #194 の ai-review の指摘）", () => {
+  reset();
+  const run = async () => {};
+  // 同じ3案が、要る仕組み（外部のAPI）と使いたいAPI の両方に地図を書いた
+  for (let i = 0; i < 3; i++) idea(`地図の案${i}`, { needs: [{ kind: "api", what: "地図", why: "w" }], api_wish: { name: "Map_Box", purpose: "地図", key: true, sends: "なし" } });
+  const first = maybeResearchWants({ run });
+  assert.match((db().prepare("SELECT question FROM research WHERE id = ?").get(first) as { question: string }).question, /need:api/);
+  // 週がたっても、使いたいAPI「Map_Box」は、要る仕組み（外部のAPI）を調べたばかりなので調べない
+  db().prepare("UPDATE research SET at = datetime('now', '-8 days')").run();
+  assert.equal(maybeResearchWants({ run }), null);
+  // 名前の _ を LIKE の記号として扱わない: 「MapXBox」を調べた記録では、「Map_Box」は止まらない
+  reset();
+  for (let i = 0; i < 3; i++) idea(`地図の案${i}`, { api_wish: { name: "Map_Box", purpose: "地図", key: true, sends: "なし" } });
+  db().prepare("INSERT INTO research (at, question, asked_by) VALUES (datetime('now', '-8 days'), '（欲しい仕組みの調べもの: api:mapxbox）', 'system')").run();
+  const id = maybeResearchWants({ run });
+  assert.match((db().prepare("SELECT question FROM research WHERE id = ?").get(id) as { question: string }).question, /api:map_box/);
   reset();
 });

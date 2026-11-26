@@ -19,7 +19,12 @@ export const WANT_RESEARCH_EVERY_DAYS = 7;
 export type Want = { key: string; label: string; count: number; examples: string[]; detail: string };
 
 // 調べものの問いに付ける印（同じ欲しいものを何度も調べないため）
-const mark = (key: string) => `（欲しい仕組みの調べもの: ${key}）`;
+const MARK_HEAD = "（欲しい仕組みの調べもの: ";
+const mark = (key: string) => `${MARK_HEAD}${key}）`;
+// 「最近調べたか」を見るときに、同じものとみなす印
+// 「要る仕組み: 外部のAPI」と「使いたいAPI『○○』」は、同じ案が両方に書くことが多いので、互いに同じものとみなす（同じ需要を2回調べない。PR #194 の ai-review の指摘）
+// 使いたいAPIどうし（名前が違うもの）は、別のものとして調べる
+const sameMarks = (key: string): string[] => key === "need:api" ? [mark(key), `${MARK_HEAD}api:`] : key.startsWith("api:") ? [mark(key), mark("need:api")] : [mark(key)];
 
 export function wants(days = WANT_DAYS): Want[] {
   const rows = db().prepare("SELECT title, payload FROM idea_candidates WHERE practice = 0 AND at >= datetime('now', ?) ORDER BY id")
@@ -66,9 +71,10 @@ const defaultRun: Run = (id) => withActivity({ key: `research-${id}`, title: "�
 export function maybeResearchWants(opts: { run?: Run } = {}): number | null {
   const s = getSettings();
   if (s.killSwitch) return null;
-  const recent = (sql: string, ...args: unknown[]) => !!db().prepare(`SELECT 1 FROM research WHERE ${sql}`).get(...args);
-  if (recent("question LIKE '%（欲しい仕組みの調べもの: %' AND at >= datetime('now', ?)", `-${WANT_RESEARCH_EVERY_DAYS} days`)) return null;
-  const w = wants().find((x) => x.count >= WANT_RESEARCH_MIN && !recent("question LIKE ? AND at >= datetime('now', ?)", `%${mark(x.key)}%`, `-${WANT_DAYS} days`));
+  // 印は文字のまま探す（API の名前の _ や % を LIKE の記号として扱わない。PR #194 の ai-review の指摘）
+  const recent = (marks: string[], days: number) => marks.some((m) => !!db().prepare("SELECT 1 FROM research WHERE instr(question, ?) > 0 AND at >= datetime('now', ?)").get(m, `-${days} days`));
+  if (recent([MARK_HEAD], WANT_RESEARCH_EVERY_DAYS)) return null;
+  const w = wants().find((x) => x.count >= WANT_RESEARCH_MIN && !recent(sameMarks(x.key), WANT_DAYS));
   if (!w) return null;
   const q = question(w);
   const id = addResearch({ planId: null, projectId: null, question: q.question, why: q.why, how: q.how, askedBy: "system" });
@@ -81,7 +87,7 @@ export function maybeResearchWants(opts: { run?: Run } = {}): number | null {
 export function wantsText(): string {
   const list = wants();
   if (!list.length) return `欲しい仕組み（直近${WANT_DAYS}日のアイデアが「要る」「使いたい」と書いたもの）: なし`;
-  return `欲しい仕組み（直近${WANT_DAYS}日のアイデアが「要る」「使いたい」と書いたもの。案件にならなかった案も数える。${WANT_RESEARCH_MIN}件以上になったものは、使えるサービスを調べて「調べたこと」に入れている）:
+  return `欲しい仕組み（直近${WANT_DAYS}日のアイデアが「要る」「使いたい」と書いたもの。案件にならなかった案も数える。${WANT_RESEARCH_MIN}件以上になったものは、使えるサービスを調べる候補になる。調べるのは週に1回までなので、まだ調べていないものもある。調べ終わったものは「調べたこと」に入る）:
 ${list.slice(0, 8).map((w) => `- ${w.label}: ${w.count}件${w.examples.length ? `（例: ${w.examples.map((t) => `「${t}」`).join("・")}）` : ""}${w.detail ? `・${w.detail}` : ""}`).join("\n")}
-何度も出ていて、調べた結果があるものは、運営者に契約や用意を頼んでよい（target は human）。how に、どのサービスか・月の費用・何が作れるようになるか（どの案が待っているか）・来た人のどんな情報を送るか・やめる条件・契約したら入れるもの（Railway の変数の名前と、値の取り方。値そのものは書かない）を書く。今あるもの（Supabase・契約済みのAI）で足りるなら、契約は頼まない。ツールからつなぐ部分（共有の保存の場所・外部の API の中継）はまだなく、作るかは運営者があとで決めるので、つなぐ仕組みを作る案（system）は出さない`;
+何度も出ていて、「調べたこと」に調べ終わった結果があるものだけ、運営者に契約や用意を頼んでよい（target は human。まだ調べていないものは頼まない）。how に、どのサービスか・月の費用・何が作れるようになるか（どの案が待っているか）・来た人のどんな情報を送るか・やめる条件・契約したら入れるもの（Railway の変数の名前と、値の取り方。値そのものは書かない）を書く。今あるもの（Supabase・契約済みのAI）で足りるなら、契約は頼まない`;
 }
