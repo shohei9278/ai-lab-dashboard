@@ -37,6 +37,9 @@ jobs:
         run: npx playwright-core install --with-deps chromium
       - name: テスト
         run: npm test
+        # Playwright の Chromium だけで確かめる（開けなければ Google Chrome に切り替えず、元のエラーで落とす。src/lib/browser.ts）
+        env:
+          AI_LAB_BROWSER_STRICT: "1"
       - name: 本番用のビルド
         run: npm run build
       - name: 来訪者の画面のテスト

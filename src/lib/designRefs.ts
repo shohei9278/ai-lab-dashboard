@@ -71,7 +71,7 @@ async function processQueue() {
 
 async function capture(r: DesignRef) {
   const browser = await launchBrowser();
-  if (!browser) throw new Error("確認用のブラウザ（Chrome）が見つかりません");
+  if (!browser) throw new Error("確認用のブラウザを開けませんでした（理由はサーバーのログ）");
   const dir = dataDir("refs");
   let title = "";
   const shots: Record<"pc" | "sp", Buffer> = {} as Record<"pc" | "sp", Buffer>;

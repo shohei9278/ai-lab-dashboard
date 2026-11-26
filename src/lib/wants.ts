@@ -21,6 +21,11 @@ export type Want = { key: string; label: string; count: number; examples: string
 // 調べものの問いに付ける印（同じ欲しいものを何度も調べないため）
 const MARK_HEAD = "（欲しい仕組みの調べもの: ";
 const mark = (key: string) => `${MARK_HEAD}${key}）`;
+// 印からキーを取り出す。印は問いの最後に付けるので、最後の「）」までをキーにする（API の名前に「）」があっても切らない。PR #196 の ai-review の指摘）
+export const keyOf = (question: string): string => {
+  const rest = question.slice(question.indexOf(MARK_HEAD) + MARK_HEAD.length);
+  return rest.endsWith("）") ? rest.slice(0, -1) : rest.split("）")[0];
+};
 // 「要る仕組み: 外部のAPI」と「使いたいAPI『○○』」は、同じ案が両方に書くことがある。同じ需要を2回調べないよう、
 // 外部のAPIの別のキーを最近調べていて、そのとき元にした案と、今の候補の案が半分以上同じなら、調べたものとみなす（案が違えば、別の需要として調べる）
 // - 比べるのは、アイデアの候補の番号（題は同じでも別の案のことがある）と、調べたときに残した番号（今の集計ではない）（PR #195 の ai-review の指摘）
@@ -92,13 +97,13 @@ export function maybeResearchWants(opts: { run?: Run } = {}): number | null {
   // 直近30日の欲しい仕組みの調べもの（キーと、調べたときに元にした案の番号）
   const past = (db().prepare("SELECT question, want_ideas FROM research WHERE instr(question, ?) > 0 AND at >= datetime('now', ?)").all(MARK_HEAD, `-${WANT_DAYS} days`) as { question: string; want_ideas: string | null }[])
     .flatMap((r) => {
-      const key = r.question.slice(r.question.indexOf(MARK_HEAD) + MARK_HEAD.length).split("）")[0];
+      const key = keyOf(r.question);
       let ids: number[] | null = null;
       try { ids = r.want_ideas ? (JSON.parse(r.want_ideas) as unknown[]).filter((x): x is number => typeof x === "number") : null; } catch { ids = null; }
       return key ? [{ key, ids }] : [];
     });
   // 同じキーは、元にした案に関係なく30日に1回。外部のAPIの別のキーは、元にした案を残した調べもので、案が半分以上同じときだけ（残していない古い調べものでは止めない）
-  const done = (x: Want) => past.some((p) => p.key === x.key || (related(p.key, x.key) && p.ids !== null && sameDemand(x.ids, p.ids)));
+  const done = (x: Want) => recent([mark(x.key)], WANT_DAYS) || past.some((p) => p.key === x.key || (related(p.key, x.key) && p.ids !== null && sameDemand(x.ids, p.ids)));
   const w = wants().find((x) => x.count >= WANT_RESEARCH_MIN && !done(x));
   if (!w) return null;
   const q = question(w);

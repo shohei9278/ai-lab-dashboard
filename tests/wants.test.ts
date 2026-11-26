@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
-import { maybeResearchWants, sameDemand, wants, wantsText, WANT_RESEARCH_MIN } from "../src/lib/wants";
+import { keyOf, maybeResearchWants, sameDemand, wants, wantsText, WANT_RESEARCH_MIN } from "../src/lib/wants";
 
 // 欲しい仕組み（運営者が決めた）: アイデアが「要る」「使いたい」と書いたものを数え、何度も出たら使えるサービスを調べ、定例会議に渡す
 
@@ -97,6 +97,22 @@ test("欲しい仕組み: 「要る仕組み: 外部のAPI」と「使いたいA
   db().prepare("INSERT INTO research (at, question, asked_by) VALUES (datetime('now', '-8 days'), '（欲しい仕組みの調べもの: api:mapxbox）', 'system')").run();
   const id = maybeResearchWants({ run });
   assert.match((db().prepare("SELECT question FROM research WHERE id = ?").get(id) as { question: string }).question, /api:map_box/);
+  reset();
+});
+
+test("欲しい仕組み: API の名前に全角のかっこがあっても、同じものは30日のあいだ調べ直さない（PR #196 の ai-review の指摘）", () => {
+  reset();
+  const run = async () => {};
+  assert.equal(keyOf("候補を2〜3個比べる（欲しい仕組みの調べもの: api:地図api（無料版））"), "api:地図api（無料版）");
+  for (let i = 0; i < 3; i++) idea(`地図の案${i}`, { api_wish: { name: "地図API（無料版）", purpose: "地図", key: true, sends: "なし" } });
+  const first = maybeResearchWants({ run });
+  assert.match((db().prepare("SELECT question FROM research WHERE id = ?").get(first) as { question: string }).question, /api:地図api（無料版））$/);
+  // 週がたっても（30日のうちは）、同じものは調べない
+  db().prepare("UPDATE research SET at = datetime('now', '-8 days')").run();
+  assert.equal(maybeResearchWants({ run }), null);
+  // 30日がたてば、また調べる
+  db().prepare("UPDATE research SET at = datetime('now', '-31 days')").run();
+  assert.notEqual(maybeResearchWants({ run }), null);
   reset();
 });
 
