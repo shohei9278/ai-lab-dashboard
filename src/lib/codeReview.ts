@@ -11,7 +11,7 @@ export const REVIEW_SCENE = "コードの見直し";
 // 攻め: 直すべき所（守り）ではなく、実験を伸ばすために足すとよい機能。定例会議で3社が採点し、点の高いものを自動でルーティンに頼む（autoAsk.ts）
 export const GROWTH_SCENE = "コードの見直し（攻め）";
 export const REVIEW_MAX = 8;
-export const GROWTH_MAX = 2; // 8件のうち、攻めは2件まで
+export const GROWTH_MAX = 3; // 8件のうち、攻めは3件まで（攻めに「実験の進め方」も入れたので、運営者が2件から3件に上げた）
 const REVIEW_WINDOW = "-2 days";
 const TITLE_MAX = 80;
 const HOW_MAX = 600;

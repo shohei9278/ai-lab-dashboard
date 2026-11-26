@@ -17,6 +17,7 @@ import { expireStaleProposals, mergeSimilarOpen, proposeFromErrors } from "./voi
 import { syncAiFixPrs } from "./aiFix";
 import { maybeAutoAsk } from "./autoAsk";
 import { checkToolCheckJump } from "./toolCheckStats";
+import { maybeResearchWants } from "./wants";
 import { checkFlowJump } from "./flowStats";
 import { autoToolRoutine } from "./toolRoutine";
 import { notifyLongWaits } from "./waits";
@@ -149,6 +150,12 @@ async function tickNow() {
     checkFlowJump();
   } catch (e) {
     logEvent(null, "system", "flow-alert-error", `仕組みの詰まりの確かめでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
+  }
+  // アイデアが何度も欲しがった仕組みに使えるサービスを調べる（週に1回まで。AIの費用は調べもの1回分。wants.ts）
+  try {
+    maybeResearchWants();
+  } catch (e) {
+    logEvent(null, "system", "want-research-error", `欲しい仕組みの調べものでエラー: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
   }
   // 投稿についた反応を取り込む（計画を作る前に。1時間に1回）
   await syncReactions().catch(() => 0);

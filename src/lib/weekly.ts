@@ -15,6 +15,7 @@ import { doneEffectsText } from "./effects";
 import { waitsText } from "./waits";
 import { exploreStatsText } from "./explore";
 import { toolCheckText } from "./toolCheckStats";
+import { wantsText } from "./wants";
 import { flowText } from "./flowStats";
 
 // 週の定例会議（毎週月曜）
@@ -72,6 +73,8 @@ ${toolCheckText()}
 
 ${flowText()}
 
+${wantsText()}
+
 提案箱（これまでの提案と、運営者の返事。返事待ち・見送りと同じ提案は出さない）:
 ${reqs.join("\n") || "（まだなし）"}
 
@@ -110,7 +113,7 @@ export async function createWeeklyMeeting(): Promise<number> {
   5. まだ分からないことは何か
 - voice_effects: 外の声や調べたことを根拠に、提案や考えを変えたときだけ [{"voice_ids":[声の番号],"research_ids":[調べものの番号],"change":"何をどう変えたか"}]
 - proposals: 改善案を0〜3件（本当に効きそうなものがなければ空の配列でよい。数を埋めるための案は出さない）。target は次のどちらか
-  - human: 運営者（人）にやってほしいこと（AIは他人への働きかけ・アカウントの設定・コミュニティへの参加などができない）
+  - human: 運営者（人）にやってほしいこと（AIは他人への働きかけ・アカウントの設定・コミュニティへの参加などができない）。有料のサービス・ツール・広告などの契約が効きそうなら、それも頼んでよい（決めるのは運営者。how に、月にいくらかかるか・何の数字がどう変わる見込みか・やめる条件を書く。料金や規約が確かでなければ「要確認」と書く）
   - system: この会社の仕組み（AIへの指示・集計のしかた・自動化の決まり・作るものの選び方など）を変える案
   title は短く、how は具体的に何をどう変えるか、why は材料の数字の根拠
   - system の案は、次の観点を見渡して考える。提案箱の偏り（材料）を見て、返事待ちに多い観点より、少ない観点を優先する
@@ -121,7 +124,8 @@ export async function createWeeklyMeeting(): Promise<number> {
 守ること:
 - 材料にある数字だけを使う。件数が少ないときは「まだ偶然の可能性が高い」と書く
 - 提案箱で返事待ち・見送りになっているものと同じ提案は出さない
-- 広告費を使う案、他人の投稿への宣伝の返信・DMなど、スパムになる案は出さない
+- 他人の投稿への宣伝の返信・DMなど、スパムになる案は出さない（広告や有料のサービスは、運営者に頼む案 human としてなら出してよい）
+- ツールから外につなぐ部分（みんなで共有する保存の場所・外部の API の中継など）を作る案（system）は、運営者が作ると決めるまで出さない（運営者が後回しにしている。契約や用意を頼む human の案は出してよい）
 - voice は必ず書く（空にしない）。数字や出来事は材料にあるものだけを使い、体験談は作らない
 形式: {"review":"振り返り","proposals":[{"title":"短い題","how":"具体的に","why":"根拠","target":"human|system","axis":"new（別軸の案のときだけ）"}],"voice":"今週のひとこと","voice_effects":[]}`,
     user: mat,
