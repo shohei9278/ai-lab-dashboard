@@ -61,10 +61,19 @@ test("使った: ただの文章の上で押して動かしただけ（文字を
   assert.equal(n, 0);
 });
 
-test("使った: なぞる操作を受ける所の中の子要素（文字や絵）から描き始めても数える（PR #214 の ai-review の指摘）", async (t) => {
-  const n = await uses(`<div style="touch-action:none;width:280px;height:180px"><span id="s">ここをなぞる</span><svg width="40" height="40"><circle id="c" cx="20" cy="20" r="10"/></svg></div>`, async (page) => { await drag("#s")(page); await drag("#c")(page); });
+// span と SVG は、別々に確かめる（同じ枠の中だと、最初の1回のあとは数えないので、どちらで数えたか分からない。PR #214 の ai-review の指摘）
+for (const [name, start] of [["文字", "#s"], ["絵（SVG）", "#c"]] as const) {
+  test(`使った: なぞる操作を受ける所の中の子要素（${name}）から描き始めても数える（PR #214 の ai-review の指摘）`, async (t) => {
+    const n = await uses(`<div style="touch-action:none;width:280px;height:180px"><span id="s">ここをなぞる</span><svg width="40" height="40"><circle id="c" cx="20" cy="20" r="10"/></svg></div>`, drag(start));
+    if (typeof n === "string") return t.skip(n);
+    assert.equal(n, 1);
+  });
+}
+
+test("使った: body に touch-action: none があっても、なぞる所の外の文章の上では数えない（PR #214 の ai-review の指摘）", async (t) => {
+  const n = await uses(`<style>html,body{touch-action:none}</style><p id="p" style="width:280px;height:180px">説明の文章</p>`, drag("#p"));
   if (typeof n === "string") return t.skip(n);
-  assert.equal(n, 1);
+  assert.equal(n, 0);
 });
 
 test("使った: 描く枠の上でも、右クリック・中クリックでは数えない（PR #214 の ai-review の指摘）", async (t) => {
