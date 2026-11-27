@@ -9,7 +9,7 @@ import { hotIdeaHint } from "./hot";
 import { addEvalSeed, seedSuggestModel, suggestEvalSeed } from "./evalSeeds";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
-import { AIMS, AIM_KEYS, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
+import { AIMS, AIM_KEYS, GACHA_GENRE, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, isGachaGenre, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { decideSameSource, parseSameSource, sameSourceGate, sameSourceGroups, sameSourceLine, type SameSourceChoice } from "./sameSource";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
@@ -330,6 +330,7 @@ export async function askIdeas(theme: string, count: number, modelId?: string, a
 - return（${AIMS.return.label}）: tool。毎日変わる理由（日替わりのお題・今日の1問・今日の運勢など）があり、明日もまた来たくなるもの。保存の領域は使えないので、日付から決まる日替わり（その日は全員に同じお題）で作る
 - demand（${AIMS.demand.label}）: lp。まだ作らずに、紹介ページの事前登録で需要を確かめる
 genre には、アイデアのジャンルを短い言葉で書く（例: ${GENRES.slice(0, 6).join("・")}）。
+- ジャンルが「${GACHA_GENRE}」（引くたびに、レア度のある結果がランダムに出る遊び）の案だけは、結果が出るまでの盛り上げる演出（予告・色の格上げ・カットイン・確定演出など）を仕掛けの中心にしてよい。「診断」（質問に答えて、その人に合う結果を出すもの）は別のジャンルで、演出を主役にしない。ガチャ・くじの案ばかりにしない
 考える順番（ねらいごと）。形から発想しない:
 - useful・demand: まず「誰の、どんな困りごとか」を決め、次に「その人に最初にどう届けるか」を決める
 - spread: まず「1秒で分かって触りたくなる仕掛け」と「人に見せたくなる結果・オチ」を決め、次に「どんな投稿（短い動画の最初の1秒・結果の画像）で広がるか」を決める。target にはそれを面白がる人、problem には、その人のどんな気持ち（あるある・好奇心・見せたい気持ちなど）に刺さるかを書く（困りごとでなくてよい）
@@ -833,7 +834,7 @@ export function devRequestText(projectId: number, design: string, instruction: s
   let dataNote = "なし（コードの中に書く）";
   try {
     const deep = deepContext(p);
-    rules = toolRules(deep, shortToolPage(p.aim));
+    rules = toolRules(deep, shortToolPage(p.aim), p.genre);
     if (deep?.data) dataNote = `window.labData（${deep.data.rows.length}件）。${deep.data.spec.note}。案件の画面の「データを保存」から JSON を取れます`;
   } catch (e) {
     rules = `（作るときの決まりを出せませんでした: ${e instanceof Error ? e.message : String(e)}）`;
@@ -1210,13 +1211,22 @@ export const FIT_SCREEN_RULE = `- このツールは、公開ページで画面�
 
 // スマホの動きの受け取り方と、振りの強さの測り方
 // #72 で、1つ前の値との差で振りを測ったら、知らせの間隔（約16ms）では差が小さく、強く振っても雪がほとんど舞わなかった（運営者が実機で見つけた）
+// ジャンルが「ガチャ・くじ」のツールにだけ付ける、盛り上げる演出の作り方（11/27 に運営者が決めた。何回も引きたくなる演出を入れるため。診断など、ほかのツールには付けない）
+export const GACHA_STAGING_RULE = `- このツールは「${GACHA_GENRE}」の遊び。結果が出るまでの演出で、引くたびに盛り上げる
+  - 予告（画面の揺れ・暗転・何かが横切る など）・色の格上げ（青→緑→赤→金→虹）・カットイン・確定演出などを、結果のレア度とつなげて出す。強い演出ほど、レアが出やすくする
+  - 確定演出（虹など）が出たら、必ずいちばん上のレアにする。期待させて外れる予告はあってよいが、確定演出は外さない（外すと演出が信じられなくなり、盛り上がらなくなる）
+  - 1回の演出は1〜3秒。2回目からは、押せば演出を飛ばせるようにする（何回も引くときに面倒にしない）
+  - レア度があるときは、それぞれの出る確率を画面（図鑑や遊び方の説明）に書く
+  - お金・景品は扱わない。賭ける・課金するような言葉は使わない
+  - 見つけた結果を集めて図鑑にするときは、window.labStore で次に開いたときにも残す`;
+
 export const MOTION_RULE = `- スマホの動き（振る・傾ける）を使うときは、DeviceMotionEvent を直接使わず、window.labMotion を使う。押したボタンなどから window.labMotion.request() で許可を頼み（Promise で "granted"・"denied"・"unavailable"）、"granted" なら window の "labmotion" イベント（event.detail の x・y・z。重力を含む加速度 m/s²。1秒に60回ほど届く）で動きを受け取る（iPhone は枠の中からの許可を断るので、ページの側で許可を求めて渡す）。使えないときも、ボタンやドラッグで遊べる作りにする
 - 振りの強さは、1つ前に届いた値との差で測らない（間隔が短く、強く振っても差は小さい）。届いた値をゆっくり追う値（0.4秒くらいでならす）を重力とみなし、そこからのずれの大きさで測る。目安は、ずれが 5 m/s² で軽い振り、11 でふつう、18 で強い振り。ひと振りのいちばん強い所（ずれが下がり始めた所）で反応させ、振り続けている間は0.2秒くらいごとに続けて反応させる。傾きは、ならした値（重力）から読む`;
 
 // ツールを書くときの決まり（作るときと、じっくり案件の見た目を磨くときで共通）
 // deep: じっくり案件か（data は、大きなデータが要るときだけ）
 // short: 短いページで出すツールか（shortToolPage）。画面の高さに収める決まりを足す
-function toolRules(deep: { data: DeepData | null } | null, short = false): string {
+export function toolRules(deep: { data: DeepData | null } | null, short = false, genre: string | null = null): string {
   return `守ること:
 - 1つのHTMLの断片だけを書く（<style> と <script> を含めてよい。<html><head><body> は書かない）
 ${deep ? deepToolNote(deep.data) : `${FONT_RULE}。必要なデータはコードの中に書く`}
@@ -1228,7 +1238,7 @@ ${MOTION_RULE}
 - フォームは送信しない（ボタンは type="button"）。入力は端末の中だけで処理する
 - 名前・メールアドレスなど個人を特定できる情報は入力させない
 - スマホ幅（360px）でも崩れない。prefers-color-scheme でライト・ダークの両方で読めるようにする
-${short ? `${FIT_SCREEN_RULE}\n` : ""}- 日本語。開いた瞬間に使い方が分かるようにする。入力欄は空にし、入力例は placeholder で見せる（入力例の値で、結果を最初から出しておかない。結果は利用者が入力・選択・ボタンを押したときにすぐ表示する）。すぐ試したい人のために「例で試す」ボタンを置いてもよい
+${short ? `${FIT_SCREEN_RULE}\n` : ""}${isGachaGenre(genre) ? `${GACHA_STAGING_RULE}\n` : ""}- 日本語。開いた瞬間に使い方が分かるようにする。入力欄は空にし、入力例は placeholder で見せる（入力例の値で、結果を最初から出しておかない。結果は利用者が入力・選択・ボタンを押したときにすぐ表示する）。すぐ試したい人のために「例で試す」ボタンを置いてもよい
 - 結果は、シェアしたくなる見せ方を工夫する。結果が出るたびに、その結果を伝える短い一文（60文字くらい。個人を特定できる内容は入れない）を作り、window.labShare && window.labShare("その一文") を呼ぶ（ページのシェアのボタンの文に使われる。遊びの短いページでは、最初の結果のあとに下から「シェア・ほかの遊び」の欄が開く）。見つける・集めるなど、結果が出たあとも同じ画面で遊び続けるツールは、途中の結果では window.labShare("その一文", { quiet: true })・window.labResult(番号, { quiet: true }) と quiet を付ける（欄が開いて、遊んでいる操作を隠さないように）
 - 見つける・集めるツールでは、すでに見つけたものを、また新しく見つけたように知らせない（「見つけた」の表示は初めてのときだけ。演出は何度見せてもよい）。勝手に現れるもの（たまに起きること・くじなど）は、まだ見つけていないものから選び、見つけたものが何度も出て遊びを止めないようにする
 - 結果の種類が決まっているツール（診断・タイプ分け・くじなど）は、<script type="application/json" id="lab-results">["結果の名前", …]</script> に結果の名前をすべて書き（${TOOL_RESULTS_MAX}個まで・1つ${TOOL_RESULT_LEN}文字まで・短く印象に残る名前）、結果を出すたびに window.labResult && window.labResult(その結果の番号。0から) を呼ぶ（シェアされたリンクに、その結果の名前を大きく出した画像が付く）。数の計算など、結果が決まった種類でないツールは書かない
@@ -1275,7 +1285,7 @@ const FULL_TOOL_RULE = "直したところだけ・変えた行だけ・「…�
 export async function writeToolHtml(p: ProjectRow, instruction?: string, prevHtml?: string, modelId?: string, effort?: "medium"): Promise<string> {
   const deep = deepContext(p);
   const system = `あなたは小さなWebツールを作るフロントエンドエンジニアです。紹介ページの中の枠に埋め込まれる、ツール本体を1つ書きます。
-${toolRules(deep, shortToolPage(p.aim))}`;
+${toolRules(deep, shortToolPage(p.aim), p.genre)}`;
   const user = `ツール名: ${p.title}\n対象: ${p.target}\n使う人の動機・困りごと: ${p.problem}\n何ができるツールか: ${p.solution}${deep ? deepText(p, deep) : ""}${prevHtml ? `\n\n今のツール:\n${prevHtml}` : viralHints("tool")}${instruction ? `\n\n今回の修正指示: ${instruction}` : ""}${prevHtml ? `\n\n出力: ${FULL_TOOL_RULE}` : ""}`;
   // ツールのHTMLは長く、JSONに包むと出力の上限で途中で切れやすい。HTMLをそのまま最後まで受け取る
   const author = modelId ?? claudeModelId();
@@ -1367,7 +1377,7 @@ async function polishTool(p: ProjectRow, html: string, deep: { data: DeepData | 
 - 機能・計算・${deep.data ? "window.labData の読み方・" : ""}ボタンの動き・window.labShare の呼び出しは変えない
 - 色・余白・文字の大きさと太さ・並び・結果の画面の見せ方・動き（CSS のアニメーション）を整え、結果を人に見せたくなる仕上がりにする
 - 画面で読みにくい所・詰まって見える所・はみ出しそうな所を直す
-${toolRules(deep, shortToolPage(p.aim))}
+${toolRules(deep, shortToolPage(p.aim), p.genre)}
 出力は、磨いたあとのHTMLの断片だけ。説明やコードブロックは付けない。`,
     content: [
       { type: "image", source: { type: "base64", media_type: "image/png", data: fs.readFileSync(file).toString("base64") } },

@@ -21,8 +21,10 @@ export function problemLabel(aim: unknown): string {
 }
 
 // ジャンルの例（選びたいときだけ選ぶ。AIはこの中にないジャンルも出してよい）
+// 「ガチャ・くじ」と「診断」は分けている（11/27 に運営者が決めた。ガチャ・くじにだけ、結果が出るまでの盛り上げる演出を付けるため。診断には付けない）
+export const GACHA_GENRE = "ガチャ・くじ";
 export const GENRES = [
-  "ガチャ・診断", "あるある体験", "手ざわり", "なりきり・仕事体験", "反射・早押し", "作る・混ぜる",
+  GACHA_GENRE, "診断", "あるある体験", "手ざわり", "なりきり・仕事体験", "反射・早押し", "作る・混ぜる",
   "物理おもちゃ", "言葉遊び", "クイズ", "見て楽しむ（図解・データ）", "音・絵のおもちゃ", "計算・変換",
 ] as const;
 
@@ -183,6 +185,12 @@ export function aimOfIdea(idea: { aim?: unknown; kind?: unknown }): Aim {
   const kind = idea.kind === "tool" ? "tool" : "lp";
   if (isAim(idea.aim) && AIMS[idea.aim].kind === kind) return idea.aim;
   return kind === "lp" ? "demand" : "useful";
+}
+
+// 案件のジャンルが「ガチャ・くじ」か。AIはジャンルを自由な言葉で書くので、ガチャ・くじを含むものを数える
+// 分ける前の「ガチャ・診断」は、診断の遊びかもしれないので数えない（診断に演出を付けないため）
+export function isGachaGenre(genre: string | null | undefined): boolean {
+  return typeof genre === "string" && /ガチャ|くじ/.test(genre) && !/診断/.test(genre);
 }
 
 // 設定のジャンル（カンマ区切り）を一覧にする（空ならおまかせ）
