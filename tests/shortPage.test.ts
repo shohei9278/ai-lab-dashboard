@@ -1,6 +1,7 @@
 import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { launch } from "../src/lib/freePage";
 import { FIT_SCREEN_RULE, MOTION_RULE, SHORT_PAGE_AIMS, devRequestText, shortToolPage } from "../src/lib/loop";
 import { db } from "../src/lib/db";
 import { normalizeLp } from "../lp-site/src/lp/content";
@@ -31,6 +32,32 @@ test("ツールの短いページ: 印（short）は、ツールのある中身�
 test("遊びのツールの全画面（運営者の依頼）: 枠を画面の高さに決めるときだけ、枠の中で引っぱっても外のページが動かないようにする", () => {
   assert.match(wrapToolHtml("<p>x</p>", { fill: true }), /html,body\{overscroll-behavior:none\}/);
   assert.doesNotMatch(wrapToolHtml("<p>x</p>"), /overscroll-behavior/);
+  // 遊ぶ画面では、canvas の上でなぞっても枠の中がスクロールしない（提案箱 #113）。ツールの指定を上書きしないよう、無名の @layer に入れる
+  assert.match(wrapToolHtml("<p>x</p>", { fill: true }), /@layer\{canvas\{touch-action:none\}\}/);
+  assert.doesNotMatch(wrapToolHtml("<p>x</p>"), /touch-action/);
+});
+
+test("遊ぶ画面の canvas の touch-action（提案箱 #113・PR #215 のレビューの指摘）: 枠の既定は none。ツールが決めたときは、@layer の中でも外でもツールの指定を使う（ブラウザがあるときだけ）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  try {
+    const page = await browser.newPage();
+    const cases: [string, string][] = [
+      ["<canvas id=c></canvas>", "none"],
+      ["<style>@layer tool{canvas{touch-action:pan-y}}</style><canvas id=c></canvas>", "pan-y"],
+      ["<style>canvas{touch-action:pan-x}</style><canvas id=c></canvas>", "pan-x"],
+      ['<canvas id=c style="touch-action:manipulation"></canvas>', "manipulation"],
+    ];
+    for (const [html, want] of cases) {
+      await page.setContent(wrapToolHtml(html, { fill: true }));
+      assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("c")!).touchAction), want, html);
+    }
+    // 枠を画面の高さに決めないときは、枠の側では付けない
+    await page.setContent(wrapToolHtml("<canvas id=c></canvas>"));
+    assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("c")!).touchAction), "auto");
+  } finally {
+    await browser.close();
+  }
 });
 
 test("遊びのツールの結果のあとの「ほかの遊び」: 同じカテゴリを先に、足りなければほかのツールで埋める。自分は出さない", () => {
