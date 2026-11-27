@@ -13,6 +13,7 @@ function fakeStore(columns: string[], order: string[] = ["source", "inapp"]) {
       return { error: null };
     },
     async fillInApp(key, inapp, source) {
+      if (source !== undefined && !columns.includes("source")) return { error: { message: "column lp_views.source does not exist" } };
       for (const x of rows) {
         if (x.slug !== key.slug || x.version !== key.version || x.visitor_id !== key.visitor_id) continue;
         if (source !== undefined && (x.source ?? null) !== source) continue;
@@ -68,4 +69,13 @@ test("同じ日の再訪で、アプリの外だった記録をアプリの中�
   await recordView(c.store, row, null, "x");
   assert.equal(c.rows[0].source, "abcd");
   assert.equal(c.rows[0].inapp, "");
+});
+
+test("inapp 列だけがあるときも、目印なしの同じ日の再訪で、アプリの外だった記録をアプリの中に埋める", async () => {
+  const { store, rows } = fakeStore(["inapp"]);
+  await recordView(store, row, null, "");
+  assert.equal(rows[0].inapp, "");
+  assert.deepEqual(await recordView(store, row, null, "instagram"), { error: null });
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].inapp, "instagram");
 });

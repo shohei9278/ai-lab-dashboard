@@ -29,7 +29,11 @@ export async function recordView(store: ViewStore, row: ViewKey & Record<string,
   // 同じ日の再訪で、前の記録がアプリの中かを分かっていない・アプリの外だったら、今回の判定で埋める（投稿への帰属は最初の記録のまま変えない）
   if ("inapp" in extra && inapp !== null) {
     // 訪問は記録できているので、埋められなくても成功として返す
-    await store.fillInApp({ slug: row.slug, version: row.version, visitor_id: row.visitor_id }, inapp, dropped.has("source") ? undefined : source).catch(() => null);
+    const key = { slug: row.slug, version: row.version, visitor_id: row.visitor_id };
+    const src = dropped.has("source") ? undefined : source;
+    const filled = await store.fillInApp(key, inapp, src).catch(() => null);
+    // 目印のない訪問は source を送らないので、source 列がないことは更新のときに分かる。そのときだけ source の条件を外してやり直す（列がなければ帰属もないので、書き換える記録は変わらない。PR #218 の ai-review の指摘）
+    if (src !== undefined && filled?.error && /\bsource\b/.test(filled.error.message)) await store.fillInApp(key, inapp, undefined).catch(() => null);
   }
   return { error: null };
 }
