@@ -28,14 +28,29 @@ const TEXT: Record<string, [string, string]> = {
 const fix = (t: string) => ({ title: t, how: TEXT[t][0], why: TEXT[t][1] });
 const grow = (t: string) => ({ ...fix(t), kind: "growth" });
 
-test("攻めの提案: kind=growth は「攻め」として入り、1回（2日のあいだ）に3件まで。知らない kind は入れない", () => {
+test("攻めの提案: kind=growth は「攻め」として入り、1回に2件まで。知らない kind は入れない", () => {
   clear();
-  const r = addReviewFindings([grow("届く先を増やす"), grow("シェアの導線を足す"), grow("通知を足す"), grow("攻めの機能"), { ...fix("x"), kind: "other" }]);
-  assert.equal(r.added.length, 3);
-  assert.match(r.skipped.join("\n"), /攻めの3件を超えた/);
+  const r = addReviewFindings([grow("届く先を増やす"), grow("シェアの導線を足す"), grow("通知を足す"), { ...fix("x"), kind: "other" }]);
+  assert.equal(r.added.length, 2);
+  assert.match(r.skipped.join("\n"), /攻めの2件を超えた/);
   assert.match(r.skipped.join("\n"), /kind は fix/);
   const scenes = (db().prepare("SELECT scene FROM plan_requests ORDER BY id").all() as { scene: string }[]).map((x) => x.scene);
-  assert.deepEqual(scenes, [GROWTH_SCENE, GROWTH_SCENE, GROWTH_SCENE]);
+  assert.deepEqual(scenes, [GROWTH_SCENE, GROWTH_SCENE]);
+});
+
+test("見直しの数（11/27 に運営者が毎日・1回4件にした）: 1回に4件まで。前の日の回（20時間より前）の分は数えない", () => {
+  clear();
+  const r = addReviewFindings([fix("守りA"), fix("守りC"), grow("届く先を増やす"), grow("シェアの導線を足す")]);
+  assert.equal(r.added.length, 4);
+  // 1回に5件以上送っても、5件目からは読まない
+  assert.match(addReviewFindings([fix("x"), fix("x"), fix("x"), fix("x"), fix("x")]).skipped.join("\n"), /4件を超えた分（1件）は読んでいない/);
+  // 同じ日のうちにもう一度入れようとしても、入らない
+  const again = addReviewFindings([grow("通知を足す")]);
+  assert.equal(again.added.length, 0);
+  assert.match(again.skipped.join("\n"), /1回の見直しで入れられる/);
+  // 前の日の回（起動が数分早くずれて、24時間たっていない）の分は数えない
+  db().prepare("UPDATE plan_requests SET created_at = datetime('now', '-23 hours', '-50 minutes')").run();
+  assert.equal(addReviewFindings([grow("通知を足す")]).added.length, 1);
 });
 
 test("攻めの提案: 定例会議で3社が採点する（守りは採点しない）", () => {

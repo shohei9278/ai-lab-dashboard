@@ -2,17 +2,19 @@ import crypto from "node:crypto";
 import { db } from "./db";
 import { addProposal, countRepeat } from "./voices";
 
-// コードの見直しのルーティン（クラウドの Claude Code。週に2回。運営者が決めた）が、見つけたことを提案箱の「仕組みの改善」に入れる入口（docs/routine-code-review.md）
+// コードの見直しのルーティン（クラウドの Claude Code。毎日1回。運営者が決めた）が、見つけたことを提案箱の「仕組みの改善」に入れる入口（docs/routine-code-review.md）
 // 提案箱が「運営の中で困ったこと（外側）」から出るのに対して、こちらは「コードの中身（内側）」から出す。直しはしない（直すのは、運営者が選んで「AIに直させる」を押したときの、提案箱のルーティン）
 // - 合言葉は LAB_REVIEW_TOKEN（ツールのルーティンの LAB_TOOL_TOKEN とは分ける。ルーティンの役割ごとに、入れる入口を分けるため）
-// - 入れられるのは、2日のあいだに8件まで（1回の見直しで8件まで。週2回の間は3〜4日あく。確かめる所が多い間は、運営者が5件から8件に上げた）
+// - 入れられるのは、1回の見直しで4件まで（攻めは2件まで）。11/27 に運営者が、週2回・1回8件から、毎日・1回4件に変えた
+//   （提案を受けて直す側に余裕があり、7点以上の提案がなくなって5点台まで頼んでいたため。間を詰めて、1回の数は絞る）
+//   前の回の分を数えないよう、20時間のあいだで数える（毎日同じ時刻に動くが、起動の時刻は数分ずれるので、24時間だと前の回の分が残る）
 
 export const REVIEW_SCENE = "コードの見直し";
 // 攻め: 直すべき所（守り）ではなく、実験を伸ばすために足すとよい機能。定例会議で3社が採点し、点の高いものを自動でルーティンに頼む（autoAsk.ts）
 export const GROWTH_SCENE = "コードの見直し（攻め）";
-export const REVIEW_MAX = 8;
-export const GROWTH_MAX = 3; // 8件のうち、攻めは3件まで（攻めに「実験の進め方」も入れたので、運営者が2件から3件に上げた）
-const REVIEW_WINDOW = "-2 days";
+export const REVIEW_MAX = 4;
+export const GROWTH_MAX = 2; // 4件のうち、攻めは2件まで
+export const REVIEW_WINDOW = "-20 hours";
 const TITLE_MAX = 80;
 const HOW_MAX = 600;
 const WHY_MAX = 400;
@@ -51,7 +53,7 @@ export function addReviewFindings(raw: unknown): { added: number[]; skipped: str
       return;
     }
     // 上限に達していても、同じ趣旨の提案が返事待ちなら「何回出たか」は数える（PR #141 の ai-review の指摘。攻めの上限のときも同じ。PR #154 の ai-review の指摘）
-    const full = growth && growthRoom <= 0 ? `2日のあいだに入れられる攻めの${GROWTH_MAX}件を超えた` : room <= 0 ? `2日のあいだに入れられる${REVIEW_MAX}件を超えた` : null;
+    const full = growth && growthRoom <= 0 ? `1回の見直しで入れられる攻めの${GROWTH_MAX}件を超えた` : room <= 0 ? `1回の見直しで入れられる${REVIEW_MAX}件を超えた` : null;
     if (full) {
       const p = { title: x.title, how: x.how, target: "system" as const, source: "review" as const };
       skipped.push(countRepeat(p) ? `${label}: 同じ題か同じ趣旨の提案がすでにある` : `${label}: ${full}`);
