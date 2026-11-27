@@ -736,35 +736,72 @@ test("Gemini は、src の中では gemini() からだけ作る（@google/genai 
 test("LPのチェックに渡すツールの中身: 選択肢・最初の値・ボタン・スクリプトの中の日本語の文を取り出し、長いときは切る", async () => {
   const { toolFactsForReview, lpReviewPrompt } = await import("../src/lib/loop");
   const html = `<h2>景品を決める</h2><input id="b" type="number" value="30000" min="1000"><select><option>ゆるやか</option><option selected>ふつう</option></select><input type="checkbox" aria-label="参加賞を作る" checked><button>計算する</button><script>const T = { 3000: "ちょっといい調理家電の小物" }; console.log("debug");</script>`;
-  const f = toolFactsForReview(html);
+  const fx = toolFactsForReview(html);
+  const f = fx.text;
+  assert.equal(fx.cut, false);
   assert.match(f, /ふつう（最初に選ばれている）/);
   assert.match(f, /最初の値 30000/);
   assert.match(f, /参加賞を作る（checkbox・最初から選ばれている）/);
   assert.match(f, /計算する/);
   assert.match(f, /ちょっといい調理家電の小物/);
   assert.doesNotMatch(f, /debug/); // 日本語を含まない文字列は渡さない
-  assert.ok(toolFactsForReview(html, 20).endsWith("（長いので途中まで）"));
+  assert.ok(toolFactsForReview(html, 20).text.endsWith("（長いので途中まで）"));
   // selected がない組は先頭が最初の値。disabled の見出しの選択肢は飛ばす
-  assert.match(toolFactsForReview(`<select><option disabled>選んでください</option><option>1等</option><option>2等</option></select>`), /1等（最初に選ばれている） \/ 2等$/m);
+  assert.match(toolFactsForReview(`<select><option disabled>選んでください</option><option>1等</option><option>2等</option></select>`).text, /1等（最初に選ばれている） \/ 2等$/m);
   // 複数行のテンプレートや長い文も拾い、コメントの中の引用符で崩れない
   const long = "とても長い結果の文".repeat(30);
-  const js = toolFactsForReview(`<script>// it's a comment\nconst out = \`\${n}等は\n\${yen}円です\`;\nconst l = "${long}";</script>`);
+  const js = toolFactsForReview(`<script>// it's a comment\nconst out = \`\${n}等は\n\${yen}円です\`;\nconst l = "${long}";</script>`).text;
   assert.match(js, /\$\{n\}等は \$\{yen\}円です/);
   assert.ok(js.includes(long));
   // textarea の最初の値と入力例、似た名前の属性（data-value・aria-checked）は取り違えない
-  const tf = toolFactsForReview(`<textarea name="names" placeholder="山田、佐藤">田中\n鈴木</textarea><input type="checkbox" name="x" aria-checked="false" data-value="9"><select><option aria-selected="true">A</option><option>B</option></select>`);
-  assert.match(tf, /names（textarea・最初の値 田中\n鈴木・入力例 山田、佐藤）/);
+  const tf = toolFactsForReview(`<textarea name="names" placeholder="山田、佐藤">田中\n鈴木</textarea><input type="checkbox" name="x" aria-checked="false" data-value="9"><select><option aria-selected="true">A</option><option>B</option></select>`).text;
+  assert.match(tf, /names（textarea・最初の値 田中\n鈴木・文字数の上限なし・入力例 山田、佐藤）/);
   assert.match(tf, /x（checkbox）/);
   assert.match(tf, /A（最初に選ばれている） \/ B$/m);
+  // 文字を入れる欄は、文字数の上限を必ず書く（ない欄は「上限なし」。数や選ぶ欄には書かない。提案箱 #91）
+  const ml = toolFactsForReview(`<input type="text" name="title" maxlength="20"><input name="memo"><textarea id="body" maxLength='140'></textarea><input type="TEXT" name="nick"><input type="number" name="n" min="1"><input type="checkbox" name="c">`).text;
+  assert.match(ml, /title（text・文字数の上限 20）/);
+  assert.match(ml, /memo（text・文字数の上限なし）/);
+  assert.match(ml, /body（textarea・文字数の上限 140）/);
+  assert.match(ml, /nick（TEXT・文字数の上限なし）/);
+  assert.match(ml, /n（number・最小 1）/);
+  assert.match(ml, /c（checkbox）/);
+  // 上限として働かない値（負・数でない・空）は「上限なし」。0 は上限 0。数字の後ろは無視する（HTML の読み方）
+  const bad = toolFactsForReview(`<input name="neg" maxlength="-1"><input name="abc" maxlength="abc"><input name="empty" maxlength=""><input name="zero" maxlength="0"><input name="sp" maxlength=" 30px">`).text;
+  assert.match(bad, /neg（text・文字数の上限なし）/);
+  assert.match(bad, /abc（text・文字数の上限なし）/);
+  assert.match(bad, /empty（text・文字数の上限なし）/);
+  assert.match(bad, /zero（text・文字数の上限 0）/);
+  assert.match(bad, /sp（text・文字数の上限 30）/);
+  // ブラウザーで扱える範囲（0〜2147483647）を超える値は「上限なし」。最大値はそのまま
+  const big = toolFactsForReview(`<input name="maxv" maxlength="2147483647"><input name="over" maxlength="2147483648"><input name="huge" maxlength="${"9".repeat(400)}">`).text;
+  assert.match(big, /maxv（text・文字数の上限 2147483647）/);
+  assert.match(big, /over（text・文字数の上限なし）/);
+  assert.match(big, /huge（text・文字数の上限なし）/);
+  assert.doesNotMatch(big, /Infinity/);
+  // 入力欄が多くても、その区分だけで枠を使い切らず、後ろのボタンやスクリプトの文言が残る
+  const crowdedFx = toolFactsForReview(`${Array.from({ length: 200 }, (_, i) => `<input name="field${i}">`).join("")}<button>結果を見る</button><script>const t = "あなたの結果です";</script>`);
+  const crowded = crowdedFx.text;
+  assert.equal(crowdedFx.cut, true);
+  assert.ok(crowded.length <= 3000);
+  assert.match(crowded, /入力欄: field0（text・文字数の上限なし）[^\n]*…（長いので途中まで）\n/);
+  assert.match(crowded, /ボタン・見出し: 結果を見る/);
+  assert.match(crowded, /スクリプトの中の文言: あなたの結果です/);
+  assert.match(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, { headline: "h", subheadline: "s", cta: "c", pains: [], features: [], faq: [] } as never, undefined, crowdedFx).user, /途中までしか渡していない/);
   // 正規表現の中の引用符で、文の読み取りがずれない（割り算はそのまま）
-  assert.match(toolFactsForReview(`<script>const a = t.replace(/"/g, "日本語"); const r = 10 / 2; const b = '二つ目';</script>`), /日本語 \/ 二つ目/);
+  assert.match(toolFactsForReview(`<script>const a = t.replace(/"/g, "日本語"); const r = 10 / 2; const b = '二つ目';</script>`).text, /日本語 \/ 二つ目/);
   // 長いボタンも捨てず、切ったあとも max を超えない
-  assert.match(toolFactsForReview(`<button>${"とても長いボタンの文言".repeat(8)}</button>`), /とても長いボタンの文言とても/);
-  assert.ok(toolFactsForReview(html, 40).length <= 40);
+  assert.match(toolFactsForReview(`<button>${"とても長いボタンの文言".repeat(8)}</button>`).text, /とても長いボタンの文言とても/);
+  assert.ok(toolFactsForReview(html, 40).text.length <= 40);
   // 渡したときだけ user に入る（評価の例は渡さないので、評価の指示は変わらない）
   const lp = { headline: "h", subheadline: "s", cta: "c", pains: [], features: [], faq: [] } as never;
   assert.doesNotMatch(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp).user, /ツールの中身/);
-  assert.match(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp, undefined, f).user, /ツールの中身[\s\S]*ここにない選択肢や例文は、ツールでは作れない[\s\S]*ふつう/);
+  assert.match(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp, undefined, fx).user, /ツールの中身[\s\S]*ここにない選択肢や例文は、ツールでは作れない[\s\S]*ふつう/);
+  // 実際に切っていなければ、ツールの文言に切った印と同じ文があっても「作れない」のまま（PR #213 のレビュー）
+  const marked = toolFactsForReview(`<button>続きは…（長いので途中まで）</button>`);
+  assert.equal(marked.cut, false);
+  assert.match(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp, undefined, marked).user, /ここにない選択肢や例文は、ツールでは作れない/);
+  assert.doesNotMatch(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp, undefined, marked).user, /途中までしか渡していない/);
   // 途中で切ったときは「ないとは言い切らない」にする
   assert.match(lpReviewPrompt({ kind: "tool", target: "t", solution: "s" }, lp, undefined, toolFactsForReview(html, 20)).user, /途中までしか渡していない/);
 });
