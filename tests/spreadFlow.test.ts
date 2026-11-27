@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
-import { aimBlocks, asksFirstChannel, createGate, getProject, liveCounts, maybeAutoJudge, newProjectBlock, resumeProject, spreadMadeToday, spreadResult, spreadRoom } from "../src/lib/loop";
+import { aimBlocks, asksFirstChannel, createGate, getProject, liveCounts, maybeAutoJudge, newProjectBlock, resumeProject, spreadJudgeAtMs, spreadMadeToday, spreadResult, spreadRoom } from "../src/lib/loop";
 
 const add = (opts: { stage?: string; aim?: string | null; publishedDaysAgo?: number; createdDaysAgo?: number } = {}) =>
   Number(db().prepare(`INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, published_at, created_at)
@@ -113,4 +113,64 @@ test("広がる（PR #85 の ai-review の指摘）: 案件を作る直前に上
   saveSettings({ maxLive: 0 });
   assert.match(createGate()("useful") ?? "", /集客中の案件（「広がる」以外）/);
   saveSettings({ spreadMaxLive: 7, spreadPerDay: 1, maxLive: 2 });
+});
+
+test("広がる（提案箱 #105）: 朝会の試しが開いている間は、日数が過ぎても試しの判定日時まで判定しない（延ばしたあとも）", async () => {
+  const id = add({ publishedDaysAgo: 4 });
+  metrics(id, 10, 1, 0);
+  const trial = db().prepare(`INSERT INTO plan_trials (plan_id, project_id, created_at, question, change, metric, judge_at, hours, min_visits)
+    VALUES (1, ?, datetime('now', '-1 hours'), 'Xで紹介すると利用が出るか', 'X夜に紹介', 'conversions', datetime('now', '+71 hours'), 72, 20)`).run(id).lastInsertRowid;
+  assert.equal(await maybeAutoJudge(id), false);
+  assert.equal(getProject(id)!.stage, "live");
+  // 判定日時が過ぎても、延ばした（judge_at が先になった）なら待つ
+  db().prepare("UPDATE plan_trials SET judge_at = datetime('now', '+24 hours'), extended = 1 WHERE id = ?").run(trial);
+  assert.equal(await maybeAutoJudge(id), false);
+  // 閉じた試しは見ない（判定日時がまだ先でも）
+  db().prepare("UPDATE plan_trials SET status = 'expired' WHERE id = ?").run(trial);
+  assert.equal(await maybeAutoJudge(id), true);
+  assert.equal(getProject(id)!.stage, "hold");
+});
+
+test("広がる（提案箱 #105）: 試しの判定日時が過ぎたら、試しが開いたままでも判定する", async () => {
+  const id = add({ publishedDaysAgo: 4 });
+  metrics(id, 10, 1, 0);
+  db().prepare(`INSERT INTO plan_trials (plan_id, project_id, created_at, question, change, metric, judge_at, hours, min_visits)
+    VALUES (1, ?, datetime('now', '-73 hours'), 'q', 'c', 'conversions', datetime('now', '-1 hours'), 72, 20)`).run(id);
+  assert.equal(await maybeAutoJudge(id), true);
+  assert.equal(getProject(id)!.stage, "hold");
+});
+
+test("広がる（PR #225 の ai-review の指摘）: 公開が前回の判断より新しいときは、公開から数える", async () => {
+  const id = add({ publishedDaysAgo: 1 });
+  db().prepare("UPDATE projects SET judged_at = datetime('now', '-10 days') WHERE id = ?").run(id);
+  metrics(id, 10, 1, 0);
+  const p = getProject(id)!;
+  const at = spreadJudgeAtMs(p)!;
+  const published = Date.parse(`${p.published_at!.replace(" ", "T")}Z`);
+  assert.equal(at, published + getSettings().spreadJudgeDays * 86_400_000);
+  // 前回の判断から日数が過ぎていても、公開から日数がたつまでは判定しない
+  assert.equal(await maybeAutoJudge(id), false);
+  assert.equal(getProject(id)!.stage, "live");
+  // 再開が公開より新しければ、再開から数える
+  db().prepare("UPDATE projects SET resumed_at = datetime('now', '-12 hours') WHERE id = ?").run(id);
+  const r = getProject(id)!;
+  assert.equal(spreadJudgeAtMs(r), Date.parse(`${r.resumed_at!.replace(" ", "T")}Z`) + getSettings().spreadJudgeDays * 86_400_000);
+});
+
+test("広がる（PR #225 の ai-review の指摘）: 公開が前回の判断より新しい既存の案件は、遊んだ人・シェアも公開の日から数える", () => {
+  const id = add({ publishedDaysAgo: 1 });
+  // 前回の判断のときに覚えた累計（公開より前。覚えた日時は判断と同じ）
+  db().prepare("UPDATE projects SET judged_at = datetime('now', '-10 days'), spread_base_plays = 2, spread_base_shares = 0, spread_base_at = datetime('now', '-10 days') WHERE id = ?").run(id);
+  const ins = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, shares, ad_spend_jpy, source, lp_version) VALUES (?, ?, 10, ?, ?, 0, 'real', 1)");
+  const jst = (daysAgo: number) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(Date.now() - daysAgo * 86_400_000));
+  ins.run(id, jst(12), 2, 0); // 前回の判断より前
+  ins.run(id, jst(5), 15, 2); // 前回の判断と公開のあいだ（公開前の数字）
+  ins.run(id, jst(0), 4, 1); // 公開のあと
+  assert.deepEqual(spreadResult(getProject(id)!), { plays: 4, shares: 1, hit: false });
+  // 覚えた日時のない前からの累計も、公開が起点なら数え直す
+  db().prepare("UPDATE projects SET spread_base_at = NULL WHERE id = ?").run(id);
+  assert.deepEqual(spreadResult(getProject(id)!), { plays: 4, shares: 1, hit: false });
+  // 起点のあとに覚えた累計（判断・再開・公開のとき）は、そのまま使う
+  db().prepare("UPDATE projects SET spread_base_plays = 20, spread_base_shares = 2, spread_base_at = datetime('now') WHERE id = ?").run(id);
+  assert.deepEqual(spreadResult(getProject(id)!), { plays: 1, shares: 1, hit: false });
 });

@@ -207,3 +207,17 @@ test("試し: 結果ごとの次の手を始める前に決め（ない試しは
   ], due2, "gemini-3.1-pro-preview"), 3);
   assert.deepEqual(more.map((p) => row(id2(p)).matched_branch), [null, null, null]);
 });
+
+test("試し（提案箱 #105）: 「広がる」の判定の日時より後に判定日時が来る試しは入れない", () => {
+  db().exec("DELETE FROM plan_trials");
+  const a = live("広がる・判定が近い"), b = live("広がる・判定が遠い"), c = live("ほかのねらい");
+  const now = Date.now();
+  const spreadJudgeAt = new Map([[a, now + 24 * H], [b, now + 72 * H]]);
+  const n = addTrials(1, [
+    { project_id: a, question: "q", change: "c", judge_after_hours: 72, branches: BR },
+    { project_id: b, question: "q", change: "c", judge_after_hours: 48, branches: BR },
+    { project_id: c, question: "q", change: "c", judge_after_hours: 168, branches: BR },
+  ], { live: new Set([a, b, c]), model: "claude-opus-5-5", tasks: promo(a, b, c), focusNeed: null, spreadJudgeAt, now });
+  assert.equal(n, 2);
+  assert.deepEqual(openTrials().map((t) => t.project_id), [b, c]);
+});

@@ -837,6 +837,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   // 「広がる」の判定の起点の、遊んだ人（利用）とシェアの累計（判断・再開のたびに今の累計にする。判定はこの差だけで見る）
   ["projects", "spread_base_plays", "INTEGER NOT NULL DEFAULT 0"],
   ["projects", "spread_base_shares", "INTEGER NOT NULL DEFAULT 0"],
+  ["projects", "spread_base_at", "TEXT"], // 上の累計を覚えた日時（UTC）。判定の起点より古ければ、起点の日からの数字を数え直す（PR #225 の ai-review の指摘）
   ["projects", "tool_maker", "TEXT"], // 通常案件の最初のツールを、クラウドの Claude Code（ルーティン）に作ってもらうと決めたとき 'claude-code'（loop.ts の routineTurnForNew）
   ["projects", "tool_errors_seen", "TEXT"], // 本番のツールのエラーを、どの版で何人まで知らせたか（{"v":版,"n":人数} の JSON。増えたときだけ知らせる）
   ["projects", "spread_hit", "INTEGER"], // 「広がる」の判定の結果（1 当たり / 0 当たらず。判定前は空）
@@ -1216,6 +1217,7 @@ export type ProjectRow = {
   growth_phase: number;
   spread_base_plays: number; // 「広がる」の判定の起点の累計（遊んだ人・シェア）
   spread_base_shares: number;
+  spread_base_at: string | null; // 上の累計を覚えた日時（UTC）
   spread_hit: number | null; // 「広がる」の判定の結果（1 当たり / 0 当たらず）
   tool_errors_seen: string | null;
   tool_maker: string | null; // 本番のツールのエラーを、どの版で何人まで知らせたか

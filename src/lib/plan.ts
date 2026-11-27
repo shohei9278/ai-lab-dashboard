@@ -2,7 +2,7 @@ import { callJson, isObj, isStr } from "./ai";
 import { limitTags } from "./hashtags";
 import { db, getSettings, monthSpendUsd, type ProjectRow } from "./db";
 import { addTrials, applyTrialResults, settleDueTrials, trialsText, type TrialRow } from "./trials";
-import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, liveEnd, liveSay, liveStep, logEvent, planImprove, projectTotals, trafficCapacity, withActivity } from "./loop";
+import { CERTAINTY_LABEL, CONV, KIND_LABEL, activeLessons, improveBlocked, lessonLine, liveEnd, liveSay, liveStep, logEvent, planImprove, projectTotals, spreadJudgeAtMs, spreadResult, trafficCapacity, withActivity } from "./loop";
 import { endReasons, headline } from "./experiment";
 import { funnelText } from "./funnel";
 import { AUTO_PLATFORMS, X_PLAY_PROMO_PER_WEEK, autoPlatforms, postAllowed, xPlayPromoLeft, xPlayPromoOn, type AutoPlatform } from "./snsApi";
@@ -257,6 +257,27 @@ export function platformCostText(): string {
   return `場所ごとの宣伝の投稿の成績（成果 = 投稿のリンクから来て、登録・利用した人）:\n- 直近14日: ${recent.map(line).join(" / ") || "なし"}\n- これまで: ${all.map(line).join(" / ")}`;
 }
 
+// 判定を待つ「広がる」の案件ごとの、判定の日時（UTC のミリ秒）。試しを始めるかの決まりと、朝会の材料に使う（提案箱 #105）
+function spreadJudgeTimes(live: ProjectRow[]): Map<number, number> {
+  const m = new Map<number, number>();
+  for (const p of live) {
+    const at = spreadJudgeAtMs(p);
+    if (at !== null) m.set(p.id, at);
+  }
+  return m;
+}
+const utcText = (ms: number) => new Date(ms).toISOString().replace("T", " ").slice(0, 19);
+// 朝会の材料: 判定を待つ「広がる」の案件の、判定の日時と今の遊んだ人・シェアの数（判定の前に終わらない試しを始めないため）
+export function spreadWaitText(live: ProjectRow[]): string {
+  const s = getSettings();
+  const times = spreadJudgeTimes(live);
+  const lines = live.filter((p) => times.has(p.id)).map((p) => {
+    const r = spreadResult(p);
+    return `- #${p.id} ${p.title}: 判定 ${jstDateTime(utcText(times.get(p.id)!))}・今 遊んだ人${r.plays}人・シェア${r.shares}件`;
+  });
+  return `判定を待つ「広がる」の案件（判定の日時に、判定の起点からの遊んだ人${s.spreadHitPlays}人以上かシェア${s.spreadHitShares}件以上なら当たり。届かなければ集客お休み。試しが開いている間は、試しの判定日時まで待つ）:\n${lines.join("\n") || "（なし）"}`;
+}
+
 function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: HotProject[] = []): string {
   const s = getSettings();
   const now = jstNow();
@@ -304,6 +325,7 @@ function planMaterial(weather: DayWeather[] = [], due: TrialRow[] = [], hot: Hot
     `最近の普通の投稿（リンクがないので、訪問の数は分からない。反応は投稿の翌日と3日後に取り込む）:\n${plains.join("\n") || "（なし）"}`,
     `最近の計画と結果:\n${past.join("\n") || "（まだなし。今日が最初の計画）"}`,
     trialsText(due),
+    spreadWaitText(live),
     `公開サイトの一覧から来た人（投稿のリンクとは別。累計）: ${(() => { const r = db().prepare("SELECT COALESCE(SUM(index_visits), 0) AS v, COALESCE(SUM(index_uses), 0) AS u FROM projects WHERE demo = 0").get() as { v: number; u: number }; return `訪問${r.v}人・登録/利用${r.u}人`; })()}`,
     postStatsText() || "効いた手の集計: まだ投稿がない",
     platformCostText(),
@@ -438,7 +460,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
 - voice: 社員としてのひとこと（つぶやき程度、60文字以内）。感想・気づき・心配・ダメ出し・試したいことなど何でもよい。数字や出来事は材料にあるものだけを使い、体験談は作らない
 - research: 今の判断に効くのに分からないことがあれば、Webの公開情報で調べてもらう問いを1件だけ（例: 「#35 が使われない原因が分からない。類似の無料ツールを調べ、すでに無料でできることと、#35 に足りないことを確かめる」）。{"question":"分からないこと","why":"分かるとどの判断が変わるか","how":"どう調べるか","project_id":案件の番号（全体についてなら null）}。調べなくても決められる日・Webでは分からないこと（自社の利用者の気持ちなど）・最近調べたことと同じ問いは null。結果は翌朝の材料に出典つきで入る
 - voice_effects: 外の声（実際の人の反応）や調べたことを根拠に、今日の計画で何かを変えたときだけ。[{"voice_ids":[声の番号],"research_ids":[調べものの番号],"project_id":案件の番号,"change":"何をどう変えたか"}]。外の声はAIどうしの解釈より優先する
-- trials: 何かを変えて効果を見るとき（切り口・見せ方・場所・ページの直し）は、試しとして、判定日時（judge_after_hours: 24〜168時間後）と見る数字（metric: visits か conversions）と、判断に要る訪問の下限（min_visits: 5〜200）を決める。投稿から1日では訪問がほとんどないので、少ない数字で勝ち負けを決めないため。[{"project_id":番号,"question":"何を確かめるか","change":"何を変えるか（比べるものがあれば両方。例: 同じツールを静止画と短い動画で紹介する）","metric":"conversions","judge_after_hours":48,"min_visits":20,"focus":false,"branches":[{"if":"登録・利用が3以上","then":"同じ見せ方を別の題材でも試す"},{"if":"登録・利用が1〜2","then":"同じ見せ方をもう一度出して、数を増やしてから判断する"},{"if":"登録・利用が0","then":"次は最初の画面を見直す"}]}]。branches には、結果ごとの次の手を2〜3個、始める前に決めて書く（結果を見てから理由を付けないため。branches がない試しは入らない）。if は、判定のときに渡す数字（試しを始めてからの訪問・登録/利用）としきい値で書き、互いに重ならないようにする（同じ数字で2つに当たらない。全部の場合をおおう）。訪問が下限に届かないときは、決まりで保留になるので、branches に書かなくてよい。then は次にすること。同時に3件まで・今日始めるのは2件まで。判定日時を待っている試しの案件には重ねない。変えることは、今日の tasks にも入れる（同じ案件の promo か improve が tasks にない試しは、何も変えないので入らない）。なければ空の配列
+- trials: 何かを変えて効果を見るとき（切り口・見せ方・場所・ページの直し）は、試しとして、判定日時（judge_after_hours: 24〜168時間後）と見る数字（metric: visits か conversions）と、判断に要る訪問の下限（min_visits: 5〜200）を決める。投稿から1日では訪問がほとんどないので、少ない数字で勝ち負けを決めないため。[{"project_id":番号,"question":"何を確かめるか","change":"何を変えるか（比べるものがあれば両方。例: 同じツールを静止画と短い動画で紹介する）","metric":"conversions","judge_after_hours":48,"min_visits":20,"focus":false,"branches":[{"if":"登録・利用が3以上","then":"同じ見せ方を別の題材でも試す"},{"if":"登録・利用が1〜2","then":"同じ見せ方をもう一度出して、数を増やしてから判断する"},{"if":"登録・利用が0","then":"次は最初の画面を見直す"}]}]。branches には、結果ごとの次の手を2〜3個、始める前に決めて書く（結果を見てから理由を付けないため。branches がない試しは入らない）。if は、判定のときに渡す数字（試しを始めてからの訪問・登録/利用）としきい値で書き、互いに重ならないようにする（同じ数字で2つに当たらない。全部の場合をおおう）。訪問が下限に届かないときは、決まりで保留になるので、branches に書かなくてよい。then は次にすること。同時に3件まで・今日始めるのは2件まで。判定日時を待っている試しの案件には重ねない。材料の「判定を待つ「広がる」の案件」で、判定の日時より後に試しの判定日時が来る案件には、試しを始めない（入らない）。変えることは、今日の tasks にも入れる（同じ案件の promo か improve が tasks にない試しは、何も変えないので入らない）。なければ空の配列
 - 既存のツールの集客の実験（focus）: ネックが reach か use で、すでに登録・利用が出た公開中の案件があるときは、新しい案件を増やすより、その1件の紹介の仕方を変えて比べる試しを focus: true で作ってよい（そのときは pause_new も true にして、新しい案件づくりを休む）。訪問が少ない（reach）なら投稿の切り口・場所・見せ方を、訪問はあるが使われない（use）なら improve でツールの最初の画面を変える。比べる投稿は、場所と時間帯をそろえる
 - trial_results: 材料の「判定日時が来た試し」それぞれの結論。[{"id":試しの番号,"verdict":"win|lose|unclear","branch":当たった条件の番号,"result":"数字を根拠にした理由（件数が少なければそう書く）"}]。branch は、試しを始めるときに決めた次の手（材料の「先に決めた次の手」）のうち、今の数字が当たる条件の番号（1始まり。どれにも当たらなければ 0 にして、result にわけを書く）。当たった条件の次の手は、今日の tasks か trials に入れる（入れないなら、そのわけを result に書く）。判定日時が来ていない試しには、結論を出さない
 - replies: 運営者が提案箱に入れた提案（材料の「運営者からの提案」）それぞれへの返事。どう受け止め、今日の計画にどう反映したか（反映できないなら理由）を1〜2文で
@@ -536,7 +558,7 @@ export async function createPlan({ force = false, ask = callJson, weather = toky
   // 試し（判定日時と見る数字・下限）と、判定日時が来た試しの結論
   applyTrialResults(out.trial_results, due, model);
   const focusNeed = out.pause_new !== true ? null : bottleneck === "reach" ? "promo" : bottleneck === "use" ? "improve" : null;
-  const trialsAdded = addTrials(id, out.trials, { live, model, tasks: tasks.map((t) => ({ kind: t.kind, project_id: t.kind === "plain" ? null : Number(t.project_id) })), focusNeed });
+  const trialsAdded = addTrials(id, out.trials, { live, model, tasks: tasks.map((t) => ({ kind: t.kind, project_id: t.kind === "plain" ? null : Number(t.project_id) })), focusNeed, spreadJudgeAt: spreadJudgeTimes(liveProjects()) });
   // お願い（返事がまだのものと同じ題は入れない）
   const reqs = (Array.isArray(out.requests) ? out.requests : []).filter((r) => isObj(r) && isStr(r.title)).slice(0, 2)
     .filter((r) => addProposal({ title: r.title, how: String(r.how ?? ""), why: String(r.why ?? ""), target: "human", source: "plan", proposer: model, scene: "朝会", planId: id }));
