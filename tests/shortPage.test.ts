@@ -31,6 +31,9 @@ test("ツールの短いページ: 印（short）は、ツールのある中身�
 test("遊びのツールの全画面（運営者の依頼）: 枠を画面の高さに決めるときだけ、枠の中で引っぱっても外のページが動かないようにする", () => {
   assert.match(wrapToolHtml("<p>x</p>", { fill: true }), /html,body\{overscroll-behavior:none\}/);
   assert.doesNotMatch(wrapToolHtml("<p>x</p>"), /overscroll-behavior/);
+  // 遊ぶ画面では、canvas の上でなぞっても枠の中がスクロールしない（提案箱 #113）。ツールの指定を上書きしないよう重みは 0
+  assert.match(wrapToolHtml("<p>x</p>", { fill: true }), /:where\(canvas\)\{touch-action:none\}/);
+  assert.doesNotMatch(wrapToolHtml("<p>x</p>"), /touch-action/);
 });
 
 test("遊びのツールの結果のあとの「ほかの遊び」: 同じカテゴリを先に、足りなければほかのツールで埋める。自分は出さない", () => {

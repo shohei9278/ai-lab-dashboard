@@ -66,12 +66,14 @@ set:function(v){var s;try{s=JSON.stringify(v)}catch(x){return Promise.resolve(fa
 // images: じっくり案件で人が入れた画像（素材）。window.labAssets.images（名前 → URL）として置き、その場所の画像だけ読み込めるようにする
 //   画像の保存領域は、ほかのページからの読み込みを許しているので、crossOrigin="anonymous" で読めば canvas・WebGL にも描ける（描いたあとも画像を保存できる）
 // fill: 枠を画面の高さに決めて出すとき（遊びのツールの全画面。ShortToolView）。枠の中で引っぱりきっても、外のページが動いたり読み込み直されたりしないようにする
+//   canvas の上で指を動かしても、枠の中がスクロールしないようにする（提案箱 #113。#73 で、丸を描く途中に枠の中が上下にずれて描きにくかった）
+//   :where で重みを 0 にして、ツールが自分で touch-action を決めたときは、そちらを使う
 export function wrapToolHtml(html: string, opts: { data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean } = {}): string {
   const imgOrigin = originOf(opts.illustration);
   const images = toolImagesOf(opts.images, true);
   const imgOrigins = [...new Set([imgOrigin, ...Object.values(images ?? {}).map(originOf)].filter((o): o is string => !!o))];
   // [hidden] は、クラスで display を決めた要素にも効くようにする（付けても消えず、切り替えの入力欄が出たままになっていた）
-  const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${csp(!!opts.fonts, imgOrigins)}"><style>[hidden]{display:none!important}${opts.fill ? "html,body{overscroll-behavior:none}" : ""}</style>`;
+  const head = `<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="${csp(!!opts.fonts, imgOrigins)}"><style>[hidden]{display:none!important}${opts.fill ? "html,body{overscroll-behavior:none}:where(canvas){touch-action:none}" : ""}</style>`;
   // データの中の文字で </script> を閉じられないように、< と行区切りの文字を書き換える
   const data = opts.data ? `<script>window.labData=${JSON.stringify(opts.data).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029")};</script>` : "";
   const assets = `<script>window.labAssets=${JSON.stringify({ ...(imgOrigin ? { illustration: opts.illustration } : {}), ...(images ? { images } : {}) }).replace(/</g, "\\u003c")};</script>`;
