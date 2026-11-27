@@ -158,9 +158,9 @@ export async function closeLp(p: ProjectRow) {
 }
 
 // Supabase は1回に最大1000行しか返さないので、全部そろうまで続けて取る
-type Row = { version: number; day: string; visitor_id: string; kind?: string; source?: string | null; referrer?: string | null; name?: string; detail?: string };
+type Row = { version: number; day: string; visitor_id: string; kind?: string; source?: string | null; referrer?: string | null; inapp?: string | null; name?: string; detail?: string };
 const COLUMNS = {
-  lp_views: "version, day, visitor_id, source, referrer", signups: "version, day, visitor_id", tool_events: "version, day, visitor_id, kind",
+  lp_views: "version, day, visitor_id, source, referrer, inapp", signups: "version, day, visitor_id", tool_events: "version, day, visitor_id, kind",
   lp_events: "version, day, visitor_id, name, detail",
 } as const;
 
@@ -176,6 +176,8 @@ async function fetchAll(table: keyof typeof COLUMNS, slug: string, columns: stri
       ({ data, error } = await get());
     }
     if (error) {
+      // アプリの中のブラウザの計測（inapp 列）を Supabase に追加する前でも、ほかの列は取り込む（提案箱 #108）
+      if (table === "lp_views" && columns.includes("inapp") && /inapp/.test(error.message)) return fetchAll(table, slug, "version, day, visitor_id, source, referrer");
       // 投稿ごとの計測（source 列）を Supabase に追加する前でも、訪問は数えられるようにする
       if (table === "lp_views" && columns.includes("source") && /source/.test(error.message)) return fetchAll(table, slug, "version, day, visitor_id");
       throw new Error(`集計の取得に失敗しました（${table}）: ${error.message}`);

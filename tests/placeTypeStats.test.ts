@@ -5,6 +5,8 @@ import { db, saveSettings } from "../src/lib/db";
 import { placeTypeStats, postStatsText } from "../src/lib/postStats";
 import { postAllowed, xPlayPromoLeft } from "../src/lib/snsApi";
 import { xPlayReviewText } from "../src/lib/weekly";
+import { attributePosts } from "../src/lib/sns";
+import { trackedInApp } from "../lp-site/src/lp/inApp";
 
 const project = (kind: string, aim: string | null) =>
   Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim) VALUES ('t', 't', 'p', 's', 'h', 'r', 'live', 'm', ?, ?)").run(kind, aim).lastInsertRowid);
@@ -84,4 +86,42 @@ test("再開から14日たったら、週の定例会議に場所ごとの利用
   assert.match(t, /場所ごとの直近14日の宣伝の成績:\n- X: 宣伝\d+件/);
   assert.match(t, /続けるか止めるかを決める/);
   saveSettings({ xPlayPromo: false });
+});
+
+// 提案箱 #108: Threads×遊ぶツールの利用0が、アプリの中のブラウザとそれ以外のどちらで起きているかを、朝会の材料に出す
+test("訪問の記録の inapp から、投稿ごとにアプリの中のブラウザの人と利用を数え、宣伝の成績に割合を出す", () => {
+  db().prepare("DELETE FROM sns_posts").run();
+  const play = project("tool", "spread");
+  post(play, "threads", 0, 0);
+  const th = `c${code}`;
+  post(play, "x", 0, 0);
+  const x = `c${code}`;
+  const views = [
+    { visitor_id: "a", source: th, inapp: "other" },
+    { visitor_id: "a", source: th, inapp: "" }, // 別の日にアプリの外で開いても、アプリの中で開いた人として数える
+    { visitor_id: "b", source: th, inapp: "other" },
+    { visitor_id: "c", source: th, inapp: "" },
+    { visitor_id: "d", source: th, inapp: null }, // 列を足す前の訪問は、見分けられない
+    { visitor_id: "e", source: x, inapp: "x" },
+  ];
+  attributePosts(play, views, [{ visitor_id: "c" }, { visitor_id: "e" }]);
+  const r = db().prepare("SELECT visits, conversions, inapp_known, known_conversions, inapp_visits, inapp_conversions FROM sns_posts WHERE code = ?").get(th);
+  assert.deepEqual({ ...(r as object) }, { visits: 4, conversions: 1, inapp_known: 3, known_conversions: 1, inapp_visits: 2, inapp_conversions: 0 });
+
+  const text = postStatsText();
+  assert.match(text, /Threads×遊ぶツール: 投稿1件・訪問4人.*・アプリの中のブラウザ 2\/3人（67%。登録・利用 0）・それ以外 1人（登録・利用 1）/);
+  assert.match(text, /X×遊ぶツール: .*・アプリの中のブラウザ 1\/1人（100%。登録・利用 1）・それ以外 0人（登録・利用 0）/);
+
+  // 見分けられた訪問がないときは、割合を出さない
+  attributePosts(play, views.map((v) => ({ ...v, inapp: null })), []);
+  assert.doesNotMatch(postStatsText(), /アプリの中のブラウザ \d/);
+});
+
+test("公開サイトの訪問の記録に入れる inapp は、決まった種類か空だけ（それ以外・届かないときは入れない）", () => {
+  assert.equal(trackedInApp("x"), "x");
+  assert.equal(trackedInApp("other"), "other");
+  assert.equal(trackedInApp(""), "");
+  assert.equal(trackedInApp("threads"), null);
+  assert.equal(trackedInApp(undefined), null);
+  assert.equal(trackedInApp(1), null);
 });

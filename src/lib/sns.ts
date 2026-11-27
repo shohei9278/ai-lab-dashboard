@@ -138,14 +138,19 @@ export function deletePost(id: number) {
 
 // 取り込んだ訪問と成果から、投稿ごとの数字を入れ直す（publish.ts の取り込みから呼ぶ）
 // 訪問: そのリンクから来た人（ブラウザ単位）。成果: その人がそのあと登録・利用した数
-export function attributePosts(projectId: number, views: { visitor_id: string; source?: string | null }[], conv: { visitor_id?: string | null }[]) {
+// アプリの中のブラウザ（提案箱 #108）: 見分けられた人（inapp が記録された訪問がある人）・そのうちアプリの中で開いた人（1回でもアプリの中なら数える）と、それぞれの成果
+export function attributePosts(projectId: number, views: { visitor_id: string; source?: string | null; inapp?: string | null }[], conv: { visitor_id?: string | null }[]) {
   const posts = db().prepare("SELECT id, code FROM sns_posts WHERE project_id = ?").all(projectId) as { id: number; code: string }[];
   if (!posts.length) return;
   const converted = new Set(conv.map((c) => c.visitor_id).filter(Boolean));
-  const upd = db().prepare("UPDATE sns_posts SET visits = ?, conversions = ? WHERE id = ?");
+  const upd = db().prepare("UPDATE sns_posts SET visits = ?, conversions = ?, inapp_known = ?, known_conversions = ?, inapp_visits = ?, inapp_conversions = ? WHERE id = ?");
   for (const p of posts) {
-    const visitors = new Set(views.filter((v) => v.source === p.code).map((v) => v.visitor_id));
-    upd.run(visitors.size, [...visitors].filter((v) => converted.has(v)).length, p.id);
+    const mine = views.filter((v) => v.source === p.code);
+    const visitors = new Set(mine.map((v) => v.visitor_id));
+    const known = new Set(mine.filter((v) => typeof v.inapp === "string").map((v) => v.visitor_id));
+    const inApp = new Set(mine.filter((v) => v.inapp).map((v) => v.visitor_id));
+    const convOf = (s: Set<string>) => [...s].filter((v) => converted.has(v)).length;
+    upd.run(visitors.size, convOf(visitors), known.size, convOf(known), inApp.size, convOf(inApp), p.id);
   }
 }
 

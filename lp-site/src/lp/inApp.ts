@@ -28,6 +28,8 @@ export function inAppOf(ua: string, referrer: string, coarse: boolean): InApp | 
 export const IN_APP_KINDS: readonly InApp[] = ["x", "instagram", "line", "other"];
 // 同じタブで前に見分けて覚えた値（決まった種類のときだけ使う）
 export const rememberedInApp = (v: string | null): InApp | null => (v && (IN_APP_KINDS as readonly string[]).includes(v) ? (v as InApp) : null);
+// 訪問の記録（/api/track の inapp）に入れる値: アプリの種類・アプリの外なら ""・分からない（古いページから届いた・決まっていない値）なら null（提案箱 #108）
+export const trackedInApp = (v: unknown): InApp | "" | null => (v === "" ? "" : typeof v === "string" ? rememberedInApp(v) : null);
 
 // 描く前に <html data-inapp="アプリ"> を付ける、ページの先頭で動かす文（inAppOf をそのまま使う）
 // 保存領域（sessionStorage）の読み書きは個別にエラーから守る（プライベートモードなどで使えなくても、名乗りでの見分けと印付けは続ける。PR #113 の ai-review の指摘）

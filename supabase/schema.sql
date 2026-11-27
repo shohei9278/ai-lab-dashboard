@@ -98,3 +98,7 @@ create table if not exists feedback (
 );
 create index if not exists feedback_slug on feedback (slug);
 alter table feedback enable row level security;
+
+-- ---- 追加（SNS のアプリの中のブラウザの計測用）。ここから下だけを実行すればよい ----
+-- どのアプリの中のブラウザで開いたか（x / instagram / line / other。アプリの外は ""、この列を足す前の訪問は空）
+alter table lp_views add column if not exists inapp text;
