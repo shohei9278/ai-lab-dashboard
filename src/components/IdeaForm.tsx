@@ -93,6 +93,8 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
             setAccepted(false);
             if (await run("受け付けています…", { action: "ideas", theme, count: n, deep, ...(aimNow ? { aim: aimNow } : {}), ...(genre ? { genre } : {}) })) {
               setTheme("");
+              // ジャンルはこの1回だけなので、受け付けたら「設定どおり」に戻す（失敗したときは、選び直さずにもう一度押せるよう残す。PR #223 の ai-review の指摘）
+              setGenre("");
               setAccepted(true);
             }
           }}
