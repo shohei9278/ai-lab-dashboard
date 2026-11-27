@@ -28,4 +28,8 @@ test("作るときの決まり: 演出の作り方は、ガチャ・くじのツ
   assert.match(GACHA_STAGING_RULE, /2回目からは.*飛ばせる/);
   assert.match(GACHA_STAGING_RULE, /確率を画面/);
   assert.match(GACHA_STAGING_RULE, /お金・景品は扱わない/);
+  // 共通の決まり（結果をすぐ出す・まだ見つけていないものから選ぶ）とぶつかる所は、ガチャ・くじでの読み方を書く（PR #221 の ai-review の指摘）
+  assert.match(GACHA_STAGING_RULE, /押したらすぐ演出を始める/);
+  assert.match(GACHA_STAGING_RULE, /結果を先に見せてから演出しない/);
+  assert.match(GACHA_STAGING_RULE, /画面に書いた確率どおり/);
 });
