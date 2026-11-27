@@ -156,3 +156,21 @@ test("広がる（PR #225 の ai-review の指摘）: 公開が前回の判断�
   const r = getProject(id)!;
   assert.equal(spreadJudgeAtMs(r), Date.parse(`${r.resumed_at!.replace(" ", "T")}Z`) + getSettings().spreadJudgeDays * 86_400_000);
 });
+
+test("広がる（PR #225 の ai-review の指摘）: 公開が前回の判断より新しい既存の案件は、遊んだ人・シェアも公開の日から数える", () => {
+  const id = add({ publishedDaysAgo: 1 });
+  // 前回の判断のときに覚えた累計（公開より前。覚えた日時は判断と同じ）
+  db().prepare("UPDATE projects SET judged_at = datetime('now', '-10 days'), spread_base_plays = 2, spread_base_shares = 0, spread_base_at = datetime('now', '-10 days') WHERE id = ?").run(id);
+  const ins = db().prepare("INSERT INTO metrics (project_id, day, visits, signups, shares, ad_spend_jpy, source, lp_version) VALUES (?, ?, 10, ?, ?, 0, 'real', 1)");
+  const jst = (daysAgo: number) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(Date.now() - daysAgo * 86_400_000));
+  ins.run(id, jst(12), 2, 0); // 前回の判断より前
+  ins.run(id, jst(5), 15, 2); // 前回の判断と公開のあいだ（公開前の数字）
+  ins.run(id, jst(0), 4, 1); // 公開のあと
+  assert.deepEqual(spreadResult(getProject(id)!), { plays: 4, shares: 1, hit: false });
+  // 覚えた日時のない前からの累計も、公開が起点なら数え直す
+  db().prepare("UPDATE projects SET spread_base_at = NULL WHERE id = ?").run(id);
+  assert.deepEqual(spreadResult(getProject(id)!), { plays: 4, shares: 1, hit: false });
+  // 起点のあとに覚えた累計（判断・再開・公開のとき）は、そのまま使う
+  db().prepare("UPDATE projects SET spread_base_plays = 20, spread_base_shares = 2, spread_base_at = datetime('now') WHERE id = ?").run(id);
+  assert.deepEqual(spreadResult(getProject(id)!), { plays: 1, shares: 1, hit: false });
+});
