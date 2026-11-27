@@ -193,6 +193,16 @@ export function isGachaGenre(genre: string | null | undefined): boolean {
   return typeof genre === "string" && /ガチャ|くじ/.test(genre) && !/診断/.test(genre);
 }
 
+// 手のアイデア出しで、その回だけ選んだジャンル（11/27 に運営者が決めた）。ジャンルの一覧にあるものだけを受け付ける（自由な言葉は AI への指示に入れない）
+export function genreOnceOf(v: unknown): string | undefined {
+  return typeof v === "string" && (GENRES as readonly string[]).includes(v) ? v : undefined;
+}
+
+// アイデア出しで使うジャンル: その回だけ選んだものがあればそれ、なければ設定の画面のジャンル（設定は変えない）
+export function ideaGenresFor(settingGenres: string, genreOnce?: string): string[] {
+  return genreOnce ? [genreOnce] : genresOf(settingGenres);
+}
+
 // 設定のジャンル（カンマ区切り）を一覧にする（空ならおまかせ）
 export function genresOf(text: string): string[] {
   return [...new Set(text.split(/[,、\n]/).map((x) => x.trim()).filter((x) => x && x.length <= 30))].slice(0, 20);
