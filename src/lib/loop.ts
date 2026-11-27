@@ -9,7 +9,7 @@ import { hotIdeaHint } from "./hot";
 import { addEvalSeed, seedSuggestModel, suggestEvalSeed } from "./evalSeeds";
 import { NEED_KINDS, needsOf, needsWaiting, notReady, type Need } from "./needs";
 import { fixInstruction, pageOnlyIssues } from "./fixText";
-import { AIMS, AIM_KEYS, GACHA_GENRE, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, genresOf, isAim, isGachaGenre, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
+import { AIMS, AIM_KEYS, GACHA_GENRE, GENRES, aimOfIdea, aimWeightsOf, alignIdeaAims, allocateAims, dealAims, ideaGenresFor, isAim, isGachaGenre, pickByAims, pickWithChampion, problemLabel, type Aim } from "./aims";
 import { getWant, wantsText } from "./userWants";
 import { decideSameSource, parseSameSource, sameSourceGate, sameSourceGroups, sameSourceLine, type SameSourceChoice } from "./sameSource";
 import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./ai";
@@ -300,10 +300,11 @@ const selfConfidence = (idea: Idea) => ({
 // alsoExisting: 既にある案件として扱う題名（仮テストで、前の日に選ばれたもの）
 // deepOnly: 運営者が「じっくり案件だけ」を頼んだとき。全件を tool のじっくり案件で出させ、そうでない案は捨てる
 // explore: 実験枠（explore.ts）。過去の数字・効いた手・人気のジャンル（教訓・当たり・話題の投稿・計画の課題など）を渡さず、まだ作ったことのないジャンルや形で出させる
-export async function askIdeas(theme: string, count: number, modelId?: string, alsoExisting: string[] = [], deepOnly = false, aims: Aim[] = [], explore = false): Promise<Idea[]> {
+// genreOnce: 運営者が手のアイデア出しで、その回だけ選んだジャンル（設定の画面のジャンルより優先する。設定は変えない。11/27 に運営者が決めた）
+export async function askIdeas(theme: string, count: number, modelId?: string, alsoExisting: string[] = [], deepOnly = false, aims: Aim[] = [], explore = false, genreOnce?: string): Promise<Idea[]> {
   const s = getSettings();
   if (aims.length) count = aims.length;
-  const genres = genresOf(s.ideaGenres);
+  const genres = ideaGenresFor(s.ideaGenres, genreOnce);
   // 最近14日の案件のジャンル（重なりを除いて全部、新しい順）
   const recentGenres = (db().prepare("SELECT genre, MAX(id) AS last FROM projects WHERE demo = 0 AND genre IS NOT NULL AND created_at >= datetime('now', '-14 days') GROUP BY genre ORDER BY last DESC").all() as { genre: string }[]).map((r) => r.genre);
   const lessons = activeLessons().map(lessonLine).join("\n") || "（まだなし）";
@@ -474,14 +475,15 @@ export function newProjectBlock(aim?: Aim, opts: { daily?: boolean } = {}): stri
 // 手動でアイデアを依頼したとき: 毎日の分と同じく、3社が案を出し、作者を伏せて採点し、上位の件数だけ案件にする
 // 新しい案件を作れない間は、会議と採点だけ行い（会議の記録に残る。アイデアの質の確かめに使える）、案件にも敗者復活にもしない
 // deep: 運営者が「じっくり案件だけ」を選んだとき。人が頼んだので、直近7日の上限が埋まっていても作る（作った分は上限に数える）
-export async function generateIdeas(theme: string, count = 3, deep = false, aim?: Aim): Promise<{ ids: number[]; blocked: string | null }> {
+// genre: 手のアイデア出しで、その回だけ選んだジャンル（設定の画面のジャンルは変えない）
+export async function generateIdeas(theme: string, count = 3, deep = false, aim?: Aim, genre?: string): Promise<{ ids: number[]; blocked: string | null }> {
   // じっくり案件はツールだけなので、需要を確かめる（事前登録LP）は選べない
   if (deep && aim && AIMS[aim].kind !== "tool") throw new Error("じっくり案件では、需要を確かめる（事前登録LP）は選べません");
-  const title = `アイデア出し（${deep ? "じっくり案件・" : ""}${aim ? `${AIMS[aim].label}・` : ""}${theme ? `テーマ: ${theme.slice(0, 30)}` : "おまかせ"}）`;
+  const title = `アイデア出し（${deep ? "じっくり案件・" : ""}${aim ? `${AIMS[aim].label}・` : ""}${genre ? `${genre}・` : ""}${theme ? `テーマ: ${theme.slice(0, 30)}` : "おまかせ"}）`;
   const blocked = newProjectBlock(aim);
   // ねらいを選ばなかったときは、いま作れないねらい（集客中の上限など）は出させない
   const exclude = aim ? [] : (Object.keys(aimBlocks()) as Aim[]);
-  const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), blocked ? 0 : count, false, { title, theme, noRevival: !!blocked, deepOnly: deep, aim, exclude, spreadRoom: spreadRoom() }));
+  const { candidates, kept } = await withIdeaLock(title, () => gatherAndScoreIdeas(Math.max(2, count), blocked ? 0 : count, false, { title, theme, noRevival: !!blocked, deepOnly: deep, aim, genre, exclude, spreadRoom: spreadRoom() }));
   if (!candidates.length) throw new Error("どのAIからもアイデアを得られませんでした");
   // 会議の間（1〜2分）に、ほかの処理で上限に達することもあるので、案件を作る直前にもう一度確かめる
   const blockedNow = blocked ?? newProjectBlock(aim);
@@ -3085,7 +3087,7 @@ export function ideaAuthors(): string[] {
 }
 
 // exclude: いま作れないねらい（集客中の上限など）。spreadRoom: 今回案件にしてよい「広がる」の件数
-async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string; noRevival?: boolean; deepOnly?: boolean; aim?: Aim; exclude?: Aim[]; spreadRoom?: number; champion?: boolean } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
+async function gatherAndScoreIdeas(perModel: number, keep: number, practice = false, opts: { title?: string; alsoExisting?: string[]; theme?: string; noRevival?: boolean; deepOnly?: boolean; aim?: Aim; genre?: string; exclude?: Aim[]; spreadRoom?: number; champion?: boolean } = {}): Promise<{ candidates: Candidate[]; kept: Candidate[] }> {
   const authors = ideaAuthors();
   // ねらいの配分: 運営者がねらいを選んだらそれだけ、じっくり案件だけならツールのねらいだけ。いま作れないねらいは出させない。各社に交互に配る
   const weights = aimWeightsOf(getSettings());
@@ -3095,7 +3097,8 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   const dealt = dealAims(allocateAims(perModel * authors.length, weights, allowed), authors.length);
   // 実験枠（explore.ts）: 直近7日と合わせて出す案の1割（少なくとも1件）を、各社のねらいの最後の枠から実験枠に回す（見るだけ・じっくり案件だけのときは使わない）
   const exploreAims: Aim[][] = authors.map(() => []);
-  const slots = practice || opts.deepOnly ? 0 : exploreSlots(dealt.reduce((n, d) => n + d.length, 0), exploreDone());
+  // 運営者がその回のジャンルを選んだときも使わない（実験枠は、まだ作ったことのないジャンルを選ばせるので、選んだジャンルとぶつかる）
+  const slots = practice || opts.deepOnly || opts.genre ? 0 : exploreSlots(dealt.reduce((n, d) => n + d.length, 0), exploreDone());
   for (let k = 0, ai = Math.floor(Math.random() * Math.max(1, authors.length)); k < slots; ai = (ai + 1) % authors.length) {
     const a = dealt[ai].pop();
     if (a) { exploreAims[ai].push(a); k++; }
@@ -3125,7 +3128,7 @@ async function gatherAndScoreIdeas(perModel: number, keep: number, practice = fa
   const results = await Promise.all(
     asks.map(async ({ author, aims, explore }) => {
       try {
-        const ideas = await askIdeas(opts.theme ?? "", perModel, author, opts.alsoExisting, opts.deepOnly, aims, explore);
+        const ideas = await askIdeas(opts.theme ?? "", perModel, author, opts.alsoExisting, opts.deepOnly, aims, explore, opts.genre);
         setStep(act, title, modelLabel(author), `アイデア${ideas.length}件を出しました${explore ? `（${EXPLORE_LABEL}）` : ""}。ほかの社を待っています`);
         for (const idea of ideas) {
           liveNote({ who: modelLabel(author), provider: prov(author), kind: `アイデアを提案（${explore ? `${EXPLORE_LABEL}・` : ""}${AIMS[aimOfIdea(idea)].label}・${idea.kind === "tool" ? "動くツール" : "事前登録LP"}${idea.genre ? `・${idea.genre}` : ""}・${idea.season === "seasonal" ? "季節もの" : "1年中"}）`, text: `「${idea.title}」— ${idea.solution}${idea.channel ? `\n届け方: ${idea.channel}` : ""}`, batch: batchId });

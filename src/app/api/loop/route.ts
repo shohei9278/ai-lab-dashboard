@@ -5,7 +5,7 @@ import {
   type ApprovalAction,
 } from "@/lib/loop";
 import { signupEmails } from "@/lib/publish";
-import { AIMS, isAim } from "@/lib/aims";
+import { AIMS, genreOnceOf, isAim } from "@/lib/aims";
 import { makePlayVideo } from "@/lib/playVideo";
 import { addToolAsset, removeToolAsset } from "@/lib/toolAssets";
 import { startToolRoutine } from "@/lib/toolRoutine";
@@ -44,9 +44,11 @@ export async function POST(req: Request) {
         const count = Math.min(5, Math.max(1, Number(body.count) || 3));
         const deep = body.deep === true;
         const aim = isAim(body.aim) ? body.aim : undefined;
+        // その回だけのジャンル（設定の画面のジャンルは変えない）。自由な言葉は受け付けず、ジャンルの一覧にあるものだけ
+        const genre = genreOnceOf(body.genre);
         if (deep && aim && AIMS[aim].kind !== "tool") throw new Error("じっくり案件では、需要を確かめる（事前登録LP）は選べません");
         ideaFree();
-        background(null, "アイデア出し", generateIdeas(theme, deep ? Math.min(count, 2) : count, deep, aim));
+        background(null, "アイデア出し", generateIdeas(theme, deep ? Math.min(count, 2) : count, deep, aim, genre));
         return NextResponse.json({ accepted: true });
       }
       case "decide": {

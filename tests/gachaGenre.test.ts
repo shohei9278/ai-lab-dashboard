@@ -1,7 +1,7 @@
 import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GACHA_GENRE, GENRES, isGachaGenre } from "../src/lib/aims";
+import { GACHA_GENRE, GENRES, genreOnceOf, ideaGenresFor, isGachaGenre } from "../src/lib/aims";
 import { GACHA_STAGING_RULE, toolRules } from "../src/lib/loop";
 
 // 「ガチャ・くじ」と「診断」を分け、結果が出るまでの盛り上げる演出は、ガチャ・くじのツールにだけ付ける（11/27 に運営者が決めた。診断には付けない）
@@ -32,4 +32,16 @@ test("作るときの決まり: 演出の作り方は、ガチャ・くじのツ
   assert.match(GACHA_STAGING_RULE, /押したらすぐ演出を始める/);
   assert.match(GACHA_STAGING_RULE, /結果を先に見せてから演出しない/);
   assert.match(GACHA_STAGING_RULE, /画面に書いた確率どおり/);
+});
+
+test("手のアイデア出しのジャンル（11/27 に運営者が決めた）: その回だけ選んだジャンルを使い、設定の画面のジャンルは変えない。一覧にない言葉は受け付けない", () => {
+  assert.equal(genreOnceOf("ガチャ・くじ"), "ガチャ・くじ");
+  assert.equal(genreOnceOf("診断"), "診断");
+  assert.equal(genreOnceOf("好きな言葉を足してほしい"), undefined);
+  assert.equal(genreOnceOf(""), undefined);
+  assert.equal(genreOnceOf(3), undefined);
+  // その回のジャンルがあれば、それだけを使う。なければ設定どおり（空ならおまかせ）
+  assert.deepEqual(ideaGenresFor("クイズ,手ざわり", "ガチャ・くじ"), ["ガチャ・くじ"]);
+  assert.deepEqual(ideaGenresFor("クイズ,手ざわり"), ["クイズ", "手ざわり"]);
+  assert.deepEqual(ideaGenresFor(""), []);
 });

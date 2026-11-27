@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ActionButton, BusyNote, useLoopAction } from "./LoopAction";
 import { useIdeaBusy } from "./useIdeaBusy";
-import { AIMS, AIM_KEYS, type Aim } from "@/lib/aims";
+import { AIMS, AIM_KEYS, GENRES, type Aim } from "@/lib/aims";
 
 // blocked: 新しい案件を作れない理由。あるときは、会議と採点だけ行い案件にしない（アイデアの質の確かめには使える）
 export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: string | null }) {
@@ -16,6 +16,8 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
   // ねらい: 空ならおまかせ（設定の配分どおり）。じっくり案件はツールだけなので、需要を確かめる（事前登録LP）は選べない
   const [aim, setAim] = useState<Aim | "">("");
   const aimNow = deep && aim && AIMS[aim].kind !== "tool" ? "" : aim;
+  // ジャンル: 空なら設定の画面のジャンル（おまかせ）。選んだときは、この1回だけに使い、設定は変えない（11/27 に運営者が決めた）
+  const [genre, setGenre] = useState("");
   const ideaBusy = useIdeaBusy();
   // 受け付けたら、会議は裏で進む（ライブで見られる）
   const [accepted, setAccepted] = useState(false);
@@ -25,7 +27,7 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
       <div>
         <h2 className="font-bold">AIにアイデアを出させる</h2>
         <p className="text-xs text-muted">
-          テーマを入れると {authors.join("・")} がそれぞれ{Math.max(2, n)}件ずつ考え、作者を伏せて採点し合い、点数の高い{n}件を案件にします（空欄ならおまかせ）。過去の教訓も踏まえます。1回あたり十数円です。
+          テーマを入れると {authors.join("・")} がそれぞれ{Math.max(2, n)}件ずつ考え、作者を伏せて採点し合い、点数の高い{n}件を案件にします（空欄ならおまかせ）。過去の教訓も踏まえます。ジャンルを選ぶと、この1回だけそのジャンルで考えます（設定の画面のジャンルは変わりません）。1回あたり十数円です。
         </p>
         <div className="mt-2 inline-flex rounded-lg border border-line p-0.5 text-xs" role="radiogroup" aria-label="出させる案の種類">
           {([[false, "ふつう"], [true, "じっくり案件だけ"]] as const).map(([v, label]) => (
@@ -68,6 +70,15 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
           {AIM_KEYS.filter((a) => !deep || AIMS[a].kind === "tool").map((a) => <option key={a} value={a}>ねらい: {AIMS[a].label}</option>)}
         </select>
         <select
+          value={genre}
+          onChange={(e) => setGenre(e.target.value)}
+          className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm"
+          aria-label="ジャンル（この1回だけ）"
+        >
+          <option value="">ジャンル: 設定どおり</option>
+          {GENRES.map((g) => <option key={g} value={g}>ジャンル: {g}</option>)}
+        </select>
+        <select
           value={n}
           onChange={(e) => setCount(Number(e.target.value))}
           className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm"
@@ -80,7 +91,7 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
           disabled={!!busy || !!ideaBusy}
           onClick={async () => {
             setAccepted(false);
-            if (await run("受け付けています…", { action: "ideas", theme, count: n, deep, ...(aimNow ? { aim: aimNow } : {}) })) {
+            if (await run("受け付けています…", { action: "ideas", theme, count: n, deep, ...(aimNow ? { aim: aimNow } : {}), ...(genre ? { genre } : {}) })) {
               setTheme("");
               setAccepted(true);
             }
