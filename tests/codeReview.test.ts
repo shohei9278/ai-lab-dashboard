@@ -48,27 +48,27 @@ test("コードの見直し: 仕組みの改善として、出どころ「コー
   assert.match(again.skipped[0], /同じ題か同じ趣旨/);
 });
 
-test("コードの見直し: 2日のあいだに8件まで（確かめる所が多い間、運営者が5件から上げた）。形のおかしいものは入れずに理由を返す", () => {
+test("コードの見直し: 1回に4件まで（11/27 に運営者が、週2回・8件から毎日・4件にした）。形のおかしいものは入れずに理由を返す", () => {
   clear();
-  const first = addReviewFindings([item(1), item(2), item(3)]);
-  assert.equal(first.added.length, 3);
+  const first = addReviewFindings([item(1), item(2)]);
+  assert.equal(first.added.length, 2);
   const bad = addReviewFindings([{ title: "題だけ" }, { title: "x".repeat(81), how: "h", why: "w" }]);
   assert.equal(bad.added.length, 0);
   assert.equal(bad.skipped.length, 2);
-  assert.equal(REVIEW_MAX, 8);
-  const rest = addReviewFindings([4, 5, 6, 7, 8, 9].map(item));
-  assert.equal(rest.added.length, REVIEW_MAX - 3);
-  assert.match(rest.skipped.at(-1)!, /8件を超えた/);
+  assert.equal(REVIEW_MAX, 4);
+  const rest = addReviewFindings([4, 5, 6].map(item));
+  assert.equal(rest.added.length, REVIEW_MAX - 2);
+  assert.match(rest.skipped.at(-1)!, /4件を超えた/);
   // 7日前に入ったものは数えない
   db().prepare("UPDATE plan_requests SET created_at = datetime('now', '-7 days') WHERE source = 'review'").run();
   assert.equal(addReviewFindings([item(10)]).added.length, 1);
   assert.throws(() => addReviewFindings("not array"));
 });
 
-test("コードの見直し: 一度に送れるのは8件まで（超えた分は読まない）", () => {
+test("コードの見直し: 一度に送れるのは4件まで（超えた分は読まない）", () => {
   clear();
-  const r = addReviewFindings([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(item));
-  assert.equal(r.added.length, 8);
+  const r = addReviewFindings([1, 2, 3, 4, 5, 6].map(item));
+  assert.equal(r.added.length, 4);
   assert.match(r.skipped.at(-1)!, /2件/);
 });
 
@@ -88,14 +88,14 @@ test("コードの見直し: 入口は合言葉がないと 401。読むと仕�
 
 test("コードの見直し: 上限に達したあとも、同じ趣旨の提案が返事待ちなら「何回出たか」を数える", () => {
   clear();
-  const first = addReviewFindings([1, 2, 3, 4, 5, 6, 7, 8].map(item));
-  assert.equal(first.added.length, 8);
+  const first = addReviewFindings([1, 2, 3, 4].map(item));
+  assert.equal(first.added.length, 4);
   const target = first.added[0];
   const near = { ...item(1), title: "来訪者の案件の画面で、下書きの版が見えてしまう" };
   const r = addReviewFindings([near, item(9)]);
   assert.equal(r.added.length, 0);
   assert.match(r.skipped[0], /同じ題か同じ趣旨/);
-  assert.match(r.skipped[1], /8件を超えた/);
+  assert.match(r.skipped[1], /4件を超えた/);
   assert.equal((db().prepare("SELECT repeats FROM plan_requests WHERE id = ?").get(target) as { repeats: number }).repeats, 1);
 });
 
