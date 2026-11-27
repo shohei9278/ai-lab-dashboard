@@ -112,7 +112,9 @@ export function toolImagesOf(v: unknown, allowData = false): ToolImages | undefi
 // AIが1回で書くじっくり案件のツールのコードの上限（データは別に置くので、コードだけで数える）。チェック（staticToolIssues）で止める
 // 保存・公開の上限は、データがあってもなくても TOOL_HTML_MAX（Claude Code で作るツールは 80,000文字まで、と決めているため。
 // 保存の所だけ 60,000文字のままで、Claude Code が作った約64,000文字のじっくり案件のツールが黙って捨てられた。#74）
-export const TOOL_DEEP_CODE_MAX = 60_000;
+// AIが書くときも TOOL_HTML_MAX にそろえた（11/27 に運営者が決めた。#64 で、AIが直した版が 61,139文字になり、6万文字のチェックで公開が止まった。
+// 6万文字は、AIが1回で書き切れずに途中で切れるのを防ぐための値だったが、いまは書くときの出力の上限（48,000トークン）で8万文字まで書き切れる）
+export const TOOL_DEEP_CODE_MAX = TOOL_HTML_MAX;
 // じっくり案件のデータの上限（JSON にしたときの文字数）と件数
 export const TOOL_DATA_MAX = 600_000;
 export const TOOL_DATA_ROWS_MAX = 2_500;

@@ -36,7 +36,7 @@ test("じっくり案件の中身: 上限を超えるデータは公開する中
   assert.equal(big.tool?.data, undefined);
   assert.equal(normalizeLp({ ...base, tool: { html: "<script></script>", shareText: "x", fonts: "yes" } }).tool?.fonts, undefined);
   // コードの保存の上限は、データがあっても TOOL_HTML_MAX（Claude Code で作った約64,000文字のじっくり案件のツールが捨てられた。#74）
-  const deepCode = `<script>${"x".repeat(TOOL_DEEP_CODE_MAX + 4000)}</script>`;
+  const deepCode = `<script>${"x".repeat(64_000)}</script>`;
   assert.ok(normalizeLp({ ...base, tool: { html: deepCode, shareText: "x", data: [{ name: "札幌市" }] } }).tool?.data);
   const tooLong = `<script>${"x".repeat(TOOL_HTML_MAX)}</script>`;
   assert.equal(normalizeLp({ ...base, tool: { html: tooLong, shareText: "x", data: [{ name: "札幌市" }] } }).tool, undefined);
@@ -53,7 +53,13 @@ test("じっくり案件のコードの決まり: Google Fonts の読み込み�
   assert.ok(staticToolIssues('<script>fetch("https://fonts.googleapis.com/x")</script>', true).some((x) => x.includes("通信")));
   const long = `<script>${"x".repeat(TOOL_DEEP_CODE_MAX)}</script>`;
   assert.ok(staticToolIssues(long, true).some((x) => x.includes("長すぎる")));
-  assert.ok(!staticToolIssues(long, false).some((x) => x.includes("長すぎる")));
+  // #64 で止まった長さ（61,139文字）は、そろえた上限（8万文字）なら通る（11/27 に運営者が決めた）
+  const like64 = `<script>${"x".repeat(61_139 - 17)}</script>`;
+  assert.equal(like64.length, 61_139);
+  assert.ok(!staticToolIssues(like64, true).some((x) => x.includes("長すぎる")));
+  // じっくり案件でないツールも、同じ8万文字まで（そろえる前は、じっくり案件だけが6万文字で、6万文字を超えるものはじっくり案件だけで止まっていた）
+  assert.ok(staticToolIssues(long, false).some((x) => x.includes("長すぎる")));
+  assert.ok(!staticToolIssues(like64, false).some((x) => x.includes("長すぎる")));
 });
 
 test("じっくり案件のデータ: 項目がそろった行だけを残し、同じ行を除き、例は等間隔に取る", () => {
