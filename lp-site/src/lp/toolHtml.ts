@@ -44,7 +44,8 @@ function originOf(url: string | undefined): string | null {
 const ERROR_CATCH = `<script>(function(){var ec=0,es={},q=[];function er(n,l){n=String(n||"Error").replace(/[^A-Za-z]/g,"").slice(0,20)||"Error";l=Math.max(0,Math.floor(Number(l)||0));var k=n+l;if(ec>=3||es[k]||parent===window)return;es[k]=1;ec++;var m={__lab:"error",name:n,line:l};q.push(m);parent.postMessage(m,"*")}function ln(r){var m=/about:srcdoc:(\\d+):\\d+/.exec(r&&r.stack?String(r.stack):"");return m?m[1]:0}addEventListener("error",function(e){if(e.target&&e.target!==window)return;er(e.error&&e.error.name,e.lineno)});addEventListener("unhandledrejection",function(e){var r=e.reason;er(r&&r.name?r.name:"Rejection",ln(r))});addEventListener("message",function(e){if(e.source!==parent||!e.data||e.data.__lab!=="ping")return;for(var i=0;i<q.length;i++)parent.postMessage(q[i],"*")})})()</script>`;
 
 // 「使った」: ボタン・リンク・描く枠などのクリック（タップ）と、入力欄への入力で数える。
-// 描く・なぞるツールは、押したまま動かすのでクリックが起きない。描く枠（canvas）や、なぞる操作を受ける所（touch-action: none）で指を置いたときも数える
+// 描く・なぞるツールは、押したまま動かすのでクリックが起きない。描く枠（canvas）や、なぞる操作を受ける所（touch-action: none。中の子要素から始めたときも、親をたどって見る）で
+// 指を置いたときも数える。右クリック・中クリックは数えない（左ボタン・タッチ・ペンだけ。PR #214 の ai-review の指摘）
 // （#73 で、丸を描いても「使った」が0のままだった。運営者が見つけた）
 const BRIDGE = `<script>(function(){var u=false;function h(){parent.postMessage({__lab:"height",h:Math.ceil(document.documentElement.scrollHeight)},"*")}
 function use(){if(u)return;u=true;parent.postMessage({__lab:"use"},"*")}
@@ -55,7 +56,7 @@ addEventListener("message",function(e){if(e.source===parent&&e.data&&e.data.__la
 var T="button,a,summary,canvas,[role=button],[role=tab],[role=option],[role=slider],[onclick]";var F="input,select,textarea,label";
 addEventListener("click",function(e){var t=e.target;if(!t||!t.closest||t.closest(F))return;if(t.closest(T)||getComputedStyle(t).cursor==="pointer")use()},true);
 addEventListener("input",use,true);addEventListener("change",use,true);
-addEventListener("pointerdown",function(e){var t=e.target;if(!t||!t.closest)return;if(t.closest("canvas")||getComputedStyle(t).touchAction==="none")use()},true);
+addEventListener("pointerdown",function(e){if(e.button!==0)return;var t=e.target;if(!t||!t.closest)return;if(t.closest("canvas")){use();return}for(var n=t;n&&n.nodeType===1;n=n.parentElement){if(getComputedStyle(n).touchAction==="none"){use();return}}},true);
 var la=0;function act(){var n=Date.now();if(n-la<1000)return;la=n;parent.postMessage({__lab:"active"},"*")}["pointerdown","keydown","wheel","touchstart"].forEach(function(t){addEventListener(t,act,{capture:true,passive:true})});addEventListener("pointermove",function(e){if(e.buttons)act()},{capture:true,passive:true});
 var sq=0,sw={};addEventListener("message",function(e){var d=e.data;if(e.source!==parent||parent===window||!d)return;if((d.__lab==="store"||d.__lab==="motion-state")&&sw[d.id]){var f=sw[d.id];delete sw[d.id];f(d)}
 if(d.__lab==="motion"&&typeof d.x==="number")dispatchEvent(new CustomEvent("labmotion",{detail:{x:d.x,y:d.y,z:d.z}}))});
