@@ -2,9 +2,21 @@
 
 import { useEffect } from "react";
 import { gaEvent } from "@/lib/ga";
+import { inAppOf, rememberedInApp } from "@/lp/inApp";
 import { isExcluded, visitorId } from "./visitor";
 
 // 開いたことを1回だけ記録する。あわせて、どの部分まで読まれたかをGAに送る
+// SNS のアプリの中のブラウザか（InAppMark と同じ見分け方。同じタブで前に見分けた値を先に使う）。アプリの外なら ""
+function inAppNow(): string {
+  let kind = null as ReturnType<typeof inAppOf>;
+  try {
+    kind = rememberedInApp(sessionStorage.getItem("lab-inapp"));
+  } catch {
+    // 保存領域が使えないブラウザ
+  }
+  return kind ?? inAppOf(navigator.userAgent, document.referrer, !!window.matchMedia?.("(pointer:coarse)").matches) ?? "";
+}
+
 export function Tracker({ slug, version, scroll = true }: { slug: string; version: number; scroll?: boolean }) {
   useEffect(() => {
     if (isExcluded()) return;
@@ -12,7 +24,8 @@ export function Tracker({ slug, version, scroll = true }: { slug: string; versio
       method: "POST",
       headers: { "Content-Type": "application/json" },
       // ?s=… は、SNSの投稿ごとに付けた専用リンクの目印（どの投稿から来たかを数えるため）
-      body: JSON.stringify({ slug, version, visitorId: visitorId(), referrer: document.referrer.slice(0, 300), source: new URLSearchParams(location.search).get("s") }),
+      // inapp は、SNS のアプリの中のブラウザで開いたか（アプリの中でツールが動いていないのかを見分けるため。提案箱 #108）
+      body: JSON.stringify({ slug, version, visitorId: visitorId(), referrer: document.referrer.slice(0, 300), source: new URLSearchParams(location.search).get("s"), inapp: inAppNow() }),
       keepalive: true,
     }).catch(() => {});
 

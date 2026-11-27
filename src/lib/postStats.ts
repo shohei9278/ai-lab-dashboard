@@ -87,23 +87,30 @@ export type PlaceTypeRow = {
   rate: number | null; // 利用率（登録・利用 ÷ 訪問）
   costJpy: number; // 投稿の費用の合計（X は1件 約30円、Threads・Bluesky は無料）
   costPer: number | null; // 登録・利用1件あたりの費用（費用がかかって、登録・利用が0件なら null）
+  // SNS のアプリの中のブラウザ（提案箱 #108）: アプリの中かを見分けられた訪問の人数・その登録・利用、そのうちアプリの中の人数・その登録・利用
+  inappKnown: number; knownConv: number; inappVisits: number; inappConv: number;
 };
 
 export function placeTypeStats(days?: number): PlaceTypeRow[] {
   const rows = db().prepare(
-    `SELECT s.platform, p.kind, p.aim, COUNT(*) AS n, COALESCE(SUM(s.visits), 0) AS visits, COALESCE(SUM(s.conversions), 0) AS conv
+    `SELECT s.platform, p.kind, p.aim, COUNT(*) AS n, COALESCE(SUM(s.visits), 0) AS visits, COALESCE(SUM(s.conversions), 0) AS conv,
+       COALESCE(SUM(s.inapp_known), 0) AS inappKnown, COALESCE(SUM(s.known_conversions), 0) AS knownConv, COALESCE(SUM(s.inapp_visits), 0) AS inappVisits, COALESCE(SUM(s.inapp_conversions), 0) AS inappConv
      FROM sns_posts s JOIN projects p ON p.id = s.project_id
      WHERE s.status = 'posted' AND s.author = 'ai' AND s.post_url IS NOT NULL AND p.demo = 0${days ? " AND s.posted_at >= datetime('now', ?)" : ""}
      GROUP BY s.platform, p.kind, p.aim`,
-  ).all(...(days ? [`-${days} days`] : [])) as { platform: string; kind: string; aim: string | null; n: number; visits: number; conv: number }[];
+  ).all(...(days ? [`-${days} days`] : [])) as { platform: string; kind: string; aim: string | null; n: number; visits: number; conv: number; inappKnown: number; knownConv: number; inappVisits: number; inappConv: number }[];
   const yen = X_POST_COST_USD * getSettings().usdJpy;
   const m = new Map<string, PlaceTypeRow>();
   for (const r of rows) {
     const type = projectType(r);
     const k = `${r.platform}:${type}`;
-    const row = m.get(k) ?? { platform: r.platform, type, label: `${PLATFORM_LABEL[r.platform] ?? r.platform}×${PROJECT_TYPE_LABEL[type]}`, n: 0, visits: 0, signups: 0, uses: 0, rate: null, costJpy: 0, costPer: null };
+    const row = m.get(k) ?? { platform: r.platform, type, label: `${PLATFORM_LABEL[r.platform] ?? r.platform}×${PROJECT_TYPE_LABEL[type]}`, n: 0, visits: 0, signups: 0, uses: 0, rate: null, costJpy: 0, costPer: null, inappKnown: 0, knownConv: 0, inappVisits: 0, inappConv: 0 };
     row.n += r.n;
     row.visits += r.visits;
+    row.inappKnown += r.inappKnown;
+    row.knownConv += r.knownConv;
+    row.inappVisits += r.inappVisits;
+    row.inappConv += r.inappConv;
     if (type === "lp") row.signups += r.conv;
     else row.uses += r.conv;
     m.set(k, row);
@@ -115,14 +122,21 @@ export function placeTypeStats(days?: number): PlaceTypeRow[] {
   }).sort((a, b) => b.uses + b.signups - (a.uses + a.signups) || b.n - a.n);
 }
 
+// アプリの中のブラウザの訪問の割合と、アプリの中・それ以外のそれぞれで登録・利用した人（見分けられた訪問がないときは出さない）
+const inAppPart = (r: PlaceTypeRow) => {
+  if (!r.inappKnown) return "";
+  const out = r.inappKnown - r.inappVisits;
+  return `・アプリの中のブラウザ ${r.inappVisits}/${r.inappKnown}人（${Math.round((r.inappVisits / r.inappKnown) * 100)}%。登録・利用 ${r.inappConv}）・それ以外 ${out}人（登録・利用 ${r.knownConv - r.inappConv}）`;
+};
+
 const fmtPlaceType = (r: PlaceTypeRow) =>
-  `- ${r.label}: 投稿${r.n}件・訪問${r.visits}人（平均${(r.visits / r.n).toFixed(1)}人）・登録${r.signups}・利用${r.uses}・利用率${r.rate === null ? "—" : `${Math.round(r.rate * 100)}%`}・1件あたりの費用 ${!r.costJpy ? "0円（無料）" : r.costPer === null ? `まだ登録・利用なし（費用 計${Math.round(r.costJpy)}円）` : `約${Math.round(r.costPer)}円`}`;
+  `- ${r.label}: 投稿${r.n}件・訪問${r.visits}人（平均${(r.visits / r.n).toFixed(1)}人）・登録${r.signups}・利用${r.uses}・利用率${r.rate === null ? "—" : `${Math.round(r.rate * 100)}%`}・1件あたりの費用 ${!r.costJpy ? "0円（無料）" : r.costPer === null ? `まだ登録・利用なし（費用 計${Math.round(r.costJpy)}円）` : `約${Math.round(r.costPer)}円`}${inAppPart(r)}`;
 
 export function placeTypeText(): string {
   const recent = placeTypeStats(14);
   const all = placeTypeStats();
   if (!all.length) return "";
-  return `宣伝の投稿の成績（場所×案件の型。登録・利用は、その投稿から来た人のうち。X は1件 約${Math.round(X_POST_COST_USD * getSettings().usdJpy)}円で計算）:
+  return `宣伝の投稿の成績（場所×案件の型。登録・利用は、その投稿から来た人のうち。アプリの中のブラウザは、SNS のアプリの中で開いた人（見分けられた訪問のうち）。X は1件 約${Math.round(X_POST_COST_USD * getSettings().usdJpy)}円で計算）:
 直近14日:
 ${recent.map(fmtPlaceType).join("\n") || "- （直近14日の宣伝の投稿はない）"}
 これまでの全部:

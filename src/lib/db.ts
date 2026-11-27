@@ -757,6 +757,11 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["sns_posts", "reposts", "INTEGER"],
   ["sns_posts", "reactions_at", "TEXT"],
   ["sns_posts", "angle_type", "TEXT"],
+  // SNS のアプリの中のブラウザで開いた人（提案箱 #108）: 見分けられた人・その成果・アプリの中で開いた人・その成果
+  ["sns_posts", "inapp_known", "INTEGER NOT NULL DEFAULT 0"],
+  ["sns_posts", "known_conversions", "INTEGER NOT NULL DEFAULT 0"],
+  ["sns_posts", "inapp_visits", "INTEGER NOT NULL DEFAULT 0"],
+  ["sns_posts", "inapp_conversions", "INTEGER NOT NULL DEFAULT 0"],
   ["plan_tasks", "likes", "INTEGER"],
   ["plan_tasks", "replies", "INTEGER"],
   ["plan_tasks", "reposts", "INTEGER"],
