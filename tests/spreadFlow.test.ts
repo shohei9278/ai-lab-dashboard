@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, getSettings, saveSettings } from "../src/lib/db";
-import { aimBlocks, asksFirstChannel, createGate, getProject, liveCounts, maybeAutoJudge, newProjectBlock, resumeProject, spreadMadeToday, spreadResult, spreadRoom } from "../src/lib/loop";
+import { aimBlocks, asksFirstChannel, createGate, getProject, liveCounts, maybeAutoJudge, newProjectBlock, resumeProject, spreadJudgeAtMs, spreadMadeToday, spreadResult, spreadRoom } from "../src/lib/loop";
 
 const add = (opts: { stage?: string; aim?: string | null; publishedDaysAgo?: number; createdDaysAgo?: number } = {}) =>
   Number(db().prepare(`INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, aim, published_at, created_at)
@@ -138,4 +138,21 @@ test("広がる（提案箱 #105）: 試しの判定日時が過ぎたら、試�
     VALUES (1, ?, datetime('now', '-73 hours'), 'q', 'c', 'conversions', datetime('now', '-1 hours'), 72, 20)`).run(id);
   assert.equal(await maybeAutoJudge(id), true);
   assert.equal(getProject(id)!.stage, "hold");
+});
+
+test("広がる（PR #225 の ai-review の指摘）: 公開が前回の判断より新しいときは、公開から数える", async () => {
+  const id = add({ publishedDaysAgo: 1 });
+  db().prepare("UPDATE projects SET judged_at = datetime('now', '-10 days') WHERE id = ?").run(id);
+  metrics(id, 10, 1, 0);
+  const p = getProject(id)!;
+  const at = spreadJudgeAtMs(p)!;
+  const published = Date.parse(`${p.published_at!.replace(" ", "T")}Z`);
+  assert.equal(at, published + getSettings().spreadJudgeDays * 86_400_000);
+  // 前回の判断から日数が過ぎていても、公開から日数がたつまでは判定しない
+  assert.equal(await maybeAutoJudge(id), false);
+  assert.equal(getProject(id)!.stage, "live");
+  // 再開が公開より新しければ、再開から数える
+  db().prepare("UPDATE projects SET resumed_at = datetime('now', '-12 hours') WHERE id = ?").run(id);
+  const r = getProject(id)!;
+  assert.equal(spreadJudgeAtMs(r), Date.parse(`${r.resumed_at!.replace(" ", "T")}Z`) + getSettings().spreadJudgeDays * 86_400_000);
 });

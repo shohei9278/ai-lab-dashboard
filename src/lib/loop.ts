@@ -2690,6 +2690,8 @@ async function announcePublish(projectId: number) {
       // フォロワーがほぼいない自動投稿だけでは、判断に必要な訪問が集まらないため
       // ねらいが「広がる」の案件は、初めて公開したときに、投稿に使う遊ぶ様子の動画を裏で作っておく
       if (!p.published_at) makePlayVideoOnPublish(p);
+      // 初めて公開したときは、「広がる」の判定の起点（遊んだ人・シェアの数）も公開の時点にする（判定日時の起点と同じにするため。PR #225 の ai-review の指摘）
+      if (!p.published_at) markSpreadBase(projectId);
       // ねらいが「広がる」の案件は、1日1本出すので運営者の手作業は頼まない（自分の投稿で広がるかを見る）
       if (!p.published_at && asksFirstChannel(p)) {
         addProposal({
@@ -2894,7 +2896,8 @@ export function holdProject(projectId: number, reason: string, until: string | n
 // 当てはまらない・起点がないときは null
 export function spreadJudgeAtMs(p: ProjectRow): number | null {
   if (p.aim !== "spread" || p.growth_phase) return null;
-  const since = [p.judged_at ?? p.published_at ?? backfillPublishedAt(p), p.resumed_at].filter((x): x is string => !!x).sort().at(-1);
+  // 公開（なければ最初の公開の記録）・前回の判断・再開を、それぞれ候補にして、いちばん遅いものを起点にする（PR #225 の ai-review の指摘）
+  const since = [p.published_at ?? backfillPublishedAt(p), p.judged_at, p.resumed_at].filter((x): x is string => !!x).sort().at(-1);
   if (!since) return null;
   return Date.parse(`${since.replace(" ", "T")}Z`) + getSettings().spreadJudgeDays * 86_400_000;
 }
