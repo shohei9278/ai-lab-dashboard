@@ -33,7 +33,7 @@ test("遊びのツールの全画面（運営者の依頼）: 枠を画面の高
   assert.match(wrapToolHtml("<p>x</p>", { fill: true }), /html,body\{overscroll-behavior:none\}/);
   assert.doesNotMatch(wrapToolHtml("<p>x</p>"), /overscroll-behavior/);
   // 遊ぶ画面では、canvas の上でなぞっても枠の中がスクロールしない（提案箱 #113）。ツールの指定を上書きしないよう、無名の @layer に入れる
-  assert.match(wrapToolHtml("<p>x</p>", { fill: true }), /@layer\{canvas\{touch-action:none\}\}/);
+  assert.match(wrapToolHtml("<p>x</p>", { fill: true }), /@layer\{html,body\{margin:0\}canvas\{touch-action:none\}\}/);
   assert.doesNotMatch(wrapToolHtml("<p>x</p>"), /touch-action/);
 });
 
@@ -55,6 +55,31 @@ test("遊ぶ画面の canvas の touch-action（提案箱 #113・PR #215 のレ�
     // 枠を画面の高さに決めないときは、枠の側では付けない
     await page.setContent(wrapToolHtml("<canvas id=c></canvas>"));
     assert.equal(await page.evaluate(() => getComputedStyle(document.getElementById("c")!).touchAction), "auto");
+  } finally {
+    await browser.close();
+  }
+});
+
+test("遊ぶ画面の body の余白（#73。運営者が原因を見つけた）: 枠の既定は 0 で、画面の高さにしたツールが枠からはみ出さない。ツールが余白を決めたときは、そちらを使う（ブラウザがあるときだけ）", async (t) => {
+  const browser = await launch();
+  if (typeof browser === "string") return t.skip(browser);
+  try {
+    const page = await browser.newPage({ viewport: { width: 390, height: 640 } });
+    // #73 と同じ形: いちばん外の箱を画面の高さにし、その箱の余白だけを 0 にする（body の余白は決めない）
+    const tool = "<style>#mi{box-sizing:border-box;height:100vh;height:100dvh;margin:0;padding:10px}</style><div id=mi>x</div>";
+    const size = async () => (await page.evaluate("[document.scrollingElement.scrollHeight, innerHeight, getComputedStyle(document.body).marginTop]")) as [number, number, string];
+    await page.setContent(wrapToolHtml(tool, { fill: true }));
+    const [scroll, inner, margin] = await size();
+    assert.equal(margin, "0px");
+    assert.equal(scroll, inner);
+    // 枠を画面の高さに決めないときは、枠の側では変えない（ブラウザの初めの余白のまま）
+    await page.setContent(wrapToolHtml(tool));
+    assert.equal((await size())[2], "8px");
+    // ツールが自分で余白を決めたときは、@layer の中でも外でも、そちらを使う
+    for (const [css, want] of [["@layer tool{body{margin:4px}}", "4px"], ["body{margin:6px}", "6px"]] as const) {
+      await page.setContent(wrapToolHtml(`<style>${css}</style><p>x</p>`, { fill: true }));
+      assert.equal((await size())[2], want, css);
+    }
   } finally {
     await browser.close();
   }
