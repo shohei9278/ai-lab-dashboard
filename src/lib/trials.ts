@@ -82,7 +82,8 @@ export function trialStats(t: Pick<TrialRow, "project_id" | "created_at">): { vi
 // 朝会が出した試しを入れる（決まりに合わないものは入れない）。入れた件数を返す
 // tasks: その朝会で決まった予定（決まりで落とした後のもの）。同じ案件の投稿（promo）か直し（improve）がない試しは入れない（何も変えない期間の数字で判定しないため。PR #172 の ai-review の指摘）
 // focusNeed: 既存の案件の集客の実験に要る予定。ネックが reach で新しい案件を休むなら promo、use で休むなら improve、それ以外は null（印のある試しも、ふつうの試しにする）
-export function addTrials(planId: number, raw: unknown, opts: { live: Set<number>; model: string; tasks: { kind: string; project_id: number | null }[]; focusNeed: "promo" | "improve" | null; now?: number }): number {
+// spreadJudgeAt: 判定を待つ「広がる」の案件ごとの、判定の日時（UTC のミリ秒。loop.ts の spreadJudgeAtMs）。試しの判定日時がそれより後になる試しは入れない（提案箱 #105）
+export function addTrials(planId: number, raw: unknown, opts: { live: Set<number>; model: string; tasks: { kind: string; project_id: number | null }[]; focusNeed: "promo" | "improve" | null; spreadJudgeAt?: Map<number, number>; now?: number }): number {
   if (!Array.isArray(raw)) return 0;
   const now = opts.now ?? Date.now();
   let room = Math.min(TRIAL_MAX_NEW, TRIAL_MAX_OPEN - openTrials().length);
@@ -104,6 +105,9 @@ export function addTrials(planId: number, raw: unknown, opts: { live: Set<number
     if (db().prepare("SELECT 1 FROM plan_trials WHERE project_id = ? AND status = 'open'").get(pid)) continue;
     const metric: TrialMetric = t.metric === "conversions" ? "conversions" : "visits";
     const hours = clamp(t.judge_after_hours, TRIAL_HOURS.min, TRIAL_HOURS.max, 48);
+    // 「広がる」の判定の日時より後に試しの判定日時が来る試しは入れない（判定を試しの分だけ延ばすことになり、試しのない案件と判定の日数がそろわないため）
+    const spreadAt = opts.spreadJudgeAt?.get(pid);
+    if (spreadAt !== undefined && now + hours * 3_600_000 > spreadAt) continue;
     const minVisits = clamp(t.min_visits, TRIAL_MIN_VISITS.min, TRIAL_MIN_VISITS.max, TRIAL_MIN_VISITS.default);
     // 既存の案件の集客の実験は、すでに登録・利用が出た案件だけ（利用が0の案件では、紹介の仕方の差が見えないため）
     const used = (db().prepare("SELECT COALESCE(SUM(signups), 0) AS c FROM metrics WHERE project_id = ? AND source != 'simulated'").get(pid) as { c: number }).c;

@@ -114,3 +114,28 @@ test("広がる（PR #85 の ai-review の指摘）: 案件を作る直前に上
   assert.match(createGate()("useful") ?? "", /集客中の案件（「広がる」以外）/);
   saveSettings({ spreadMaxLive: 7, spreadPerDay: 1, maxLive: 2 });
 });
+
+test("広がる（提案箱 #105）: 朝会の試しが開いている間は、日数が過ぎても試しの判定日時まで判定しない（延ばしたあとも）", async () => {
+  const id = add({ publishedDaysAgo: 4 });
+  metrics(id, 10, 1, 0);
+  const trial = db().prepare(`INSERT INTO plan_trials (plan_id, project_id, created_at, question, change, metric, judge_at, hours, min_visits)
+    VALUES (1, ?, datetime('now', '-1 hours'), 'Xで紹介すると利用が出るか', 'X夜に紹介', 'conversions', datetime('now', '+71 hours'), 72, 20)`).run(id).lastInsertRowid;
+  assert.equal(await maybeAutoJudge(id), false);
+  assert.equal(getProject(id)!.stage, "live");
+  // 判定日時が過ぎても、延ばした（judge_at が先になった）なら待つ
+  db().prepare("UPDATE plan_trials SET judge_at = datetime('now', '+24 hours'), extended = 1 WHERE id = ?").run(trial);
+  assert.equal(await maybeAutoJudge(id), false);
+  // 閉じた試しは見ない（判定日時がまだ先でも）
+  db().prepare("UPDATE plan_trials SET status = 'expired' WHERE id = ?").run(trial);
+  assert.equal(await maybeAutoJudge(id), true);
+  assert.equal(getProject(id)!.stage, "hold");
+});
+
+test("広がる（提案箱 #105）: 試しの判定日時が過ぎたら、試しが開いたままでも判定する", async () => {
+  const id = add({ publishedDaysAgo: 4 });
+  metrics(id, 10, 1, 0);
+  db().prepare(`INSERT INTO plan_trials (plan_id, project_id, created_at, question, change, metric, judge_at, hours, min_visits)
+    VALUES (1, ?, datetime('now', '-73 hours'), 'q', 'c', 'conversions', datetime('now', '-1 hours'), 72, 20)`).run(id);
+  assert.equal(await maybeAutoJudge(id), true);
+  assert.equal(getProject(id)!.stage, "hold");
+});

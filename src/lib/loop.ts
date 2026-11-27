@@ -2795,8 +2795,11 @@ export async function maybeAutoJudge(projectId: number) {
   // ねらいが「広がる」の案件（育てる段階に入る前）は、決めた日数たったら、遊んだ人とシェアの数だけで見る
   // 当たりなら今の判断の流れ（続ける・育てる）へ。当たらなければ判断せず、承認なしで集客をお休みにする（ページは公開したまま遊べる）
   if (p.aim === "spread" && !p.growth_phase) {
-    const since = [p.judged_at ?? p.published_at ?? backfillPublishedAt(p), p.resumed_at].filter((x): x is string => !!x).sort().at(-1);
-    if (!since || daysSinceUtc(since) < s.spreadJudgeDays) return false;
+    const at = spreadJudgeAtMs(p);
+    if (at === null || Date.now() < at) return false;
+    // 朝会が始めた試しが開いている間は、試しの判定日時（延ばしたあとも）が過ぎるまで判定しない
+    // （提案箱 #105。試しを始めた日に、投稿の効果が出る前の数字で集客お休みになり、試しの答えも宣伝も失われたため）
+    if (openTrialJudgeAtMs(projectId) > Date.now()) return false;
     const r = spreadResult(p);
     // 判定の結果を残す（当たりから学ぶ: ねらい・ジャンルごとの成績に使う）
     db().prepare("UPDATE projects SET spread_hit = ? WHERE id = ?").run(r.hit ? 1 : 0, projectId);
@@ -2885,6 +2888,20 @@ export function holdProject(projectId: number, reason: string, until: string | n
   const extending = p.stage === "hold";
   db().prepare("UPDATE projects SET stage = 'hold', hold_reason = ?, hold_until = ?, updated_at = datetime('now') WHERE id = ?").run(why, until, projectId);
   logEvent(projectId, "human", "hold", `${extending ? "集客のお休みの期間を変更しました" : "集客をお休みにしました"}（公開は続けます。${until ? `${until}に集客へ戻します。それまで` : "再開日は決めていないので、手で集客に戻すまで、"}宣伝・判断・改善を止めます）`);
+}
+
+// 「広がる」の案件（育てる段階に入る前）の、判定の日時（判定の起点（公開・前回の判断・再開のうち遅いもの）＋spreadJudgeDays。UTC のミリ秒）
+// 当てはまらない・起点がないときは null
+export function spreadJudgeAtMs(p: ProjectRow): number | null {
+  if (p.aim !== "spread" || p.growth_phase) return null;
+  const since = [p.judged_at ?? p.published_at ?? backfillPublishedAt(p), p.resumed_at].filter((x): x is string => !!x).sort().at(-1);
+  if (!since) return null;
+  return Date.parse(`${since.replace(" ", "T")}Z`) + getSettings().spreadJudgeDays * 86_400_000;
+}
+// その案件で開いている試しの、いちばん遅い判定日時（UTC のミリ秒）。なければ 0
+function openTrialJudgeAtMs(projectId: number): number {
+  const r = db().prepare("SELECT MAX(judge_at) AS at FROM plan_trials WHERE project_id = ? AND status = 'open'").get(projectId) as { at: string | null };
+  return r.at ? Date.parse(`${r.at.replace(" ", "T")}Z`) : 0;
 }
 
 // 遊んだ人（利用）とシェアの、今の累計
