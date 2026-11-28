@@ -90,9 +90,17 @@ export async function startToolRoutine(approvalId: number, opts: { manual?: bool
   return url;
 }
 
-// 24時間以内にルーティンに頼んだ回数（手で頼んだ分・頼み直した分も、1回ずつ数える）
-function firedSince(now: number): number {
-  return (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'tool-routine' AND at > datetime(?, 'unixepoch')").get(Math.floor((now - DAY_MS) / 1000)) as { n: number }).n;
+// 24時間以内にルーティンに頼んだ日時（古い順。手で頼んだ分・頼み直した分も、1回ずつ数える）
+// 自動で頼む処理（autoToolRoutine）と画面の様子（toolRoutineStatus）で同じものを使う（数え方が食い違わないように。PR #233 の ai-review の指摘）
+function firedSince(now: number): string[] {
+  return (db().prepare("SELECT at FROM events WHERE kind = 'tool-routine' AND at > datetime(?, 'unixepoch') ORDER BY at").all(Math.floor((now - DAY_MS) / 1000)) as { at: string }[]).map((r) => r.at);
+}
+
+// 頼む順番を待っている開発待ち（まだ頼んでいないものが先、頼み直しが残っているものはそのあと。作業中のものは入れない）
+// 自動で頼む処理と画面の様子で同じものを使う（PR #233 の ai-review の指摘）
+function routineQueue<T extends Pick<ApprovalRow, "status" | "routine_at" | "routine_tries">>(rows: T[], now: number): T[] {
+  const pending = rows.filter((x) => x.status === "pending");
+  return [...pending.filter((x) => !x.routine_at), ...pending.filter((x) => x.routine_at && x.routine_tries < AUTO_TRIES && !working(x, now))];
 }
 
 // 開発待ちを、設定の数の範囲で自動で頼む（見回りのたびに見る）。頼んだ数を返す
@@ -113,12 +121,10 @@ export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } 
   }
   if (!s.toolRoutineAuto || s.killSwitch || !toolRoutineConfigured()) return 0;
   const inFlight = rows.filter((a) => working(a, now)).length;
-  const today = firedSince(now);
+  const today = firedSince(now).length;
   let slots = Math.min(s.toolRoutineConcurrent - inFlight, s.toolRoutinePerDay - today);
   let n = 0;
-  const fresh = rows.filter((x) => x.status === "pending" && !x.routine_at);
-  const retry = rows.filter((x) => x.status === "pending" && x.routine_at && x.routine_tries < AUTO_TRIES && !working(x, now));
-  for (const a of [...fresh, ...retry]) {
+  for (const a of routineQueue(rows, now)) {
     if (slots <= 0) break;
     try {
       await startToolRoutine(a.id, { fetchImpl: opts.fetchImpl, now });
@@ -139,7 +145,7 @@ export type ToolRoutineStatus = {
   working: { projectId: number; title: string; at: string }[]; // 作業中（頼んで3時間以内で、まだ入っていない）
   concurrent: number; // 同時に頼む数の上限
   fired: number; perDay: number; // 直近24時間に頼んだ数（手で頼んだ分・頼み直した分も）と、1日の上限
-  resumeAt: string | null; // 1日の上限に達しているとき、次に頼めるようになる日時（ISO）
+  resumeAt: string | null; // 1日の上限に達しているとき、上限が空く日時（ISO）。作業中の枠や設定で、そのあとも頼めないことがある
   waiting: number; // 頼む順番を待っている開発待ち（まだ頼んでいない・頼み直しが残っている）
   next: { projectId: number; title: string } | null; // 次に頼む開発待ち
 };
@@ -149,9 +155,8 @@ export function toolRoutineStatus(now = Date.now()): ToolRoutineStatus {
     : s.toolRoutinePerDay <= 0 ? "設定の「1日（24時間）に頼む数」が0" : s.toolRoutineConcurrent <= 0 ? "設定の「同時に頼む数」が0" : null;
   const rows = db().prepare("SELECT a.*, p.title AS project_title FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND p.demo = 0 AND a.status = 'pending' ORDER BY a.id").all() as (ApprovalRow & { project_title: string })[];
   const inFlight = rows.filter((a) => working(a, now));
-  // 頼む順は autoToolRoutine と同じ（まだ頼んでいないものが先、頼み直しはそのあと）
-  const queue = [...rows.filter((a) => !a.routine_at), ...rows.filter((a) => a.routine_at && a.routine_tries < AUTO_TRIES && !working(a, now))];
-  const fired = (db().prepare("SELECT at FROM events WHERE kind = 'tool-routine' AND at > datetime(?, 'unixepoch') ORDER BY at").all(Math.floor((now - DAY_MS) / 1000)) as { at: string }[]).map((r) => r.at);
+  const queue = routineQueue(rows, now);
+  const fired = firedSince(now);
   // 上限に達しているときは、数に入っているうちで、上限を超えた分だけ古いものが24時間を過ぎた時刻から、次を頼める
   const resumeAt = s.toolRoutinePerDay > 0 && fired.length >= s.toolRoutinePerDay ? new Date(atMs(fired[fired.length - s.toolRoutinePerDay]) + DAY_MS).toISOString() : null;
   return {
