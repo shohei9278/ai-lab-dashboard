@@ -88,14 +88,25 @@ export function toolResultsOf(html: string): string[] | undefined {
 // 公開するツールには入れないので、その要素を除いたツールの HTML（ほかの部分は1文字も変えない）も返す
 // 台本の要素がなければ json は null。2つ以上ある・type が application/json でないときは error（どれが本物か分からない・スクリプトとして動いてしまう）
 export function takePlayScript(html: string): { html: string; json: string | null; error?: string } {
-  const tags = elementsOf(parseFragment(html, { sourceCodeLocationInfo: true })).filter((el) => el.tagName === "script" && attrOf(el, "id") === "lab-play");
+  return takeJsonScript(html, "lab-play", "動画の台本");
+}
+
+// その場で AI を呼ぶツールに添える、AIへの指示（<script type="application/json" id="lab-ai">{...}</script>）を取り出す（toolAi.ts。docs/design-tool-limits.md）
+// 動画の台本と同じく、公開するツールのコードには入れない（指示は人が承認して、ツールのコードに結び付けて別に持つ）
+export function takeAiScript(html: string): { html: string; json: string | null; error?: string } {
+  return takeJsonScript(html, "lab-ai", "AIへの指示");
+}
+
+// id の付いた JSON の script を1つだけ取り出し、その要素を除いた HTML（ほかの部分は1文字も変えない）も返す
+function takeJsonScript(html: string, id: string, label: string): { html: string; json: string | null; error?: string } {
+  const tags = elementsOf(parseFragment(html, { sourceCodeLocationInfo: true })).filter((el) => el.tagName === "script" && attrOf(el, "id") === id);
   if (tags.length === 0) return { html, json: null };
-  if (tags.length > 1) return { html, json: null, error: "動画の台本（id が lab-play の script）が2つ以上あります" };
+  if (tags.length > 1) return { html, json: null, error: `${label}（id が ${id} の script）が2つ以上あります` };
   const tag = tags[0];
-  if ((attrOf(tag, "type") ?? "").trim().toLowerCase() !== "application/json") return { html, json: null, error: "動画の台本の script には type=\"application/json\" を付けてください" };
+  if ((attrOf(tag, "type") ?? "").trim().toLowerCase() !== "application/json") return { html, json: null, error: `${label}の script には type="application/json" を付けてください` };
   const loc = tag.sourceCodeLocation;
-  if (!loc) return { html, json: null, error: "動画の台本の位置を読めませんでした" };
+  if (!loc) return { html, json: null, error: `${label}の位置を読めませんでした` };
   const json = tag.childNodes.map((n) => ("value" in n ? n.value : "")).join("");
-  // 切り取るのは台本の要素だけ（前後の空白も残す。入れるときの前後の空白の扱いは、呼ぶ側で決める。PR #107 の ai-review の指摘）
+  // 切り取るのはその要素だけ（前後の空白も残す。入れるときの前後の空白の扱いは、呼ぶ側で決める。PR #107 の ai-review の指摘）
   return { html: html.slice(0, loc.startOffset) + html.slice(loc.endOffset), json };
 }

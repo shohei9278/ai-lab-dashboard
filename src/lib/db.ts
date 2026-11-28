@@ -388,6 +388,23 @@ CREATE TABLE IF NOT EXISTS play_scripts (
   at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (project_id, html_hash)
 );
+-- その場で AI を呼ぶツールの、AIへの指示（toolAi.ts）。ツールのコード（html_hash）ごとに持つ
+-- approved_at: 人が公開を承認して、このコードとこの指示の組み合わせを承認した時刻（なければ、まだ承認していない）
+CREATE TABLE IF NOT EXISTS tool_ai_specs (
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  html_hash TEXT NOT NULL,
+  spec TEXT NOT NULL,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  approved_at TEXT,
+  PRIMARY KEY (project_id, html_hash)
+);
+-- AIへの指示を書き換えた回数の番号（コードごと）。取り込みが失敗して戻すときに、そのあとに誰も書き換えていないかを見る（toolAi.ts）
+CREATE TABLE IF NOT EXISTS tool_ai_spec_revs (
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  html_hash TEXT NOT NULL,
+  rev INTEGER NOT NULL,
+  PRIMARY KEY (project_id, html_hash)
+);
 
 -- 実験の記録の動画（運営者が不要と決めて、作る仕組みを外した。前に作った分の記録だけが残る）
 CREATE TABLE IF NOT EXISTS record_videos (
@@ -846,6 +863,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "needs", "TEXT"], // じっくり案件で、作るのに要るもの（保存の場所・外部のAPI・AIなど。needs.ts の Need の JSON）。なければ空
   ["projects", "needs_done", "INTEGER NOT NULL DEFAULT 0"], // 要るものを人が用意した（「済み」）か。0 のあいだは、作り始める前に止めておく
   ["projects", "needs_done_at", "TEXT"], // 人の作業待ちを「済み」にして作り始めた日時（じっくり案件の週の上限は、この日から数える）
+  ["projects", "ai_approved_ever", "INTEGER NOT NULL DEFAULT 0"], // その場で AI を呼ぶツールとして、人がAIへの指示を承認したことがあるか（指示の表を書き換えても消さない。toolAi.ts）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
   ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
@@ -1228,6 +1246,7 @@ export type ProjectRow = {
   tool_maker: string | null; // 本番のツールのエラーを、どの版で何人まで知らせたか
   needs: string | null; // 作るのに要るもの（Need[] の JSON）
   needs_done: number; // 要るものを人が用意した（「済み」）か
+  ai_approved_ever: number; // その場で AI を呼ぶツールとして、人がAIへの指示を承認したことがあるか
   needs_done_at: string | null; // 「済み」にして作り始めた日時
   growth_count: number;
   human_review: "ok" | "bad" | null;

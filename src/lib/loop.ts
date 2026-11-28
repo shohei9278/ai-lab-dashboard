@@ -16,7 +16,9 @@ import { callClaude, callJson, callLong, claudeModelId, isObj, isStr } from "./a
 import { DESIGN_OPTIONS, ICONS, ILLUSTRATION_STYLES, PREVIEW_KINDS, SECTIONS, THEMES, TOOL_DATA_ROWS_MAX, TOOL_DEEP_CODE_MAX, TOOL_HTML_MAX, TOOL_IMAGES_MAX, TOOL_IMAGE_BYTES_MAX, TOOL_RESULTS_MAX, TOOL_RESULT_LEN, isLpCore, normalizeLp, type Lp, type ToolImages } from "../../lp-site/src/lp/content";
 import { toolAssets, toolImages } from "./toolAssets";
 import { TOOL_STORE_MAX } from "../../lp-site/src/lp/toolStore";
-import { hasResultsTag, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
+import { hasResultsTag, takeAiScript, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
+import { toolAiSpecOf, usesToolAi, type ToolAiSpec } from "../../lp-site/src/lp/toolAi";
+import { aiAllowed, aiEverApproved, aiSpecPending, approveAiSpec, approvedAiSpec, currentAiDigest, replaceAiSpec, toolHtmlOf } from "./toolAi";
 import { MODELS, countByCurrent, currentModelId, hasKey, modelInfo, projectsByCurrent } from "./models";
 import { firstShotNote, screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
@@ -896,24 +898,40 @@ export function startDevUpload(approvalId: number, html: string, by = "Claude Co
     if (typeof g === "string") throw new Error(`動画の台本（lab-play）が使えません: ${g}`);
     given = g;
   }
-  const t = play.html.trim();
+  // その場で AI を呼ぶツールの、AIへの指示（あれば）も取り出し、公開するツールからは除く（toolAi.ts）
+  const aiTag = takeAiScript(play.html);
+  if (aiTag.error) throw new Error(aiTag.error);
+  let aiSpec: ToolAiSpec | null = null;
+  if (aiTag.json !== null) {
+    let v: unknown;
+    try { v = JSON.parse(aiTag.json); } catch { throw new Error("AIへの指示（lab-ai）が JSON として読めません"); }
+    const s = toolAiSpecOf(v);
+    if (typeof s === "string") throw new Error(s);
+    aiSpec = s;
+  }
+  const t = aiTag.html.trim();
   if (!t) throw new Error("ツールのHTMLが空です");
   if (t.length > TOOL_HTML_MAX) throw new Error(`ツールのHTMLが長すぎます（${t.length.toLocaleString("en-US")}文字。${TOOL_HTML_MAX.toLocaleString("en-US")}文字まで）`);
+  const p = getProject(a.project_id)!;
+  // AIへの指示を添えられるのは、人が「済み」にした、その場で AI が要る案件だけ（ツールを作る流れからは許可を変えられない）
+  if (aiSpec && !aiAllowed(p)) throw new Error("この案件では、その場で AI を呼ぶことが許されていないため、AIへの指示（lab-ai）は入れられません");
+  if (aiSpec === null && usesToolAi(t) && aiAllowed(p)) throw new Error("window.labAi を使うときは、AIへの指示（lab-ai）を添えてください");
   // Google Fonts の読み込みは、どのツールでも staticToolIssues の最初で外してから見る（じっくり案件でも使える）
   // 第2引数（deep）で変わるのは長さの上限だけ。Claude Code で作ったものは、上で TOOL_HTML_MAX（80,000文字）まで見たので、既定のままでよい
-  const issues = staticToolIssues(t);
+  const issues = staticToolIssues(t, false, { ai: !!aiSpec });
   if (issues.length) throw new Error(`決まりに合わないため入れられません: ${issues.join(" / ")}`);
-  const p = getProject(a.project_id)!;
   db().prepare("UPDATE approvals SET status = 'approved', comment = ?, decided_at = datetime('now') WHERE id = ?").run(`${by} で作ったツールを入れた`, approvalId);
   // 台本を入れ替える（台本なしで入れ直したら消す）。取り込みが失敗したら前の台本に戻す
   const undoPlay = replacePlayScript(p.id, t, given);
-  logEvent(p.id, by === "Claude Code" ? "human" : "ai", "dev-upload", `${by} で作ったツール（${(t.length / 1000).toFixed(1)}千文字）を入れました${given ? `。遊ぶ様子の動画の台本（手順${given.steps.length}つ）も入れました` : ""}`);
+  const undoAi = replaceAiSpec(p.id, t, aiSpec);
+  logEvent(p.id, by === "Claude Code" ? "human" : "ai", "dev-upload", `${by} で作ったツール（${(t.length / 1000).toFixed(1)}千文字）を入れました${given ? `。遊ぶ様子の動画の台本（手順${given.steps.length}つ）も入れました` : ""}${aiSpec ? "。AIへの指示も添えました（公開の承認で、人が確かめます）" : ""}`);
   const payload = JSON.parse(a.payload ?? "{}") as { design?: string; instruction?: string | null };
   const instruction = payload.instruction ?? undefined;
   // 取り込みの途中（紹介ページづくり・チェックなど）で失敗したら、開発待ちに戻す（同じHTMLをもう一度入れられるように。作り直しにはしない）
   return prepareLp(p.id, instruction, { toolHtml: t, keepCore: !!p.lp, auto: p.mode === "auto" && !p.public_slug }).catch((e) => {
     const msg = (e instanceof Error ? e.message : String(e)).slice(0, 200);
     undoPlay();
+    undoAi();
     addApproval(p.id, "dev", a.proposal, `入れたツールの取り込みに失敗しました（${msg}）。同じHTMLを、もう一度ここから入れてください。`, payload);
     throw e;
   });
@@ -1193,7 +1211,9 @@ function scriptStrings(js: string): string[] {
 // 隔離された枠の中では使えないもの・外部への通信など、コードを読めば分かる問題を先に見つける
 // Google Fonts の読み込みだけは、どのツールでも外部のファイルとして数えない
 // deep: じっくり案件のとき（コードの上限は TOOL_DEEP_CODE_MAX）
-export function staticToolIssues(html: string, deep = false): string[] {
+// opts.ai: その場で AI を呼ぶ窓口（window.labAi）を使ってよいか（人が許した案件で、AIへの指示を添えたときだけ。toolAi.ts）
+// 窓口のチェックは、今の禁止の項目に足す（置き換えない。alert・window.open などは CSP では止められないため。docs/design-tool-limits.md）
+export function staticToolIssues(html: string, deep = false, opts: { ai?: boolean } = {}): string[] {
   const src = html.replace(/<link[^>]*\bhref\s*=\s*["']https:\/\/fonts\.googleapis\.com\/[^"']*["'][^>]*>/gi, "").replace(/@import\s+url\(\s*["']?https:\/\/fonts\.googleapis\.com\/[^)]*\)\s*;?/gi, "");
   const rules: [RegExp, string][] = [
     [/\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|navigator\.sendBeacon/, "外部と通信している（通信は遮断されるので動かない）"],
@@ -1204,6 +1224,7 @@ export function staticToolIssues(html: string, deep = false): string[] {
     [/<(html|head|body)[\s>]/i, "<html><head><body> を書いている（中身だけにする）"],
   ];
   const issues = rules.filter(([re]) => re.test(src)).map(([, msg]) => msg);
+  if (!opts.ai && usesToolAi(src)) issues.push("その場で AI を呼ぶ窓口（window.labAi）を使っている（この案件では許されていない）");
   const max = deep ? TOOL_DEEP_CODE_MAX : TOOL_HTML_MAX;
   if (html.length > max) issues.push(`長すぎる（${html.length}文字。${max}文字以内${deep ? "。データは window.labData のまま使い、コードに書き写さない" : ""}）`);
   if (!/<script[\s>]/i.test(html)) issues.push("スクリプトがなく、ツールとして動かない");
@@ -1844,6 +1865,9 @@ function autoPublishBlocked(p: ProjectRow, review: Review): string | null {
   const s = getSettings();
   if (!s.fullAuto || p.mode !== "auto") return "全自動ではない";
   if (!review.ok) return `AIのチェックで問題が残ったため（${review.issues.join(" / ").slice(0, 200)}）`;
+  // その場で AI を呼ぶツールは、AIへの指示を人が確かめて承認するまで公開しない（呼んだ側の p は作る前のものなので、読み直す）
+  const now = getProject(p.id);
+  if (now && aiSpecPending(now)) return "その場で AI を呼ぶツールは、AIへの指示を人が確かめてから公開するため";
   const n = (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'auto-publish' AND at >= datetime('now', '-7 days')").get() as { n: number }).n;
   if (n >= s.autoPublishPerWeek) return `直近7日に人の承認なしで公開した件数が上限（${s.autoPublishPerWeek}件）に達したため`;
   return null;
@@ -2449,6 +2473,15 @@ async function autoImprove(projectId: number, d: Decision): Promise<ImproveOutco
     const t = row?.test ? (JSON.parse(row.test) as ToolTest) : null;
     if (!t || (!t.skipped && !t.ok)) review = { ok: false, issues: [...review.issues, ...(t ? testIssues(t) : ["ブラウザでの自動テストの結果がない"])] };
   }
+  // その場で AI を呼ぶツールとして公開したことのある案件は、ツールのコードが変わったら、人がAIへの指示を確かめてから差し替える
+  // （承認は、コードと指示の組み合わせごと。紹介ページだけ直してコードが同じなら、前の承認のまま差し替えてよい。toolAi.ts）
+  const nowP = getProject(projectId)!;
+  const nowHtml = toolHtmlOf(nowP);
+  if (review.ok && nowP.kind === "tool" && aiEverApproved(projectId) && !(nowHtml && approvedAiSpec(projectId, nowHtml))) {
+    setStage(projectId, "lp");
+    addApproval(projectId, "publish", "改善したツールを公開する", "その場で AI を呼ぶツールのコードが変わったため、自動公開を止めました。AIへの指示とツールを確かめてから公開してください", { review });
+    return { kind: "held", detail: `第${version}版を作ったが、その場で AI を呼ぶツールのコードが変わったため、公開せず承認待ちにした` };
+  }
   if (!review.ok) {
     // チェックを通らない改善は公開しない。ツールは、まずクラウドの Claude Code（ルーティン）に直してもらう（1回だけ）。それ以外は人に回す
     setStage(projectId, "lp");
@@ -2520,10 +2553,18 @@ export function lessonLine(l: LessonRow): string {
 
 export type ApprovalAction = "approve" | "reject" | "revise";
 
-export async function decide(approvalId: number, action: ApprovalAction, comment?: string) {
+// opts.aiDigest: その場で AI を呼ぶツールの公開で、運営者がカードで見たコードと指示の組み合わせの印（views.ts の aiView）
+export async function decide(approvalId: number, action: ApprovalAction, comment?: string, opts: { aiDigest?: string } = {}) {
   const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
   if (!a) throw new Error("承認リクエストが見つかりません");
   if (a.status !== "pending") throw new Error("この承認リクエストは処理済みです");
+  // 承認していないAIへの指示があるツールの公開は、カードで見た組み合わせと今のものが合うときだけ承認する
+  // （カードを開いてから押すまでに、コードか指示が差し替わっていたら、読んでいない指示を承認しないよう、承認リクエストは残したまま断る）
+  if (a.kind === "publish" && action === "approve") {
+    const now = getProject(a.project_id);
+    // 印が送られてきたら、今の指示の有無や承認にかかわらず照合する（指示のないコード・承認済みの別の組み合わせに差し替わったときも断る。PR #240 の ai-review の指摘）
+    if (now && (opts.aiDigest !== undefined || aiSpecPending(now)) && opts.aiDigest !== currentAiDigest(now)) throw new Error("ツールのコードかAIへの指示が変わりました。画面を読み直して、今の内容を確かめてから承認してください");
+  }
   if (action === "revise" && !comment?.trim()) throw new Error("修正指示を書いてください");
   // 開発待ちは、ここ（Claude Code）で作ったツールのHTMLを入れることで進める（承認のボタンでは進めない）
   if (a.kind === "dev" && action === "approve") throw new Error("Claude Code で作ったツールのHTMLを入れてください");
@@ -2576,6 +2617,9 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
     if (action === "reject") rejectPublish(pid);
     else if (action === "revise") await prepareLp(pid, comment);
     else {
+      // その場で AI を呼ぶツールは、人が公開を承認したこのときに、今のコードとAIへの指示の組み合わせを承認する（toolAi.ts）
+      const now = getProject(pid)!;
+      if (opts.aiDigest && approveAiSpec(now, opts.aiDigest)) logEvent(pid, "human", "ai-spec", `第${now.lp_version}版のツールのAIへの指示を承認しました`);
       setStage(pid, "live");
       await announcePublish(pid);
     }

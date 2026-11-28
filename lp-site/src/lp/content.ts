@@ -1,5 +1,6 @@
 // LPの中身と見た目の型。ダッシュボード（プレビュー・AIの出力の確認）と公開用LPサイトの両方で使う
 // どちらの環境にも依存しないよう、ここでは外部のライブラリを読み込まない
+import { toolAiLimitsOf, type ToolAiLimits } from "./toolAi";
 
 export const THEMES = {
   // light / dark の色。アクセントは文字色との差が十分あるものだけ
@@ -72,7 +73,8 @@ export type Lp = {
   // じっくり案件のツールは、人が確かめたデータ（data。枠の中で window.labData として読める）と、Google Fonts を使ってよい印（fonts）を持つ
   // results: 結果の種類が決まっているツール（診断など）の結果の名前。シェアのリンク（?r=番号）と、結果ごとのシェア画像に使う
   // images: じっくり案件で人が入れた画像（素材）。名前 → 公開用の保存領域の URL。枠の中で window.labAssets.images として読める
-  tool?: { html: string; shareText: string; data?: unknown[]; fonts?: boolean; results?: string[]; images?: ToolImages };
+  // ai: その場で AI を呼べるツールの、長さの上限（人が承認したものだけ。指示の本文はここには入れない。toolAi.ts）
+  tool?: { html: string; shareText: string; data?: unknown[]; fonts?: boolean; results?: string[]; images?: ToolImages; ai?: ToolAiLimits };
   // AIが丸ごと自由に書いたページ（1つのHTML）。あれば部品の表示の代わりにこれを出す。上の文言はシェア画像・検索結果・予備に使う
   page?: { html: string };
   // 動くツールの案件だけ: 紹介ページを作らず、名前と一行 → ツール → シェア の短い形で出す（ねらいが「広がる」「また来てもらう」のツール。ShortToolView）
@@ -204,6 +206,9 @@ export function normalizeLp(raw: unknown): Lp {
     if (isToolResults(v.tool.results)) lp.tool.results = v.tool.results;
     const images = toolImagesOf(v.tool.images);
     if (images) lp.tool.images = images;
+    // AIへの指示の本文は読まない（長さの上限だけ）。指示を読むのは公開サイトのサーバーだけにする（toolAi.ts）
+    const ai = toolAiLimitsOf(v.tool.ai);
+    if (ai) lp.tool.ai = ai;
   }
   if (isObj(v.page) && isStr(v.page.html) && v.page.html.length <= PAGE_HTML_MAX) lp.page = { html: v.page.html };
   if (v.short === true && lp.tool) lp.short = true;

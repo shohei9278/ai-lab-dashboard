@@ -54,7 +54,7 @@ export async function POST(req: Request) {
       case "decide": {
         const action = body.decision as ApprovalAction;
         if (!["approve", "reject", "revise"].includes(action)) throw new Error("操作が不正です");
-        await decide(Number(body.approvalId), action, typeof body.comment === "string" ? body.comment.slice(0, 500) : undefined);
+        await decide(Number(body.approvalId), action, typeof body.comment === "string" ? body.comment.slice(0, 500) : undefined, { aiDigest: typeof body.aiDigest === "string" ? body.aiDigest.slice(0, 100) : undefined });
         return NextResponse.json({ ok: true });
       }
       case "initial":

@@ -10,6 +10,7 @@ import { checkToolErrors } from "./funnel";
 import { autoRollback } from "./rollback";
 import { logEvent } from "./loop";
 import { classifySiteCategory, isSiteCategory, type SiteCategory } from "./siteCategory";
+import { aiAllowed, approvedAiSpec } from "./toolAi";
 
 // 公開用LPサイト（Vercel）とデータ（Supabase）をつなぐ部分。
 // Supabase の設定がなければ何もしない（今までどおり手入力・シミュレーションで動く）
@@ -39,11 +40,26 @@ async function categoryFor(p: ProjectRow): Promise<SiteCategory | null> {
   return classifySiteCategory(now);
 }
 
+// 公開する中身の、その場で AI を呼ぶ窓口の指示（toolAi.ts）。人が承認した、今のツールのコードの指示だけを入れる
+// LP の中身（AIが書いたもの）に紛れた ai は使わずに外す（許可は、ツールを作る流れからは変えられない。docs/design-tool-limits.md）
+// ツールの中身の形がおかしくても（html が文字列でない など）、紛れた ai は先に外す（PR #240 の ai-review の指摘）
+export function withToolAi<T extends { tool?: unknown }>(p: Pick<ProjectRow, "id" | "needs" | "needs_done">, content: T): T {
+  if (!content.tool || typeof content.tool !== "object" || Array.isArray(content.tool)) return content;
+  const { ai: _ignored, ...tool } = content.tool as Record<string, unknown>;
+  void _ignored;
+  const spec = typeof tool.html === "string" && aiAllowed(p) ? approvedAiSpec(p.id, tool.html) : undefined;
+  return { ...content, tool: spec ? { ...tool, ai: spec } : tool };
+}
+
 // 今のLPの版を公開する（すでに公開中なら新しい版に差し替える）
 export async function publishLp(p: ProjectRow) {
   if (!publishingConfigured() || p.demo || !p.lp) return false;
   // 動くツールは、一覧のカードとシェア画像に本物の画面を使う。上げられなくても公開は止めない（イラストのカードのまま）
   const shot = await uploadToolShot(p, p.lp_version).catch(() => null);
+  const category = await categoryFor(p).catch(() => null);
+  // その場で AI の許可は、待つ処理（写真・カテゴリ）が終わったあとに案件を読み直して見る（待つ間に人の作業待ちへ戻されることがある。PR #240 の ai-review の指摘）
+  const fresh = db().prepare("SELECT id, needs, needs_done FROM projects WHERE id = ?").get(p.id) as Pick<ProjectRow, "id" | "needs" | "needs_done"> | undefined;
+  const content = withToolAi(fresh ?? { id: p.id, needs: null, needs_done: 0 }, { ...JSON.parse(p.lp), category, shot: shot ?? undefined });
   const { error } = await sb().from("lps").upsert({
     slug: slugOf(p.id),
     project_id: p.id,
@@ -52,7 +68,7 @@ export async function publishLp(p: ProjectRow) {
     // 公開サイトの一覧のカテゴリも、中身に入れて渡す（表の列は増やさない）
     // AIの判定に失敗しても公開は止めない（カテゴリなしで公開し、次に起動したときのそろえ直しで、また選ばせる）
     // shot は、ここで上げた写真だけにする（LPを書いたAIの出力に紛れたものは使わない）
-    content: { ...JSON.parse(p.lp), category: await categoryFor(p).catch(() => null), shot: shot ?? undefined },
+    content,
     status: "published",
     updated_at: new Date().toISOString(),
   });
