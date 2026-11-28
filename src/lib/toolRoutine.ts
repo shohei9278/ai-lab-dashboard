@@ -90,9 +90,17 @@ export async function startToolRoutine(approvalId: number, opts: { manual?: bool
   return url;
 }
 
-// 24時間以内にルーティンに頼んだ回数（手で頼んだ分・頼み直した分も、1回ずつ数える）
-function firedSince(now: number): number {
-  return (db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'tool-routine' AND at > datetime(?, 'unixepoch')").get(Math.floor((now - DAY_MS) / 1000)) as { n: number }).n;
+// 24時間以内にルーティンに頼んだ日時（古い順。手で頼んだ分・頼み直した分も、1回ずつ数える）
+// 自動で頼む処理（autoToolRoutine）と画面の様子（toolRoutineStatus）で同じものを使う（数え方が食い違わないように。PR #233 の ai-review の指摘）
+function firedSince(now: number): string[] {
+  return (db().prepare("SELECT at FROM events WHERE kind = 'tool-routine' AND at > datetime(?, 'unixepoch') ORDER BY at").all(Math.floor((now - DAY_MS) / 1000)) as { at: string }[]).map((r) => r.at);
+}
+
+// 頼む順番を待っている開発待ち（まだ頼んでいないものが先、頼み直しが残っているものはそのあと。作業中のものは入れない）
+// 自動で頼む処理と画面の様子で同じものを使う（PR #233 の ai-review の指摘）
+function routineQueue<T extends Pick<ApprovalRow, "status" | "routine_at" | "routine_tries">>(rows: T[], now: number): T[] {
+  const pending = rows.filter((x) => x.status === "pending");
+  return [...pending.filter((x) => !x.routine_at), ...pending.filter((x) => x.routine_at && x.routine_tries < AUTO_TRIES && !working(x, now))];
 }
 
 // 開発待ちを、設定の数の範囲で自動で頼む（見回りのたびに見る）。頼んだ数を返す
@@ -113,12 +121,10 @@ export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } 
   }
   if (!s.toolRoutineAuto || s.killSwitch || !toolRoutineConfigured()) return 0;
   const inFlight = rows.filter((a) => working(a, now)).length;
-  const today = firedSince(now);
+  const today = firedSince(now).length;
   let slots = Math.min(s.toolRoutineConcurrent - inFlight, s.toolRoutinePerDay - today);
   let n = 0;
-  const fresh = rows.filter((x) => x.status === "pending" && !x.routine_at);
-  const retry = rows.filter((x) => x.status === "pending" && x.routine_at && x.routine_tries < AUTO_TRIES && !working(x, now));
-  for (const a of [...fresh, ...retry]) {
+  for (const a of routineQueue(rows, now)) {
     if (slots <= 0) break;
     try {
       await startToolRoutine(a.id, { fetchImpl: opts.fetchImpl, now });
@@ -130,6 +136,37 @@ export async function autoToolRoutine(opts: { fetchImpl?: Fetch; now?: number } 
     }
   }
   return n;
+}
+
+// AIの作業待ちの画面に出す、ルーティンに自動で頼む今の様子（11/28 に運営者が決めた。#79 が開発待ちのまま約40分自動で頼まれず、
+// 上限で待っているのか・設定で止まっているのかが画面から分からなかったため。提案箱の「自動の依頼」の欄と同じ考え）
+export type ToolRoutineStatus = {
+  off: string | null; // 自動で頼まない理由（設定・止めるスイッチ・つながっていない）。動いていれば null
+  working: { projectId: number; title: string; at: string }[]; // 作業中（頼んで3時間以内で、まだ入っていない）
+  concurrent: number; // 同時に頼む数の上限
+  fired: number; perDay: number; // 直近24時間に頼んだ数（手で頼んだ分・頼み直した分も）と、1日の上限
+  resumeAt: string | null; // 1日の上限に達しているとき、上限が空く日時（ISO）。作業中の枠や設定で、そのあとも頼めないことがある
+  waiting: number; // 頼む順番を待っている開発待ち（まだ頼んでいない・頼み直しが残っている）
+  next: { projectId: number; title: string } | null; // 次に頼む開発待ち
+};
+export function toolRoutineStatus(now = Date.now()): ToolRoutineStatus {
+  const s = getSettings();
+  const off = !s.toolRoutineAuto ? "設定の「開発待ちのツールを自動でルーティンに頼む」がオフ" : s.killSwitch ? "緊急停止中" : !toolRoutineConfigured() ? "ツールを作るルーティンにつながっていない"
+    : s.toolRoutinePerDay <= 0 ? "設定の「1日（24時間）に頼む数」が0" : s.toolRoutineConcurrent <= 0 ? "設定の「同時に頼む数」が0" : null;
+  const rows = db().prepare("SELECT a.*, p.title AS project_title FROM approvals a JOIN projects p ON p.id = a.project_id WHERE a.kind = 'dev' AND p.demo = 0 AND a.status = 'pending' ORDER BY a.id").all() as (ApprovalRow & { project_title: string })[];
+  const inFlight = rows.filter((a) => working(a, now));
+  const queue = routineQueue(rows, now);
+  const fired = firedSince(now);
+  // 上限に達しているときは、数に入っているうちで、上限を超えた分だけ古いものが24時間を過ぎた時刻から、次を頼める
+  const resumeAt = s.toolRoutinePerDay > 0 && fired.length >= s.toolRoutinePerDay ? new Date(atMs(fired[fired.length - s.toolRoutinePerDay]) + DAY_MS).toISOString() : null;
+  return {
+    off,
+    working: inFlight.map((a) => ({ projectId: a.project_id, title: a.project_title, at: a.routine_at! })),
+    concurrent: s.toolRoutineConcurrent,
+    fired: fired.length, perDay: s.toolRoutinePerDay, resumeAt,
+    waiting: queue.length,
+    next: queue[0] ? { projectId: queue[0].project_id, title: queue[0].project_title } : null,
+  };
 }
 
 // AIが自動で進めている作業か（人の判断待ちではなく「AIの作業待ち」に出すもの。運営者が決めた）
