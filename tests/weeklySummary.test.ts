@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db } from "../src/lib/db";
-import { addNoteIdeas, cleanNoteIdeas, noteTitled, noteTopicOf } from "../src/lib/report";
+import { addNoteIdeas, cleanNoteIdeas, noteTitled, noteTopicOf, toSaved, type Report } from "../src/lib/report";
 
 // 週のまとめの気づきを、社内の知見（実験メモ）に自動で入れる（11/28 に運営者が決めた）
 
@@ -34,4 +34,13 @@ test("週のまとめ: 気づきの形を整え、決まった話題だけを認
   assert.equal(noteTopicOf("tool"), "tool");
   assert.equal(noteTopicOf(3), "other");
   assert.equal(noteTitled(3), false);
+});
+
+test("週のまとめ: 保存するのは決まった項目だけ（AIが頼んでいない下書きを返しても残さない。PR #237 の ai-review の指摘）", () => {
+  const out = { summary: "s", numbers: [], highlights: ["h"], noteIdeas: [{ title: " 題 ", body: "b", topic: "idea" }, { title: 1 }], next: ["n"], article: "# 頼んでいない記事", xPosts: ["頼んでいない投稿"] } as unknown as Report;
+  const saved = toSaved(out, ["採用した提案"]);
+  assert.deepEqual(saved, { summary: "s", numbers: [], highlights: ["h"], noteIdeas: [{ title: "題", body: "b", topic: "idea" }], next: ["採用した提案"] });
+  assert.equal("article" in saved, false);
+  assert.equal("xPosts" in saved, false);
+  assert.deepEqual(toSaved(out).next, ["n"]);
 });

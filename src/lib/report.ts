@@ -75,7 +75,7 @@ export async function createReport(opts: { extra?: string; modelId?: string; nex
   const end = new Date();
   const startDate = new Date(end.getTime() - 7 * 86_400_000);
   const material = gather(day(startDate)) + (opts.extra ?? "");
-  const r = await callJson<Report>({
+  const out = await callJson<Report>({
     purpose: "週のレポート",
     modelId: opts.modelId,
     system: `あなたは「AIが自動でプロダクトを作る実験」の記録係です。1週間の材料から、運営者向けの週のまとめを作ります。
@@ -87,16 +87,17 @@ export async function createReport(opts: { extra?: string; modelId?: string; nex
     user: material,
     validate: isReport,
   });
-  if (opts.next) r.next = opts.next;
+  // 保存するのは、まとめ・数字・今週あったこと・気づき・採用した提案だけ（AIが頼んでいない下書き（article・xPosts）を返しても残さない。
+  // 残すと、画面が前の形のまとめと見なして、追加のボタンを出してしまう。PR #237 の ai-review の指摘）
   // 気づきは、形の正しいものだけを残す（題が文字でないものなどを保存すると、画面で読めない。PR #237 の ai-review の指摘）
-  r.noteIdeas = cleanNoteIdeas(r.noteIdeas);
+  const saved = toSaved(out, opts.next);
   // まとめの保存・気づきの追加・最後に作った日の更新を、1つのトランザクションにする（途中で失敗して、まとめだけ・気づきの一部だけが残らないように。PR #237 の ai-review の指摘）
   const { id, added } = db().transaction(() => {
     const newId = Number(
       db().prepare("INSERT INTO reports (period_start, period_end, model_id, content) VALUES (?, ?, ?, ?)")
-        .run(day(startDate), day(end), opts.modelId ?? s.loopModel, JSON.stringify(r)).lastInsertRowid,
+        .run(day(startDate), day(end), opts.modelId ?? s.loopModel, JSON.stringify(saved)).lastInsertRowid,
     );
-    const n = addNoteIdeas(r.noteIdeas);
+    const n = addNoteIdeas(saved.noteIdeas);
     saveSettings({ lastWeeklyReport: day(end) });
     return { id: newId, added: n };
   })();
@@ -119,6 +120,11 @@ export function addNoteIdeas(ideas: unknown): number {
     n++;
   }
   return n;
+}
+
+// 週のまとめとして保存する形（AIの答えから、決まった項目だけを取り出す）
+export function toSaved(out: Report, next?: string[]): Report {
+  return { summary: out.summary, numbers: out.numbers, highlights: out.highlights, noteIdeas: cleanNoteIdeas(out.noteIdeas), next: next ?? out.next };
 }
 
 // 気づきの形を整える（題が空・文字でないものは捨てる。題は120文字・根拠は4000文字まで）。保存するときも、画面に出すときも使う
