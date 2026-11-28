@@ -2810,10 +2810,12 @@ export async function maybeAutoJudge(projectId: number) {
       return true;
     }
     // 判定の起点からの訪問が下限に届かないときは、外れと決めずに、判定を1回だけ spreadJudgeDays 延ばす（提案箱 #106）
-    // 延ばしても届かなければ集客お休みにするが、外れとしては数えない（spread_hit は空のまま。ねらい・ジャンルの成績をゆがめないように）
+    // 延ばしても届かなければ集客お休みにするが、外れとしては数えない（spread_hit は空にする。ねらい・ジャンルの成績をゆがめないように）
+    // 前回の起点での判定結果（当たり・外れ）が残っていても、今回は判定できていないので、延ばすときもお休みにするときも空に戻す（PR #228 のレビューの指摘）
     const visits = spreadVisits(p);
     const days = s.spreadJudgeDays * (spreadExtended(p) ? 2 : 1);
     if (visits < s.spreadMinVisits) {
+      db().prepare("UPDATE projects SET spread_hit = NULL WHERE id = ?").run(projectId);
       if (!spreadExtended(p)) {
         db().prepare("UPDATE projects SET spread_extended = ? WHERE id = ?").run(spreadSince(p), projectId);
         logEvent(projectId, "system", "spread-extend", `「広がる」の判定: ${s.spreadJudgeDays}日で訪問${visits}人・遊んだ人${r.plays}人・シェア${r.shares}件。訪問が${s.spreadMinVisits}人に届かず判断できないので、外れとせず、判定を${s.spreadJudgeDays}日延ばしました`);

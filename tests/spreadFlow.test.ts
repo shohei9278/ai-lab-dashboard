@@ -217,3 +217,22 @@ test("広がる（提案箱 #106）: 下限が0なら延ばさない", async () 
   assert.equal(getProject(id)!.spread_hit, 0);
   saveSettings({ spreadMinVisits: 20 });
 });
+
+test("広がる（PR #228 のレビューの指摘）: 前回の判定の結果が残っていても、訪問が少なくて延ばす・お休みにするときは、結果を空に戻す", async () => {
+  for (const prev of [1, 0]) {
+    const id = add({ publishedDaysAgo: 4 });
+    // 前の起点で判定した結果と、前の起点で延ばした記録が残っている（そのあと公開し直して、起点が変わった）
+    db().prepare("UPDATE projects SET spread_hit = ?, spread_extended = datetime('now', '-30 days') WHERE id = ?").run(prev, id);
+    metrics(id, 12, 1, 0);
+    // 延ばすとき
+    assert.equal(await maybeAutoJudge(id), false);
+    assert.equal(getProject(id)!.stage, "live");
+    assert.equal(getProject(id)!.spread_hit, null);
+    // 延ばしたあとに結果が入っていても（ほかの経路で書かれても）、延ばしたあとも訪問が届かずにお休みにするときは空にする
+    db().prepare("UPDATE projects SET spread_hit = ?, published_at = datetime('now', '-7 days'), spread_extended = datetime('now', '-7 days') WHERE id = ?").run(prev, id);
+    assert.equal(await maybeAutoJudge(id), true);
+    const p = getProject(id)!;
+    assert.equal(p.stage, "hold");
+    assert.equal(p.spread_hit, null);
+  }
+});
