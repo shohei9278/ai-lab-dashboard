@@ -26,7 +26,8 @@ export function AddOutsideVoice({ projects, defaultProjectId }: { projects: { id
       }}
     >
       <div className="flex flex-wrap gap-2 text-sm">
-        <select value={projectId} onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")} className="rounded-lg border border-line bg-surface px-2 py-1">
+        {/* 案件の名前が長いと、選んだ名前の幅で欄が広がり、スマホで画面の外にはみ出す（#79。運営者が見つけた）。幅は親に収め、はみ出す名前は切る */}
+        <select value={projectId} onChange={(e) => setProjectId(e.target.value ? Number(e.target.value) : "")} className="w-full min-w-0 max-w-full truncate rounded-lg border border-line bg-surface px-2 py-1 sm:w-auto sm:max-w-md">
           <option value="">案件を選ばない（全体について）</option>
           {projects.map((p) => <option key={p.id} value={p.id}>#{p.id} {p.title}</option>)}
         </select>
