@@ -70,8 +70,9 @@ export default async function ProjectsPage() {
                   <Link href={`/projects/${p.id}`} className="card block p-3 hover:border-accent">
                     <div className="line-clamp-2 text-sm font-medium"><span className="num mr-1 text-xs font-normal text-muted">#{p.id}</span>{p.title}</div>
                     <div className="num mt-1 text-xs text-ink-2">{p.hold_until ? `${p.hold_until} に再開` : "再開日なし（手で戻す）"}</div>
-                    {/* 休んでいる理由（「広がる」で当たらなかった・訪問が少なく判断できなかった など）。戻すかを、開かずに決められるように */}
-                    {p.hold_reason && <div className="mt-1 line-clamp-2 text-xs text-muted">{p.hold_reason}</div>}
+                    {/* 休んでいる理由（「広がる」で当たらなかった・訪問が少なく判断できなかった など）。戻すかを、開かずに決められるように
+                        運営者が手で書いた理由も入るので、運営者にだけ出す（案件の画面の来訪者向けの表示と同じ。PR #235 の ai-review の指摘） */}
+                    {owner && p.hold_reason && <div className="mt-1 line-clamp-2 text-xs text-muted">{p.hold_reason}</div>}
                   </Link>
                 </li>
               ))}
