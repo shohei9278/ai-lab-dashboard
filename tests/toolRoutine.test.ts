@@ -2,7 +2,7 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings, type ApprovalRow } from "../src/lib/db";
-import { AUTO_TRIES, autoToolRoutine, autoWork, hasTool, labTokenOk, startToolRoutine, toolRoutineConfigured, toolRoutineText, toolRoutineView } from "../src/lib/toolRoutine";
+import { AUTO_TRIES, autoToolRoutine, autoWork, hasTool, labTokenOk, startToolRoutine, toolRoutineConfigured, toolRoutineStatus, toolRoutineText, toolRoutineView } from "../src/lib/toolRoutine";
 import { GET, POST } from "../src/app/api/tool-jobs/[id]/route";
 import { pendingApprovals, pendingCount } from "../src/lib/views";
 
@@ -301,4 +301,46 @@ test("判断待ちとAIの作業待ち: 自動で頼む開発待ちはAIの作�
   assert.equal(pendingCount(), 4);
   configure();
   assert.equal(pendingCount(), 1);
+});
+
+test("ツールのルーティンの様子: 上限・作業中・止めている理由・次に頼む開発待ちを返す（11/28 に運営者が決めた。#79 が約40分自動で頼まれなかった）", () => {
+  configure();
+  db().exec("DELETE FROM events WHERE kind = 'tool-routine'; DELETE FROM approvals; DELETE FROM lp_versions");
+  saveSettings({ toolRoutineAuto: true, killSwitch: false, toolRoutineConcurrent: 1, toolRoutinePerDay: 3 });
+  const now = Date.parse("2026-11-28T06:00:00Z");
+  const iso = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace("T", " ");
+  // 開発待ちがなければ、頼むものがない
+  let st = toolRoutineStatus(now);
+  assert.equal(st.off, null);
+  assert.equal(st.next, null);
+  assert.equal(st.waiting, 0);
+  // 古いものから頼む順。作業中（頼んで3時間以内）は順番待ちに入れない
+  const a = devCase("作業中のツール");
+  db().prepare("UPDATE approvals SET routine_at = ?, routine_tries = 1 WHERE id = ?").run(iso(now - 3_600_000), a.approvalId);
+  const b = devCase("待っているツール");
+  st = toolRoutineStatus(now);
+  assert.deepEqual(st.working.map((w) => w.projectId), [a.projectId]);
+  assert.equal(st.waiting, 1);
+  assert.equal(st.next?.projectId, b.projectId);
+  assert.equal(st.next?.title, "待っているツール");
+  // 直近24時間に頼んだ数（手で頼んだ分も）。上限に達したら、上限を超えた分だけ古い依頼の24時間後から頼める
+  for (const h of [20, 10, 2]) db().prepare("INSERT INTO events (project_id, actor, kind, message, at) VALUES (NULL, 'system', 'tool-routine', '頼んだ', ?)").run(iso(now - h * 3_600_000));
+  db().prepare("INSERT INTO events (project_id, actor, kind, message, at) VALUES (NULL, 'system', 'tool-routine', '頼んだ', ?)").run(iso(now - 25 * 3_600_000));
+  st = toolRoutineStatus(now);
+  assert.equal(st.fired, 3);
+  assert.equal(st.perDay, 3);
+  assert.equal(st.resumeAt, new Date(now - 20 * 3_600_000 + 86_400_000).toISOString());
+  saveSettings({ toolRoutinePerDay: 6 });
+  assert.equal(toolRoutineStatus(now).resumeAt, null);
+  // 止めている理由
+  saveSettings({ toolRoutineAuto: false });
+  assert.match(toolRoutineStatus(now).off ?? "", /自動でルーティンに頼む」がオフ/);
+  saveSettings({ toolRoutineAuto: true, killSwitch: true });
+  assert.match(toolRoutineStatus(now).off ?? "", /緊急停止中/);
+  saveSettings({ killSwitch: false, toolRoutinePerDay: 0 });
+  assert.match(toolRoutineStatus(now).off ?? "", /1日（24時間）に頼む数」が0/);
+  saveSettings({ toolRoutinePerDay: 6 });
+  delete process.env.CLAUDE_TOOL_ROUTINE_TOKEN;
+  assert.match(toolRoutineStatus(now).off ?? "", /つながっていない/);
+  configure();
 });
