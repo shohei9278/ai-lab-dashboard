@@ -2,9 +2,11 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings } from "../src/lib/db";
-import { devWaiting, getProject, prepareLp, routineTurnForNew } from "../src/lib/loop";
+import { devWaiting, getProject, prepareLp, routineFixTurn, routineTurnForNew } from "../src/lib/loop";
+import { autoToolRoutine } from "../src/lib/toolRoutine";
 
-// 通常案件の新しいツールも、ツールを書く担当の交代の1つとしてルーティンに作ってもらう（運営者が決めた）
+// 通常案件のツールも、ルーティンに作ってもらう（11/28 に運営者が、交代の4つ目から、新しいツールは全部ルーティンにすると決めた）
+// 直しは、作った担当がする（ルーティンが書いたツールはルーティン、AI が書いたツールは AI）
 
 function configure() {
   process.env.CLAUDE_TOOL_ROUTINE_FIRE_URL = "https://api.anthropic.com/v1/claude_code/routines/trig_01TOOLS/fire";
@@ -14,58 +16,108 @@ function configure() {
 const addTool = (title: string, deep = 0) => Number(db().prepare(
   "INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, deep, aim) VALUES (?, '学生', 'p', 's', 'h', 'r', 'idea', 'claude', 'tool', ?, 'useful')",
 ).run(title, deep).lastInsertRowid);
-// AIが書いたツールの版（作り比べの数に入る）
-const aiVersion = (id: number, model: string) => db().prepare("INSERT INTO lp_versions (project_id, version, lp, tool_model) VALUES (?, 1, '{}', ?)").run(id, model);
+// ツールの版（tool_model は書いた担当）
+const aiVersion = (id: number, model: string, version = 1) => db().prepare("INSERT INTO lp_versions (project_id, version, lp, tool_model) VALUES (?, ?, '{}', ?)").run(id, version, model);
 
-test("通常案件のルーティン: 交代の番は、ルーティンに作ってもらうと決めた数が、AIの担当の一番少ない数以下のとき", () => {
+test("通常案件のルーティン: 新しいツールは、AIの担当の数を見ずに、いつもルーティンに作ってもらう", () => {
   configure();
   process.env.ANTHROPIC_API_KEY = "k";
   process.env.OPENAI_API_KEY = "k";
   db().exec("DELETE FROM lp_versions; DELETE FROM approvals; DELETE FROM projects");
-  const p = { id: 999999, kind: "tool" as const, deep: 0, lp: null, tool_maker: null, created_at: "2026-11-22 00:00:00" };
-  // まだどれも作っていない → ルーティンが先
+  const p = { id: 999999, kind: "tool" as const, deep: 0, lp: null, tool_maker: null };
   assert.equal(routineTurnForNew(p), true);
-  db().prepare("UPDATE projects SET tool_maker = 'claude-code' WHERE id = ?").run(addTool("ルーティン1"));
-  assert.equal(routineTurnForNew(p), false, "AIの担当がまだ0件");
-  aiVersion(addTool("opus"), "claude-opus-5-5");
-  aiVersion(addTool("sonnet"), "claude-sonnet-5-5");
-  assert.equal(routineTurnForNew(p), false, "GPT がまだ0件");
-  aiVersion(addTool("gpt"), "gpt-6.2-sol");
-  assert.equal(routineTurnForNew(p), true, "どれも1件になった");
-  // じっくり案件・作ったツールがある案件・LP・設定でオフ・ルーティンがない → 番にしない
+  // ルーティンが何件作っていても、AIの担当が0件でも、ルーティンのまま（前の交代の数え方はやめた）
+  for (let i = 0; i < 3; i++) db().prepare("UPDATE projects SET tool_maker = 'claude-code' WHERE id = ?").run(addTool(`ルーティン${i}`));
+  assert.equal(routineTurnForNew(p), true);
+  // じっくり案件・作ったツールがある案件・LP → ここでは決めない
   assert.equal(routineTurnForNew({ ...p, deep: 1 }), false);
   assert.equal(routineTurnForNew({ ...p, lp: "{}" }), false);
   assert.equal(routineTurnForNew({ ...p, kind: "lp" }), false);
+  // 設定でオフ・止めるスイッチ・ルーティンにつながっていない → AI が書く
   saveSettings({ toolRoutineNormal: false });
   assert.equal(routineTurnForNew(p), false);
-  saveSettings({ toolRoutineNormal: true });
+  saveSettings({ toolRoutineNormal: true, killSwitch: true });
+  assert.equal(routineTurnForNew(p), false);
+  saveSettings({ killSwitch: false });
   delete process.env.CLAUDE_TOOL_ROUTINE_TOKEN;
   assert.equal(routineTurnForNew(p), false);
-  configure();
-  // 入れた日より前に作り始めた案件は、番にしない
-  assert.equal(routineTurnForNew({ ...p, created_at: "2026-11-20 23:00:00" }), false);
-  // 一度ルーティンの番にした案件は、数がずれても、ルーティンのまま（やり直したとき）
-  db().prepare("UPDATE projects SET tool_maker = 'claude-code' WHERE id = ?").run(addTool("ルーティン2"));
-  assert.equal(routineTurnForNew(p), false, "ルーティン2件・AI各1件");
+  // 一度ルーティンに作ってもらうと決めた案件は、設定やつながりが変わっても、ルーティンのまま（やり直したとき）
   assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code" }), true);
-  // 番にしたあとで、設定をオフにしても・ルーティンのつながりが切れても、ルーティンのまま
   saveSettings({ toolRoutineNormal: false });
   assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code" }), true);
   saveSettings({ toolRoutineNormal: true });
-  delete process.env.CLAUDE_TOOL_ROUTINE_FIRE_URL;
-  assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code" }), true);
   configure();
-  // いまの版が空でも、過去にツールの版がある案件は番にしない（番にした案件でも）
+  // いまの版が空でも、過去にツールの版がある案件は新しいツールではない（ルーティンにすると決めた案件でも）
   const had = addTool("過去に版がある");
   aiVersion(had, "claude-opus-5-5");
   assert.equal(routineTurnForNew({ ...p, id: had }), false);
   assert.equal(routineTurnForNew({ ...p, id: had, tool_maker: "claude-code" }), false);
-  // ただし、ツールがある・じっくり案件は、これまでどおり番にしない
-  assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code", lp: "{}" }), false);
-  assert.equal(routineTurnForNew({ ...p, tool_maker: "claude-code", deep: 1 }), false);
-  // この仕組みを入れた日より前に作り始めた案件は数えない（前からの数で比べると、追いつくまでルーティンばかりになる）
-  db().prepare("UPDATE projects SET created_at = '2026-11-01 00:00:00' WHERE title IN ('opus', 'sonnet', 'gpt')").run();
-  assert.equal(routineTurnForNew(p), false, "比べるAIの数は0件に戻り、ルーティンは2件");
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+});
+
+test("通常案件のルーティン: 直しは、いまのツールを書いた担当がする（ルーティンが書いたものだけ、ルーティンに頼む）", () => {
+  configure();
+  db().exec("DELETE FROM lp_versions; DELETE FROM approvals; DELETE FROM projects");
+  const byRoutine = addTool("ルーティンが書いた");
+  aiVersion(byRoutine, "claude-code");
+  const byAi = addTool("AI が書いた");
+  aiVersion(byAi, "claude-sonnet-5-5");
+  // AI が書いたあと、チェックで止まってルーティンが直した → いまのツールはルーティンが書いたもの
+  const fixed = addTool("AI が書きルーティンが直した");
+  aiVersion(fixed, "gpt-6.2-sol", 1);
+  aiVersion(fixed, "claude-code", 2);
+  // いちばん新しい版に担当の記録がなければ、前の版の担当にさかのぼらない（AI が直す）
+  const unknown = addTool("新しい版の担当が分からない");
+  aiVersion(unknown, "claude-code", 1);
+  db().prepare("INSERT INTO lp_versions (project_id, version, lp, tool_model) VALUES (?, 2, '{}', NULL)").run(unknown);
+  const q = (id: number) => ({ id, kind: "tool" as const, deep: 0, lp: "{}" });
+  assert.equal(routineFixTurn(q(byRoutine)), true);
+  assert.equal(routineFixTurn(q(byAi)), false);
+  assert.equal(routineFixTurn(q(fixed)), true);
+  assert.equal(routineFixTurn(q(unknown)), false);
+  // まだツールがない・じっくり案件（別の流れで、いつもルーティン）・LP → ここでは決めない
+  assert.equal(routineFixTurn({ ...q(byRoutine), lp: null }), false);
+  assert.equal(routineFixTurn({ ...q(byRoutine), deep: 1 }), false);
+  assert.equal(routineFixTurn({ ...q(byRoutine), kind: "lp" }), false);
+  // 設定でオフ・止めるスイッチ・ルーティンにつながっていない → AI が直す
+  saveSettings({ toolRoutineNormal: false });
+  assert.equal(routineFixTurn(q(byRoutine)), false);
+  saveSettings({ toolRoutineNormal: true, killSwitch: true });
+  assert.equal(routineFixTurn(q(byRoutine)), false);
+  saveSettings({ killSwitch: false });
+  delete process.env.CLAUDE_TOOL_ROUTINE_FIRE_URL;
+  assert.equal(routineFixTurn(q(byRoutine)), false);
+  configure();
+});
+
+test("通常案件のルーティン: ルーティンが書いたツールを直す指示は、AIが書かずに開発待ちにし、ルーティンに頼む対象になる（最初は AI が作った案件でも）", async () => {
+  configure();
+  delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.OPENAI_API_KEY;
+  db().exec("DELETE FROM lp_versions; DELETE FROM approvals; DELETE FROM projects");
+  // 最初は AI（GPT）が作り、チェックで止まってルーティンが直した案件（tool_maker は空のまま）
+  const id = addTool("AI が作りルーティンが直したツール");
+  db().prepare("UPDATE projects SET lp = '{}', lp_version = 2, stage = 'lp' WHERE id = ?").run(id);
+  aiVersion(id, "gpt-6.2-sol", 1);
+  aiVersion(id, "claude-code", 2);
+  // AIを呼ばずに試すため、前の設計書を置いておく
+  db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason, status, payload) VALUES (?, 'dev', '前', '前', 'done', ?)").run(id, JSON.stringify({ design: "## 一言で\n小さな計算", instruction: null }));
+  await prepareLp(id, "ボタンの文言を短くする", { keepCore: true, byHuman: true });
+  const dev = db().prepare("SELECT proposal, payload FROM approvals WHERE project_id = ? AND kind = 'dev' AND status = 'pending'").get(id) as { proposal: string; payload: string } | undefined;
+  assert.ok(dev);
+  assert.match(dev.proposal, /Claude Code で直す/);
+  assert.equal((JSON.parse(dev.payload) as { instruction: string }).instruction, "ボタンの文言を短くする");
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM lp_versions WHERE project_id = ?").get(id) as { n: number }).n, 2, "AI は新しい版を書かない");
+  assert.equal(getProject(id)!.tool_maker, null);
+  // ルーティンに自動で頼むときに選ばれる（つながっていて、自動で頼む設定がオン）
+  const calls: string[] = [];
+  const n = await autoToolRoutine({ fetchImpl: async (url: string) => { calls.push(url); return new Response(JSON.stringify({ claude_code_session_url: "https://claude.ai/code/x" }), { status: 200 }); } });
+  assert.equal(n, 1);
+  assert.equal(calls.length, 1);
+  assert.ok((db().prepare("SELECT routine_at FROM approvals WHERE project_id = ? AND kind = 'dev' AND status = 'pending'").get(id) as { routine_at: string | null }).routine_at);
+  // 次のテストが案件を消せるように、この案件の記録を片付ける
+  db().prepare("DELETE FROM events WHERE project_id = ?").run(id);
 });
 
 test("通常案件のルーティン: 番のときは、AIが書かずに開発待ちにし、じっくり案件の開発待ちの上限には数えない", async () => {

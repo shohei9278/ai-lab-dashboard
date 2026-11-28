@@ -176,7 +176,7 @@ export default async function Showcase() {
           <article className="card space-y-2 p-4 text-sm">
             <h3 className="font-bold">作り込むツールを、Claude Code が作る</h3>
             <Chips items={BUILD_FLOW} />
-            <p className="text-ink-2">AIが1回で書くと長さで切れやすい作り込むツールは、AIが設計書を書き、クラウドの Claude Code が本物のブラウザで動かして確かめながら作ります。通常のツールも、書く担当（Claude Opus・Claude Sonnet・GPT）の交代に4つ目として入り、「1回で書くAI」と「直しながら作る Claude Code」を、同じチェックと公開の結果で比べています。公開前のチェックで止まったツールは、まず Claude Code が直します。</p>
+            <p className="text-ink-2">AIが1回で書くと長さで切れやすい作り込むツールは、AIが設計書を書き、クラウドの Claude Code が本物のブラウザで動かして確かめながら作ります。通常のツールも、11/28 から、Claude Code につながっているときは Claude Code が作り、Claude Code が作ったツールを直す指示も Claude Code がします。AIが前に書いたツールの直しと、数字を見て自動で直す改善は、AIが1回で書き直します（それまでは、書く担当の Claude Opus・Claude Sonnet・GPT の交代に4つ目として Claude Code が入り、1回で書くAIと比べていました）。公開前のチェックで止まったツールは、まず Claude Code が直します。</p>
             {routine.tools > 0 && <p className="num text-xs text-muted">Claude Code が作ったツール {routine.tools}件・公開 {routine.published}件（うち人の承認なし {routine.autoPublished}件）</p>}
           </article>
           <article className="card space-y-2 p-4 text-sm">

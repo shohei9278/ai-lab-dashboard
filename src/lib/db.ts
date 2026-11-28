@@ -951,7 +951,7 @@ export type Settings = {
   toolRoutineConcurrent: number;
   toolRoutinePerDay: number;
   toolRoutineFixHeld: boolean;
-  toolRoutineNormal: boolean; // 通常案件の新しいツールも、ツールを書く担当の交代の1つとしてルーティンに作ってもらうか（loop.ts の routineTurnForNew） // 公開の前のチェックで止まったツールを、ルーティンに直してもらうか（toolRoutine.ts の heldToRoutine）
+  toolRoutineNormal: boolean; // 通常案件のツールもルーティンに作ってもらうか（新しいツールと、ルーティンが作ったツールの直し。loop.ts の routineTurnForNew・routineFixTurn。オフなら AI が1回で書く） // 公開の前のチェックで止まったツールを、ルーティンに直してもらうか（toolRoutine.ts の heldToRoutine）
   // アイデア出しのねらいの配分（重み。0〜10）。広がる・役に立つ・また来てもらう・需要を確かめる
   aimSpread: number;
   aimUseful: number;
@@ -1089,7 +1089,7 @@ const DEFAULTS: Settings = {
   deepDevWaitMax: 2,
   toolRoutineAuto: true,
   toolRoutineConcurrent: 1,
-  toolRoutinePerDay: 3,
+  toolRoutinePerDay: 6, // 11/28 に3から6にした（通常案件の新しいツールも全部ルーティンが作り、ルーティンが作ったツールの直しも頼むようにしたため。運営者が決めた）
   toolRoutineFixHeld: true,
   toolRoutineNormal: true,
   needsWaitMax: 5,
