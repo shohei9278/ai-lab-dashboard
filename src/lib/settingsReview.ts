@@ -22,6 +22,7 @@ export const REVIEWABLE: Partial<Record<keyof Settings, { label: string; min: nu
   spreadJudgeDays: { label: "「広がる」を判定するまでの日数", min: 1, max: 14 },
   spreadHitPlays: { label: "「広がる」の当たりの基準（遊んだ人）", min: 1, max: 100_000 },
   spreadHitShares: { label: "「広がる」の当たりの基準（シェア）", min: 1, max: 100_000 },
+  spreadMinVisits: { label: "「広がる」を判定するのに要る訪問（届かなければ1回延ばす）", min: 0, max: 100_000 },
   aimSpread: { label: "ねらいの配分（広がる）", min: 0, max: 10 },
   aimUseful: { label: "ねらいの配分（役に立つ）", min: 0, max: 10 },
   aimReturn: { label: "ねらいの配分（また来てもらう）", min: 0, max: 10 },
@@ -51,7 +52,7 @@ export function settingsReviewText(s: Settings = getSettings()): string {
     const b = aimBasis(a, s);
     const ps = projects.filter((p) => judgeAim(p) === a);
     // 「広がる」は、育てる段階の前は遊んだ人とシェアで当たりを判定するので、その基準と当たった数も並べる（提案箱 #107）
-    const spreadHead = a === "spread" ? `当たりの判定 公開から${s.spreadJudgeDays}日で遊んだ人${s.spreadHitPlays}人かシェア${s.spreadHitShares}件・当たったのは${ps.filter((p) => p.spread_hit === 1).length}件（外れ${ps.filter((p) => p.spread_hit === 0).length}件）・当たったあとの` : "";
+    const spreadHead = a === "spread" ? `当たりの判定 公開から${s.spreadJudgeDays}日で遊んだ人${s.spreadHitPlays}人かシェア${s.spreadHitShares}件（訪問${s.spreadMinVisits}人に届かなければ1回延ばす。延ばしたのは${ps.filter((p) => p.spread_extended).length}件。提案箱 #106）・当たったのは${ps.filter((p) => p.spread_hit === 1).length}件（外れ${ps.filter((p) => p.spread_hit === 0).length}件）・当たったあとの` : "";
     if (!ps.length) return `- ${AIMS[a].label}: ${spreadHead}基準 訪問${b.visits}人か${b.days}日${b.own ? "" : "（一括の値）"}・直近60日に公開した案件なし`;
     // 届いたかは、表示しているねらいの基準で、実際の判断と同じく版ごとの訪問で見る（案件ごとに調整した基準や、版をまたいだ合計では数えない。PR #209 の ai-review の指摘）
     // 届くまでの日数は、公開日と届いた日を日本時間の日付どうしで比べる

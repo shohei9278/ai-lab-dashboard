@@ -842,6 +842,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "tool_maker", "TEXT"], // 通常案件の最初のツールを、クラウドの Claude Code（ルーティン）に作ってもらうと決めたとき 'claude-code'（loop.ts の routineTurnForNew）
   ["projects", "tool_errors_seen", "TEXT"], // 本番のツールのエラーを、どの版で何人まで知らせたか（{"v":版,"n":人数} の JSON。増えたときだけ知らせる）
   ["projects", "spread_hit", "INTEGER"], // 「広がる」の判定の結果（1 当たり / 0 当たらず。判定前は空）
+  ["projects", "spread_extended", "TEXT"], // 「広がる」の判定を、訪問が少ないので延ばしたときの、判定の起点（UTC の日時）。起点が変われば（判断・再開）また1回延ばせる（提案箱 #106）
   ["projects", "needs", "TEXT"], // じっくり案件で、作るのに要るもの（保存の場所・外部のAPI・AIなど。needs.ts の Need の JSON）。なければ空
   ["projects", "needs_done", "INTEGER NOT NULL DEFAULT 0"], // 要るものを人が用意した（「済み」）か。0 のあいだは、作り始める前に止めておく
   ["projects", "needs_done_at", "TEXT"], // 人の作業待ちを「済み」にして作り始めた日時（じっくり案件の週の上限は、この日から数える）
@@ -940,6 +941,7 @@ export type Settings = {
   spreadJudgeDays: number; // 「広がる」の案件を、公開（または前回の判断・再開）から何日で判定するか
   spreadHitPlays: number; // 「広がる」の当たりの基準: 遊んだ人の数（これ以上か、シェアが基準以上なら当たり）
   spreadHitShares: number; // 「広がる」の当たりの基準: シェアの数
+  spreadMinVisits: number; // 「広がる」の判定の日に、判定の起点からの訪問がこれに届かず当たってもいなければ、1回だけ spreadJudgeDays 延ばす（提案箱 #106）
   maxAutoImprove: number; // 自動モードで、人の承認なしにLPを改善してよい回数
   staleDays: number; // この日数放置された承認待ちは見送りにする
   deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）
@@ -1083,6 +1085,7 @@ const DEFAULTS: Settings = {
   spreadJudgeDays: 3,
   spreadHitPlays: 20,
   spreadHitShares: 3,
+  spreadMinVisits: 20,
   maxAutoImprove: 2,
   staleDays: 7,
   deepPerWeek: 3,
@@ -1220,6 +1223,7 @@ export type ProjectRow = {
   spread_base_shares: number;
   spread_base_at: string | null; // 上の累計を覚えた日時（UTC）
   spread_hit: number | null; // 「広がる」の判定の結果（1 当たり / 0 当たらず）
+  spread_extended: string | null; // 「広がる」の判定を延ばしたときの、判定の起点（UTC の日時）
   tool_errors_seen: string | null;
   tool_maker: string | null; // 本番のツールのエラーを、どの版で何人まで知らせたか
   needs: string | null; // 作るのに要るもの（Need[] の JSON）

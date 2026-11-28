@@ -94,6 +94,7 @@ export async function POST(req: Request) {
     ["spreadJudgeDays", 1, 14],
     ["spreadHitPlays", 1, 100_000],
     ["spreadHitShares", 1, 100_000],
+    ["spreadMinVisits", 0, 100_000],
     ["maxAutoImprove", 0, 10],
     ["autoPublishPerWeek", 0, 50],
     ["autoPostPerDay", 1, 10],
