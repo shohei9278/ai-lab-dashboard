@@ -24,6 +24,7 @@ import { TOOL_AI_INPUT_MAX, TOOL_AI_WAIT_MS } from "./toolAi";
 //   ページの側で許可を求めるので、iPhone でも使える。ページが答えないときは 20秒で "unavailable"
 // - その場で AI を呼べるツールは window.labAi.ask(入力) で、ページの側に頼む（toolAi.ts。人が許して承認したツールだけ、ページが公開サイトのサーバーに中継する）
 //   答えは { ok: true, text } か { ok: false, reason }（unavailable: 使えない・limit: 今日はここまで・invalid: 入力がおかしい・failed: うまくいかなかった）。ページが答えないときは TOOL_AI_WAIT_MS で failed
+//   入力が文字列でない・TOOL_AI_INPUT_MAX 文字を超えるときは、切らずに invalid（PR #241 の ai-review の指摘）。形の違う答えは failed
 // fonts: Google Fonts を使ってよいとき、読み込めるのはその2か所の CSS と文字の形だけ
 // imgOrigins: このツールの紹介イラストと、人が入れた画像（素材）を置いている場所（https のときだけ。画像の読み込みだけを許す）。ほかへの通信は止めたまま
 function csp(fonts: boolean, imgOrigins: string[]): string {
@@ -68,7 +69,7 @@ var mp=null;window.labMotion={request:function(){if(mp)return mp;mp=new Promise(
 function sreq(m){return new Promise(function(ok){if(parent===window){ok(null);return}var id=++sq,t=setTimeout(function(){delete sw[id];ok(null)},1500);sw[id]=function(d){clearTimeout(t);ok(d)};m.id=id;parent.postMessage(m,"*")})}
 window.labStore={get:function(){return sreq({__lab:"store-get"}).then(function(d){if(!d||!d.ok||typeof d.value!=="string")return null;try{return JSON.parse(d.value)}catch(x){return null}})},
 set:function(v){var s;try{s=JSON.stringify(v)}catch(x){return Promise.resolve(false)}if(typeof s!=="string"||s.length>${TOOL_STORE_MAX})return Promise.resolve(false);return sreq({__lab:"store-set",value:s}).then(function(d){return !!(d&&d.ok)})}};
-var R=["unavailable","limit","invalid","failed"];window.labAi={ask:function(t){return new Promise(function(ok){if(parent===window||typeof t!=="string"){ok({ok:false,reason:typeof t!=="string"?"invalid":"unavailable"});return}var id=++sq,w=setTimeout(function(){delete sw[id];ok({ok:false,reason:"failed"})},${TOOL_AI_WAIT_MS});sw[id]=function(d){clearTimeout(w);if(d.ok===true&&typeof d.text==="string")ok({ok:true,text:d.text});else ok({ok:false,reason:R.indexOf(d.reason)>=0?d.reason:"failed"})};parent.postMessage({__lab:"ai-ask",id:id,input:t.slice(0,${TOOL_AI_INPUT_MAX})},"*")})}};})();</script>`;
+var R=["unavailable","limit","invalid","failed"];window.labAi={ask:function(t){return new Promise(function(ok){if(typeof t!=="string"||t.length>${TOOL_AI_INPUT_MAX}){ok({ok:false,reason:"invalid"});return}if(parent===window){ok({ok:false,reason:"unavailable"});return}var id=++sq,w=setTimeout(function(){delete sw[id];ok({ok:false,reason:"failed"})},${TOOL_AI_WAIT_MS});sw[id]=function(d){clearTimeout(w);if(d.ok===true&&typeof d.text==="string")ok({ok:true,text:d.text});else if(d.ok===false&&R.indexOf(d.reason)>=0)ok({ok:false,reason:d.reason});else ok({ok:false,reason:"failed"})};parent.postMessage({__lab:"ai-ask",id:id,input:t},"*")})}};})();</script>`;
 
 // data: じっくり案件の、人が確かめたデータ。ツールより先に window.labData として置く（通信せずに読める）
 // fonts: Google Fonts を使ってよいか

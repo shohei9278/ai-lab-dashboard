@@ -1,8 +1,9 @@
+import crypto from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { getToolAiSpec, supabase } from "@/lib/supabase";
 import { answerToolAi, ModelCallError, type ModelCall, type ModelResult } from "@/lib/toolAiServer";
-import { TOOL_AI_CALL_TIMEOUT_MS, TOOL_AI_MODEL } from "@/lp/toolAi";
+import { TOOL_AI_CALL_TIMEOUT_MS, TOOL_AI_LIVE, TOOL_AI_MODEL } from "@/lp/toolAi";
 
 // その場で AI を呼ぶツールの頼み（window.labAi.ask）に答える（toolAiServer.ts。docs/design-tool-limits.md の ③）
 // AI のキーは、公開サイトの変数 TOOL_AI_ANTHROPIC_API_KEY にだけ置く（ダッシュボードとは別のキー。運営者が Console で使える額の上限を付ける）
@@ -40,13 +41,25 @@ async function callModel(c: ModelCall): Promise<ModelResult> {
   }
 }
 
+// 接続元の印: 日本時間の日付と、サーバーだけが持つ値で混ぜた IP のハッシュ（IP そのものは残さない。日が替わると別の印になる）
+// Supabase には1日分だけ残し、次の日に消す（reserve_tool_ai）。IP が分からなければ null
+function ipHashOf(req: Request): string | null {
+  const ip = (req.headers.get("x-forwarded-for")?.split(",")[0] ?? req.headers.get("x-real-ip") ?? "").trim();
+  const secret = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!ip || !secret) return null;
+  const day = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+  return crypto.createHmac("sha256", secret).update(`tool-ai|${day}|${ip}`).digest("hex").slice(0, 32);
+}
+
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
   const answer = await answerToolAi(body, {
+    live: TOOL_AI_LIVE,
+    ipHash: ipHashOf(req),
     spec: (slug, version) => getToolAiSpec(slug, version).catch(() => null),
     reserve: async (r) => {
       if (!anthropic()) return null;
-      const { data, error } = await supabase().rpc("reserve_tool_ai", { p_slug: r.slug, p_version: r.version, p_visitor: r.visitorId, p_amount: r.amountJpy });
+      const { data, error } = await supabase().rpc("reserve_tool_ai", { p_slug: r.slug, p_version: r.version, p_visitor: r.visitorId, p_ip: r.ipHash, p_amount: r.amountJpy });
       if (error) { console.error("tool-ai: reserve", error.code); return null; }
       const n = typeof data === "string" ? Number(data) : data;
       return typeof n === "number" && Number.isSafeInteger(n) && n > 0 ? n : null;

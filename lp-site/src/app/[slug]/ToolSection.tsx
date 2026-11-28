@@ -8,16 +8,13 @@ import { toolErrorDetail } from "@/lp/toolErrors";
 import type { ToolImages } from "@/lp/content";
 import { lpButtonClass, lpButtonStyle } from "@/lp/LpView";
 import { isExcluded, visitorId } from "./visitor";
-import { TOOL_AI_REASONS, type ToolAiAnswer } from "@/lp/toolAi";
+import { toolAiAnswerOf, type ToolAiAnswer } from "@/lp/toolAi";
 
 // その場で AI を呼べるツール（人が許して承認したもの）の頼みを、公開サイトのサーバーに中継する（/api/tool-ai）
 // 答えの形が違えば failed にする（サーバーの答えをそのまま枠に渡さない）
 async function askToolAi(slug: string, version: number, input: string): Promise<ToolAiAnswer> {
   const res = await fetch("/api/tool-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug, version, visitorId: visitorId(), input }) }).catch(() => null);
-  const d = (await res?.json().catch(() => null)) as Record<string, unknown> | null;
-  if (d?.ok === true && typeof d.text === "string") return { ok: true, text: d.text };
-  const reason = TOOL_AI_REASONS.find((r) => r === d?.reason);
-  return { ok: false, reason: reason ?? "failed" };
+  return toolAiAnswerOf(await res?.json().catch(() => null));
 }
 
 function record(slug: string, version: number, kind: "use" | "share") {

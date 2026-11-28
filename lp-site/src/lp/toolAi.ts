@@ -38,6 +38,10 @@ export function toolAiSpecOf(v: unknown): ToolAiSpec | string {
 // ツールのコードが、その場で AI を呼ぶ窓口を使っているか
 export const usesToolAi = (html: string): boolean => /\blabAi\b/.test(html);
 
+// 「その場でAIを呼ぶ」を使えるようにしたか。false のあいだは、公開サイトのサーバー（/api/tool-ai）が、どんな頼みにも unavailable と答える
+// （人が承認した指示が公開の中身にあっても、AI を呼ばない。ダッシュボードの needs.ts の ready と一緒に true にする。PR #241 の ai-review の指摘）
+export const TOOL_AI_LIVE = false;
+
 // ---- AI を呼ぶときの費用（公開サイトのサーバー /api/tool-ai。docs/design-tool-limits.md の ③） ----
 // モデルは Claude Haiku 5.5（運営者が決めた）。料金は 100万トークンあたり入力 0.10ドル・出力 0.50ドル（入力が10万トークンまで）
 export const TOOL_AI_MODEL = "claude-haiku-5-5";
@@ -60,7 +64,8 @@ export const tokensCostJpy = (input: number, output: number) =>
 export function maxCostJpy(spec: ToolAiSpec, inputChars: number): number {
   const answerIn = (spec.instruction.length + inputChars) * TOKENS_PER_CHAR + PROMPT_OVERHEAD_TOKENS;
   const answerOut = answerMaxTokens(spec.outputMax);
-  const checkIn = (inputChars + spec.outputMax) * TOKENS_PER_CHAR + PROMPT_OVERHEAD_TOKENS;
+  // 確かめる呼び出しには、見せる文（答え）だけを渡す
+  const checkIn = spec.outputMax * TOKENS_PER_CHAR + PROMPT_OVERHEAD_TOKENS;
   return tokensCostJpy(answerIn + checkIn, answerOut + CHECK_MAX_TOKENS);
 }
 
@@ -71,3 +76,13 @@ export const TOOL_AI_REASONS = ["unavailable", "limit", "invalid", "failed"] as 
 export const TOOL_AI_WAIT_MS = 45_000;
 // 公開サイトのサーバーが AI の会社の答えを待つ長さ（1回ごと。ミリ秒）
 export const TOOL_AI_CALL_TIMEOUT_MS = 15_000;
+
+// 公開サイトのサーバーの答えを、枠に渡す形にそろえる。成功は ok が true で text が文字列のときだけ、
+// 失敗は ok が false で決まった理由のときだけ受け取り、ほかの形はすべて failed にする（PR #241 の ai-review の指摘）
+export function toolAiAnswerOf(d: unknown): ToolAiAnswer {
+  if (!d || typeof d !== "object") return { ok: false, reason: "failed" };
+  const o = d as Record<string, unknown>;
+  if (o.ok === true && typeof o.text === "string") return { ok: true, text: o.text };
+  const reason = o.ok === false ? TOOL_AI_REASONS.find((r) => r === o.reason) : undefined;
+  return { ok: false, reason: reason ?? "failed" };
+}

@@ -2,8 +2,8 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { launch } from "../src/lib/freePage";
-import { answerToolAi, ModelCallError, parseToolAiRequest, type ModelCall, type ModelResult, type ToolAiDeps } from "../lp-site/src/lib/toolAiServer";
-import { TOOL_AI_JPY_PER_USD, maxCostJpy, tokensCostJpy } from "../lp-site/src/lp/toolAi";
+import { answerToolAi, checkPassed, ModelCallError, parseToolAiRequest, type ModelCall, type ModelResult, type ToolAiDeps } from "../lp-site/src/lib/toolAiServer";
+import { TOOL_AI_INPUT_MAX, TOOL_AI_JPY_PER_USD, TOOL_AI_LIVE, maxCostJpy, tokensCostJpy, toolAiAnswerOf } from "../lp-site/src/lp/toolAi";
 import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 
 // 公開サイトのサーバーで、その場で AI を呼ぶ（docs/design-tool-limits.md の ③）。AI と Supabase は差し替えて確かめる（お金はかからない）
@@ -11,15 +11,18 @@ import { wrapToolHtml } from "../lp-site/src/lp/toolHtml";
 const spec = { instruction: "名前に、やさしいあだ名を1つ付ける", inputMax: 20, outputMax: 40 };
 const body = { slug: "p90", version: 3, visitorId: "0b6f1c2e-1111-4a5b-9c3d-123456789abc", input: "たろう" };
 
-function fakeDeps(o: { spec?: typeof spec | null; reserve?: number | null; results?: (ModelResult | Error)[] } = {}) {
+function fakeDeps(o: { spec?: typeof spec | null; reserve?: number | null; results?: (ModelResult | Error)[]; live?: boolean; ipHash?: string | null } = {}) {
   const calls: ModelCall[] = [];
   const reserved: number[] = [];
+  const ips: string[] = [];
   const settled: [number, number | null][] = [];
   const logs: string[] = [];
   const results = [...(o.results ?? [{ text: "たろちゃん", inputTokens: 300, outputTokens: 10, refused: false }, { text: "OK", inputTokens: 200, outputTokens: 1, refused: false }])];
   const deps: ToolAiDeps = {
+    live: o.live ?? true,
+    ipHash: o.ipHash === undefined ? "abc" : o.ipHash,
     spec: async (slug, version) => (slug === body.slug && version === body.version ? (o.spec === undefined ? spec : o.spec) : null),
-    reserve: async (r) => { reserved.push(r.amountJpy); return o.reserve === undefined ? 7 : o.reserve; },
+    reserve: async (r) => { reserved.push(r.amountJpy); ips.push(r.ipHash); return o.reserve === undefined ? 7 : o.reserve; },
     settle: async (id, jpy) => { settled.push([id, jpy]); },
     call: async (c) => {
       calls.push(c);
@@ -30,7 +33,7 @@ function fakeDeps(o: { spec?: typeof spec | null; reserve?: number | null; resul
     },
     log: (m) => logs.push(m),
   };
-  return { deps, calls, reserved, settled, logs };
+  return { deps, calls, reserved, settled, logs, ips };
 }
 
 test("費用: 1回にかかりうる最大の額は、固定の指示と入力・答えの上限から出し、実際の額より大きい", () => {
@@ -79,7 +82,8 @@ test("答える: 答えてから見せてよいかを確かめ、実際の額で
   assert.equal(f.calls.length, 2);
   assert.ok(f.calls[0].system.includes(spec.instruction));
   assert.equal(f.calls[0].user, "たろう");
-  assert.ok(f.calls[1].user.includes("あ".repeat(40)));
+  // 確かめる呼び出しには、見せる文だけを渡す（訪問者の入力は渡さない）
+  assert.equal(f.calls[1].user, "あ".repeat(40));
   assert.deepEqual(f.settled, [[7, tokensCostJpy(300, 60) + tokensCostJpy(200, 1)]]);
   // 精算した額は、取っておいた額を超えない
   assert.ok(f.settled[0][1]! <= f.reserved[0]);
@@ -91,6 +95,8 @@ test("答える: 見せてよくない・AI が断った・答えが空なら fa
     [{ text: "", inputTokens: 1, outputTokens: 0, refused: true }],
     [{ text: "  ", inputTokens: 1, outputTokens: 1, refused: false }],
     [{ text: "x", inputTokens: 1, outputTokens: 1, refused: false }, { text: "", inputTokens: 1, outputTokens: 0, refused: true }],
+    [{ text: "x", inputTokens: 1, outputTokens: 1, refused: false }, { text: "OK ですが、念のため", inputTokens: 1, outputTokens: 3, refused: false }],
+    [{ text: "x", inputTokens: 1, outputTokens: 1, refused: false }, { text: "ok", inputTokens: 1, outputTokens: 1, refused: false }],
   ]) {
     const f = fakeDeps({ results });
     assert.deepEqual(await answerToolAi(body, f.deps), { ok: false, reason: "failed" });
@@ -124,7 +130,9 @@ test("枠の中の窓口: window.labAi.ask がページとやりとりして答�
         var a = await window.labAi.ask("たろう");
         var b = await window.labAi.ask("x");
         var c = await window.labAi.ask(3);
-        parent.postMessage({ result: { a: a, b: b, c: c } }, "*");
+        var d = await window.labAi.ask("${"x".repeat(TOOL_AI_INPUT_MAX + 1)}");
+        var e = await window.labAi.ask("ok-missing");
+        parent.postMessage({ result: { a: a, b: b, c: c, d: d, e: e } }, "*");
       };
     </script>`;
     // ページの側（ToolFrame と同じ答え方を、テストの中で再現する）
@@ -133,15 +141,51 @@ test("枠の中の窓口: window.labAi.ask がページとやりとりして答�
         var d = e.data, f = document.getElementById("f").contentWindow;
         if (e.source !== f || !d) return;
         if (d.result) { window.__result = d.result; return; }
-        if (d.__lab === "ai-ask") f.postMessage(d.input === "たろう" ? { __lab: "ai-answer", id: d.id, ok: true, text: "たろちゃん" } : { __lab: "ai-answer", id: d.id, ok: false, reason: "へんな理由" }, "*");
+        if (d.__lab === "ai-ask") f.postMessage(d.input === "たろう" ? { __lab: "ai-answer", id: d.id, ok: true, text: "たろちゃん" } : d.input === "ok-missing" ? { __lab: "ai-answer", id: d.id, reason: "limit" } : { __lab: "ai-answer", id: d.id, ok: false, reason: "へんな理由" }, "*");
       });
     </script>`);
     await page.locator("#f").evaluate((el, h) => { (el as HTMLIFrameElement).srcdoc = h; }, wrapToolHtml(tool));
     await page.waitForTimeout(300);
     await page.frames()[1].evaluate("window.run()");
     await page.waitForFunction("!!window.__result", null, { timeout: 5000 });
-    assert.deepEqual(await page.evaluate("window.__result"), { a: { ok: true, text: "たろちゃん" }, b: { ok: false, reason: "failed" }, c: { ok: false, reason: "invalid" } });
+    assert.deepEqual(await page.evaluate("window.__result"), { a: { ok: true, text: "たろちゃん" }, b: { ok: false, reason: "failed" }, c: { ok: false, reason: "invalid" }, d: { ok: false, reason: "invalid" }, e: { ok: false, reason: "failed" } });
   } finally {
     await browser.close();
+  }
+});
+
+test("使えるようにするまでは: どんな頼みにも unavailable と答え、額も取らず AI も呼ばない（PR #241 の ai-review の指摘）", async () => {
+  assert.equal(TOOL_AI_LIVE, false);
+  const f = fakeDeps({ live: false });
+  assert.deepEqual(await answerToolAi(body, f.deps), { ok: false, reason: "unavailable" });
+  assert.equal(f.reserved.length, 0);
+  assert.equal(f.calls.length, 0);
+});
+
+test("接続元: 印を額の先取りに渡す。分からなければ、みんなで1つの枠（unknown）を使う", async () => {
+  const f = fakeDeps({ ipHash: "h1" });
+  await answerToolAi(body, f.deps);
+  const g = fakeDeps({ ipHash: null });
+  await answerToolAi(body, g.deps);
+  assert.deepEqual([...f.ips, ...g.ips], ["h1", "unknown"]);
+});
+
+test("入力の長さ: 共通の上限を超える入力は、空白を除いて短くなっても invalid（切って送らない）", async () => {
+  const f = fakeDeps({ spec: { ...spec, inputMax: TOOL_AI_INPUT_MAX } });
+  assert.deepEqual(await answerToolAi({ ...body, input: `たろう${" ".repeat(TOOL_AI_INPUT_MAX)}` }, f.deps), { ok: false, reason: "invalid" });
+  assert.equal(f.reserved.length, 0);
+});
+
+test("確かめの答え: 前後の空白を除いて OK とぴったり同じときだけ通す", () => {
+  assert.equal(checkPassed("OK"), true);
+  assert.equal(checkPassed(" OK\n"), true);
+  for (const t of ["ok", "OK。", "OK ですが", "NG", "", "OKOK"]) assert.equal(checkPassed(t), false, t);
+});
+
+test("答えの形: 成功は ok が true で text が文字列、失敗は ok が false で決まった理由のときだけ。ほかは failed（PR #241 の ai-review の指摘）", () => {
+  assert.deepEqual(toolAiAnswerOf({ ok: true, text: "x" }), { ok: true, text: "x" });
+  assert.deepEqual(toolAiAnswerOf({ ok: false, reason: "limit" }), { ok: false, reason: "limit" });
+  for (const bad of [null, "x", { ok: true }, { reason: "limit" }, { ok: "false", reason: "limit" }, { ok: false, reason: "へんな理由" }, { ok: true, text: 3, reason: "limit" }]) {
+    assert.deepEqual(toolAiAnswerOf(bad), { ok: false, reason: "failed" }, JSON.stringify(bad));
   }
 });

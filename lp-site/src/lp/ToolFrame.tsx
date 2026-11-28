@@ -7,7 +7,7 @@ import { playDepth, type DepthEvent } from "./playDepth";
 import { fitScale } from "./inApp";
 import type { ToolImages } from "./content";
 import { wrapToolHtml } from "./toolHtml";
-import type { ToolAiAnswer } from "./toolAi";
+import { TOOL_AI_INPUT_MAX, type ToolAiAnswer } from "./toolAi";
 
 // AIが作ったツールを、隔離された枠（sandbox）の中で動かす（枠の中身の組み立ては toolHtml.ts）
 // - allow-same-origin を付けないので、ツールからはこのサイトの Cookie・保存領域・ページに触れない
@@ -101,7 +101,7 @@ export function ToolFrame({ html, title, onUse, onDepth, onError, data, fonts, i
         const id = e.data.id;
         const reply = (a: ToolAiAnswer) => ref.current?.contentWindow?.postMessage({ __lab: "ai-answer", id, ...a }, "*");
         if (!askAi) { reply({ ok: false, reason: "unavailable" }); return; }
-        if (typeof e.data.input !== "string") { reply({ ok: false, reason: "invalid" }); return; }
+        if (typeof e.data.input !== "string" || e.data.input.length > TOOL_AI_INPUT_MAX) { reply({ ok: false, reason: "invalid" }); return; }
         if (aiBusy.current) { reply({ ok: false, reason: "failed" }); return; }
         aiBusy.current = true;
         askAi(e.data.input).catch((): ToolAiAnswer => ({ ok: false, reason: "failed" })).then(reply).finally(() => { aiBusy.current = false; });

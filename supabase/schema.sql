@@ -107,7 +107,9 @@ alter table lp_views add column if not exists inapp text;
 -- 公開サイトのサーバー（/api/tool-ai）が、AI を呼ぶ前に1回分の最大の額を先に取っておき、終わったら実際の額で精算する
 -- 取るのと残りを確かめるのは reserve_tool_ai の1回の操作で行う（同時に呼ばれても上限を超えないよう、1つの鍵で順番にする）
 -- お金がかかったか分からない呼び出しは、取っておいた額のまま残す（spent_jpy が null なら reserved_jpy で数える）
--- 上限（1日100円・月3,100円・1ブラウザ1日10回）は、11/28 に運営者が決めた。止めるスイッチと、ダッシュボードの月の予算が残っているかは、ダッシュボードが tool_ai_settings に書く
+-- 上限（1日100円・月3,100円・1ブラウザ1日10回）は、11/28 に運営者が決めた。ブラウザの番号は訪問者の側で作るので、接続元（IP）の印でも1日30回までにする（11/29 に運営者が決めた）
+-- 接続元の印は、日替わりの値で混ぜた IP のハッシュ（IP そのものは残さない）。次の日の最初の予約で消す（1日分だけ数える）
+-- 止めるスイッチと、ダッシュボードの月の予算が残っているかは、ダッシュボードが tool_ai_settings に書く
 create table if not exists tool_ai_settings (
   id integer primary key check (id = 1),
   enabled boolean not null default false,       -- ダッシュボードの止めるスイッチが切れているとき true
@@ -115,6 +117,7 @@ create table if not exists tool_ai_settings (
   day_cap_jpy numeric not null default 100,
   month_cap_jpy numeric not null default 3100,
   visitor_day_max integer not null default 10,
+  ip_day_max integer not null default 30,
   updated_at timestamptz not null default now()
 );
 insert into tool_ai_settings (id) values (1) on conflict (id) do nothing;
@@ -125,6 +128,7 @@ create table if not exists tool_ai_uses (
   slug text not null references lps(slug),
   version integer not null,
   visitor_id text not null,
+  ip_hash text,                                 -- 接続元の印（その日のうちだけ。次の日に消す）
   day date not null default (now() at time zone 'Asia/Tokyo')::date,
   reserved_jpy numeric not null check (reserved_jpy > 0),
   spent_jpy numeric check (spent_jpy >= 0),
@@ -133,10 +137,11 @@ create table if not exists tool_ai_uses (
 );
 create index if not exists tool_ai_uses_day on tool_ai_uses (day);
 create index if not exists tool_ai_uses_visitor_day on tool_ai_uses (visitor_id, day);
+create index if not exists tool_ai_uses_ip_day on tool_ai_uses (ip_hash, day);
 alter table tool_ai_uses enable row level security;
 
--- 先に取っておく。取れたら番号、止まっている・上限を超える・回数を使い切ったときは null
-create or replace function reserve_tool_ai(p_slug text, p_version integer, p_visitor text, p_amount numeric) returns bigint
+-- 先に取っておく。取れたら番号、止まっている・公開中の同じ版で AI の指示があるツールでない・上限を超える・回数を使い切ったときは null
+create or replace function reserve_tool_ai(p_slug text, p_version integer, p_visitor text, p_ip text, p_amount numeric) returns bigint
 language plpgsql security definer set search_path = public as $$
 declare
   s tool_ai_settings;
@@ -144,17 +149,23 @@ declare
   used_day numeric;
   used_month numeric;
   n integer;
+  m integer;
   rid bigint;
 begin
-  if p_amount is null or p_amount <= 0 then return null; end if;
+  if p_amount is null or p_amount <= 0 or p_ip is null then return null; end if;
   perform pg_advisory_xact_lock(hashtext('tool_ai_budget'));
+  -- 前の日までの接続元の印は消す（1日分だけ数える）
+  update tool_ai_uses set ip_hash = null where day < d and ip_hash is not null;
+  -- 公開中の、同じ版の、人が承認した AI の指示があるツールだけ（サーバーで指示を読んだあとに、非公開・別の版になったときも取らない。PR #241 の ai-review の指摘）
+  if not exists (select 1 from lps where slug = p_slug and status = 'published' and version = p_version and jsonb_typeof(content->'tool'->'ai') = 'object') then return null; end if;
   select * into s from tool_ai_settings where id = 1;
   if not found or not s.enabled or not s.budget_ok then return null; end if;
   select coalesce(sum(coalesce(spent_jpy, reserved_jpy)), 0) into used_day from tool_ai_uses where day = d;
   select coalesce(sum(coalesce(spent_jpy, reserved_jpy)), 0) into used_month from tool_ai_uses where day >= date_trunc('month', d)::date;
   select count(*) into n from tool_ai_uses where day = d and visitor_id = p_visitor;
-  if used_day + p_amount > s.day_cap_jpy or used_month + p_amount > s.month_cap_jpy or n >= s.visitor_day_max then return null; end if;
-  insert into tool_ai_uses (slug, version, visitor_id, day, reserved_jpy) values (p_slug, p_version, p_visitor, d, p_amount) returning id into rid;
+  select count(*) into m from tool_ai_uses where day = d and ip_hash = p_ip;
+  if used_day + p_amount > s.day_cap_jpy or used_month + p_amount > s.month_cap_jpy or n >= s.visitor_day_max or m >= s.ip_day_max then return null; end if;
+  insert into tool_ai_uses (slug, version, visitor_id, ip_hash, day, reserved_jpy) values (p_slug, p_version, p_visitor, p_ip, d, p_amount) returning id into rid;
   return rid;
 end $$;
 
@@ -167,9 +178,9 @@ begin
 end $$;
 
 -- 呼べるのは、公開サイトとダッシュボードのサーバー（service_role）だけ
-revoke all on function reserve_tool_ai(text, integer, text, numeric) from public, anon, authenticated;
+revoke all on function reserve_tool_ai(text, integer, text, text, numeric) from public, anon, authenticated;
 revoke all on function settle_tool_ai(bigint, numeric) from public, anon, authenticated;
-grant execute on function reserve_tool_ai(text, integer, text, numeric) to service_role;
+grant execute on function reserve_tool_ai(text, integer, text, text, numeric) to service_role;
 grant execute on function settle_tool_ai(bigint, numeric) to service_role;
 
 -- 今月（日本時間）に使った額（円）。ダッシュボードが月の予算に数えるために読む
