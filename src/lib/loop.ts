@@ -380,7 +380,8 @@ genre には、アイデアのジャンルを短い言葉で書く（例: ${GENR
   for (const d of dropped) {
     logEvent(null, "system", "idea-aim-skip", `${modelId ? modelInfo(modelId).label : "AI"}の案「${String(d.idea.title).slice(0, 60)}」は、頼んだねらい（${aims.map((a) => AIMS[a].label).join("・")}）にない、または件数を超えた「${AIMS[d.aim].label}」だったため、候補にしませんでした`);
   }
-  return (deepOnly ? ideas.filter((x) => deepOf(x, allDeep)) : ideas).slice(0, count);
+  // 「作り込むツールだけ」を頼んだときは、全部じっくりのときも、作り込む所を書いた tool の案だけを残す（書いていない案は頼みに沿っていないため。PR #231 の ai-review の指摘）
+  return (deepOnly ? ideas.filter((x) => isDeepIdea(x)) : ideas).slice(0, count);
 }
 
 // explore: 実験枠の案か（explore.ts）。採点するAIに伝わらないように、Idea には入れず別に渡す
