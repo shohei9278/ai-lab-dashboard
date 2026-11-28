@@ -10,6 +10,7 @@ import { checkToolErrors } from "./funnel";
 import { autoRollback } from "./rollback";
 import { logEvent } from "./loop";
 import { classifySiteCategory, isSiteCategory, type SiteCategory } from "./siteCategory";
+import { aiAllowed, approvedAiSpec } from "./toolAi";
 
 // 公開用LPサイト（Vercel）とデータ（Supabase）をつなぐ部分。
 // Supabase の設定がなければ何もしない（今までどおり手入力・シミュレーションで動く）
@@ -39,6 +40,16 @@ async function categoryFor(p: ProjectRow): Promise<SiteCategory | null> {
   return classifySiteCategory(now);
 }
 
+// 公開する中身の、その場で AI を呼ぶ窓口の指示（toolAi.ts）。人が承認した、今のツールのコードの指示だけを入れる
+// LP の中身（AIが書いたもの）に紛れた ai は使わずに外す（許可は、ツールを作る流れからは変えられない。docs/design-tool-limits.md）
+export function withToolAi<T extends { tool?: Record<string, unknown> }>(p: Pick<ProjectRow, "id" | "needs" | "needs_done">, content: T): T {
+  if (!content.tool || typeof content.tool.html !== "string") return content;
+  const { ai: _ignored, ...tool } = content.tool;
+  void _ignored;
+  const spec = aiAllowed(p) ? approvedAiSpec(p.id, content.tool.html) : undefined;
+  return { ...content, tool: spec ? { ...tool, ai: spec } : tool };
+}
+
 // 今のLPの版を公開する（すでに公開中なら新しい版に差し替える）
 export async function publishLp(p: ProjectRow) {
   if (!publishingConfigured() || p.demo || !p.lp) return false;
@@ -52,7 +63,7 @@ export async function publishLp(p: ProjectRow) {
     // 公開サイトの一覧のカテゴリも、中身に入れて渡す（表の列は増やさない）
     // AIの判定に失敗しても公開は止めない（カテゴリなしで公開し、次に起動したときのそろえ直しで、また選ばせる）
     // shot は、ここで上げた写真だけにする（LPを書いたAIの出力に紛れたものは使わない）
-    content: { ...JSON.parse(p.lp), category: await categoryFor(p).catch(() => null), shot: shot ?? undefined },
+    content: withToolAi(p, { ...JSON.parse(p.lp), category: await categoryFor(p).catch(() => null), shot: shot ?? undefined }),
     status: "published",
     updated_at: new Date().toISOString(),
   });

@@ -22,6 +22,8 @@ export type ApprovalView = {
   data?: { id: number | null; count: number; groups: number; note: string; fields: { key: string; label: string; kind: "fact" | "view" }[]; sample?: Record<string, unknown>[]; error?: string; owner: boolean };
   // じっくり案件の開発待ち（Claude Code で作る）。設計書と依頼文は運営者にだけ入る
   dev?: { owner: boolean; design: string; request: string; instruction: string | null; hasData: boolean; hasTool: boolean; assets: { name: string; url: string; bytes: number }[]; routine: { configured: boolean; at: string | null; url: string | null; working: boolean; retryable: boolean } };
+  // 公開の承認で、その場で AI を呼ぶツールのAIへの指示（運営者にだけ入る）。承認すると、今のコードとこの指示の組み合わせを承認する
+  ai?: { instruction: string; inputMax: number; outputMax: number; approved: boolean };
   conv: { noun: string; rate: string }; // 成果の呼び方（事前登録LPは登録、動くツールは利用）
   decision?: { confidence: number; nextAction: string };
   review?: { ok: boolean; issues: string[] };
@@ -120,6 +122,19 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
               <Link href={`/lp/${a.project.id}/compare`} target="_blank" className="text-accent underline">公開中の第{a.project.publicVersion}版と見比べる ↗</Link>
             )}
           </span>
+          {a.ai && (
+            <div className="rounded-lg border border-line p-3 text-sm">
+              <p className="font-bold">その場で AI を呼ぶツールです</p>
+              <p className="mt-1 text-xs text-ink-2">
+                {a.ai.approved
+                  ? "このツールのコードとAIへの指示は、承認済みです。"
+                  : "公開を承認すると、このツールのコードと下のAIへの指示の組み合わせも承認します（コードか指示が変わったら、もう一度承認が要ります）。"}
+              </p>
+              <p className="mt-2 text-xs text-muted">AIへの指示（訪問者の入力に、どう答えるか）</p>
+              <p className="mt-1 whitespace-pre-wrap break-words rounded bg-surface-2 p-2 text-ink">{a.ai.instruction}</p>
+              <p className="mt-2 text-xs text-ink-2">訪問者の入力は{a.ai.inputMax}文字まで・答えは{a.ai.outputMax}文字まで</p>
+            </div>
+          )}
           {a.review && !a.review.ok && a.review.issues.length > 0 && (
             <AutoFix approvalId={a.id} issues={a.review.issues} isTool={a.project.kind === "tool"} deep={a.project.deep} />
           )}

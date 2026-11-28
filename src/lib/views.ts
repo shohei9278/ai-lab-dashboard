@@ -6,6 +6,16 @@ import { problemLabel } from "./aims";
 import { toolAssets } from "./toolAssets";
 import { sampleRows, type DeepSpec } from "./deep";
 import { autoWork, toolRoutineView } from "./toolRoutine";
+import { aiSpecFor, toolHtmlOf } from "./toolAi";
+
+// 公開の承認に出す、その場で AI を呼ぶツールのAIへの指示（toolAi.ts）。指示はAIが書いたものなので、運営者にだけ渡す
+// 承認すると、今のツールのコードとこの指示の組み合わせを承認する（承認済みなら approved）
+function aiView(projectId: number): ApprovalView["ai"] {
+  const p = db().prepare("SELECT lp FROM projects WHERE id = ?").get(projectId) as Pick<ProjectRow, "lp"> | undefined;
+  const html = p ? toolHtmlOf(p) : null;
+  const s = html ? aiSpecFor(projectId, html) : null;
+  return s ? { ...s.spec, approved: s.approved } : undefined;
+}
 
 // じっくり案件の開発待ちに出すもの。設計書と依頼文はAIの出力なので、運営者にだけ渡す
 function devView(projectId: number, payload: string | null, owner: boolean, a: Pick<ApprovalRow, "status" | "routine_at" | "routine_url">): ApprovalView["dev"] {
@@ -64,6 +74,7 @@ export function pendingApprovals(projectId?: number, owner = false, which: "all"
       },
       data: r.kind === "data" ? dataView(r.payload, owner) : undefined,
       dev: r.kind === "dev" ? devView(r.project_id, r.payload, owner, r) : undefined,
+      ai: r.kind === "publish" && owner ? aiView(r.project_id) : undefined,
       decision: d ? { confidence: d.confidence, nextAction: d.next_action } : undefined,
       review,
       totals: t ? { visits: t.visits, signups: t.signups, rate: t.rate, adSpendJpy: t.adSpendJpy, simulated: t.simulated } : undefined,

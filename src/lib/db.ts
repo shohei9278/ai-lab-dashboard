@@ -388,6 +388,16 @@ CREATE TABLE IF NOT EXISTS play_scripts (
   at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (project_id, html_hash)
 );
+-- その場で AI を呼ぶツールの、AIへの指示（toolAi.ts）。ツールのコード（html_hash）ごとに持つ
+-- approved_at: 人が公開を承認して、このコードとこの指示の組み合わせを承認した時刻（なければ、まだ承認していない）
+CREATE TABLE IF NOT EXISTS tool_ai_specs (
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  html_hash TEXT NOT NULL,
+  spec TEXT NOT NULL,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  approved_at TEXT,
+  PRIMARY KEY (project_id, html_hash)
+);
 
 -- 実験の記録の動画（運営者が不要と決めて、作る仕組みを外した。前に作った分の記録だけが残る）
 CREATE TABLE IF NOT EXISTS record_videos (
