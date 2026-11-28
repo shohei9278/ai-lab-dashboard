@@ -109,7 +109,7 @@ export default async function BingoPrizeBudgetGuide() {
           <h2 className="text-xl font-bold">自分の予算と人数で計算する（無料・登録不要）</h2>
           <p className="mt-2 text-sm text-ink-2">総予算・参加人数・当てる人数・配分の傾きを入れると、等ごとの金額と個数を割り振ります。</p>
           <div className="mt-4">
-            <ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} />
+            <ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} ai={!!tool.ai} />
           </div>
           <p className="mt-3 text-sm"><Link href={`/${lp.slug}`} className="underline">{lp.title}のページを開く</Link></p>
         </section>

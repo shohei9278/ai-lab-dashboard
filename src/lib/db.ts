@@ -942,6 +942,7 @@ export type ResultRow = {
 export type Settings = {
   monthlyBudgetJpy: number;
   usdJpy: number;
+  toolAiMonthJpy: number; // 今月、公開サイトのツールがその場で AI を呼んで使った額（円。Supabase から取り込む。toolAiSync.ts。月の予算に数える）
   killSwitch: boolean;
   loopModel: string; // 製品ループで使うAI
   adBudgetPerProjectJpy: number; // 1案件あたりの広告費上限
@@ -1042,6 +1043,7 @@ const DEFAULTS: Settings = {
   autopilotLevel: "normal",
   monthlyBudgetJpy: 10000,
   usdJpy: 150,
+  toolAiMonthJpy: 0,
   killSwitch: false,
   loopModel: "claude-opus-5-5",
   adBudgetPerProjectJpy: 10000,
@@ -1170,7 +1172,10 @@ export function monthSpendBreakdownUsd() {
   const loopRow = db()
     .prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_calls WHERE ${jstThisMonth("at")}`)
     .get() as { s: number };
-  return { eval: evalRow.s, loop: loopRow.s, total: evalRow.s + loopRow.s };
+  // 公開サイトのツールが、その場で AI を呼んで使った額も、月の予算に数える（円で取り込んでいるので、ドルに直す。toolAiSync.ts）
+  const st = getSettings();
+  const site = st.usdJpy > 0 ? st.toolAiMonthJpy / st.usdJpy : 0;
+  return { eval: evalRow.s, loop: loopRow.s, site, total: evalRow.s + loopRow.s + site };
 }
 
 // 今月の広告費（円）

@@ -8,6 +8,17 @@ import { toolErrorDetail } from "@/lp/toolErrors";
 import type { ToolImages } from "@/lp/content";
 import { lpButtonClass, lpButtonStyle } from "@/lp/LpView";
 import { isExcluded, visitorId } from "./visitor";
+import { TOOL_AI_REASONS, type ToolAiAnswer } from "@/lp/toolAi";
+
+// その場で AI を呼べるツール（人が許して承認したもの）の頼みを、公開サイトのサーバーに中継する（/api/tool-ai）
+// 答えの形が違えば failed にする（サーバーの答えをそのまま枠に渡さない）
+async function askToolAi(slug: string, version: number, input: string): Promise<ToolAiAnswer> {
+  const res = await fetch("/api/tool-ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug, version, visitorId: visitorId(), input }) }).catch(() => null);
+  const d = (await res?.json().catch(() => null)) as Record<string, unknown> | null;
+  if (d?.ok === true && typeof d.text === "string") return { ok: true, text: d.text };
+  const reason = TOOL_AI_REASONS.find((r) => r === d?.reason);
+  return { ok: false, reason: reason ?? "failed" };
+}
 
 function record(slug: string, version: number, kind: "use" | "share") {
   if (isExcluded()) return;
@@ -20,7 +31,9 @@ function record(slug: string, version: number, kind: "use" | "share") {
 }
 
 // ツール本体。最初に操作されたときに「使った」と記録する
-export function ToolSection({ slug, version, html, title, data, fonts, illustration, images, fill, fit }: { slug: string; version: number; html: string; title: string; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; fit?: boolean }) {
+// ai: その場で AI を呼べるツールか（公開の中身に、人が承認した AI の長さの上限があるとき）
+export function ToolSection({ slug, version, html, title, data, fonts, illustration, images, fill, fit, ai = false }: { slug: string; version: number; html: string; title: string; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; fit?: boolean; ai?: boolean }) {
+  const askAi = useCallback((input: string) => askToolAi(slug, version, input), [slug, version]);
   const onUse = useCallback(() => {
     record(slug, version, "use");
     gaEvent("tool_use", { lp_slug: slug, lp_version: version });
@@ -37,7 +50,7 @@ export function ToolSection({ slug, version, html, title, data, fonts, illustrat
     if (!value || isExcluded()) return;
     gaEvent("tool_error", { lp_slug: slug, lp_version: version, value });
   }, [slug, version]);
-  return <ToolFrame html={html} title={title} onUse={onUse} onDepth={onDepth} onError={onError} data={data} fonts={fonts} illustration={illustration} images={images} fill={fill} storeKey={slug} fit={fit} />;
+  return <ToolFrame html={html} title={title} onUse={onUse} onDepth={onDepth} onError={onError} data={data} fonts={fonts} illustration={illustration} images={images} fill={fill} storeKey={slug} fit={fit} askAi={ai ? askAi : undefined} />;
 }
 
 // シェアのボタン（X とリンクのコピー）

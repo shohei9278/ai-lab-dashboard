@@ -4,6 +4,7 @@ import { logEvent, resumeDueHolds, retryFailedPublishing, runDaily, syncAndJudge
 import { publishingConfigured, syncSiteCategories } from "./publish";
 import { maybeWeeklyMeeting } from "./weekly";
 import { maybeRefreshTrends } from "./trends";
+import { syncToolAiSettings } from "./toolAiSync";
 import { maybeAutoPost } from "./sns";
 import { syncComments } from "./snsComments";
 import { maybeDailyBackup, maybeOffsiteBackup } from "./backup";
@@ -26,7 +27,7 @@ import { notifyLongWaits } from "./waits";
 // アプリ（サーバー）が起動している間だけ動く。PCを閉じている間は動かず、次に起動したときに追いつく
 const CHECK_EVERY_MS = 5 * 60 * 1000;
 
-const g = globalThis as unknown as { __aiLabScheduler?: NodeJS.Timeout; __aiLabNextTick?: number; __aiLabTicking?: boolean; __aiLabSyncFails?: number; __aiLabCategorySynced?: boolean };
+const g = globalThis as unknown as { __aiLabScheduler?: NodeJS.Timeout; __aiLabNextTick?: number; __aiLabTicking?: boolean; __aiLabSyncFails?: number; __aiLabCategorySynced?: boolean; __aiLabToolAiSyncLogged?: boolean };
 
 export function startScheduler() {
   if (g.__aiLabScheduler) return;
@@ -53,6 +54,13 @@ async function tick() {
 
 async function tickNow() {
   resumeDueHolds(); // 再開日が来た保留の案件を、集客に戻す
+  // 公開サイトのツールがその場で AI を呼ぶときの、止めるスイッチと予算を伝える（toolAiSync.ts）
+  // Supabase の表・関数を足す前は失敗するので、起動してから1回だけ記録する（5分ごとにエラーを積まない）
+  await syncToolAiSettings().catch((e) => {
+    if (g.__aiLabToolAiSyncLogged) return;
+    g.__aiLabToolAiSyncLogged = true;
+    logEvent(null, "system", "tool-ai-sync-error", `その場で AI の止めるスイッチ・予算を公開サイトに伝えられませんでした（次からは記録しません）: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300));
+  });
   // 公開サイトの一覧のカテゴリを、起動したあとに1回そろえる（カテゴリを渡すようにする前に公開したページにも付ける）
   // 失敗しても毎回やり直さない（5分ごとにエラーを積まないため。次に起動したときにまたそろえる）
   if (!g.__aiLabCategorySynced && publishingConfigured()) {

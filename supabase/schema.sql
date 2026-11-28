@@ -102,3 +102,81 @@ alter table feedback enable row level security;
 -- ---- 追加（SNS のアプリの中のブラウザの計測用）。ここから下だけを実行すればよい ----
 -- どのアプリの中のブラウザで開いたか（x / instagram / line / other。アプリの外は ""、この列を足す前の訪問は空）
 alter table lp_views add column if not exists inapp text;
+
+-- ---- 追加（その場で AI を呼ぶツール）。ここから下だけを実行すればよい ----
+-- 公開サイトのサーバー（/api/tool-ai）が、AI を呼ぶ前に1回分の最大の額を先に取っておき、終わったら実際の額で精算する
+-- 取るのと残りを確かめるのは reserve_tool_ai の1回の操作で行う（同時に呼ばれても上限を超えないよう、1つの鍵で順番にする）
+-- お金がかかったか分からない呼び出しは、取っておいた額のまま残す（spent_jpy が null なら reserved_jpy で数える）
+-- 上限（1日100円・月3,100円・1ブラウザ1日10回）は、11/28 に運営者が決めた。止めるスイッチと、ダッシュボードの月の予算が残っているかは、ダッシュボードが tool_ai_settings に書く
+create table if not exists tool_ai_settings (
+  id integer primary key check (id = 1),
+  enabled boolean not null default false,       -- ダッシュボードの止めるスイッチが切れているとき true
+  budget_ok boolean not null default false,     -- ダッシュボードの今月のAI予算が残っているとき true
+  day_cap_jpy numeric not null default 100,
+  month_cap_jpy numeric not null default 3100,
+  visitor_day_max integer not null default 10,
+  updated_at timestamptz not null default now()
+);
+insert into tool_ai_settings (id) values (1) on conflict (id) do nothing;
+alter table tool_ai_settings enable row level security;
+
+create table if not exists tool_ai_uses (
+  id bigserial primary key,
+  slug text not null references lps(slug),
+  version integer not null,
+  visitor_id text not null,
+  day date not null default (now() at time zone 'Asia/Tokyo')::date,
+  reserved_jpy numeric not null check (reserved_jpy > 0),
+  spent_jpy numeric check (spent_jpy >= 0),
+  created_at timestamptz not null default now(),
+  settled_at timestamptz
+);
+create index if not exists tool_ai_uses_day on tool_ai_uses (day);
+create index if not exists tool_ai_uses_visitor_day on tool_ai_uses (visitor_id, day);
+alter table tool_ai_uses enable row level security;
+
+-- 先に取っておく。取れたら番号、止まっている・上限を超える・回数を使い切ったときは null
+create or replace function reserve_tool_ai(p_slug text, p_version integer, p_visitor text, p_amount numeric) returns bigint
+language plpgsql security definer set search_path = public as $$
+declare
+  s tool_ai_settings;
+  d date := (now() at time zone 'Asia/Tokyo')::date;
+  used_day numeric;
+  used_month numeric;
+  n integer;
+  rid bigint;
+begin
+  if p_amount is null or p_amount <= 0 then return null; end if;
+  perform pg_advisory_xact_lock(hashtext('tool_ai_budget'));
+  select * into s from tool_ai_settings where id = 1;
+  if not found or not s.enabled or not s.budget_ok then return null; end if;
+  select coalesce(sum(coalesce(spent_jpy, reserved_jpy)), 0) into used_day from tool_ai_uses where day = d;
+  select coalesce(sum(coalesce(spent_jpy, reserved_jpy)), 0) into used_month from tool_ai_uses where day >= date_trunc('month', d)::date;
+  select count(*) into n from tool_ai_uses where day = d and visitor_id = p_visitor;
+  if used_day + p_amount > s.day_cap_jpy or used_month + p_amount > s.month_cap_jpy or n >= s.visitor_day_max then return null; end if;
+  insert into tool_ai_uses (slug, version, visitor_id, day, reserved_jpy) values (p_slug, p_version, p_visitor, d, p_amount) returning id into rid;
+  return rid;
+end $$;
+
+-- 精算する。p_spent が null なら、お金がかかったか分からないので、取っておいた額のまま残す。1回だけ（2回目は変えない）
+create or replace function settle_tool_ai(p_id bigint, p_spent numeric) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  update tool_ai_uses set spent_jpy = case when p_spent is null then null else greatest(p_spent, 0) end, settled_at = now()
+  where id = p_id and settled_at is null;
+end $$;
+
+-- 呼べるのは、公開サイトとダッシュボードのサーバー（service_role）だけ
+revoke all on function reserve_tool_ai(text, integer, text, numeric) from public, anon, authenticated;
+revoke all on function settle_tool_ai(bigint, numeric) from public, anon, authenticated;
+grant execute on function reserve_tool_ai(text, integer, text, numeric) to service_role;
+grant execute on function settle_tool_ai(bigint, numeric) to service_role;
+
+-- 今月（日本時間）に使った額（円）。ダッシュボードが月の予算に数えるために読む
+create or replace function tool_ai_month_spent() returns numeric
+language sql security definer set search_path = public as $$
+  select coalesce(sum(coalesce(spent_jpy, reserved_jpy)), 0) from tool_ai_uses
+  where day >= date_trunc('month', (now() at time zone 'Asia/Tokyo')::date)::date
+$$;
+revoke all on function tool_ai_month_spent() from public, anon, authenticated;
+grant execute on function tool_ai_month_spent() to service_role;

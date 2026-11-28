@@ -37,3 +37,37 @@ export function toolAiSpecOf(v: unknown): ToolAiSpec | string {
 
 // ツールのコードが、その場で AI を呼ぶ窓口を使っているか
 export const usesToolAi = (html: string): boolean => /\blabAi\b/.test(html);
+
+// ---- AI を呼ぶときの費用（公開サイトのサーバー /api/tool-ai。docs/design-tool-limits.md の ③） ----
+// モデルは Claude Haiku 5.5（運営者が決めた）。料金は 100万トークンあたり入力 0.10ドル・出力 0.50ドル（入力が10万トークンまで）
+export const TOOL_AI_MODEL = "claude-haiku-5-5";
+export const TOOL_AI_USD_PER_MTOK = { input: 0.1, output: 0.5 };
+// 上限を見るときの換算。試算の 1ドル150円より高めにして、円安で上限を超えないようにする（PR #238 で直さずに残した指摘）
+export const TOOL_AI_JPY_PER_USD = 170;
+// 1文字が何トークンになるかの多めの見積もり（日本語の珍しい字は1文字で2〜3トークンになることがある）と、指示の決まり文句などの分
+const TOKENS_PER_CHAR = 3;
+const PROMPT_OVERHEAD_TOKENS = 400;
+// 答えの長さの上限（文字）から、AI の出力の上限（トークン）を決める
+export const answerMaxTokens = (outputMax: number) => outputMax * TOKENS_PER_CHAR;
+// 答えを確かめる2回目の呼び出しの、出力の上限（OK か NG だけ）
+export const CHECK_MAX_TOKENS = 8;
+
+export const usdToJpy = (usd: number) => usd * TOOL_AI_JPY_PER_USD;
+export const tokensCostJpy = (input: number, output: number) =>
+  usdToJpy((input * TOOL_AI_USD_PER_MTOK.input + output * TOOL_AI_USD_PER_MTOK.output) / 1_000_000);
+
+// 1回（答える＋確かめる）にかかりうる最大の額（円）。固定の指示を含めた、AI の会社に送る入力の全部と、出力の上限から出す（PR #238 の ai-review の指摘）
+export function maxCostJpy(spec: ToolAiSpec, inputChars: number): number {
+  const answerIn = (spec.instruction.length + inputChars) * TOKENS_PER_CHAR + PROMPT_OVERHEAD_TOKENS;
+  const answerOut = answerMaxTokens(spec.outputMax);
+  const checkIn = (inputChars + spec.outputMax) * TOKENS_PER_CHAR + PROMPT_OVERHEAD_TOKENS;
+  return tokensCostJpy(answerIn + checkIn, answerOut + CHECK_MAX_TOKENS);
+}
+
+// 枠の中の window.labAi.ask(入力) の答え。ok でなければ reason だけ（unavailable: 使えない・limit: 今日はここまで・invalid: 入力が長い/空・failed: うまくいかなかった）
+export type ToolAiAnswer = { ok: true; text: string } | { ok: false; reason: "unavailable" | "limit" | "invalid" | "failed" };
+export const TOOL_AI_REASONS = ["unavailable", "limit", "invalid", "failed"] as const;
+// 枠の中で答えを待つ長さ（ミリ秒）。ページの中継・サーバーの待ち（AI を2回呼ぶ）より長くする
+export const TOOL_AI_WAIT_MS = 45_000;
+// 公開サイトのサーバーが AI の会社の答えを待つ長さ（1回ごと。ミリ秒）
+export const TOOL_AI_CALL_TIMEOUT_MS = 15_000;
