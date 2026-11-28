@@ -30,7 +30,7 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
           テーマを入れると {authors.join("・")} がそれぞれ{Math.max(2, n)}件ずつ考え、作者を伏せて採点し合い、点数の高い{n}件を案件にします（空欄ならおまかせ）。過去の教訓も踏まえます。ジャンルを選ぶと、この1回だけそのジャンルで考えます（設定の画面のジャンルは変わりません）。1回あたり十数円です。
         </p>
         <div className="mt-2 inline-flex rounded-lg border border-line p-0.5 text-xs" role="radiogroup" aria-label="出させる案の種類">
-          {([[false, "ふつう"], [true, "じっくり案件だけ"]] as const).map(([v, label]) => (
+          {([[false, "ふつう"], [true, "作り込むツールだけ"]] as const).map(([v, label]) => (
             <button
               key={label}
               type="button"

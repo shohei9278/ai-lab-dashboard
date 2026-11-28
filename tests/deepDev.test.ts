@@ -11,10 +11,10 @@ const pendingDev = (id: number) => db().prepare("SELECT * FROM approvals WHERE p
 // AIを呼ばずに試すため、前の設計書を置いておく（設計書を直す指示がなければ、前の設計書をそのまま使う）
 const seedDesign = (id: number) => db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason, status, payload) VALUES (?, 'dev', '前', '前', 'revised', ?)").run(id, JSON.stringify({ design: "## 一言で\n袋に詰める物理パズル", instruction: null }));
 
-test("じっくり案件: 初めの値は 週3件・開発待ち2件まで", () => {
+test("じっくり案件: 初めの値は 週3件・開発待ち3件まで（11/28 に開発待ちを2件から3件にした）", () => {
   const s = getSettings();
   assert.equal(s.deepPerWeek, 3);
-  assert.equal(s.deepDevWaitMax, 2);
+  assert.equal(s.deepDevWaitMax, 3);
 });
 
 test("じっくり案件: ツールはAIが書かずに開発待ちにし、Claude Code への依頼文に設計書・決まり・入れ方を入れる", async () => {

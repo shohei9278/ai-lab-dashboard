@@ -80,7 +80,7 @@ export default async function Showcase() {
         <OfficeView initial={office} numbers={false} showcase />
         <div className="space-y-3 pt-1">
           <p className="text-ink-2">
-            Claude・GPT・Gemini の3社のAIを社員にした、小さなプロダクト会社です。社員どうしでアイデアを出して採点し合い、紹介ページや小さなツールを作って公開し、SNSで人を呼び、反応を見て「続ける・改善・撤退」まで決めます。人は社長として、あとから確認したり、提案に返事をしたりするだけです。制限を外して作り込むツールは「じっくり案件」として作り、大きなデータが要るときは、AIが下書きしたデータを人が確かめてから作ります。
+            Claude・GPT・Gemini の3社のAIを社員にした、小さなプロダクト会社です。社員どうしでアイデアを出して採点し合い、紹介ページや小さなツールを作って公開し、SNSで人を呼び、反応を見て「続ける・改善・撤退」まで決めます。人は社長として、あとから確認したり、提案に返事をしたりするだけです。ツールは「じっくり案件」として作り込み、大きなデータが要るときは、AIが下書きしたデータを人が確かめてから作ります。
           </p>
           <Link href="/" className="inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-ink">実際のダッシュボードを見る（閲覧専用）</Link>
         </div>
@@ -176,7 +176,7 @@ export default async function Showcase() {
           <article className="card space-y-2 p-4 text-sm">
             <h3 className="font-bold">作り込むツールを、Claude Code が作る</h3>
             <Chips items={BUILD_FLOW} />
-            <p className="text-ink-2">AIが1回で書くと長さで切れやすい作り込むツールは、AIが設計書を書き、クラウドの Claude Code が本物のブラウザで動かして確かめながら作ります。通常のツールも、11/28 から、Claude Code につながっているときは Claude Code が作り、Claude Code が作ったツールを直す指示も Claude Code がします。AIが前に書いたツールの直しと、数字を見て自動で直す改善は、AIが1回で書き直します（それまでは、書く担当の Claude Opus・Claude Sonnet・GPT の交代に4つ目として Claude Code が入り、1回で書くAIと比べていました）。公開前のチェックで止まったツールは、まず Claude Code が直します。</p>
+            <p className="text-ink-2">ツールは、11/28 から、Claude Code につながっているときは全部「じっくり案件」として、AIが作り込む所を書いた設計書を書き、クラウドの Claude Code が本物のブラウザで動かして確かめながら作ります。Claude Code が作ったツールを直す指示も Claude Code がします。AIが前に書いたツールの直しと、数字を見て自動で直す改善は、AIが1回で書き直します（それまでは、AIが1回で書くと長さで切れやすいツールだけをじっくり案件にし、通常のツールは、書く担当の Claude Opus・Claude Sonnet・GPT の交代に4つ目として Claude Code が入り、1回で書くAIと比べていました）。公開前のチェックで止まったツールは、まず Claude Code が直します。</p>
             {routine.tools > 0 && <p className="num text-xs text-muted">Claude Code が作ったツール {routine.tools}件・公開 {routine.published}件（うち人の承認なし {routine.autoPublished}件）</p>}
           </article>
           <article className="card space-y-2 p-4 text-sm">

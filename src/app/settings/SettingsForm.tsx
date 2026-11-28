@@ -158,14 +158,14 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
           <Field label="「広がる」の当たり: シェア"><input type="number" min={1} {...num("spreadHitShares")} className={input} /></Field>
           <Field label="「広がる」を判定するのに要る訪問" note="判定の日に、判定の起点からの訪問がこの数に届かず、当たってもいなければ、判定を上の日数だけ1回延ばします。延ばしても届かなければ「訪問が少なく判断できなかった」として集客をお休みにし、外れには数えません。0 で延ばしません。"><input type="number" min={0} {...num("spreadMinVisits")} className={input} /></Field>
           <Field label="承認待ちの期限（日）" note="過ぎたら自動で見送りにします（公開中の案件は、公開中の版のまま集客を続けます）。じっくり案件の開発待ち（Claude Code で作る・直す）は、期限で見送りません。"><input type="number" min={1} {...num("staleDays")} className={input} /></Field>
-          <Field label="じっくり案件（直近7日）" note="ふつうのツールの制限を外して作り込む案件を、7日で何件まで作るか。AIが設計書を書き、ツールは Claude Code で作ります（大きなデータが要るときは、先に人がデータを確かめる）。0 で止めます。"><input type="number" min={0} max={7} {...num("deepPerWeek")} className={input} /></Field>
+          <Field label="じっくり案件（直近7日）" note="ルーティンにつながっていないときに、ふつうのツールの制限を外して作り込む案件を、7日で何件まで作るか。ルーティンにつながっていて、下の「通常案件のツールも、ルーティンに作ってもらう」がオンのときは、ツールは全部じっくり案件として作るので、この上限は使いません（下の開発待ちの上限で止めます）。0 で止めます。"><input type="number" min={0} max={7} {...num("deepPerWeek")} className={input} /></Field>
           <Field label="人の作業待ちの上限" note="保存の場所・外部のAPI・その場でAIを呼ぶ など、まだない仕組みが要るじっくり案件を、同時に何件まで止めておくか。これ以上あれば、そういう案件を新しく作りません。0 で作りません。"><input type="number" min={0} max={20} {...num("needsWaitMax")} className={input} /></Field>
-          <Field label="じっくり案件の開発待ちの上限" note="Claude Code で作るのを待っているじっくり案件がこの件数以上なら、新しいじっくり案件を作りません（手で頼んだ分は止めません）。"><input type="number" min={1} max={10} {...num("deepDevWaitMax")} className={input} /></Field>
+          <Field label="開発待ちの上限" note="Claude Code で作る・直すのを待っているツールがこの件数以上なら、新しいツールの案件を作りません（ルーティンが作るより速く増やさないため。手で頼んだ分は止めません）。ルーティンにつながっていないときは、じっくり案件の開発待ちだけを数え、じっくり案件だけを止めます。"><input type="number" min={1} max={10} {...num("deepDevWaitMax")} className={input} /></Field>
         </div>
         <div className="space-y-2 border-t border-line pt-3">
           <h3 className="text-sm font-bold">ツールを作るルーティン（クラウドの Claude Code）</h3>
           <p className="text-xs text-muted">
-            開発待ちのツール（じっくり案件と、ルーティンの番になった通常案件）を、クラウドの Claude Code（ルーティン「案件のツールを作る」）に頼みます。できたツールは、人が入れたときと同じく、チェック・動作の確かめ・紹介ページづくりをして、公開の判断に進みます。
+            開発待ちのツールを、クラウドの Claude Code（ルーティン「案件のツールを作る」）に頼みます。できたツールは、人が入れたときと同じく、チェック・動作の確かめ・紹介ページづくりをして、公開の判断に進みます。
             ルーティンは claude.ai のプランの使用量で動くので（ふだん使う Claude Code と同じ枠）、頼む数をここで決めます。開発待ちのカードからは、数に関係なく手で頼めます。
           </p>
           <label className="flex items-start gap-2 text-sm">
@@ -186,7 +186,7 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
             <input type="checkbox" className="mt-1" checked={v.toolRoutineNormal} onChange={(e) => set("toolRoutineNormal", e.target.checked)} />
             <span>
               通常案件のツールも、ルーティンに作ってもらう
-              <span className="block text-xs text-muted">新しいツールは、AIが設計書を書いて開発待ちにし、ルーティンが作ります。ルーティンが作ったツールを直すときも、ルーティンに頼みます（作った担当が直す）。AI（Claude Opus・Claude Sonnet・GPT）が前に書いたツールの直しと、自動の改善は、これまでどおりAIが直します。オフにすると、新しいツールもAIが1回で書きます。頼む数は、じっくり案件と合わせて下の数の範囲です。</span>
+              <span className="block text-xs text-muted">新しいツールは、全部じっくり案件として、AIが「作り込む所」を書いた設計書を書いて開発待ちにし、ルーティンが作ります（フォント・人が入れる画像・長いコードが使え、大きなデータが要る案は先に人がデータを確かめます）。ルーティンが作ったツールを直すときも、ルーティンに頼みます（作った担当が直す）。AI（Claude Opus・Claude Sonnet・GPT）が前に書いたツールの直しと、自動の改善は、これまでどおりAIが直します。オフにすると、AIが選んだ案だけをじっくり案件にし、ほかのツールはAIが1回で書きます。頼む数は、下の数の範囲です。</span>
             </span>
           </label>
           <label className="flex items-start gap-2 text-sm">
