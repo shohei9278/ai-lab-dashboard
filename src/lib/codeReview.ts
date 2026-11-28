@@ -64,18 +64,26 @@ export function addReviewFindings(raw: unknown): { added: number[]; skipped: str
       skipped.push(countRepeat(p) ? `${label}: 同じ題か同じ趣旨の提案がすでにある` : `${label}: ${full}`);
       return;
     }
-    const id = addProposal({ title: x.title, how: x.how, why: x.why, target: "system", source: "review", scene: growth ? GROWTH_SCENE : REVIEW_SCENE, proposer: null });
+    const { title, how, why } = x;
+    const urgent = x.urgent === true && !growth;
+    // 提案・急ぎの印・知らせの記録を1つのトランザクションで残す（途中で失敗して、印や知らせだけが欠けた提案が残らないように。
+    // 同じ提案を送り直しても、すでにあるとして入らないため、欠けた分はやり直されない。PR #227 の ai-review の指摘）
+    // Discord へは、記録（logEvent）から5秒待ってまとめて送るので、送るのはコミットのあと（liveNotify.ts）
+    const id = db().transaction(() => {
+      const newId = addProposal({ title, how, why, target: "system", source: "review", scene: growth ? GROWTH_SCENE : REVIEW_SCENE, proposer: null });
+      if (newId !== null && urgent) {
+        db().prepare("UPDATE plan_requests SET urgent = 1 WHERE id = ?").run(newId);
+        // 処理の記録に残し、「あなたへ」の知らせで送る（liveNotify.ts の EVENT_KIND）
+        logEvent(null, "ai", "review-urgent", `急ぎの守りの提案が入りました: #${newId}「${title.trim().slice(0, 80)}」。1日たつと自動でルーティンに頼みます。急ぐときは提案箱から頼み、直さなくてよければ見送ってください`);
+      }
+      return newId;
+    })();
     if (id === null) skipped.push(`${label}: 同じ題か同じ趣旨の提案がすでにある`);
     else {
       added.push(id);
       room--;
       if (growth) growthRoom--;
       if (x.urgent === true && growth) notes.push(`${label}: 急ぎの印は守りにだけ付けられるので、印を付けずに入れた`);
-      else if (x.urgent === true) {
-        db().prepare("UPDATE plan_requests SET urgent = 1 WHERE id = ?").run(id);
-        // 処理の記録に残し、「あなたへ」の知らせで送る（liveNotify.ts の EVENT_KIND）
-        logEvent(null, "ai", "review-urgent", `急ぎの守りの提案が入りました: #${id}「${x.title.trim().slice(0, 80)}」。1日たつと自動でルーティンに頼みます。急ぐときは提案箱から頼み、直さなくてよければ見送ってください`);
-      }
     }
   });
   if (raw.length > REVIEW_MAX) skipped.push(`${REVIEW_MAX}件を超えた分（${raw.length - REVIEW_MAX}件）は読んでいない`);
