@@ -154,10 +154,10 @@ test("判断の基準の文: 「広がる」は、実際の判定と同じく、
   const { judgedByVisits } = await import("../src/lib/judgeBasis");
   reset();
   const k = getSettings();
-  saveSettings({ spreadJudgeDays: 5, spreadHitPlays: 30, spreadHitShares: 4 });
+  saveSettings({ spreadJudgeDays: 5, spreadHitPlays: 30, spreadHitShares: 4, spreadMinVisits: 25 });
   assert.match(aimJudgeLine(getSettings()), /^広がる 公開から5日で遊んだ人30人かシェア4件（当たったあとは 訪問100人か7日） \/ 役に立つ 訪問100人か7日/);
-  assert.match(settingsReviewText(getSettings()), /- 広がる: 当たりの判定 公開から5日で遊んだ人30人かシェア4件・当たったのは\d+件（外れ\d+件）・当たったあとの基準 訪問100人か7日/);
-  saveSettings({ spreadJudgeDays: k.spreadJudgeDays, spreadHitPlays: k.spreadHitPlays, spreadHitShares: k.spreadHitShares });
+  assert.match(settingsReviewText(getSettings()), /- 広がる: 当たりの判定 公開から5日で遊んだ人30人かシェア4件（訪問25人に届かなければ1回延ばす。延ばしたのは\d+件。提案箱 #106）・当たったのは\d+件（外れ\d+件）・当たったあとの基準 訪問100人か7日/);
+  saveSettings({ spreadJudgeDays: k.spreadJudgeDays, spreadHitPlays: k.spreadHitPlays, spreadHitShares: k.spreadHitShares, spreadMinVisits: k.spreadMinVisits });
   // 育てる段階の前の「広がる」は、訪問の基準では数えない
   assert.equal(judgedByVisits({ aim: "spread", growth_phase: 0 }), false);
   assert.equal(judgedByVisits({ aim: "spread", growth_phase: 1 }), true);

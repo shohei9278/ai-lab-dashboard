@@ -2803,13 +2803,27 @@ export async function maybeAutoJudge(projectId: number) {
     // （提案箱 #105。試しを始めた日に、投稿の効果が出る前の数字で集客お休みになり、試しの答えも宣伝も失われたため）
     if (openTrialJudgeAtMs(projectId) > Date.now()) return false;
     const r = spreadResult(p);
-    // 判定の結果を残す（当たりから学ぶ: ねらい・ジャンルごとの成績に使う）
-    db().prepare("UPDATE projects SET spread_hit = ? WHERE id = ?").run(r.hit ? 1 : 0, projectId);
     if (r.hit) {
+      // 判定の結果を残す（当たりから学ぶ: ねらい・ジャンルごとの成績に使う）
+      db().prepare("UPDATE projects SET spread_hit = 1 WHERE id = ?").run(projectId);
       await judge(projectId, "spread");
       return true;
     }
-    restSpread(projectId, `「広がる」の判定: ${s.spreadJudgeDays}日で遊んだ人${r.plays}人・シェア${r.shares}件で、当たりの基準（遊んだ人${s.spreadHitPlays}人以上か、シェア${s.spreadHitShares}件以上）に届かなかった`);
+    // 判定の起点からの訪問が下限に届かないときは、外れと決めずに、判定を1回だけ spreadJudgeDays 延ばす（提案箱 #106）
+    // 延ばしても届かなければ集客お休みにするが、外れとしては数えない（spread_hit は空のまま。ねらい・ジャンルの成績をゆがめないように）
+    const visits = spreadVisits(p);
+    const days = s.spreadJudgeDays * (spreadExtended(p) ? 2 : 1);
+    if (visits < s.spreadMinVisits) {
+      if (!spreadExtended(p)) {
+        db().prepare("UPDATE projects SET spread_extended = ? WHERE id = ?").run(spreadSince(p), projectId);
+        logEvent(projectId, "system", "spread-extend", `「広がる」の判定: ${s.spreadJudgeDays}日で訪問${visits}人・遊んだ人${r.plays}人・シェア${r.shares}件。訪問が${s.spreadMinVisits}人に届かず判断できないので、外れとせず、判定を${s.spreadJudgeDays}日延ばしました`);
+        return false;
+      }
+      restSpread(projectId, `「広がる」の判定: ${days}日で訪問${visits}人（遊んだ人${r.plays}人・シェア${r.shares}件）で、訪問が少なく（${s.spreadMinVisits}人未満）判断できなかった`);
+      return true;
+    }
+    db().prepare("UPDATE projects SET spread_hit = 0 WHERE id = ?").run(projectId);
+    restSpread(projectId, `「広がる」の判定: ${days}日で訪問${visits}人・遊んだ人${r.plays}人・シェア${r.shares}件で、当たりの基準（遊んだ人${s.spreadHitPlays}人以上か、シェア${s.spreadHitShares}件以上）に届かなかった`);
     return true;
   }
   const all = projectTotals(projectId);
@@ -2898,7 +2912,19 @@ export function spreadJudgeAtMs(p: ProjectRow): number | null {
   if (p.aim !== "spread" || p.growth_phase) return null;
   const since = spreadSince(p);
   if (!since) return null;
-  return Date.parse(`${since.replace(" ", "T")}Z`) + getSettings().spreadJudgeDays * 86_400_000;
+  return Date.parse(`${since.replace(" ", "T")}Z`) + getSettings().spreadJudgeDays * (spreadExtended(p) ? 2 : 1) * 86_400_000;
+}
+// 今の判定の起点で、訪問が少ないので判定を延ばしたか（提案箱 #106。起点が変われば、また1回延ばせる）
+function spreadExtended(p: ProjectRow): boolean {
+  return !!p.spread_extended && p.spread_extended === spreadSince(p);
+}
+// 判定の起点の日（日本時間）からの訪問（集客の数字は日ごとなので、起点の日の分は起点のあとに入れる。spreadBase と同じ考え）
+function spreadVisits(p: ProjectRow): number {
+  const since = spreadSince(p);
+  const rows = projectTotals(p.id).rows;
+  if (!since) return rows.reduce((n, r) => n + r.visits, 0);
+  const day = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Tokyo" }).format(new Date(`${since.replace(" ", "T")}Z`));
+  return rows.filter((r) => r.day >= day).reduce((n, r) => n + r.visits, 0);
 }
 // 「広がる」の判定の起点（UTC の日時）。判定の日時と、遊んだ人・シェアの数の両方で使う
 // 公開（なければ最初の公開の記録）・前回の判断・再開を、それぞれ候補にして、いちばん遅いものを起点にする（PR #225 の ai-review の指摘）

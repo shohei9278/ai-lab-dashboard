@@ -12,9 +12,9 @@ const metrics = (id: number, visits: number, plays: number, shares: number) =>
   db().prepare("INSERT INTO metrics (project_id, day, visits, signups, shares, ad_spend_jpy, source, lp_version) VALUES (?, date('now'), ?, ?, ?, 0, 'real', 1)").run(id, visits, plays, shares);
 const reset = () => db().prepare("DELETE FROM projects").run();
 
-test("広がる: 初めの値は 同時に7件・1日1本・3日で判定・当たりは遊んだ人20人かシェア3件", () => {
+test("広がる: 初めの値は 同時に7件・1日1本・3日で判定・当たりは遊んだ人20人かシェア3件・判定に要る訪問は20人", () => {
   const s = getSettings();
-  assert.deepEqual([s.spreadMaxLive, s.spreadPerDay, s.spreadJudgeDays, s.spreadHitPlays, s.spreadHitShares, s.maxLive], [7, 1, 3, 20, 3, 2]);
+  assert.deepEqual([s.spreadMaxLive, s.spreadPerDay, s.spreadJudgeDays, s.spreadHitPlays, s.spreadHitShares, s.maxLive, s.spreadMinVisits], [7, 1, 3, 20, 3, 2, 20]);
 });
 
 test("広がる: 集客中の上限は、ほかのねらいと別に数える", () => {
@@ -87,7 +87,7 @@ test("広がる（PR #85 の ai-review の指摘）: 集客に戻したら、戻
   assert.equal(getProject(id)!.stage, "hold");
   // 戻したあとに1人だけ遊んでも、累計（20人）では当たりにしない
   resumeProject(id);
-  metrics(id, 5, 1, 0);
+  metrics(id, 25, 1, 0);
   assert.deepEqual(spreadResult(getProject(id)!), { plays: 1, shares: 0, hit: false });
   // 戻したあと3日たったら、その分だけで判定して、またお休みにする
   db().prepare("UPDATE projects SET resumed_at = datetime('now', '-4 days') WHERE id = ?").run(id);
@@ -117,7 +117,7 @@ test("広がる（PR #85 の ai-review の指摘）: 案件を作る直前に上
 
 test("広がる（提案箱 #105）: 朝会の試しが開いている間は、日数が過ぎても試しの判定日時まで判定しない（延ばしたあとも）", async () => {
   const id = add({ publishedDaysAgo: 4 });
-  metrics(id, 10, 1, 0);
+  metrics(id, 30, 1, 0); // 訪問は下限（20人）以上（訪問が少ないときの延長は、提案箱 #106 のテストで見る）
   const trial = db().prepare(`INSERT INTO plan_trials (plan_id, project_id, created_at, question, change, metric, judge_at, hours, min_visits)
     VALUES (1, ?, datetime('now', '-1 hours'), 'Xで紹介すると利用が出るか', 'X夜に紹介', 'conversions', datetime('now', '+71 hours'), 72, 20)`).run(id).lastInsertRowid;
   assert.equal(await maybeAutoJudge(id), false);
@@ -133,7 +133,7 @@ test("広がる（提案箱 #105）: 朝会の試しが開いている間は、�
 
 test("広がる（提案箱 #105）: 試しの判定日時が過ぎたら、試しが開いたままでも判定する", async () => {
   const id = add({ publishedDaysAgo: 4 });
-  metrics(id, 10, 1, 0);
+  metrics(id, 30, 1, 0);
   db().prepare(`INSERT INTO plan_trials (plan_id, project_id, created_at, question, change, metric, judge_at, hours, min_visits)
     VALUES (1, ?, datetime('now', '-73 hours'), 'q', 'c', 'conversions', datetime('now', '-1 hours'), 72, 20)`).run(id);
   assert.equal(await maybeAutoJudge(id), true);
@@ -173,4 +173,47 @@ test("広がる（PR #225 の ai-review の指摘）: 公開が前回の判断�
   // 起点のあとに覚えた累計（判断・再開・公開のとき）は、そのまま使う
   db().prepare("UPDATE projects SET spread_base_plays = 20, spread_base_shares = 2, spread_base_at = datetime('now') WHERE id = ?").run(id);
   assert.deepEqual(spreadResult(getProject(id)!), { plays: 1, shares: 1, hit: false });
+});
+
+test("広がる（提案箱 #106）: 訪問が少ないうちは外れとせず、判定を1回だけ延ばす。延ばしても届かなければ、外れに数えずにお休み", async () => {
+  const id = add({ publishedDaysAgo: 4 });
+  metrics(id, 12, 1, 0);
+  const at = spreadJudgeAtMs(getProject(id)!)!;
+  // 1回目: 延ばして、集客は続ける（判断はしていないので false）
+  assert.equal(await maybeAutoJudge(id), false);
+  let p = getProject(id)!;
+  assert.equal(p.stage, "live");
+  assert.equal(p.spread_hit, null);
+  assert.equal(spreadJudgeAtMs(p), at + getSettings().spreadJudgeDays * 86_400_000);
+  assert.ok(db().prepare("SELECT 1 FROM events WHERE project_id = ? AND kind = 'spread-extend'").get(id));
+  // 延ばした日数がたつまでは、判定しない
+  assert.equal(await maybeAutoJudge(id), false);
+  // 延ばした日数がたっても訪問が届かなければ、お休み（理由を書き分け、外れには数えない）
+  db().prepare("UPDATE projects SET published_at = datetime('now', '-7 days'), spread_extended = datetime('now', '-7 days') WHERE id = ?").run(id);
+  assert.equal(await maybeAutoJudge(id), true);
+  p = getProject(id)!;
+  assert.equal(p.stage, "hold");
+  assert.equal(p.spread_hit, null);
+  assert.match(p.hold_reason ?? "", /訪問が少なく（20人未満）判断できなかった/);
+});
+
+test("広がる（提案箱 #106）: 延ばしたあと訪問が届いて当たらなければ、外れとして数える", async () => {
+  const id = add({ publishedDaysAgo: 4 });
+  metrics(id, 12, 1, 0);
+  assert.equal(await maybeAutoJudge(id), false);
+  db().prepare("UPDATE projects SET published_at = datetime('now', '-7 days'), spread_extended = datetime('now', '-7 days') WHERE id = ?").run(id);
+  metrics(id, 15, 2, 0);
+  assert.equal(await maybeAutoJudge(id), true);
+  const p = getProject(id)!;
+  assert.equal(p.spread_hit, 0);
+  assert.match(p.hold_reason ?? "", /6日で訪問27人・遊んだ人3人/);
+});
+
+test("広がる（提案箱 #106）: 下限が0なら延ばさない", async () => {
+  saveSettings({ spreadMinVisits: 0 });
+  const id = add({ publishedDaysAgo: 4 });
+  metrics(id, 3, 0, 0);
+  assert.equal(await maybeAutoJudge(id), true);
+  assert.equal(getProject(id)!.spread_hit, 0);
+  saveSettings({ spreadMinVisits: 20 });
 });
