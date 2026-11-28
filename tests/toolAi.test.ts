@@ -159,3 +159,28 @@ test("公開する中身: ツールの形がおかしくても、紛れた ai �
   const out = withToolAi(getProject(id)!, { headline: "h", tool: { html: 1, ai: { instruction: "紛れた指示", inputMax: 1, outputMax: 1 } } });
   assert.deepEqual(out.tool, { html: 1 });
 });
+
+test("承認の印: 印が送られてきたら、今の指示がなくても・承認済みでも照合する（PR #240 の ai-review の指摘）", async () => {
+  const id = addProject({ needs: aiNeeds, needsDone: 1, html });
+  replaceAiSpec(id, html, spec);
+  const seen = currentAiDigest(getProject(id)!)!;
+  // カードを開いたあとに、指示のないコードに差し替わった
+  db().prepare("UPDATE projects SET lp = ? WHERE id = ?").run(JSON.stringify({ headline: "h", tool: { html: "<p>no ai</p><script></script>", shareText: "s" } }), id);
+  const ap = Number(db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason, payload) VALUES (?, 'publish', 'p', 'r', '{}')").run(id).lastInsertRowid);
+  await assert.rejects(decide(ap, "approve", undefined, { aiDigest: seen }), /変わりました/);
+  assert.equal((db().prepare("SELECT status FROM approvals WHERE id = ?").get(ap) as { status: string }).status, "pending");
+});
+
+test("取り込みの失敗で戻すとき: 同じ指示を書いた別の取り込みや、そのあとの承認も消さない（PR #240 の ai-review の指摘）", () => {
+  const id = addProject({ needs: aiNeeds, needsDone: 1, html });
+  const undoFirst = replaceAiSpec(id, html, spec);
+  replaceAiSpec(id, html, spec);
+  approve(id);
+  undoFirst();
+  assert.deepEqual(approvedAiSpec(id, html), spec);
+  // 誰も書き換えていなければ、戻す
+  const other = addProject({ needs: aiNeeds, needsDone: 1, html });
+  const undo = replaceAiSpec(other, html, spec);
+  undo();
+  assert.equal(aiSpecFor(other, html), null);
+});

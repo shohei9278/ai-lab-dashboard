@@ -70,19 +70,28 @@ export function currentAiDigest(p: Pick<ProjectRow, "id" | "lp">): string | null
 export function replaceAiSpec(projectId: number, html: string, spec: ToolAiSpec | null): () => void {
   const hash = hashOf(html);
   const before = db().prepare("SELECT spec, at, approved_at FROM tool_ai_specs WHERE project_id = ? AND html_hash = ?").get(projectId, hash) as { spec: string; at: string; approved_at: string | null } | undefined;
-  const written = spec ? JSON.stringify(spec) : null;
-  if (written) {
+  if (spec) {
     db().prepare("INSERT INTO tool_ai_specs (project_id, html_hash, spec) VALUES (?, ?, ?) ON CONFLICT(project_id, html_hash) DO UPDATE SET at = datetime('now'), approved_at = CASE WHEN spec = excluded.spec THEN approved_at ELSE NULL END, spec = excluded.spec")
-      .run(projectId, hash, written);
+      .run(projectId, hash, JSON.stringify(spec));
   } else db().prepare("DELETE FROM tool_ai_specs WHERE project_id = ? AND html_hash = ?").run(projectId, hash);
+  const mine = bumpRev(projectId, hash);
   return () => {
-    // 戻すのは、ここで書いたものがまだ残っているときだけ（あとから別の取り込みが入れた指示を、消したり古いもので上書きしたりしない。PR #240 の ai-review の指摘）
-    const now = db().prepare("SELECT spec FROM tool_ai_specs WHERE project_id = ? AND html_hash = ?").get(projectId, hash) as { spec: string } | undefined;
-    if ((now?.spec ?? null) !== written) return;
+    // 戻すのは、ここで書いたあとに誰も書き換えていない（入れ直し・消す・承認をしていない）ときだけ
+    // 内容では見分けられない（同じ指示を書いた別の取り込み・そのあとの承認）ので、書くたびに進める番号で見る（PR #240 の ai-review の指摘）
+    if (revOf(projectId, hash) !== mine) return;
     if (before) db().prepare("INSERT INTO tool_ai_specs (project_id, html_hash, spec, at, approved_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, html_hash) DO UPDATE SET spec = excluded.spec, at = excluded.at, approved_at = excluded.approved_at").run(projectId, hash, before.spec, before.at, before.approved_at);
     else db().prepare("DELETE FROM tool_ai_specs WHERE project_id = ? AND html_hash = ?").run(projectId, hash);
+    bumpRev(projectId, hash);
   };
 }
+
+// 指示を書き換えた回数の番号（コードごと。指示の行を消しても残るよう、別の表に持つ）
+function bumpRev(projectId: number, hash: string): number {
+  db().prepare("INSERT INTO tool_ai_spec_revs (project_id, html_hash, rev) VALUES (?, ?, 1) ON CONFLICT(project_id, html_hash) DO UPDATE SET rev = rev + 1").run(projectId, hash);
+  return revOf(projectId, hash);
+}
+const revOf = (projectId: number, hash: string): number =>
+  (db().prepare("SELECT rev FROM tool_ai_spec_revs WHERE project_id = ? AND html_hash = ?").get(projectId, hash) as { rev: number } | undefined)?.rev ?? 0;
 
 // 人が公開を承認したときに、今のツールのコードと指示の組み合わせを承認する。承認したら true
 // digest: 運営者がカードで見た組み合わせの印。今のものと違えば承認しない。使ってよい案件でなくなっていたら（人の作業待ちに戻した など）も承認しない
@@ -90,6 +99,9 @@ export function approveAiSpec(p: Pick<ProjectRow, "id" | "lp" | "needs" | "needs
   const html = toolHtmlOf(p);
   if (!html || !aiAllowed(p) || currentAiDigest(p) !== digest) return false;
   const ok = db().prepare("UPDATE tool_ai_specs SET approved_at = datetime('now') WHERE project_id = ? AND html_hash = ? AND approved_at IS NULL").run(p.id, hashOf(html)).changes > 0;
-  if (ok) db().prepare("UPDATE projects SET ai_approved_ever = 1 WHERE id = ?").run(p.id);
+  if (ok) {
+    db().prepare("UPDATE projects SET ai_approved_ever = 1 WHERE id = ?").run(p.id);
+    bumpRev(p.id, hashOf(html));
+  }
   return ok;
 }

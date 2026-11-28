@@ -56,6 +56,10 @@ export async function publishLp(p: ProjectRow) {
   if (!publishingConfigured() || p.demo || !p.lp) return false;
   // 動くツールは、一覧のカードとシェア画像に本物の画面を使う。上げられなくても公開は止めない（イラストのカードのまま）
   const shot = await uploadToolShot(p, p.lp_version).catch(() => null);
+  const category = await categoryFor(p).catch(() => null);
+  // その場で AI の許可は、待つ処理（写真・カテゴリ）が終わったあとに案件を読み直して見る（待つ間に人の作業待ちへ戻されることがある。PR #240 の ai-review の指摘）
+  const fresh = db().prepare("SELECT id, needs, needs_done FROM projects WHERE id = ?").get(p.id) as Pick<ProjectRow, "id" | "needs" | "needs_done"> | undefined;
+  const content = withToolAi(fresh ?? { id: p.id, needs: null, needs_done: 0 }, { ...JSON.parse(p.lp), category, shot: shot ?? undefined });
   const { error } = await sb().from("lps").upsert({
     slug: slugOf(p.id),
     project_id: p.id,
@@ -64,7 +68,7 @@ export async function publishLp(p: ProjectRow) {
     // 公開サイトの一覧のカテゴリも、中身に入れて渡す（表の列は増やさない）
     // AIの判定に失敗しても公開は止めない（カテゴリなしで公開し、次に起動したときのそろえ直しで、また選ばせる）
     // shot は、ここで上げた写真だけにする（LPを書いたAIの出力に紛れたものは使わない）
-    content: withToolAi(p, { ...JSON.parse(p.lp), category: await categoryFor(p).catch(() => null), shot: shot ?? undefined }),
+    content,
     status: "published",
     updated_at: new Date().toISOString(),
   });

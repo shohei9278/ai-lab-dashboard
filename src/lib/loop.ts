@@ -2562,7 +2562,8 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
   // （カードを開いてから押すまでに、コードか指示が差し替わっていたら、読んでいない指示を承認しないよう、承認リクエストは残したまま断る）
   if (a.kind === "publish" && action === "approve") {
     const now = getProject(a.project_id);
-    if (now && aiSpecPending(now) && opts.aiDigest !== currentAiDigest(now)) throw new Error("ツールのコードかAIへの指示が変わりました。画面を読み直して、今の内容を確かめてから承認してください");
+    // 印が送られてきたら、今の指示の有無や承認にかかわらず照合する（指示のないコード・承認済みの別の組み合わせに差し替わったときも断る。PR #240 の ai-review の指摘）
+    if (now && (opts.aiDigest !== undefined || aiSpecPending(now)) && opts.aiDigest !== currentAiDigest(now)) throw new Error("ツールのコードかAIへの指示が変わりました。画面を読み直して、今の内容を確かめてから承認してください");
   }
   if (action === "revise" && !comment?.trim()) throw new Error("修正指示を書いてください");
   // 開発待ちは、ここ（Claude Code）で作ったツールのHTMLを入れることで進める（承認のボタンでは進めない）

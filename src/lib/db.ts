@@ -398,6 +398,13 @@ CREATE TABLE IF NOT EXISTS tool_ai_specs (
   approved_at TEXT,
   PRIMARY KEY (project_id, html_hash)
 );
+-- AIへの指示を書き換えた回数の番号（コードごと）。取り込みが失敗して戻すときに、そのあとに誰も書き換えていないかを見る（toolAi.ts）
+CREATE TABLE IF NOT EXISTS tool_ai_spec_revs (
+  project_id INTEGER NOT NULL REFERENCES projects(id),
+  html_hash TEXT NOT NULL,
+  rev INTEGER NOT NULL,
+  PRIMARY KEY (project_id, html_hash)
+);
 
 -- 実験の記録の動画（運営者が不要と決めて、作る仕組みを外した。前に作った分の記録だけが残る）
 CREATE TABLE IF NOT EXISTS record_videos (
