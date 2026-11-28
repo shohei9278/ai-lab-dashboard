@@ -774,6 +774,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["plan_requests", "target", "TEXT NOT NULL DEFAULT 'human'"], // human = 運営者がやること / system = 仕組み（コード）の改善
   ["plan_requests", "score", "REAL"], // 定例会議で、ほかのAIが付けた点の平均（10点満点）
   ["plan_requests", "score_provisional", "INTEGER NOT NULL DEFAULT 0"], // 1 = 朝会で付けた仮の点（月曜の定例会議で採点し直して 0 にする。provisionalScore.ts）
+  ["plan_requests", "urgent", "INTEGER NOT NULL DEFAULT 0"], // 1 = コードの見直しのルーティンが「急ぎ」の印を付けた守りの提案（codeReview.ts。提案箱に印を出し、運営者に知らせる。頼むのは、ほかの守りと同じく1日後）
   ["plan_requests", "meeting_id", "INTEGER"],
   ["plan_requests", "scene", "TEXT"], // どの場面で出た提案か（例: 判断 #42）
   ["plan_requests", "project_id", "INTEGER"],

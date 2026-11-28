@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { db } from "./db";
+import { logEvent } from "./loop";
 import { addProposal, countRepeat } from "./voices";
 
 // コードの見直しのルーティン（クラウドの Claude Code。毎日1回。運営者が決めた）が、見つけたことを提案箱の「仕組みの改善」に入れる入口（docs/routine-code-review.md）
@@ -8,6 +9,9 @@ import { addProposal, countRepeat } from "./voices";
 // - 入れられるのは、1回の見直しで4件まで（攻めは2件まで）。11/27 に運営者が、週2回・1回8件から、毎日・1回4件に変えた
 //   （提案を受けて直す側に余裕があり、7点以上の提案がなくなって5点台まで頼んでいたため。間を詰めて、1回の数は絞る）
 //   前の回の分を数えないよう、20時間のあいだで数える（毎日同じ時刻に動くが、起動の時刻は数分ずれるので、24時間だと前の回の分が残る）
+// - 守りには「急ぎ」の印（urgent: true）を付けられる。印の付いた提案は、提案箱に印を出し、運営者に Discord で1回知らせる（11/28 に運営者が決めた。
+//   夜の見直しで入った守りは1日たつと自動で頼まれるが、夜から朝のあいだは見逃しやすいので、急ぎのものだけは分かるように）。
+//   頼むのは、ほかの守りと同じく1日後（待たずに頼むのではなく、知らせるだけ。運営者が決めた）。攻めには付けられない
 
 export const REVIEW_SCENE = "コードの見直し";
 // 攻め: 直すべき所（守り）ではなく、実験を伸ばすために足すとよい機能。定例会議で3社が採点し、点の高いものを自動でルーティンに頼む（autoAsk.ts）
@@ -32,7 +36,7 @@ const isText = (v: unknown, max: number): v is string => typeof v === "string" &
 
 // 見つけたことを提案箱に入れる。入ったものの番号と、入れなかった理由を返す
 // 同じ題・同じ趣旨の提案があれば入れない（ふだんの提案と同じ仕組み。返事待ちなら「何回出たか」を数える）
-export function addReviewFindings(raw: unknown): { added: number[]; skipped: string[] } {
+export function addReviewFindings(raw: unknown): { added: number[]; skipped: string[]; notes: string[] } {
   if (!Array.isArray(raw)) throw new Error("items は配列にしてください");
   const recent = (db().prepare("SELECT COUNT(*) AS n FROM plan_requests WHERE source = 'review' AND created_at >= datetime('now', ?)").get(REVIEW_WINDOW) as { n: number }).n;
   const recentGrowth = (db().prepare("SELECT COUNT(*) AS n FROM plan_requests WHERE source = 'review' AND scene = ? AND created_at >= datetime('now', ?)").get(GROWTH_SCENE, REVIEW_WINDOW) as { n: number }).n;
@@ -40,6 +44,7 @@ export function addReviewFindings(raw: unknown): { added: number[]; skipped: str
   let growthRoom = Math.max(0, GROWTH_MAX - recentGrowth);
   const added: number[] = [];
   const skipped: string[] = [];
+  const notes: string[] = [];
   raw.slice(0, REVIEW_MAX).forEach((item, i) => {
     const x = (typeof item === "object" && item !== null ? item : {}) as Record<string, unknown>;
     const label = typeof x.title === "string" ? `「${x.title.slice(0, 40)}」` : `${i + 1}件目`;
@@ -59,16 +64,30 @@ export function addReviewFindings(raw: unknown): { added: number[]; skipped: str
       skipped.push(countRepeat(p) ? `${label}: 同じ題か同じ趣旨の提案がすでにある` : `${label}: ${full}`);
       return;
     }
-    const id = addProposal({ title: x.title, how: x.how, why: x.why, target: "system", source: "review", scene: growth ? GROWTH_SCENE : REVIEW_SCENE, proposer: null });
+    const { title, how, why } = x;
+    const urgent = x.urgent === true && !growth;
+    // 提案・急ぎの印・知らせの記録を1つのトランザクションで残す（途中で失敗して、印や知らせだけが欠けた提案が残らないように。
+    // 同じ提案を送り直しても、すでにあるとして入らないため、欠けた分はやり直されない。PR #227 の ai-review の指摘）
+    // Discord へは、記録（logEvent）から5秒待ってまとめて送るので、送るのはコミットのあと（liveNotify.ts）
+    const id = db().transaction(() => {
+      const newId = addProposal({ title, how, why, target: "system", source: "review", scene: growth ? GROWTH_SCENE : REVIEW_SCENE, proposer: null });
+      if (newId !== null && urgent) {
+        db().prepare("UPDATE plan_requests SET urgent = 1 WHERE id = ?").run(newId);
+        // 処理の記録に残し、「あなたへ」の知らせで送る（liveNotify.ts の EVENT_KIND）
+        logEvent(null, "ai", "review-urgent", `急ぎの守りの提案が入りました: #${newId}「${title.trim().slice(0, 80)}」。1日たつと自動でルーティンに頼みます。急ぐときは提案箱から頼み、直さなくてよければ見送ってください`);
+      }
+      return newId;
+    })();
     if (id === null) skipped.push(`${label}: 同じ題か同じ趣旨の提案がすでにある`);
     else {
       added.push(id);
       room--;
       if (growth) growthRoom--;
+      if (x.urgent === true && growth) notes.push(`${label}: 急ぎの印は守りにだけ付けられるので、印を付けずに入れた`);
     }
   });
   if (raw.length > REVIEW_MAX) skipped.push(`${REVIEW_MAX}件を超えた分（${raw.length - REVIEW_MAX}件）は読んでいない`);
-  return { added, skipped };
+  return { added, skipped, notes };
 }
 
 // 見直しの前に読む、いまの「仕組みの改善」（返事待ちと、60日のあいだに返事をしたもの）。同じことを出さないため

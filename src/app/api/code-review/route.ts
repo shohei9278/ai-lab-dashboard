@@ -4,7 +4,7 @@ import { addReviewFindings, reviewContext, reviewTokenOk } from "@/lib/codeRevie
 // コードの見直しのルーティン（クラウドの Claude Code）専用の入口（src/lib/codeReview.ts・docs/routine-code-review.md）
 // 合言葉（LAB_REVIEW_TOKEN）を Authorization: Bearer で送ったときだけ使える
 // GET: いまの「仕組みの改善」（返事待ちと、60日のあいだに返事をしたもの）。同じことを出さないために読む
-// POST {"items": [{"title": "...", "how": "...", "why": "..."}]}: 見つけたことを提案箱に入れる（1回の見直しで4件まで。攻めは2件まで。20時間のあいだで数える）
+// POST {"items": [{"title": "...", "how": "...", "why": "...", "kind": "fix" | "growth", "urgent": true}]}: 見つけたことを提案箱に入れる（1回の見直しで4件まで。攻めは2件まで。20時間のあいだで数える。urgent は守りだけ。急ぎの印を出し、運営者に知らせる）
 
 const noStore = { headers: { "Cache-Control": "no-store" } };
 

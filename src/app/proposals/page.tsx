@@ -64,6 +64,8 @@ function Item({ r, owner, aiFix = false }: { r: RequestRow; owner: boolean; aiFi
         {r.source === "revival" && <span className="rounded px-1.5 text-xs text-accent-ink" style={{ background: "var(--accent)" }}>敗者復活</span>}
         {/* 番号を出す（「#66 をやった」など、運営者とAIのやり取りで指すため。運営者が、番号が画面にないと分からないと言った） */}
         <span className="num text-xs text-muted">#{r.id}</span>
+        {/* コードの見直しのルーティンが「急ぎ」の印を付けた守りの提案（codeReview.ts。運営者が決めた。夜から朝のあいだに見逃さないように） */}
+        {r.urgent ? <span className="rounded bg-surface-2 px-1.5 text-xs font-medium" style={{ color: "var(--critical)" }} title="コードの見直しで、急ぎと判断された守りの提案です。頼むのは、ほかの守りと同じく入ってから1日後です">急ぎ</span> : null}
         <span className="font-medium">{r.title}</span>
         {r.score !== null && <span className="num rounded bg-surface-2 px-1.5 text-xs" title={r.score_provisional ? "朝会で付けた仮の点。月曜の定例会議で採点し直します" : undefined}>ほかのAIの評価 {r.score.toFixed(1)}点{r.score_provisional ? "（仮）" : ""}</span>}
         {r.repeats > 0 && <span className="num rounded bg-surface-2 px-1.5 text-xs">同じ趣旨の提案 ほかに{r.repeats}回</span>}
