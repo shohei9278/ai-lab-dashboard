@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { PageIntro } from "@/components/PageIntro";
 import { ShowMore } from "@/components/ShowMore";
-import { db, getSettings, type ProjectRow, type Stage } from "@/lib/db";
+import { db, getSettings, type ApprovalRow, type ProjectRow, type Stage } from "@/lib/db";
 import { pct } from "@/lib/format";
 import { CONV, MODE_LABEL, STAGE_LABEL, allToolsDeep, ideaAuthors, newProjectBlock, projectTotals, targetRate } from "@/lib/loop";
 import { getModel } from "@/lib/models";
@@ -10,13 +10,14 @@ import { ApiWishes } from "@/components/ApiWishes";
 import { DailyCard } from "@/components/DailyCard";
 import { isOwner } from "@/lib/viewer";
 import { NEEDS_STALE_DAYS, needsGroups, needsProjects } from "@/lib/needs";
+import { pendingByProject, resultNote, shownStage, waitStateOf } from "@/lib/projectStatus";
 
 export const dynamic = "force-dynamic";
 
 const COLUMNS: { stages: Stage[]; title: string; who: string; id?: string }[] = [
   { stages: ["idea"], title: "① アイデア", who: "3社のAIが出して採点し、上位を進める" },
   { stages: ["lp"], title: "② 作成", who: "AIがLPやツールを作ってチェック。通れば自動で公開" },
-  { stages: ["live"], id: "marketing", title: "③ 公開中・集客中", who: "AIがSNSに投稿して人を呼ぶ。届いていなければ集客を見直し、「続ける」になった案件は育てる" },
+  { stages: ["live"], id: "marketing", title: "③ 集客中", who: "AIがSNSに投稿して人を呼ぶ。届いていなければ集客を見直し、「続ける」になった案件は育てる" },
   { stages: ["deciding"], title: "④ 判断", who: "AIが続ける・改善・集客の見直し・撤退を決める" },
   { stages: ["continued", "killed", "rejected"], title: "⑤ 結果", who: "終わった案件。AIが教訓を残す" },
 ];
@@ -26,9 +27,8 @@ export default async function ProjectsPage() {
   const owner = await isOwner();
   const s = getSettings();
   const projects = db().prepare("SELECT * FROM projects ORDER BY updated_at DESC").all() as ProjectRow[];
-  const pendingByProject = new Set(
-    (db().prepare("SELECT DISTINCT project_id FROM approvals WHERE status = 'pending'").all() as { project_id: number }[]).map((r) => r.project_id),
-  );
+  // 承認待ち（人の判断待ちか、AIの作業中かを分けて出す。開発待ちがある案件は「作成」に並べる。projectStatus.ts）
+  const pending = pendingByProject();
   const lastDaily = db().prepare("SELECT message FROM events WHERE kind = 'daily' ORDER BY id DESC LIMIT 1").get() as { message: string } | undefined;
   const modeSetting = s.approvalMode === "alternate"
     ? "2つのモードに交互に割り当て"
@@ -46,14 +46,14 @@ export default async function ProjectsPage() {
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             {COLUMNS.map((col) => {
-              const items = projects.filter((p) => col.stages.includes(p.stage));
+              const items = projects.filter((p) => col.stages.includes(shownStage(p, pending.get(p.id) ?? [])));
               return (
                 <div key={col.title} id={col.id} className="scroll-mt-4 space-y-2 rounded-xl bg-surface-2 p-2">
                   <div className="px-1">
                     <div className="text-sm font-bold">{col.title} <span className="num font-normal text-muted">{items.length}</span></div>
                     <div className="text-xs text-muted">{col.who}</div>
                   </div>
-                  <ShowMore initial={5} className="space-y-2">{items.map((p) => <ProjectCard key={p.id} p={p} pending={pendingByProject.has(p.id)} target={targetRate(p.kind, s)} owner={owner} />)}</ShowMore>
+                  <ShowMore initial={5} className="space-y-2">{items.map((p) => <ProjectCard key={p.id} p={p} pending={pending.get(p.id) ?? []} target={targetRate(p.kind, s)} owner={owner} />)}</ShowMore>
                 </div>
               );
             })}
@@ -62,7 +62,7 @@ export default async function ProjectsPage() {
         {/* 集客お休み（hold）の案件は、集客中の列に混ぜず、ある時だけ別の欄に出す */}
         {projects.some((p) => p.stage === "hold") && (
           <div className="mt-3 rounded-xl bg-surface-2 p-2">
-            <div className="px-1 text-sm font-bold">公開中・集客お休み <span className="num font-normal text-muted">{projects.filter((p) => p.stage === "hold").length}</span></div>
+            <div className="px-1 text-sm font-bold">集客なし <span className="num font-normal text-muted">{projects.filter((p) => p.stage === "hold").length}</span></div>
             <div className="px-1 text-xs text-muted">公開と記録は続けたまま、宣伝・判断・改善を止めている案件。再開日に自動で集客へ戻る（「広がる」で当たらなかった案件は再開日なし）</div>
             <ul className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {projects.filter((p) => p.stage === "hold").sort((a, b) => (a.hold_until ?? "").localeCompare(b.hold_until ?? "")).map((p) => (
@@ -70,6 +70,9 @@ export default async function ProjectsPage() {
                   <Link href={`/projects/${p.id}`} className="card block p-3 hover:border-accent">
                     <div className="line-clamp-2 text-sm font-medium"><span className="num mr-1 text-xs font-normal text-muted">#{p.id}</span>{p.title}</div>
                     <div className="num mt-1 text-xs text-ink-2">{p.hold_until ? `${p.hold_until} に再開` : "再開日なし（手で戻す）"}</div>
+                    {/* 休んでいる理由（「広がる」で当たらなかった・訪問が少なく判断できなかった など）。戻すかを、開かずに決められるように
+                        運営者が手で書いた理由も入るので、運営者にだけ出す（案件の画面の来訪者向けの表示と同じ。PR #235 の ai-review の指摘） */}
+                    {owner && p.hold_reason && <div className="mt-1 line-clamp-2 text-xs text-muted">{p.hold_reason}</div>}
                   </Link>
                 </li>
               ))}
@@ -100,7 +103,9 @@ export default async function ProjectsPage() {
   );
 }
 
-function ProjectCard({ p, pending, target, owner }: { p: ProjectRow; pending: boolean; target: number; owner: boolean }) {
+function ProjectCard({ p, pending, target, owner }: { p: ProjectRow; pending: ApprovalRow[]; target: number; owner: boolean }) {
+  const wait = waitStateOf(pending);
+  const note = resultNote(p);
   const t = ["live", "deciding", "continued", "killed"].includes(p.stage) ? projectTotals(p.id) : null;
   const result = p.stage === "continued" ? { c: "var(--good)", i: "✓" } : p.stage === "killed" ? { c: "var(--critical)", i: "✕" } : p.stage === "rejected" ? { c: "var(--muted)", i: "–" } : null;
   return (
@@ -109,7 +114,8 @@ function ProjectCard({ p, pending, target, owner }: { p: ProjectRow; pending: bo
       <div className="line-clamp-2 text-sm font-medium"><span className="num mr-1 text-xs font-normal text-muted">#{p.id}</span>{p.title}</div>
       <div className="flex flex-wrap gap-1">
         {p.kind === "tool" && <span className="rounded border border-line px-1 text-[10px] text-ink-2">ツール</span>}
-        <span className="rounded border border-line px-1 text-[10px] text-ink-2">{p.auto_published ? "AIだけで公開" : p.mode === "auto" ? "自動" : "承認"}</span>
+        {/* 印は進め方のモードだけにする（「AIだけで公開」は結果なので、下の行に出す。11/28 に運営者が、ステータスが分かりづらいと言った） */}
+        <span className="rounded border border-line px-1 text-[10px] text-ink-2">{MODE_LABEL[p.mode]}</span>
         {!!p.growth_phase && <span className="rounded border border-line px-1 text-[10px]" style={{ color: "var(--good)" }}>育成中</span>}
         {p.demo ? <span className="rounded border border-line px-1 text-[10px] text-muted">デモ</span> : null}
       </div>
@@ -120,9 +126,13 @@ function ProjectCard({ p, pending, target, owner }: { p: ProjectRow; pending: bo
         </div>
       )}
       {p.improve_count > 0 && <div className="text-xs text-ink-2">改善 {p.improve_count}回（第{p.lp_version}版）</div>}
-      {pending && <div className="text-xs font-medium text-accent">● {owner ? "あなたの判断待ち" : "運営者の判断待ち"}</div>}
-      {!!p.auto_published && !p.human_review && <div className="text-xs font-medium text-accent">● {owner ? "あとから確認してください" : "AIだけで公開（運営者の確認待ち）"}</div>}
-      {result && <div className="text-xs font-medium" style={{ color: result.c }}>{result.i} {STAGE_LABEL[p.stage]}</div>}
+      {/* 人の判断が要るものと、AIが自動で進めている作業（ルーティンが作る・直す開発待ち）を分ける */}
+      {wait?.kind === "human" && <div className="text-xs font-medium text-accent">● {owner ? "あなたの判断待ち" : "運営者の判断待ち"}</div>}
+      {wait?.kind === "ai" && <div className="text-xs text-ink-2">● AIが作業中（{wait.working ? "Claude Code が作っています" : "Claude Code が作る順番を待っています"}）</div>}
+      {!!p.auto_published && (p.human_review
+        ? <div className="text-xs text-muted">AIだけで公開（確認済み）</div>
+        : <div className="text-xs font-medium text-accent">● {owner ? "AIだけで公開（あとから確認してください）" : "AIだけで公開（運営者の確認待ち）"}</div>)}
+      {result && <div className="text-xs font-medium" style={{ color: result.c }}>{result.i} {STAGE_LABEL[p.stage]}{note ? `（${note}）` : ""}</div>}
     </Link>
   );
 }

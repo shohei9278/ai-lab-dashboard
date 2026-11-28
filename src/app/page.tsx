@@ -103,7 +103,7 @@ export default async function Home() {
             </ul>
           )}
         </Stat>}
-        <Stat label="公開中・集客中" value={`${o.liveReal}件`} sub={`これまでに作った案件 ${o.projectsReal}件`}>
+        <Stat label="集客中" value={`${o.liveReal}件`} sub={`これまでに作った案件 ${o.projectsReal}件`}>
           {/* 集客中の案件の名前と、案件の一覧の「公開中・集客中」の列へのリンク */}
           {o.live.length > 0 && (
             <ul className="mt-2 space-y-0.5 border-t border-line pt-2 text-xs">

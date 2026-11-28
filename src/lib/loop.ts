@@ -97,8 +97,8 @@ export type Review = { ok: boolean; issues: string[] };
 export const STAGE_LABEL: Record<Stage, string> = {
   idea: "アイデア",
   lp: "作成",
-  live: "公開中・集客中",
-  hold: "公開中・集客お休み",
+  live: "集客中", // 11/28 に「公開中・集客中」から短くした（運営者が「集客中・集客なし」でよいと言った）
+  hold: "集客なし", // 公開は続けたまま、宣伝・判断・改善を止めている（前の名前は「公開中・集客お休み」）
   deciding: "判断待ち",
   continued: "継続",
   killed: "撤退",

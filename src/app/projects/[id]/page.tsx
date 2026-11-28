@@ -9,6 +9,7 @@ import { db, getSettings, type EventRow } from "@/lib/db";
 import { modelInfo } from "@/lib/models";
 import type { PageJudge } from "@/lib/freePage";
 import { CONV, KIND_LABEL, MODE_LABEL, STAGE_LABEL, END_REASON_LABEL, approvedDeepData, buildingNow, jstToday, getProject, resumeNote, lpCandidates, pageCandidates, pageCandidateLabel, lpVersions, projectTotals, targetRate, type Lp, type Review } from "@/lib/loop";
+import { resultNote, shownStage } from "@/lib/projectStatus";
 import { LpCandidates } from "@/components/LpCandidates";
 import { THEMES } from "../../../../lp-site/src/lp/content";
 import { maskEvents, pendingApprovals } from "@/lib/views";
@@ -68,7 +69,9 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
   const aiCost = (db().prepare("SELECT COALESCE(SUM(cost_usd), 0) AS s, COUNT(*) AS n FROM ai_calls WHERE project_id = ?").get(p.id) as { s: number; n: number });
   const lp = p.lp ? (JSON.parse(p.lp) as Lp) : null;
   const ended = ["continued", "killed", "rejected"].includes(p.stage);
-  const stepIndex = ended ? STEPS.length : STEPS.indexOf((p.stage === "hold" ? "live" : p.stage) as (typeof STEPS)[number]);
+  // 開発待ち（Claude Code で作る・直す）があるのに「アイデア」の段階の案件は、「作成」として見せる（projectStatus.ts。#79）
+  const stage = shownStage(p, approvals);
+  const stepIndex = ended ? STEPS.length : STEPS.indexOf((stage === "hold" ? "live" : stage) as (typeof STEPS)[number]);
   const adRatio = s.adBudgetPerProjectJpy ? t.adSpendJpy / s.adBudgetPerProjectJpy : 0;
   const versions = lpVersions(p.id);
   // 判断の基準（ねらいごと。公開の前に案件ごとに調整したものはそれ。judgeBasis.ts）
@@ -103,7 +106,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <Link href="/projects" className="text-sm text-accent underline">← 案件の一覧</Link>
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-bold"><span className="num mr-2 text-base font-normal text-muted">#{p.id}</span>{p.title}</h1>
-          <span className="rounded border border-line px-1.5 py-0.5 text-xs">{STAGE_LABEL[p.stage]}</span>
+          <span className="rounded border border-line px-1.5 py-0.5 text-xs">{STAGE_LABEL[stage]}{resultNote(p) ? `（${resultNote(p)}）` : ""}</span>
           {p.stage === "killed" && p.end_reason && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">撤退の理由: {END_REASON_LABEL[p.end_reason] ?? p.end_reason}</span>}
           {!!p.growth_phase && <span className="rounded px-1.5 py-0.5 text-xs font-medium" style={{ background: "var(--surface-2)", color: "var(--good)" }}>育てる段階（実験 {p.growth_count}回）</span>}
           {isAim(p.aim) && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2" title={AIMS[p.aim].short}>ねらい: {AIMS[p.aim].label}{p.genre ? `・${p.genre}` : ""}</span>}
@@ -146,7 +149,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         <HoldPanel id={p.id} held={p.stage === "hold"} reason={p.hold_reason} until={p.hold_until} today={jstToday()} blocked={approvals.length > 0 || !!buildingNow(p.id)} />
       )}
       {!owner && p.stage === "hold" && (
-        <div className="card p-4 text-sm text-ink-2">公開中・集客お休み（{p.hold_until ? `${p.hold_until}まで` : "再開日なし"}）。ページは開けます。宣伝と判断を止めています。</div>
+        <div className="card p-4 text-sm text-ink-2">集客なし（{p.hold_until ? `${p.hold_until}まで` : "再開日なし"}）。ページは公開したまま開けます。宣伝と判断を止めています。</div>
       )}
 
       {/* 一番見たい数字を上に置く */}
