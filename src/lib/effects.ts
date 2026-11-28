@@ -56,9 +56,9 @@ const nums = (b: Sum, bd: number, a: Sum, ad: number) => `訪問 ${perDay(b.visi
 function line(x: DoneEffect): string {
   const head = `「${x.title}」（${x.target === "system" ? "仕組み" : "運営者"}・${x.source}・${x.day.slice(5)}にやった${x.projectId ? `・#${x.projectId}` : "・全案件"}）`;
   const late = x.afterDays < 3 ? "。まだ判断しない" : "";
-  const own = x.beforeDays < 3
-    ? `${x.projectId ? `#${x.projectId}は` : ""}前の数字がない（公開前）。まだ判断しない`
-    : `${x.whole ? `#${x.projectId}で ` : ""}${nums(x.before, x.beforeDays, x.after, x.afterDays)}（${x.beforeDays < 7 ? `前は${x.beforeDays}日分・` : ""}後は${x.afterDays}日分${late}）`;
+  // 前が3日に満たないものは、注意だけにする（全案件の合計も並べない。数字があると、それで判断されてしまう。PR #239 のレビューの指摘）
+  if (x.beforeDays < 3) return `- ${head}: ${x.projectId ? `#${x.projectId}は` : ""}前の数字がない（公開前）。まだ判断しない`;
+  const own = `${x.whole ? `#${x.projectId}で ` : ""}${nums(x.before, x.beforeDays, x.after, x.afterDays)}（${x.beforeDays < 7 ? `前は${x.beforeDays}日分・` : ""}後は${x.afterDays}日分${late}）`;
   const whole = x.whole ? ` / 全案件の合計で ${nums(x.whole.before, 7, x.whole.after, x.afterDays)}（後は${x.afterDays}日分${late}）` : "";
   return `- ${head}: ${own}${whole}`;
 }

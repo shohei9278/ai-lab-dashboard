@@ -93,7 +93,7 @@ test("やった改善の答え合わせ: 案件の提案は、案件を公開し
     db().prepare("INSERT INTO plan_requests (title, source, target, status, project_id, decided_at) VALUES (?, ?, 'system', 'done', ?, datetime('now', '-5 days'))").run(title, source, projectId);
   done("c の作り方を直す", c.id);
   done("d を直す", d.id, "plan");
-  done("e を直す", e.id, "plan");
+  done("e を直す", e.id); // まだ公開していない案件の、作業の途中で出た仕組みの提案
   const xs = doneEffects();
   const fc = xs.find((x) => x.projectId === c.id)!;
   assert.equal(fc.beforeDays, 3);
@@ -105,6 +105,9 @@ test("やった改善の答え合わせ: 案件の提案は、案件を公開し
   assert.match(text, new RegExp(`#${c.id}で 訪問 3\\.0 → 6\\.0・成果 0\\.0 → 0\\.0（前は3日分・後は5日分）`));
   assert.match(text, new RegExp(`「d を直す」.+: #${d.id}は前の数字がない（公開前）。まだ判断しない`));
   assert.ok(!/「d を直す」.+訪問/.test(text));
+  // 前の数字がないものは、全案件の合計も出さない（注意だけ）
+  assert.match(text, new RegExp(`「e を直す」.+: #${e.id}は前の数字がない（公開前）。まだ判断しない$`, "m"));
+  assert.ok(!/「e を直す」.+(訪問|成果|全案件の合計で)/.test(text));
 });
 
 test("前の版との比べ: 前の版の動きと、今の版で変えたことを並べる。今の版に訪問がなくても前の版は渡す", () => {
