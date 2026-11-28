@@ -136,3 +136,37 @@ test("コードの見直し: 読む提案は件数で切らない", () => {
   for (let i = 0; i < 90; i++) ins.run(`仕組みの提案 ${i}`);
   assert.equal(reviewContext().length, 90);
 });
+
+test("コードの見直し: 守りに急ぎの印（urgent: true）を付けると、印を残し、あなたへの知らせの記録を1回残す（11/28 に運営者が決めた）", () => {
+  clear();
+  db().prepare("DELETE FROM events WHERE kind = 'review-urgent'").run();
+  const r = addReviewFindings([{ ...item(1), urgent: true }, item(2), { ...item(3), urgent: "true" }]);
+  assert.equal(r.added.length, 3);
+  const urgent = (db().prepare("SELECT id FROM plan_requests WHERE urgent = 1 ORDER BY id").all() as { id: number }[]).map((x) => x.id);
+  assert.deepEqual(urgent, [r.added[0]]);
+  const ev = db().prepare("SELECT actor, message FROM events WHERE kind = 'review-urgent'").all() as { actor: string; message: string }[];
+  assert.equal(ev.length, 1);
+  assert.equal(ev[0].actor, "ai");
+  assert.match(ev[0].message, new RegExp(`#${r.added[0]}「${item(1).title}」`));
+  assert.deepEqual(r.notes, []);
+});
+
+test("コードの見直し: 攻めには急ぎの印を付けず、印を付けなかったことを notes で返す", () => {
+  clear();
+  db().prepare("DELETE FROM events WHERE kind = 'review-urgent'").run();
+  const r = addReviewFindings([{ ...item(1), kind: "growth", urgent: true }]);
+  assert.equal(r.added.length, 1);
+  assert.equal((db().prepare("SELECT urgent FROM plan_requests WHERE id = ?").get(r.added[0]) as { urgent: number }).urgent, 0);
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'review-urgent'").get() as { n: number }).n, 0);
+  assert.equal(r.notes.length, 1);
+  assert.match(r.notes[0], /守りにだけ/);
+});
+
+test("コードの見直し: 同じ趣旨の提案ですでにあり入らなかったときは、急ぎでも知らせない", () => {
+  clear();
+  addReviewFindings([item(1)]);
+  db().prepare("DELETE FROM events WHERE kind = 'review-urgent'").run();
+  const r = addReviewFindings([{ ...item(1), urgent: true }]);
+  assert.equal(r.added.length, 0);
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM events WHERE kind = 'review-urgent'").get() as { n: number }).n, 0);
+});
