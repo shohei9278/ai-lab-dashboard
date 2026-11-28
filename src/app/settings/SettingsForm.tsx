@@ -184,8 +184,8 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="mt-1" checked={v.toolRoutineNormal} onChange={(e) => set("toolRoutineNormal", e.target.checked)} />
             <span>
-              通常案件の新しいツールも、ルーティンに作ってもらう
-              <span className="block text-xs text-muted">ツールを書く担当（Claude Opus・Claude Sonnet・GPT）の交代に、4つ目として「Claude Code（ルーティン）」を入れます。作った数が一番少ない担当の番に、ルーティンが作ります（AIが設計書を書き、開発待ちにします）。1回で書くAIと、直しながら作る Claude Code を、テストの通りやすさ・遊ばれ方で比べられます。頼む数は、じっくり案件と合わせて下の数の範囲です。</span>
+              通常案件のツールも、ルーティンに作ってもらう
+              <span className="block text-xs text-muted">新しいツールは、AIが設計書を書いて開発待ちにし、ルーティンが作ります。ルーティンが作ったツールを直すときも、ルーティンに頼みます（作った担当が直す）。AI（Claude Opus・Claude Sonnet・GPT）が前に書いたツールの直しと、自動の改善は、これまでどおりAIが直します。オフにすると、新しいツールもAIが1回で書きます。頼む数は、じっくり案件と合わせて下の数の範囲です。</span>
             </span>
           </label>
           <label className="flex items-start gap-2 text-sm">

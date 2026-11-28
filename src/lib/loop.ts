@@ -1358,7 +1358,8 @@ ${EXTRAS_RULE}`,
 
 // ツール本体を書いてチェックし、問題があれば1回だけ直す
 // チェックは3つ: コードの決まりごと、AIによるコードの確認、本物のブラウザ（スマホ幅）で動かすテスト
-// ツールのコードを書くAI。新しいツールは、使える候補のうち作った数が一番少ないものに順番に任せる（作り比べのため）
+// ツールのコードを書くAI。新しいツールは、ふだんはルーティン（Claude Code）が作る（routineTurnForNew。11/28 に運営者が決めた）。
+// ルーティンにつながっていないなどで AI が書くときは、使える候補のうち作った数が一番少ないものに順番に任せる
 // 直すときは、今のツールを書いたAIがそのまま直す
 export const TOOL_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6.2-sol"];
 
@@ -1836,28 +1837,31 @@ function nextVersion(projectId: number): number {
   return (r.v ?? 0) + 1;
 }
 
-// 通常案件の新しいツールを、クラウドの Claude Code（ルーティン）に作ってもらう番か
-// ツールを書く担当（TOOL_MODELS）の交代に、4つ目として「Claude Code（ルーティン）」を入れる。1回で書くAIと、直しながら作る Claude Code を比べるため（運営者が決めた）
-// 比べるのは、この仕組みを入れた日（ROUTINE_NORMAL_SINCE）からあとに作り始めた通常案件だけ（前からの数で比べると、追いつくまでルーティンばかりになる）
-// ルーティンの番の数は、ルーティンに作ってもらうと決めた案件（tool_maker）で数える（作っている途中のものも数える）。同じ数なら、ルーティンを先にする
-export const ROUTINE_NORMAL_SINCE = "2026-11-21 00:00:00";
-// 一度ルーティンの番にした案件は、判定し直さずにルーティンのままにする（やり直したときに AI が書いて、担当の記録とずれないように。PR #134 の ai-review の指摘）
-// 入れた日より前に作り始めた案件は、番にしない（数えない案件を番にすると、ルーティンの数が増えないまま番が続くため。PR #134 の ai-review の指摘）
-export function routineTurnForNew(p: Pick<ProjectRow, "id" | "kind" | "deep" | "lp" | "tool_maker" | "created_at">): boolean {
+// 通常案件の新しいツールを、クラウドの Claude Code（ルーティン）に作ってもらうか
+// 11/28 に運営者が、ツールのコードはルーティンで作ると決めた（API でツールのコードを書かせる人は少なく、1回で書くAIとの作り比べは意味が薄いため。
+// それまでは、ツールを書く担当（TOOL_MODELS）の交代の4つ目として、作った数が一番少ないときだけルーティンの番にしていた。11/21〜11/28）
+// ルーティンにつながっていない・設定でオフ・止めるスイッチのときだけ、これまでどおり AI（TOOL_MODELS）が1回で書く
+// 一度ルーティンに作ってもらうと決めた案件は、判定し直さずにルーティンのままにする（やり直したときに AI が書いて、担当の記録とずれないように。PR #134 の ai-review の指摘）
+export function routineTurnForNew(p: Pick<ProjectRow, "id" | "kind" | "deep" | "lp" | "tool_maker">): boolean {
   if (p.kind !== "tool" || p.deep || p.lp) return false;
   // いまの版が空でも、過去にツールの版がある案件は「新しいツール」ではない（PR #134 の ai-review の指摘）
   if (db().prepare("SELECT 1 FROM lp_versions WHERE project_id = ?").get(p.id)) return false;
-  // 番にした案件は、設定・緊急停止・ルーティンのつながりが変わっても、ルーティンのまま（開発待ちのまま、ルーティンが戻るのを待つか、人が手元の Claude Code で作る。PR #134 の ai-review の指摘）
-  if (p.tool_maker === "claude-code") return true;
+  // ルーティンに作ってもらうと決めた案件は、設定・止めるスイッチ・ルーティンのつながりが変わっても、ルーティンのまま（開発待ちのまま、ルーティンが戻るのを待つか、人が手元の Claude Code で作る。PR #134 の ai-review の指摘）
+  if (p.tool_maker === CLAUDE_CODE) return true;
+  const s = getSettings();
+  return s.toolRoutineNormal && !s.killSwitch && toolRoutineConfigured();
+}
+
+// 通常案件のツールを直すとき、ルーティンに頼むか。いまのツールをルーティン（Claude Code）が書いたなら、直しもルーティンに頼む
+// （作った担当が直す。11/28 に運営者が決めた。API の直しはツールの全体を書き直して返すので、ルーティンが作った長いツールでは、途中で切れたり、関係ない所が崩れたりしやすい）
+// AI（TOOL_MODELS）が書いたツールは、これまでどおり書いたAIが直す（toolModelFor）。ルーティンにつながっていない・設定でオフ・止めるスイッチのときも AI が直す
+// 自動の改善（autoImprove）は、直した版をその場で確かめて公開するので、ここを通さず、これまでどおり AI が直す
+export function routineFixTurn(p: Pick<ProjectRow, "id" | "kind" | "deep" | "lp">): boolean {
+  if (p.kind !== "tool" || p.deep || !p.lp) return false;
   const s = getSettings();
   if (!s.toolRoutineNormal || s.killSwitch || !toolRoutineConfigured()) return false;
-  if (p.created_at < ROUTINE_NORMAL_SINCE) return false;
-  const usable = TOOL_MODELS.filter((id) => hasKey(modelInfo(id).provider));
-  if (!usable.length) return true;
-  const ai = projectsByCurrent(db().prepare(`SELECT DISTINCT v.tool_model AS m, v.project_id AS p FROM lp_versions v JOIN projects p ON p.id = v.project_id
-    WHERE v.tool_model IS NOT NULL AND p.deep = 0 AND p.demo = 0 AND p.tool_maker IS NULL AND p.created_at >= ?`).all(ROUTINE_NORMAL_SINCE) as { m: string; p: number }[]);
-  const mine = (db().prepare("SELECT COUNT(*) AS n FROM projects WHERE tool_maker = 'claude-code' AND deep = 0 AND demo = 0 AND created_at >= ?").get(ROUTINE_NORMAL_SINCE) as { n: number }).n;
-  return mine <= Math.min(...usable.map((id) => ai.get(id) ?? 0));
+  const last = db().prepare("SELECT tool_model FROM lp_versions WHERE project_id = ? AND tool_model IS NOT NULL ORDER BY version DESC LIMIT 1").get(p.id) as { tool_model: string } | undefined;
+  return last?.tool_model === CLAUDE_CODE;
 }
 
 // keepTool: じっくり案件のツールを今のまま使い、紹介ページだけを作り直す（紹介ページの指摘だけを直すとき）
@@ -1866,11 +1870,13 @@ export async function prepareLp(projectId: number, instruction?: string, opts: {
   const current = opts.keepTool && p.lp ? (JSON.parse(p.lp) as Lp).tool?.html : undefined;
   // じっくり案件のツールは、AIが1回で書かずに、ここ（Claude Code）で作る・直す。AIは設計書を書き、開発待ちにする
   if (p.kind === "tool" && p.deep && opts.toolHtml === undefined && current === undefined) return requestDev(projectId, instruction);
-  // 通常案件の新しいツールも、交代の番ならルーティンに作ってもらう（AIは設計書を書き、開発待ちにする。ルーティンが作って入れる）
+  // 通常案件の新しいツールも、ルーティンに作ってもらう（AIは設計書を書き、開発待ちにする。ルーティンが作って入れる）
   if (opts.toolHtml === undefined && current === undefined && routineTurnForNew(p)) {
     db().prepare("UPDATE projects SET tool_maker = 'claude-code' WHERE id = ?").run(projectId);
     return requestDev(projectId, instruction);
   }
+  // ルーティンが書いた通常案件のツールを直すときも、ルーティンに頼む（作った担当が直す。routineFixTurn）
+  if (opts.toolHtml === undefined && current === undefined && routineFixTurn(p)) return requestDev(projectId, instruction);
   const toolHtml = opts.toolHtml ?? current;
   const note = !instruction ? "最初の版" : opts.byHuman ? `あなたの指示: ${instruction}` : `指示: ${instruction}`;
   const made = current !== undefined ? "（ツールは今のまま、紹介ページだけ直した）" : toolHtml !== undefined ? "（ツールは Claude Code で作った）" : "";
