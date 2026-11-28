@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getSettings } from "@/lib/db";
-import { listReports, noteTitled, type Report } from "@/lib/report";
+import { cleanNoteIdeas, listReports, noteTitled, noteTopicOf, type Report } from "@/lib/report";
 import { NOTE_TOPICS } from "@/lib/notes";
 import { PageIntro } from "@/components/PageIntro";
 import { LibraryTabs } from "@/components/LabTabs";
@@ -17,6 +17,10 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const reports = listReports();
   const current = reports.find((r) => r.id === Number(id)) ?? reports[0];
   const r = current ? (JSON.parse(current.content) as Report) : null;
+  // 気づきは形の正しいものだけを出す（前に保存したものに、題が文字でないものがあっても画面が止まらないように。PR #237 の ai-review の指摘）
+  const ideas = r ? cleanNoteIdeas(r.noteIdeas) : [];
+  // 11/28 より前のまとめ（記事の下書きがある形）だけ、まだ入れていない気づきに追加のボタンを出す（それより後は、作ったときに自動で入れている）
+  const oldForm = !!r && typeof r.article === "string";
 
   return (
     <div className="space-y-6">
@@ -65,15 +69,16 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             </section>
             <section className="card space-y-2 p-4">
               <h2 className="font-bold">実験メモに残すとよい気づき</h2>
-              {r.noteIdeas.length === 0 ? <p className="text-sm text-ink-2">今週はありません。</p> : (
+              {ideas.length === 0 ? <p className="text-sm text-ink-2">今週はありません。</p> : (
                 <ul className="space-y-3">
-                  {r.noteIdeas.map((n) => (
+                  {ideas.map((n) => (
                     <li key={n.title} className="text-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{n.title}</span>
-                        <span className="text-xs text-muted">{NOTE_TOPICS[n.topic as keyof typeof NOTE_TOPICS] ?? "その他"}</span>
-                        {/* 11/28 からは、まとめを作ったときに自動で入れる。前の週の分で、まだ入れていないものだけボタンを出す */}
-                        {noteTitled(n.title) ? <span className="text-xs text-muted">入れ済み</span> : owner && <AddNoteButton title={n.title} body={n.body} topic={n.topic in NOTE_TOPICS ? n.topic : "other"} />}
+                        <span className="text-xs text-muted">{NOTE_TOPICS[noteTopicOf(n.topic)]}</span>
+                        {/* 入れたかは運営者にだけ出す（実験メモは公開しないので、来訪者に同じ題のメモがあるかを見せない。PR #237 の ai-review の指摘）
+                            11/28 からは、まとめを作ったときに自動で入れる。前の形のまとめで、まだ入れていないものだけボタンを出す */}
+                        {owner && (noteTitled(n.title) ? <span className="text-xs text-muted">入れ済み</span> : oldForm && <AddNoteButton title={n.title} body={n.body} topic={noteTopicOf(n.topic)} />)}
                       </div>
                       <p className="text-xs text-ink-2">{n.body}</p>
                     </li>

@@ -88,13 +88,19 @@ export async function createReport(opts: { extra?: string; modelId?: string; nex
     validate: isReport,
   });
   if (opts.next) r.next = opts.next;
-  const id = Number(
-    db().prepare("INSERT INTO reports (period_start, period_end, model_id, content) VALUES (?, ?, ?, ?)")
-      .run(day(startDate), day(end), opts.modelId ?? s.loopModel, JSON.stringify(r)).lastInsertRowid,
-  );
-  saveSettings({ lastWeeklyReport: day(end) });
-  const added = addNoteIdeas(r.noteIdeas);
-  logEvent(null, "ai", "report", `週のまとめを作成しました（${day(startDate)}〜${day(end)}）${added ? `。実験メモに気づきを${added}件入れました` : ""}`);
+  // 気づきは、形の正しいものだけを残す（題が文字でないものなどを保存すると、画面で読めない。PR #237 の ai-review の指摘）
+  r.noteIdeas = cleanNoteIdeas(r.noteIdeas);
+  // まとめの保存・気づきの追加・最後に作った日の更新を、1つのトランザクションにする（途中で失敗して、まとめだけ・気づきの一部だけが残らないように。PR #237 の ai-review の指摘）
+  const { id, added } = db().transaction(() => {
+    const newId = Number(
+      db().prepare("INSERT INTO reports (period_start, period_end, model_id, content) VALUES (?, ?, ?, ?)")
+        .run(day(startDate), day(end), opts.modelId ?? s.loopModel, JSON.stringify(r)).lastInsertRowid,
+    );
+    const n = addNoteIdeas(r.noteIdeas);
+    saveSettings({ lastWeeklyReport: day(end) });
+    return { id: newId, added: n };
+  })();
+  logEvent(null, "ai", "report", `週のまとめを作成しました（${day(startDate)}〜${day(end)}）。実験メモに気づきを${added}件入れました`);
   return id;
 }
 
@@ -105,17 +111,26 @@ export function listReports(): ReportRow[] {
 
 // 週のまとめの「実験メモに残すとよい気づき」を、社内の知見（実験メモ）に入れる（11/28 に運営者が、手で足すのではなく自動でよいと決めた）
 // 前の「足す」ボタンと同じく、書いた人は AI・確かさは「1回見ただけ」・公開しない。同じ題の実験メモがすでにあれば入れない。入れた数を返す
-export function addNoteIdeas(ideas: Report["noteIdeas"]): number {
+export function addNoteIdeas(ideas: unknown): number {
   let n = 0;
-  for (const x of ideas) {
-    if (!isObj(x) || !isStr(x.title) || !x.title.trim()) continue;
-    const title = x.title.trim().slice(0, 120);
-    if (noteTitled(title)) continue;
-    addNote({ author: "ai", topic: (isStr(x.topic) && x.topic in NOTE_TOPICS ? x.topic : "other") as NoteTopic, certainty: "once", title, body: isStr(x.body) ? x.body.trim().slice(0, 4000) : "", projectId: null, isPublic: false });
+  for (const x of cleanNoteIdeas(ideas)) {
+    if (noteTitled(x.title)) continue;
+    addNote({ author: "ai", topic: noteTopicOf(x.topic), certainty: "once", title: x.title, body: x.body, projectId: null, isPublic: false });
     n++;
   }
   return n;
 }
 
+// 気づきの形を整える（題が空・文字でないものは捨てる。題は120文字・根拠は4000文字まで）。保存するときも、画面に出すときも使う
+export function cleanNoteIdeas(ideas: unknown): Report["noteIdeas"] {
+  if (!Array.isArray(ideas)) return [];
+  return ideas.flatMap((x) => (isObj(x) && isStr(x.title) && x.title.trim()
+    ? [{ title: x.title.trim().slice(0, 120), body: isStr(x.body) ? x.body.trim().slice(0, 4000) : "", topic: isStr(x.topic) ? x.topic : "other" }]
+    : []));
+}
+
+// 決まった話題だけを認める（"constructor" のような、オブジェクトが元から持つ名前を話題として通さない。PR #237 の ai-review の指摘）
+export const noteTopicOf = (topic: unknown): NoteTopic => (typeof topic === "string" && Object.hasOwn(NOTE_TOPICS, topic) ? (topic as NoteTopic) : "other");
+
 // 同じ題の実験メモがあるか（週のまとめの画面で「入れ済み」を出すのにも使う）
-export const noteTitled = (title: string): boolean => !!db().prepare("SELECT 1 FROM notes WHERE title = ?").get(title.trim().slice(0, 120));
+export const noteTitled = (title: unknown): boolean => typeof title === "string" && !!db().prepare("SELECT 1 FROM notes WHERE title = ?").get(title.trim().slice(0, 120));
