@@ -3,26 +3,28 @@ import { db, getSettings, saveSettings, type ProjectRow } from "./db";
 import { CONV, KIND_LABEL, STAGE_LABEL, ideaAuthorStats, logEvent } from "./loop";
 import { modelInfo } from "./models";
 import { costEfficiency } from "./cost";
+import { NOTE_TOPICS, addNote, type NoteTopic } from "./notes";
 import { headline, endReasons, rankings } from "./experiment";
 import { jstDateTime } from "./format";
 import { BOTTLENECK_LABEL, GOAL_LABEL, planProgress, recentPlans } from "./plan";
 
-// 週ごとのレポート: 1週間の数字と動きをAIがまとめ、発信用の下書き（Xの投稿・記事）と、実験メモの追加案も作る
+// 週のまとめ: 1週間の数字と動きをAIがまとめ、実験メモに残すとよい気づきも出す（気づきは、社内の知見に自動で入れる）
+// 11/28 に運営者が、発信用の下書き（運営者の個人の X の「実験ログ」・note の記事）はやめると決めた（note の記事は記事のルーティンが書くため）
 
 export type Report = {
   summary: string; // 3行ほどのまとめ
   numbers: { label: string; value: string }[];
   highlights: string[]; // 今週あったこと
-  noteIdeas: { title: string; body: string; topic: string }[]; // 実験メモに足すとよい気づき
-  xPosts: string[]; // あなたの個人アカウントで投稿する「実験ログ」の下書き
-  article: string; // note などに載せる記事の下書き（Markdown）
+  noteIdeas: { title: string; body: string; topic: string }[]; // 実験メモに足すとよい気づき（作ったときに、社内の知見に自動で入れる）
+  xPosts?: string[]; // 11/28 までのまとめだけにある「実験ログ」の下書き（いまは作らない・出さない）
+  article?: string; // 11/28 までのまとめだけにある note の記事の下書き（いまは作らない・出さない）
   next: string[]; // 来週やるとよいこと
 };
 export type ReportRow = { id: number; created_at: string; period_start: string; period_end: string; model_id: string; content: string };
 
 const isReport = (v: unknown): v is Report =>
-  isObj(v) && isStr(v.summary) && isStr(v.article) && Array.isArray(v.numbers) && Array.isArray(v.highlights) &&
-  Array.isArray(v.noteIdeas) && Array.isArray(v.xPosts) && Array.isArray(v.next);
+  isObj(v) && isStr(v.summary) && Array.isArray(v.numbers) && Array.isArray(v.highlights) &&
+  Array.isArray(v.noteIdeas) && Array.isArray(v.next);
 
 const day = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -73,28 +75,33 @@ export async function createReport(opts: { extra?: string; modelId?: string; nex
   const end = new Date();
   const startDate = new Date(end.getTime() - 7 * 86_400_000);
   const material = gather(day(startDate)) + (opts.extra ?? "");
-  const r = await callJson<Report>({
+  const out = await callJson<Report>({
     purpose: "週のレポート",
     modelId: opts.modelId,
-    system: `あなたは「AIが自動でプロダクトを作る実験」の記録係です。1週間の材料から、運営者向けのレポートと、外に発信するための下書きを作ります。
+    system: `あなたは「AIが自動でプロダクトを作る実験」の記録係です。1週間の材料から、運営者向けの週のまとめを作ります。
 守ること:
 - 材料にある数字だけを使い、推測で数字を作らない。件数が少ないときは「まだ偶然の可能性が高い」とはっきり書く
 - 盛らない。うまくいかなかったことも正直に書く（失敗も実験の成果）
-- 記事やXの下書きでは、サービス名は出してよいが、URLは書かない（載せるかは運営者が決める）
-- 記事（article）は note に載せる想定の Markdown。見出し・箇条書きを使い、800〜1500文字。「AIに何を任せ、人は何を判断したか」「数字」「気づき」「来週」の流れにする
-- xPosts は、運営者が自分の個人アカウントで投稿する「実験ログ」。日本語で1件120文字以内を2〜3件。一人称で「AIにプロダクト作りを丸ごと任せる実験をしている人」として、今週AIが作ったもの・撤退したもの・数字・意外だったことを書く。1件目は「今週の実験ログ」として数字の要約、2件目以降は気づきを1つずつ。サービスの宣伝にはしない
 - noteIdeas は、実験メモに残す価値がある気づき（数字の根拠つき）を0〜3件。topic は idea / design / tool / judge / cost / other のどれか
-形式: {"summary":"3行ほどのまとめ","numbers":[{"label":"項目","value":"値"}],"highlights":["今週あったこと"],"noteIdeas":[{"title":"気づき","body":"根拠","topic":"idea"}],"xPosts":["投稿"],"article":"記事のMarkdown","next":["来週やるとよいこと"]}`,
+形式: {"summary":"3行ほどのまとめ","numbers":[{"label":"項目","value":"値"}],"highlights":["今週あったこと"],"noteIdeas":[{"title":"気づき","body":"根拠","topic":"idea"}],"next":["来週やるとよいこと"]}`,
     user: material,
     validate: isReport,
   });
-  if (opts.next) r.next = opts.next;
-  const id = Number(
-    db().prepare("INSERT INTO reports (period_start, period_end, model_id, content) VALUES (?, ?, ?, ?)")
-      .run(day(startDate), day(end), opts.modelId ?? s.loopModel, JSON.stringify(r)).lastInsertRowid,
-  );
-  saveSettings({ lastWeeklyReport: day(end) });
-  logEvent(null, "ai", "report", `発信の下書きを作成しました（${day(startDate)}〜${day(end)}）`);
+  // 保存するのは、まとめ・数字・今週あったこと・気づき・採用した提案だけ（AIが頼んでいない下書き（article・xPosts）を返しても残さない。
+  // 残すと、画面が前の形のまとめと見なして、追加のボタンを出してしまう。PR #237 の ai-review の指摘）
+  // 気づきは、形の正しいものだけを残す（題が文字でないものなどを保存すると、画面で読めない。PR #237 の ai-review の指摘）
+  const saved = toSaved(out, opts.next);
+  // まとめの保存・気づきの追加・最後に作った日の更新を、1つのトランザクションにする（途中で失敗して、まとめだけ・気づきの一部だけが残らないように。PR #237 の ai-review の指摘）
+  const { id, added } = db().transaction(() => {
+    const newId = Number(
+      db().prepare("INSERT INTO reports (period_start, period_end, model_id, content) VALUES (?, ?, ?, ?)")
+        .run(day(startDate), day(end), opts.modelId ?? s.loopModel, JSON.stringify(saved)).lastInsertRowid,
+    );
+    const n = addNoteIdeas(saved.noteIdeas);
+    saveSettings({ lastWeeklyReport: day(end) });
+    return { id: newId, added: n };
+  })();
+  logEvent(null, "ai", "report", `週のまとめを作成しました（${day(startDate)}〜${day(end)}）。実験メモに気づきを${added}件入れました`);
   return id;
 }
 
@@ -102,3 +109,39 @@ export function listReports(): ReportRow[] {
   return db().prepare("SELECT * FROM reports ORDER BY id DESC").all() as ReportRow[];
 }
 
+
+// 週のまとめの「実験メモに残すとよい気づき」を、社内の知見（実験メモ）に入れる（11/28 に運営者が、手で足すのではなく自動でよいと決めた）
+// 前の「足す」ボタンと同じく、書いた人は AI・確かさは「1回見ただけ」・公開しない。同じ題の実験メモがすでにあれば入れない。入れた数を返す
+export function addNoteIdeas(ideas: unknown): number {
+  let n = 0;
+  for (const x of cleanNoteIdeas(ideas)) {
+    // 根拠のない気づきは入れない（toSaved と同じ。直接呼ばれたときも守る）
+    if (!x.body || noteTitled(x.title)) continue;
+    addNote({ author: "ai", topic: noteTopicOf(x.topic), certainty: "once", title: x.title, body: x.body, projectId: null, isPublic: false });
+    n++;
+  }
+  return n;
+}
+
+// 週のまとめとして保存する形（AIの答えから、決まった項目だけを取り出す）
+// 気づきは、根拠のあるものだけを、頼んだ上限（NOTE_IDEAS_MAX 件）まで残す（根拠のない題だけの気づきを実験メモに入れると、
+// 同じ題の気づきが後で根拠つきで出ても、同じ題があるとして入らない。上限は頼みの中だけでなく、保存するときにも守る。PR #237 の ai-review の指摘）
+export const NOTE_IDEAS_MAX = 3;
+export function toSaved(out: Report, next?: string[]): Report {
+  const noteIdeas = cleanNoteIdeas(out.noteIdeas).filter((x) => x.body).slice(0, NOTE_IDEAS_MAX);
+  return { summary: out.summary, numbers: out.numbers, highlights: out.highlights, noteIdeas, next: next ?? out.next };
+}
+
+// 気づきの形を整える（題が空・文字でないものは捨てる。題は120文字・根拠は4000文字まで）。保存するときも、画面に出すときも使う
+export function cleanNoteIdeas(ideas: unknown): Report["noteIdeas"] {
+  if (!Array.isArray(ideas)) return [];
+  return ideas.flatMap((x) => (isObj(x) && isStr(x.title) && x.title.trim()
+    ? [{ title: x.title.trim().slice(0, 120), body: isStr(x.body) ? x.body.trim().slice(0, 4000) : "", topic: isStr(x.topic) ? x.topic : "other" }]
+    : []));
+}
+
+// 決まった話題だけを認める（"constructor" のような、オブジェクトが元から持つ名前を話題として通さない。PR #237 の ai-review の指摘）
+export const noteTopicOf = (topic: unknown): NoteTopic => (typeof topic === "string" && Object.hasOwn(NOTE_TOPICS, topic) ? (topic as NoteTopic) : "other");
+
+// 同じ題の実験メモがあるか（週のまとめの画面で「入れ済み」を出すのにも使う）
+export const noteTitled = (title: unknown): boolean => typeof title === "string" && !!db().prepare("SELECT 1 FROM notes WHERE title = ?").get(title.trim().slice(0, 120));

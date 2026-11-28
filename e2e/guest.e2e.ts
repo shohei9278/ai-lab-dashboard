@@ -100,12 +100,13 @@ test("来訪者: 主要なページがスマホ幅でエラーなく開き、横
   await ctx.close();
 });
 
-test("投稿前の下書きは、来訪者のHTMLに含まれず、運営者には出る", async () => {
+test("週のまとめ: 前の形のまとめに残っている投稿前の下書き（記事・実験ログ）は、来訪者にも運営者にも出さない（11/28 に下書きをやめた）", async () => {
   const guest = await fetch(`${BASE}/reports`).then((r) => r.text());
   assert.ok(guest.includes("E2Eのまとめ"));
   assert.ok(!guest.includes(SECRET_ARTICLE) && !guest.includes("E2Eの投稿の下書き"));
   const owner = await fetch(`${BASE}/reports`, { headers: { authorization: `Basic ${Buffer.from(`admin:${PASSWORD}`).toString("base64")}` } }).then((r) => r.text());
-  assert.ok(owner.includes(SECRET_ARTICLE) && owner.includes("E2Eの投稿の下書き"));
+  assert.ok(owner.includes("E2Eのまとめ"));
+  assert.ok(!owner.includes(SECRET_ARTICLE) && !owner.includes("E2Eの投稿の下書き"));
 });
 
 test("SNSの投稿前の下書きは、来訪者のHTMLに含まれず、運営者には出る（SNSの管理・案件の画面）", async () => {

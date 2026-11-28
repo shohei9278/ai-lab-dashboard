@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { getSettings } from "@/lib/db";
-import { listReports, type Report } from "@/lib/report";
+import { cleanNoteIdeas, listReports, noteTitled, noteTopicOf, type Report } from "@/lib/report";
 import { NOTE_TOPICS } from "@/lib/notes";
 import { PageIntro } from "@/components/PageIntro";
 import { LibraryTabs } from "@/components/LabTabs";
-import { AddNoteButton, CopyButton, CreateReportButton } from "./ReportActions";
+import { AddNoteButton, CreateReportButton } from "./ReportActions";
 import { jstFull } from "@/lib/format";
 import { isOwner } from "@/lib/viewer";
 
@@ -17,11 +17,15 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const reports = listReports();
   const current = reports.find((r) => r.id === Number(id)) ?? reports[0];
   const r = current ? (JSON.parse(current.content) as Report) : null;
+  // 気づきは形の正しいものだけを出す（前に保存したものに、題が文字でないものがあっても画面が止まらないように。PR #237 の ai-review の指摘）
+  const ideas = r ? cleanNoteIdeas(r.noteIdeas) : [];
+  // 11/28 より前のまとめ（記事の下書きがある形）だけ、まだ入れていない気づきに追加のボタンを出す（それより後は、作ったときに自動で入れている）
+  const oldForm = !!r && typeof r.article === "string";
 
   return (
     <div className="space-y-6">
-      <PageIntro title="発信の下書き" actions={<CreateReportButton />}>
-        週の定例会議のあと、その週の議長のAIが、1週間の数字と会議の内容をまとめたものです。外に発信するための下書き（Xの投稿・記事）と、実験メモに残すとよい気づきも作ります。
+      <PageIntro title="週のまとめ" actions={<CreateReportButton />}>
+        週の定例会議のあと、その週の議長のAIが、1週間の数字と会議の内容をまとめたものです。実験メモに残すとよい気づきは、<Link href="/notes" className="underline">社内の知見</Link>に自動で入れます。
         会議そのもの（3社の振り返り・提案と採点）は<Link href="/meetings?kind=weekly" className="underline">会議室</Link>で見られます。
         {s.weeklyReport ? "毎週月曜に自動で開きます。" : "自動で開くのは止めています（設定で変えられます）。"}
       </PageIntro>
@@ -65,14 +69,16 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             </section>
             <section className="card space-y-2 p-4">
               <h2 className="font-bold">実験メモに残すとよい気づき</h2>
-              {r.noteIdeas.length === 0 ? <p className="text-sm text-ink-2">今週はありません。</p> : (
+              {ideas.length === 0 ? <p className="text-sm text-ink-2">今週はありません。</p> : (
                 <ul className="space-y-3">
-                  {r.noteIdeas.map((n) => (
+                  {ideas.map((n) => (
                     <li key={n.title} className="text-sm">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{n.title}</span>
-                        <span className="text-xs text-muted">{NOTE_TOPICS[n.topic as keyof typeof NOTE_TOPICS] ?? "その他"}</span>
-                        <AddNoteButton title={n.title} body={n.body} topic={n.topic in NOTE_TOPICS ? n.topic : "other"} />
+                        <span className="text-xs text-muted">{NOTE_TOPICS[noteTopicOf(n.topic)]}</span>
+                        {/* 入れたかは運営者にだけ出す（実験メモは公開しないので、来訪者に同じ題のメモがあるかを見せない。PR #237 の ai-review の指摘）
+                            11/28 からは、まとめを作ったときに自動で入れる。前の形のまとめで、まだ入れていないものだけボタンを出す */}
+                        {owner && (noteTitled(n.title) ? <span className="text-xs text-muted">入れ済み</span> : oldForm && <AddNoteButton title={n.title} body={n.body} topic={noteTopicOf(n.topic)} />)}
                       </div>
                       <p className="text-xs text-ink-2">{n.body}</p>
                     </li>
@@ -82,36 +88,6 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             </section>
           </div>
 
-          {/* 投稿前の下書きは運営者だけに渡す（画面で隠すのではなく、来訪者にはデータごと送らない） */}
-          {!owner ? (
-            <p className="card p-4 text-sm text-ink-2">投稿前の下書き（Xの投稿・記事）は、運営者だけに表示しています。</p>
-          ) : (
-          <>
-          <section className="card space-y-2 p-4">
-            <h2 className="font-bold">実験ログの下書き（あなたの個人アカウント用）</h2>
-            <p className="text-xs text-muted">「AIにプロダクト作りを任せる実験」として、あなたが自分のアカウントで投稿する文です。「Xで投稿」を押すと、投稿の画面が開きます（送るのはあなたです）。</p>
-            <ul className="space-y-2">
-              {r.xPosts.map((x) => (
-                <li key={x} className="flex items-start justify-between gap-3 rounded-lg bg-surface-2 p-3 text-sm">
-                  <span className="whitespace-pre-wrap">{x}</span>
-                  <span className="flex shrink-0 flex-col items-end gap-1">
-                    <CopyButton text={x} />
-                    <a href={`https://x.com/intent/post?text=${encodeURIComponent(x)}`} target="_blank" rel="noreferrer" className="text-xs text-accent underline">Xで投稿 ↗</a>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          <section className="card space-y-2 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="font-bold">記事の下書き（note など）</h2>
-              <CopyButton text={r.article} label="Markdownをコピー" />
-            </div>
-            <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-lg bg-surface-2 p-3 text-sm font-[inherit]">{r.article}</pre>
-          </section>
-          </>
-          )}
         </>
       )}
     </div>
