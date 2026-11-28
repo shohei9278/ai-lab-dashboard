@@ -50,6 +50,7 @@ const metric = (pid: number, day: string, visits: number, signups: number, versi
 test("やった改善の答え合わせ: やった日の前7日と後の、1日あたりの訪問・成果を出す（案件の提案はその案件、ほかは全案件）", () => {
   db().exec("DELETE FROM plan_requests; DELETE FROM metrics");
   const a = project(), b = project();
+  db().prepare("UPDATE projects SET published_at = datetime('now', '-30 days') WHERE id IN (?, ?)").run(a.id, b.id);
   // 5日前にやった。前の7日は a が1日2人、後は1日6人。b は前後とも1日1人
   for (let d = 12; d >= 1; d--) { metric(a.id, ago(d), d > 5 ? 2 : 6, d > 5 ? 0 : 1); metric(b.id, ago(d), 1, 0); }
   const done = (title: string, daysAgo: number, projectId: number | null, source = "scene") =>
@@ -63,12 +64,13 @@ test("やった改善の答え合わせ: やった日の前7日と後の、1日�
   assert.deepEqual(xs.map((x) => x.title).sort(), ["a の最初の画面を直す", "全体の投稿の時間を変える", "昨日やったこと"].sort());
   const fa = xs.find((x) => x.projectId === a.id)!;
   assert.equal(fa.afterDays, 5);
+  assert.equal(fa.beforeDays, 7);
   assert.deepEqual(fa.before, { visits: 14, conversions: 0 });
   assert.deepEqual(fa.after, { visits: 30, conversions: 5 });
   const all = xs.find((x) => x.title === "全体の投稿の時間を変える")!;
   assert.deepEqual(all.before, { visits: 21, conversions: 0 }); // a 14 + b 7
   const text = doneEffectsText();
-  assert.match(text, new RegExp(`「a の最初の画面を直す」（仕組み・作業の途中で・.+にやった・#${a.id}）: 訪問 2\\.0 → 6\\.0・成果 0\\.0 → 1\\.0（後は5日分）`));
+  assert.match(text, new RegExp(`「a の最初の画面を直す」（仕組み・作業の途中で・.+にやった・#${a.id}）: #${a.id}で 訪問 2\\.0 → 6\\.0・成果 0\\.0 → 1\\.0（後は5日分） / 全案件の合計で 訪問 3\\.0 → 7\\.0・成果 0\\.0 → 1\\.0`));
   assert.match(text, /「昨日やったこと」.+（後は1日分。まだ判断しない）/);
   assert.match(text, /1つの改善の効果とは言い切れない/);
   // 基準の時刻を渡すと、その時刻から見て選ぶ（10日前から見ると、5日前と1日前にやったものはまだ先のことなので入らない）
@@ -77,6 +79,35 @@ test("やった改善の答え合わせ: やった日の前7日と後の、1日�
   const past = doneEffects(28, Date.now() - 3 * 86_400_000);
   assert.ok(!past.some((x) => x.title === "昨日やったこと"));
   assert.equal(past.find((x) => x.projectId === a.id)?.afterDays, 2);
+});
+
+test("やった改善の答え合わせ: 案件の提案は、案件を公開した日より前を「前」に入れない（公開前の0人で効いたように見せない。提案箱 #117）", () => {
+  db().exec("DELETE FROM plan_requests; DELETE FROM metrics");
+  const c = project(), d = project(), e = project();
+  // c は8日前に公開、5日前にやった → 前は3日分（公開前の5日は数えない）
+  db().prepare("UPDATE projects SET published_at = datetime('now', '-8 days') WHERE id = ?").run(c.id);
+  // d はやった日（5日前）より後に公開。e はまだ公開していない
+  db().prepare("UPDATE projects SET published_at = datetime('now', '-2 days') WHERE id = ?").run(d.id);
+  for (let x = 12; x >= 1; x--) metric(c.id, ago(x), x > 8 ? 0 : x > 5 ? 3 : 6, 0);
+  const done = (title: string, projectId: number, source = "scene") =>
+    db().prepare("INSERT INTO plan_requests (title, source, target, status, project_id, decided_at) VALUES (?, ?, 'system', 'done', ?, datetime('now', '-5 days'))").run(title, source, projectId);
+  done("c の作り方を直す", c.id);
+  done("d を直す", d.id, "plan");
+  done("e を直す", e.id); // まだ公開していない案件の、作業の途中で出た仕組みの提案
+  const xs = doneEffects();
+  const fc = xs.find((x) => x.projectId === c.id)!;
+  assert.equal(fc.beforeDays, 3);
+  assert.deepEqual(fc.before, { visits: 9, conversions: 0 }); // 公開前の 0人の日は入らない
+  assert.equal(xs.find((x) => x.projectId === d.id)!.beforeDays, 0);
+  assert.equal(xs.find((x) => x.projectId === e.id)!.beforeDays, 0);
+  assert.ok(fc.whole && !xs.find((x) => x.projectId === d.id)!.whole); // 全案件の合計は、作業の途中で出た仕組みの提案だけ
+  const text = doneEffectsText();
+  assert.match(text, new RegExp(`#${c.id}で 訪問 3\\.0 → 6\\.0・成果 0\\.0 → 0\\.0（前は3日分・後は5日分）`));
+  assert.match(text, new RegExp(`「d を直す」.+: #${d.id}は前の数字がない（公開前）。まだ判断しない`));
+  assert.ok(!/「d を直す」.+訪問/.test(text));
+  // 前の数字がないものは、全案件の合計も出さない（注意だけ）
+  assert.match(text, new RegExp(`「e を直す」.+: #${e.id}は前の数字がない（公開前）。まだ判断しない$`, "m"));
+  assert.ok(!/「e を直す」.+(訪問|成果|全案件の合計で)/.test(text));
 });
 
 test("前の版との比べ: 前の版の動きと、今の版で変えたことを並べる。今の版に訪問がなくても前の版は渡す", () => {
