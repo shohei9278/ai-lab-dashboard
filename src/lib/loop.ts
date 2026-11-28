@@ -1860,7 +1860,9 @@ export function routineFixTurn(p: Pick<ProjectRow, "id" | "kind" | "deep" | "lp"
   if (p.kind !== "tool" || p.deep || !p.lp) return false;
   const s = getSettings();
   if (!s.toolRoutineNormal || s.killSwitch || !toolRoutineConfigured()) return false;
-  const last = db().prepare("SELECT tool_model FROM lp_versions WHERE project_id = ? AND tool_model IS NOT NULL ORDER BY version DESC LIMIT 1").get(p.id) as { tool_model: string } | undefined;
+  // いちばん新しい版のツールを書いた担当で決める（担当の記録がない版は、AI が書いたものとして扱う。前の版の担当にさかのぼらない。PR #229 の ai-review の指摘）
+  // 通常案件のツールの版は、どれも担当を記録している（紹介ページだけを作り直してツールを使い回すのは、じっくり案件だけ）
+  const last = db().prepare("SELECT tool_model FROM lp_versions WHERE project_id = ? ORDER BY version DESC LIMIT 1").get(p.id) as { tool_model: string | null } | undefined;
   return last?.tool_model === CLAUDE_CODE;
 }
 

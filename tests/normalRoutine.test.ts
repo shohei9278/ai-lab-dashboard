@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db, saveSettings } from "../src/lib/db";
 import { devWaiting, getProject, prepareLp, routineFixTurn, routineTurnForNew } from "../src/lib/loop";
+import { autoToolRoutine } from "../src/lib/toolRoutine";
 
 // 通常案件のツールも、ルーティンに作ってもらう（11/28 に運営者が、交代の4つ目から、新しいツールは全部ルーティンにすると決めた）
 // 直しは、作った担当がする（ルーティンが書いたツールはルーティン、AI が書いたツールは AI）
@@ -66,10 +67,15 @@ test("通常案件のルーティン: 直しは、いまのツールを書いた
   const fixed = addTool("AI が書きルーティンが直した");
   aiVersion(fixed, "gpt-6.2-sol", 1);
   aiVersion(fixed, "claude-code", 2);
+  // いちばん新しい版に担当の記録がなければ、前の版の担当にさかのぼらない（AI が直す）
+  const unknown = addTool("新しい版の担当が分からない");
+  aiVersion(unknown, "claude-code", 1);
+  db().prepare("INSERT INTO lp_versions (project_id, version, lp, tool_model) VALUES (?, 2, '{}', NULL)").run(unknown);
   const q = (id: number) => ({ id, kind: "tool" as const, deep: 0, lp: "{}" });
   assert.equal(routineFixTurn(q(byRoutine)), true);
   assert.equal(routineFixTurn(q(byAi)), false);
   assert.equal(routineFixTurn(q(fixed)), true);
+  assert.equal(routineFixTurn(q(unknown)), false);
   // まだツールがない・じっくり案件（別の流れで、いつもルーティン）・LP → ここでは決めない
   assert.equal(routineFixTurn({ ...q(byRoutine), lp: null }), false);
   assert.equal(routineFixTurn({ ...q(byRoutine), deep: 1 }), false);
@@ -85,14 +91,16 @@ test("通常案件のルーティン: 直しは、いまのツールを書いた
   configure();
 });
 
-test("通常案件のルーティン: ルーティンが書いたツールを直す指示は、AIが書かずに開発待ちにする", async () => {
+test("通常案件のルーティン: ルーティンが書いたツールを直す指示は、AIが書かずに開発待ちにし、ルーティンに頼む対象になる（最初は AI が作った案件でも）", async () => {
   configure();
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
   db().exec("DELETE FROM lp_versions; DELETE FROM approvals; DELETE FROM projects");
-  const id = addTool("ルーティンが書いたツール");
-  db().prepare("UPDATE projects SET lp = '{}', lp_version = 1, tool_maker = 'claude-code', stage = 'lp' WHERE id = ?").run(id);
-  aiVersion(id, "claude-code");
+  // 最初は AI（GPT）が作り、チェックで止まってルーティンが直した案件（tool_maker は空のまま）
+  const id = addTool("AI が作りルーティンが直したツール");
+  db().prepare("UPDATE projects SET lp = '{}', lp_version = 2, stage = 'lp' WHERE id = ?").run(id);
+  aiVersion(id, "gpt-6.2-sol", 1);
+  aiVersion(id, "claude-code", 2);
   // AIを呼ばずに試すため、前の設計書を置いておく
   db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason, status, payload) VALUES (?, 'dev', '前', '前', 'done', ?)").run(id, JSON.stringify({ design: "## 一言で\n小さな計算", instruction: null }));
   await prepareLp(id, "ボタンの文言を短くする", { keepCore: true, byHuman: true });
@@ -100,7 +108,14 @@ test("通常案件のルーティン: ルーティンが書いたツールを直
   assert.ok(dev);
   assert.match(dev.proposal, /Claude Code で直す/);
   assert.equal((JSON.parse(dev.payload) as { instruction: string }).instruction, "ボタンの文言を短くする");
-  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM lp_versions WHERE project_id = ?").get(id) as { n: number }).n, 1, "AI は新しい版を書かない");
+  assert.equal((db().prepare("SELECT COUNT(*) AS n FROM lp_versions WHERE project_id = ?").get(id) as { n: number }).n, 2, "AI は新しい版を書かない");
+  assert.equal(getProject(id)!.tool_maker, null);
+  // ルーティンに自動で頼むときに選ばれる（つながっていて、自動で頼む設定がオン）
+  const calls: string[] = [];
+  const n = await autoToolRoutine({ fetchImpl: async (url: string) => { calls.push(url); return new Response(JSON.stringify({ claude_code_session_url: "https://claude.ai/code/x" }), { status: 200 }); } });
+  assert.equal(n, 1);
+  assert.equal(calls.length, 1);
+  assert.ok((db().prepare("SELECT routine_at FROM approvals WHERE project_id = ? AND kind = 'dev' AND status = 'pending'").get(id) as { routine_at: string | null }).routine_at);
   // 次のテストが案件を消せるように、この案件の記録を片付ける
   db().prepare("DELETE FROM events WHERE project_id = ?").run(id);
 });
