@@ -30,20 +30,7 @@ export function CreateReportButton() {
   );
 }
 
-export function CopyButton({ text, label = "コピー" }: { text: string; label?: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={() => navigator.clipboard.writeText(text).then(() => { setDone(true); setTimeout(() => setDone(false), 1500); }).catch(() => {})}
-      className="rounded border border-line px-2 py-0.5 text-xs"
-    >
-      {done ? "コピーしました" : label}
-    </button>
-  );
-}
-
-// レポートの気づきを、実験メモに追加する
+// 週のまとめの気づきを、実験メモに追加する（11/28 からは自動で入れるので、前の週の分でまだ入れていないものだけに出す）
 export function AddNoteButton({ title, body, topic }: { title: string; body: string; topic: string }) {
   const [state, setState] = useState<"idle" | "busy" | "done">("idle");
   return (

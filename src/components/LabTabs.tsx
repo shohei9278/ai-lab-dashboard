@@ -25,7 +25,7 @@ export function LabTabs({ current }: { current: string }) {
 
 // 資料
 export function LibraryTabs({ current }: { current: string }) {
-  return <PageTabs current={current} label="資料のページ" tabs={[{ href: "/notes", label: "社内の知見" }, { href: "/reports", label: "発信の下書き" }]} />;
+  return <PageTabs current={current} label="資料のページ" tabs={[{ href: "/notes", label: "社内の知見" }, { href: "/reports", label: "週のまとめ" }]} />;
 }
 
 // 集客

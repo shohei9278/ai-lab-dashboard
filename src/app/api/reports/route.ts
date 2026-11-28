@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { GuardError } from "@/lib/ai";
 import { createWeeklyMeeting } from "@/lib/weekly";
 
-// 週の定例会議を今すぐ開く（議事録と発信用の下書きができる）
+// 週の定例会議を今すぐ開く（議事録と週のまとめができる）
 export async function POST() {
   try {
     return NextResponse.json({ id: await createWeeklyMeeting() });

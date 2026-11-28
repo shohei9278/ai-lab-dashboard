@@ -235,7 +235,7 @@ export function SettingsForm({ initial, autopilotNow, models, publishing, snsRea
           <input type="checkbox" className="mt-1" checked={v.weeklyReport} onChange={(e) => set("weeklyReport", e.target.checked)} />
           <span>
             毎週月曜に、定例会議を開く
-            <span className="block text-xs text-muted">3社のAIが1週間を振り返って改善案を出し合い、互いに採点して上位を提案箱に入れます。議長のAIが、まとめと発信用の下書き（Xの投稿・記事）も作ります（1回 約60〜80円）。会議の中身は「会議室」、下書きは「資料 → 発信の下書き」で見られます。オフにしても、会議室の「今すぐ会議」と資料の「今すぐ定例会議を開く」は使えます。</span>
+            <span className="block text-xs text-muted">3社のAIが1週間を振り返って改善案を出し合い、互いに採点して上位を提案箱に入れます。議長のAIが、週のまとめも作り、実験メモに残すとよい気づきを社内の知見に入れます（1回 約60〜80円）。会議の中身は「会議室」、まとめは「資料 → 週のまとめ」で見られます。オフにしても、会議室の「今すぐ会議」と資料の「今すぐ定例会議を開く」は使えます。</span>
           </span>
         </label>
         <label className="flex items-start gap-2 text-sm">
