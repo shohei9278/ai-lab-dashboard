@@ -128,7 +128,8 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
         )}
         <p className="text-sm text-ink-2">このページでは、AIがこの案件で何を考え、何をして、どんな結果になったかが分かります。</p>
         <ol className="flex flex-wrap gap-1 text-xs" aria-label="進み具合">
-          {[...STEPS.map((st) => STAGE_LABEL[st]), "結果"].map((label, i) => (
+          {/* 集客なしの案件は、3つ目を「集客なし」と出す（上の印は「集客なし」なのに、進み具合が「集客中」になっていた。運営者が見つけた） */}
+          {[...STEPS.map((st) => STAGE_LABEL[st === "live" && stage === "hold" ? "hold" : st]), "結果"].map((label, i) => (
             <li key={label} className={`rounded-full px-2 py-0.5 ${i <= stepIndex ? "bg-accent text-accent-ink" : "bg-surface-2 text-muted"}`}>
               {i + 1}. {label}
             </li>
