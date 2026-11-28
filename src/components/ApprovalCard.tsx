@@ -74,7 +74,6 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
         <span className="rounded border border-line px-1.5 py-0.5 text-ink-2">{k.label}</span>
         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-ink-2">{a.project.kind === "tool" ? "動くツール" : "事前登録LP"}</span>
-        {a.project.deep && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-ink-2">じっくり案件</span>}
         <Link href={`/projects/${a.project.id}`} className="text-accent underline"><span className="num">#{a.project.id}</span> {a.project.title}</Link>
         {a.project.demo && <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5">デモ</span>}
         <span className="num">{jstDateTime(a.createdAt)}</span>

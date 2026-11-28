@@ -944,9 +944,9 @@ export type Settings = {
   spreadMinVisits: number; // 「広がる」の判定の日に、判定の起点からの訪問がこれに届かず当たってもいなければ、1回だけ spreadJudgeDays 延ばす（提案箱 #106）
   maxAutoImprove: number; // 自動モードで、人の承認なしにLPを改善してよい回数
   staleDays: number; // この日数放置された承認待ちは見送りにする
-  deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）
+  deepPerWeek: number; // じっくり案件を新しく作ってよい件数（直近7日）。ツールを全部じっくり案件として作るとき（loop.ts の allToolsDeep）は使わない
   needsWaitMax: number; // 人の作業待ち（保存の場所・API・AIなど、まだない仕組みが要るじっくり案件）がこの件数以上なら、そういう案件を新しく作らない
-  deepDevWaitMax: number; // 開発待ち（Claude Code で作るのを待っている）のじっくり案件がこの件数以上なら、新しいじっくり案件を作らない
+  deepDevWaitMax: number; // 開発待ち（Claude Code で作る・直すのを待っている）のツールがこの件数以上なら、新しいツールの案件を作らない（ツールを全部じっくり案件として作らないときは、じっくり案件だけを数え、じっくり案件だけを止める）
   // 開発待ちのじっくり案件を、クラウドの Claude Code（ルーティン）に自動で頼むか・同時に頼む数・1日（24時間）に頼む数（toolRoutine.ts）
   // ルーティンはサブスクの使用量で動くので、頼む数は運営者が設定で決める（運営者が決めた）
   toolRoutineAuto: boolean;
@@ -1089,7 +1089,7 @@ const DEFAULTS: Settings = {
   maxAutoImprove: 2,
   staleDays: 7,
   deepPerWeek: 3,
-  deepDevWaitMax: 2,
+  deepDevWaitMax: 3, // 11/28 に2から3にした（ツールを全部じっくり案件として作り、通常案件の開発待ちも数えるようにしたため。運営者が決めた）
   toolRoutineAuto: true,
   toolRoutineConcurrent: 1,
   toolRoutinePerDay: 6, // 11/28 に3から6にした（通常案件の新しいツールも全部ルーティンが作り、ルーティンが作ったツールの直しも頼むようにしたため。運営者が決めた）

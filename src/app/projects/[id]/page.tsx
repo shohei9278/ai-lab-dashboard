@@ -108,7 +108,7 @@ export default async function ProjectPage({ params, searchParams }: { params: Pr
           {!!p.growth_phase && <span className="rounded px-1.5 py-0.5 text-xs font-medium" style={{ background: "var(--surface-2)", color: "var(--good)" }}>育てる段階（実験 {p.growth_count}回）</span>}
           {isAim(p.aim) && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2" title={AIMS[p.aim].short}>ねらい: {AIMS[p.aim].label}{p.genre ? `・${p.genre}` : ""}</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{KIND_LABEL[p.kind]}</span>
-          {!!p.deep && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2" title={[p.deep_plan, p.deep_need && `要るデータ: ${p.deep_need}`].filter(Boolean).join(" / ") || undefined}>じっくり案件</span>}
+          {!!p.deep && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2" title={[p.deep_plan, p.deep_need && `要るデータ: ${p.deep_need}`].filter(Boolean).join(" / ") || undefined}>作り込み{p.deep_need ? "・データあり" : ""}</span>}
           <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">{MODE_LABEL[p.mode]}モード</span>
           {p.origin === "daily" && <span className="rounded border border-line px-1.5 py-0.5 text-xs text-ink-2">毎日の自動実行で作成</span>}
           {p.demo ? <span className="rounded border border-line bg-surface-2 px-1.5 py-0.5 text-xs text-ink-2">デモ</span> : null}

@@ -120,7 +120,7 @@ test("通常案件のルーティン: ルーティンが書いたツールを直
   db().prepare("DELETE FROM events WHERE project_id = ?").run(id);
 });
 
-test("通常案件のルーティン: 番のときは、AIが書かずに開発待ちにし、じっくり案件の開発待ちの上限には数えない", async () => {
+test("通常案件のルーティン: 番のときは、AIが書かずに開発待ちにする。開発待ちの数には、ツールを全部じっくりにするときだけ数える", async () => {
   configure();
   delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
@@ -136,7 +136,9 @@ test("通常案件のルーティン: 番のときは、AIが書かずに開発�
   assert.match(dev.proposal, /Claude Code で作る/);
   const ev = db().prepare("SELECT message FROM events WHERE project_id = ? AND kind = 'dev-design' ORDER BY id DESC").get(id) as { message: string };
   assert.doesNotMatch(ev.message, /じっくり案件/);
-  assert.equal(devWaiting(), 0, "じっくり案件の開発待ちの上限には数えない");
+  // ツールを全部じっくり案件として作るとき（ルーティンにつながっている）は、通常案件の開発待ちも数える（11/28 に運営者が決めた）
+  assert.equal(devWaiting(), 1, "ルーティンにつながっているときは数える");
+  assert.equal(devWaiting(false), 0, "全部じっくりにしないときは、じっくり案件の開発待ちだけを数える");
   // やり直しても（設計書づくりの失敗など）、ルーティンの番のまま開発待ちにする
   db().exec("DELETE FROM approvals WHERE status = 'pending'");
   process.env.ANTHROPIC_API_KEY = "k";
