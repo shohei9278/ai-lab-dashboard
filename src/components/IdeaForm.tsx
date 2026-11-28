@@ -6,12 +6,15 @@ import { useIdeaBusy } from "./useIdeaBusy";
 import { AIMS, AIM_KEYS, GENRES, type Aim } from "@/lib/aims";
 
 // blocked: 新しい案件を作れない理由。あるときは、会議と採点だけ行い案件にしない（アイデアの質の確かめには使える）
-export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: string | null }) {
+// allDeep: ツールを全部じっくり案件として作るとき（loop.ts の allToolsDeep）。「ふつう／じっくり案件だけ」の切り替えを出さない
+// （ふつうで出しても、ツールの案は全部じっくり案件になるので、切り替えの意味が分かりにくい。11/28 に運営者が言った）
+export function IdeaForm({ authors, blocked, allDeep = false }: { authors: string[]; blocked: string | null; allDeep?: boolean }) {
   const { run, busy, error } = useLoopAction();
   const [theme, setTheme] = useState("");
   const [count, setCount] = useState(3);
   // じっくり案件だけ: ふつうのツールの制限を外して作り込む案だけを出させる（費用が高く、データが要る案は人が確かめるので、件数は2件まで）
-  const [deep, setDeep] = useState(false);
+  const [deepPick, setDeep] = useState(false);
+  const deep = deepPick && !allDeep;
   const n = deep ? Math.min(count, 2) : count;
   // ねらい: 空ならおまかせ（設定の配分どおり）。じっくり案件はツールだけなので、需要を確かめる（事前登録LP）は選べない
   const [aim, setAim] = useState<Aim | "">("");
@@ -29,8 +32,11 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
         <p className="text-xs text-muted">
           テーマを入れると {authors.join("・")} がそれぞれ{Math.max(2, n)}件ずつ考え、作者を伏せて採点し合い、点数の高い{n}件を案件にします（空欄ならおまかせ）。過去の教訓も踏まえます。ジャンルを選ぶと、この1回だけそのジャンルで考えます（設定の画面のジャンルは変わりません）。1回あたり十数円です。
         </p>
+        {allDeep ? (
+          <p className="mt-1 text-xs text-ink-2">ツールの案は全部じっくり案件として、AIが作り込む所を書いた設計書を書き、クラウドの Claude Code（ルーティン）が作ります。</p>
+        ) : (
         <div className="mt-2 inline-flex rounded-lg border border-line p-0.5 text-xs" role="radiogroup" aria-label="出させる案の種類">
-          {([[false, "ふつう"], [true, "作り込むツールだけ"]] as const).map(([v, label]) => (
+          {([[false, "ふつう"], [true, "じっくり案件だけ"]] as const).map(([v, label]) => (
             <button
               key={label}
               type="button"
@@ -44,6 +50,7 @@ export function IdeaForm({ authors, blocked }: { authors: string[]; blocked: str
             </button>
           ))}
         </div>
+        )}
         {deep && (
           <p className="mt-1 text-xs text-ink-2">
             ふつうのツールの制限（40,000文字まで・データは代表的なものだけ・フォントなし）を外して作り込む案だけを出させます。AIが設計書を書いて判断待ち（開発）に出すので、依頼文を Claude Code に貼って作り、できたツールのHTMLを入れてください。大きなデータ（数百〜2,500件の一覧）が要る案は、先にAIがデータを下書きし、あなたが確かめます。手で頼んだ分は、週の上限や開発待ちの上限が埋まっていても作ります（数には入ります）。

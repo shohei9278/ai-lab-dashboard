@@ -11,11 +11,12 @@ type Props = {
   meeting: { members: { id: string; label: string; color: string }[]; running: string | null };
   ideaAuthors: string[];
   ideaBlocked: string | null;
+  ideaAllDeep: boolean; // ツールを全部じっくり案件として作るか（loop.ts の allToolsDeep）
   viral: { ready: boolean; yen: number };
 };
 type Pick = "meeting" | "idea" | "viral" | null;
 
-export function OwnerActions({ meeting, ideaAuthors, ideaBlocked, viral }: Props) {
+export function OwnerActions({ meeting, ideaAuthors, ideaBlocked, ideaAllDeep, viral }: Props) {
   const [open, setOpen] = useState<Pick>(null);
   const tab = (k: Exclude<Pick, null>, label: string) => (
     <button
@@ -36,7 +37,7 @@ export function OwnerActions({ meeting, ideaAuthors, ideaBlocked, viral }: Props
         {tab("viral", "話題の投稿を集める")}
       </div>
       {open === "meeting" && <MeetingForm members={meeting.members} running={meeting.running} />}
-      {open === "idea" && <IdeaForm authors={ideaAuthors} blocked={ideaBlocked} />}
+      {open === "idea" && <IdeaForm authors={ideaAuthors} blocked={ideaBlocked} allDeep={ideaAllDeep} />}
       {open === "viral" && <ViralSearch {...viral} />}
     </div>
   );

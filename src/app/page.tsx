@@ -19,7 +19,7 @@ import { liveSnapshot } from "@/lib/live";
 import { OwnerActions } from "./office/OwnerActions";
 import { adhocRunning } from "@/lib/adhoc";
 import { members } from "@/lib/weekly";
-import { ideaAuthors, newProjectBlock } from "@/lib/loop";
+import { allToolsDeep, ideaAuthors, newProjectBlock } from "@/lib/loop";
 import { xConfigured } from "@/lib/xPost";
 
 export const dynamic = "force-dynamic";
@@ -128,6 +128,7 @@ export default async function Home() {
               meeting={{ members: members().map((id) => ({ id, label: modelInfo(id).label, color: `var(--series-${modelInfo(id).provider})` })), running: adhocRunning() }}
               ideaAuthors={ideaAuthors().map((id) => getModel(id).label)}
               ideaBlocked={newProjectBlock()}
+              ideaAllDeep={allToolsDeep()}
               viral={{ ready: xConfigured(), yen: Math.round(searchReads(s) * 0.005 * 150) }}
             />
           ) : undefined}

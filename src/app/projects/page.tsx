@@ -3,7 +3,7 @@ import { PageIntro } from "@/components/PageIntro";
 import { ShowMore } from "@/components/ShowMore";
 import { db, getSettings, type ProjectRow, type Stage } from "@/lib/db";
 import { pct } from "@/lib/format";
-import { CONV, MODE_LABEL, STAGE_LABEL, ideaAuthors, newProjectBlock, projectTotals, targetRate } from "@/lib/loop";
+import { CONV, MODE_LABEL, STAGE_LABEL, allToolsDeep, ideaAuthors, newProjectBlock, projectTotals, targetRate } from "@/lib/loop";
 import { getModel } from "@/lib/models";
 import { IdeaForm } from "@/components/IdeaForm";
 import { ApiWishes } from "@/components/ApiWishes";
@@ -91,7 +91,7 @@ export default async function ProjectsPage() {
             keep={s.dailyKeep}
             modeLabel={modeSetting}
           />
-          <IdeaForm authors={ideaAuthors().map((id) => getModel(id).label)} blocked={newProjectBlock()} />
+          <IdeaForm authors={ideaAuthors().map((id) => getModel(id).label)} blocked={newProjectBlock()} allDeep={allToolsDeep()} />
         </div>
         <NeedsQueue />
         <ApiWishes />
