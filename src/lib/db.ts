@@ -856,6 +856,7 @@ const EXTRA_COLUMNS: [table: string, column: string, def: string][] = [
   ["projects", "needs", "TEXT"], // じっくり案件で、作るのに要るもの（保存の場所・外部のAPI・AIなど。needs.ts の Need の JSON）。なければ空
   ["projects", "needs_done", "INTEGER NOT NULL DEFAULT 0"], // 要るものを人が用意した（「済み」）か。0 のあいだは、作り始める前に止めておく
   ["projects", "needs_done_at", "TEXT"], // 人の作業待ちを「済み」にして作り始めた日時（じっくり案件の週の上限は、この日から数える）
+  ["projects", "ai_approved_ever", "INTEGER NOT NULL DEFAULT 0"], // その場で AI を呼ぶツールとして、人がAIへの指示を承認したことがあるか（指示の表を書き換えても消さない。toolAi.ts）
   ["projects", "hold_until", "TEXT"], // 集客に戻す日（日本時間 YYYY-MM-DD）
   ["check_evals", "beat_at", "TEXT"], // 評価が最後に例を1件終えた日時（動いているかの印）
   ["projects", "resumed_at", "TEXT"], // 保留から戻した日時（戻ってすぐ「日数がたった」と判断しないように）
@@ -1238,6 +1239,7 @@ export type ProjectRow = {
   tool_maker: string | null; // 本番のツールのエラーを、どの版で何人まで知らせたか
   needs: string | null; // 作るのに要るもの（Need[] の JSON）
   needs_done: number; // 要るものを人が用意した（「済み」）か
+  ai_approved_ever: number; // その場で AI を呼ぶツールとして、人がAIへの指示を承認したことがあるか
   needs_done_at: string | null; // 「済み」にして作り始めた日時
   growth_count: number;
   human_review: "ok" | "bad" | null;

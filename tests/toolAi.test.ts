@@ -2,9 +2,9 @@ import "./setup";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { db } from "../src/lib/db";
-import { getProject, staticToolIssues, startDevUpload } from "../src/lib/loop";
+import { decide, getProject, staticToolIssues, startDevUpload } from "../src/lib/loop";
 import { withToolAi } from "../src/lib/publish";
-import { aiAllowed, aiEverApproved, aiSpecFor, aiSpecPending, approveAiSpec, approvedAiSpec, replaceAiSpec } from "../src/lib/toolAi";
+import { aiAllowed, aiEverApproved, aiSpecFor, aiSpecPending, approveAiSpec, approvedAiSpec, currentAiDigest, replaceAiSpec } from "../src/lib/toolAi";
 import { takeAiScript } from "../lp-site/src/lp/htmlDom";
 import { normalizeLp } from "../lp-site/src/lp/content";
 import { TOOL_AI_INPUT_MAX, TOOL_AI_INSTRUCTION_MAX, TOOL_AI_OUTPUT_MAX, toolAiLimitsOf, toolAiSpecOf, usesToolAi } from "../lp-site/src/lp/toolAi";
@@ -20,6 +20,7 @@ function addProject(opts: { needs?: string | null; needsDone?: number; html?: st
   return Number(db().prepare("INSERT INTO projects (title, target, problem, solution, hypothesis, ai_reason, stage, model_id, kind, needs, needs_done, lp) VALUES ('t', 't', 'p', 's', 'h', 'r', 'lp', 'claude', 'tool', ?, ?, ?)")
     .run(opts.needs ?? null, opts.needsDone ?? 0, lp).lastInsertRowid);
 }
+const approve = (id: number) => approveAiSpec(getProject(id)!, currentAiDigest(getProject(id)!) ?? "");
 const addDev = (projectId: number) => Number(db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason, payload) VALUES (?, 'dev', 'p', 'r', '{}')").run(projectId).lastInsertRowid);
 
 test("AIへの指示の形: 指示・入力の上限・答えの上限がそろっていれば使い、前後の空白は落とす。だめなら理由", () => {
@@ -64,7 +65,8 @@ test("承認: 人が公開を承認したときに、今のコードと指示の
   replaceAiSpec(id, html, spec);
   assert.equal(aiSpecPending(getProject(id)!), true);
   assert.equal(approvedAiSpec(id, html), undefined);
-  assert.equal(approveAiSpec(getProject(id)!), true);
+  assert.equal(approveAiSpec(getProject(id)!, "違う印"), false);
+  assert.equal(approve(id), true);
   assert.deepEqual(approvedAiSpec(id, html), spec);
   assert.equal(aiSpecPending(getProject(id)!), false);
   assert.equal(aiEverApproved(id), true);
@@ -81,7 +83,7 @@ test("承認: 人が公開を承認したときに、今のコードと指示の
   // 使ってよい案件でなければ、承認しない
   const other = addProject({ needs: aiNeeds, needsDone: 0, html });
   replaceAiSpec(other, html, spec);
-  assert.equal(approveAiSpec(getProject(other)!), false);
+  assert.equal(approve(other), false);
   assert.equal(aiSpecFor(other, html)?.approved, false);
 });
 
@@ -91,7 +93,7 @@ test("公開する中身: 承認した指示だけを入れ、LP の中身に紛
   assert.equal(withToolAi(getProject(id)!, content).tool.ai, undefined);
   replaceAiSpec(id, html, spec);
   assert.equal(withToolAi(getProject(id)!, content).tool.ai, undefined);
-  approveAiSpec(getProject(id)!);
+  approve(id);
   assert.deepEqual(withToolAi(getProject(id)!, content).tool.ai, spec);
   // 人の作業待ちに戻された案件（使ってよくない）は、承認があっても入れない
   db().prepare("UPDATE projects SET needs_done = 0 WHERE id = ?").run(id);
@@ -113,4 +115,47 @@ test("ツールを入れる: 許されていない案件には AIへの指示を
   assert.throws(() => startDevUpload(addDev(allowed), `${html}<script type="application/json" id="lab-ai">{</script>`), /JSON/);
   // 入れられなかったので、指示は残っていない
   assert.equal(aiSpecFor(allowed, html), null);
+});
+
+test("承認の印: カードで見た組み合わせと今のものが違えば、公開の承認を断り、承認リクエストは残す（PR #240 の ai-review の指摘）", async () => {
+  const id = addProject({ needs: aiNeeds, needsDone: 1, html });
+  replaceAiSpec(id, html, spec);
+  const seen = currentAiDigest(getProject(id)!)!;
+  // カードを開いたあとに、指示が差し替わった
+  replaceAiSpec(id, html, { ...spec, instruction: "別の指示" });
+  const ap = Number(db().prepare("INSERT INTO approvals (project_id, kind, proposal, reason, payload) VALUES (?, 'publish', 'p', 'r', '{}')").run(id).lastInsertRowid);
+  await assert.rejects(decide(ap, "approve", undefined, { aiDigest: seen }), /変わりました/);
+  await assert.rejects(decide(ap, "approve"), /変わりました/);
+  assert.equal((db().prepare("SELECT status FROM approvals WHERE id = ?").get(ap) as { status: string }).status, "pending");
+  assert.equal(aiSpecFor(id, html)?.approved, false);
+});
+
+test("承認したことがある印は、指示を入れ直して承認の印が消えても残る（自動改善の止めに使う。PR #240 の ai-review の指摘）", () => {
+  const id = addProject({ needs: aiNeeds, needsDone: 1, html });
+  replaceAiSpec(id, html, spec);
+  assert.equal(aiEverApproved(id), false);
+  approve(id);
+  replaceAiSpec(id, html, { ...spec, outputMax: 50 });
+  assert.equal(approvedAiSpec(id, html), undefined);
+  assert.equal(aiEverApproved(id), true);
+});
+
+test("取り込みの失敗で戻すのは、自分が書いた指示がまだ残っているときだけ（PR #240 の ai-review の指摘）", () => {
+  const id = addProject({ needs: aiNeeds, needsDone: 1, html });
+  const undoFirst = replaceAiSpec(id, html, spec);
+  // 先の取り込みが終わる前に、別の取り込みが新しい指示を入れた
+  replaceAiSpec(id, html, { ...spec, outputMax: 70 });
+  undoFirst();
+  assert.equal(aiSpecFor(id, html)?.spec.outputMax, 70);
+  // 自分が消したあとに別の取り込みが入れた指示も、消さない
+  const undoDelete = replaceAiSpec(id, html, null);
+  replaceAiSpec(id, html, spec);
+  undoDelete();
+  assert.deepEqual(aiSpecFor(id, html)?.spec, spec);
+});
+
+test("公開する中身: ツールの形がおかしくても、紛れた ai は外す（PR #240 の ai-review の指摘）", () => {
+  const id = addProject({ needs: aiNeeds, needsDone: 1, html });
+  const out = withToolAi(getProject(id)!, { headline: "h", tool: { html: 1, ai: { instruction: "紛れた指示", inputMax: 1, outputMax: 1 } } });
+  assert.deepEqual(out.tool, { html: 1 });
 });

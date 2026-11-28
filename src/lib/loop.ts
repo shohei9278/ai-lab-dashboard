@@ -18,7 +18,7 @@ import { toolAssets, toolImages } from "./toolAssets";
 import { TOOL_STORE_MAX } from "../../lp-site/src/lp/toolStore";
 import { hasResultsTag, takeAiScript, takePlayScript, toolResultsOf } from "../../lp-site/src/lp/htmlDom";
 import { toolAiSpecOf, usesToolAi, type ToolAiSpec } from "../../lp-site/src/lp/toolAi";
-import { aiAllowed, aiEverApproved, aiSpecPending, approveAiSpec, approvedAiSpec, replaceAiSpec, toolHtmlOf } from "./toolAi";
+import { aiAllowed, aiEverApproved, aiSpecPending, approveAiSpec, approvedAiSpec, currentAiDigest, replaceAiSpec, toolHtmlOf } from "./toolAi";
 import { MODELS, countByCurrent, currentModelId, hasKey, modelInfo, projectsByCurrent } from "./models";
 import { firstShotNote, screenshotPath, testIssues, testTool, type ToolTest } from "./toolTest";
 import { seasonalContext } from "./season";
@@ -2553,10 +2553,17 @@ export function lessonLine(l: LessonRow): string {
 
 export type ApprovalAction = "approve" | "reject" | "revise";
 
-export async function decide(approvalId: number, action: ApprovalAction, comment?: string) {
+// opts.aiDigest: その場で AI を呼ぶツールの公開で、運営者がカードで見たコードと指示の組み合わせの印（views.ts の aiView）
+export async function decide(approvalId: number, action: ApprovalAction, comment?: string, opts: { aiDigest?: string } = {}) {
   const a = db().prepare("SELECT * FROM approvals WHERE id = ?").get(approvalId) as ApprovalRow | undefined;
   if (!a) throw new Error("承認リクエストが見つかりません");
   if (a.status !== "pending") throw new Error("この承認リクエストは処理済みです");
+  // 承認していないAIへの指示があるツールの公開は、カードで見た組み合わせと今のものが合うときだけ承認する
+  // （カードを開いてから押すまでに、コードか指示が差し替わっていたら、読んでいない指示を承認しないよう、承認リクエストは残したまま断る）
+  if (a.kind === "publish" && action === "approve") {
+    const now = getProject(a.project_id);
+    if (now && aiSpecPending(now) && opts.aiDigest !== currentAiDigest(now)) throw new Error("ツールのコードかAIへの指示が変わりました。画面を読み直して、今の内容を確かめてから承認してください");
+  }
   if (action === "revise" && !comment?.trim()) throw new Error("修正指示を書いてください");
   // 開発待ちは、ここ（Claude Code）で作ったツールのHTMLを入れることで進める（承認のボタンでは進めない）
   if (a.kind === "dev" && action === "approve") throw new Error("Claude Code で作ったツールのHTMLを入れてください");
@@ -2611,7 +2618,7 @@ export async function decide(approvalId: number, action: ApprovalAction, comment
     else {
       // その場で AI を呼ぶツールは、人が公開を承認したこのときに、今のコードとAIへの指示の組み合わせを承認する（toolAi.ts）
       const now = getProject(pid)!;
-      if (approveAiSpec(now)) logEvent(pid, "human", "ai-spec", `第${now.lp_version}版のツールのAIへの指示を承認しました`);
+      if (opts.aiDigest && approveAiSpec(now, opts.aiDigest)) logEvent(pid, "human", "ai-spec", `第${now.lp_version}版のツールのAIへの指示を承認しました`);
       setStage(pid, "live");
       await announcePublish(pid);
     }

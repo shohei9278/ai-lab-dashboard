@@ -23,7 +23,8 @@ export type ApprovalView = {
   // じっくり案件の開発待ち（Claude Code で作る）。設計書と依頼文は運営者にだけ入る
   dev?: { owner: boolean; design: string; request: string; instruction: string | null; hasData: boolean; hasTool: boolean; assets: { name: string; url: string; bytes: number }[]; routine: { configured: boolean; at: string | null; url: string | null; working: boolean; retryable: boolean } };
   // 公開の承認で、その場で AI を呼ぶツールのAIへの指示（運営者にだけ入る）。承認すると、今のコードとこの指示の組み合わせを承認する
-  ai?: { instruction: string; inputMax: number; outputMax: number; approved: boolean };
+  // digest: カードに出したコードと指示の組み合わせの印（承認のときに送り、今のものと合うときだけ承認する）
+  ai?: { instruction: string; inputMax: number; outputMax: number; approved: boolean; digest: string };
   conv: { noun: string; rate: string }; // 成果の呼び方（事前登録LPは登録、動くツールは利用）
   decision?: { confidence: number; nextAction: string };
   review?: { ok: boolean; issues: string[] };
@@ -69,7 +70,8 @@ function SimpleApprovalCard({ a }: { a: ApprovalView }) {
   const k = KIND[a.kind];
 
   const send = (decision: "approve" | "reject" | "revise", label: string) =>
-    run(label, { action: "decide", approvalId: a.id, decision, comment: decision === "revise" ? comment : undefined });
+    // その場で AI を呼ぶツールの公開は、カードに出したコードと指示の印も送る（承認を押すまでに変わっていたら、サーバーが承認しない）
+    run(label, { action: "decide", approvalId: a.id, decision, comment: decision === "revise" ? comment : undefined, aiDigest: decision === "approve" ? a.ai?.digest : undefined });
 
   return (
     <article className="card space-y-3 p-4">

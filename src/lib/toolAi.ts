@@ -48,9 +48,21 @@ export function aiSpecPending(p: Pick<ProjectRow, "id" | "lp">): boolean {
   return !!s && !s.approved;
 }
 
-// この案件に、承認した指示が1つでもあるか（その場で AI を使うツールとして公開したことがある）
+// この案件で、人がAIへの指示を承認したことがあるか（その場で AI を使うツールとして公開したことがある）
+// 指示の表は、指示を入れ直すと承認の印が消えるので、案件の印（ai_approved_ever）で見る（PR #240 の ai-review の指摘）
 export function aiEverApproved(projectId: number): boolean {
-  return !!db().prepare("SELECT 1 FROM tool_ai_specs WHERE project_id = ? AND approved_at IS NOT NULL LIMIT 1").get(projectId);
+  return !!(db().prepare("SELECT ai_approved_ever FROM projects WHERE id = ?").get(projectId) as { ai_approved_ever: number } | undefined)?.ai_approved_ever;
+}
+
+// コードと指示の組み合わせの印。運営者がカードで見たものと、承認するときの今のものが同じかを確かめる（views.ts・loop.ts の decide）
+export const aiDigest = (html: string, spec: ToolAiSpec): string =>
+  crypto.createHash("sha256").update(`${hashOf(html)}\n${JSON.stringify([spec.instruction, spec.inputMax, spec.outputMax])}`).digest("hex");
+
+// 今のツールのコードと、それに添えた指示の組み合わせの印（指示がなければ null）
+export function currentAiDigest(p: Pick<ProjectRow, "id" | "lp">): string | null {
+  const html = toolHtmlOf(p);
+  const s = html ? aiSpecFor(p.id, html) : null;
+  return html && s ? aiDigest(html, s.spec) : null;
 }
 
 // ツールを入れるときに、そのコードの指示を入れ替える（指示なしで入れ直したら消す）。戻す関数を返す（取り込みが失敗したとき用。playVideo.ts の台本と同じ）
@@ -58,20 +70,26 @@ export function aiEverApproved(projectId: number): boolean {
 export function replaceAiSpec(projectId: number, html: string, spec: ToolAiSpec | null): () => void {
   const hash = hashOf(html);
   const before = db().prepare("SELECT spec, at, approved_at FROM tool_ai_specs WHERE project_id = ? AND html_hash = ?").get(projectId, hash) as { spec: string; at: string; approved_at: string | null } | undefined;
-  if (spec) {
+  const written = spec ? JSON.stringify(spec) : null;
+  if (written) {
     db().prepare("INSERT INTO tool_ai_specs (project_id, html_hash, spec) VALUES (?, ?, ?) ON CONFLICT(project_id, html_hash) DO UPDATE SET at = datetime('now'), approved_at = CASE WHEN spec = excluded.spec THEN approved_at ELSE NULL END, spec = excluded.spec")
-      .run(projectId, hash, JSON.stringify(spec));
+      .run(projectId, hash, written);
   } else db().prepare("DELETE FROM tool_ai_specs WHERE project_id = ? AND html_hash = ?").run(projectId, hash);
   return () => {
+    // 戻すのは、ここで書いたものがまだ残っているときだけ（あとから別の取り込みが入れた指示を、消したり古いもので上書きしたりしない。PR #240 の ai-review の指摘）
+    const now = db().prepare("SELECT spec FROM tool_ai_specs WHERE project_id = ? AND html_hash = ?").get(projectId, hash) as { spec: string } | undefined;
+    if ((now?.spec ?? null) !== written) return;
     if (before) db().prepare("INSERT INTO tool_ai_specs (project_id, html_hash, spec, at, approved_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(project_id, html_hash) DO UPDATE SET spec = excluded.spec, at = excluded.at, approved_at = excluded.approved_at").run(projectId, hash, before.spec, before.at, before.approved_at);
     else db().prepare("DELETE FROM tool_ai_specs WHERE project_id = ? AND html_hash = ?").run(projectId, hash);
   };
 }
 
 // 人が公開を承認したときに、今のツールのコードと指示の組み合わせを承認する。承認したら true
-// 使ってよい案件でなくなっていたら（人の作業待ちに戻した など）承認しない
-export function approveAiSpec(p: Pick<ProjectRow, "id" | "lp" | "needs" | "needs_done">): boolean {
+// digest: 運営者がカードで見た組み合わせの印。今のものと違えば承認しない。使ってよい案件でなくなっていたら（人の作業待ちに戻した など）も承認しない
+export function approveAiSpec(p: Pick<ProjectRow, "id" | "lp" | "needs" | "needs_done">, digest: string): boolean {
   const html = toolHtmlOf(p);
-  if (!html || !aiAllowed(p)) return false;
-  return db().prepare("UPDATE tool_ai_specs SET approved_at = datetime('now') WHERE project_id = ? AND html_hash = ? AND approved_at IS NULL").run(p.id, hashOf(html)).changes > 0;
+  if (!html || !aiAllowed(p) || currentAiDigest(p) !== digest) return false;
+  const ok = db().prepare("UPDATE tool_ai_specs SET approved_at = datetime('now') WHERE project_id = ? AND html_hash = ? AND approved_at IS NULL").run(p.id, hashOf(html)).changes > 0;
+  if (ok) db().prepare("UPDATE projects SET ai_approved_ever = 1 WHERE id = ?").run(p.id);
+  return ok;
 }

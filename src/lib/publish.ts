@@ -42,11 +42,12 @@ async function categoryFor(p: ProjectRow): Promise<SiteCategory | null> {
 
 // 公開する中身の、その場で AI を呼ぶ窓口の指示（toolAi.ts）。人が承認した、今のツールのコードの指示だけを入れる
 // LP の中身（AIが書いたもの）に紛れた ai は使わずに外す（許可は、ツールを作る流れからは変えられない。docs/design-tool-limits.md）
-export function withToolAi<T extends { tool?: Record<string, unknown> }>(p: Pick<ProjectRow, "id" | "needs" | "needs_done">, content: T): T {
-  if (!content.tool || typeof content.tool.html !== "string") return content;
-  const { ai: _ignored, ...tool } = content.tool;
+// ツールの中身の形がおかしくても（html が文字列でない など）、紛れた ai は先に外す（PR #240 の ai-review の指摘）
+export function withToolAi<T extends { tool?: unknown }>(p: Pick<ProjectRow, "id" | "needs" | "needs_done">, content: T): T {
+  if (!content.tool || typeof content.tool !== "object" || Array.isArray(content.tool)) return content;
+  const { ai: _ignored, ...tool } = content.tool as Record<string, unknown>;
   void _ignored;
-  const spec = aiAllowed(p) ? approvedAiSpec(p.id, content.tool.html) : undefined;
+  const spec = typeof tool.html === "string" && aiAllowed(p) ? approvedAiSpec(p.id, tool.html) : undefined;
   return { ...content, tool: spec ? { ...tool, ai: spec } : tool };
 }
 
