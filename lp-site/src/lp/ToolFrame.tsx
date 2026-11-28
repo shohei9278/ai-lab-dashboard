@@ -7,6 +7,7 @@ import { playDepth, type DepthEvent } from "./playDepth";
 import { fitScale } from "./inApp";
 import type { ToolImages } from "./content";
 import { wrapToolHtml } from "./toolHtml";
+import { TOOL_AI_INPUT_MAX, type ToolAiAnswer } from "./toolAi";
 
 // AIが作ったツールを、隔離された枠（sandbox）の中で動かす（枠の中身の組み立ては toolHtml.ts）
 // - allow-same-origin を付けないので、ツールからはこのサイトの Cookie・保存領域・ページに触れない
@@ -18,8 +19,11 @@ import { wrapToolHtml } from "./toolHtml";
 // images: じっくり案件で人が入れた画像（素材）。枠の中で window.labAssets.images として読める
 // fit: 遊ぶ画面（fill）で、見えている高さが低いときは、ツールを決まった高さ（inApp.ts の PLAY_MIN_HEIGHT）で作らせて枠ごと縮める（運営者が決めた）
 // onError: ツールの中でエラーが起きたとき（種類と行の番号）。公開サイトだけ
+// askAi: その場で AI を呼べるツール（人が許して承認したもの）で、枠の中の window.labAi.ask を公開サイトのサーバーに中継する。なければ unavailable を返す（プレビュー・自動テスト）
+//   1つの枠から同時に頼めるのは1つまで（答えを待っている間の頼みは failed）
 // onDepth: 遊びの深さ（遊んだ時間・結果を出した回数・結果の種類）の区切りを超えたときに呼ぶ（公開サイトだけ。playDepth.ts）
-export function ToolFrame({ html, title, onUse, onDepth, onError, data, fonts, illustration, images, fill = false, storeKey, fit = false }: { html: string; title: string; onUse?: () => void; onDepth?: (e: DepthEvent) => void; onError?: (e: { name: string; line: number }) => void; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; storeKey?: string; fit?: boolean }) {
+export function ToolFrame({ html, title, onUse, onDepth, onError, data, fonts, illustration, images, fill = false, storeKey, fit = false, askAi }: { html: string; title: string; onUse?: () => void; onDepth?: (e: DepthEvent) => void; onError?: (e: { name: string; line: number }) => void; data?: unknown[]; fonts?: boolean; illustration?: string; images?: ToolImages; fill?: boolean; storeKey?: string; fit?: boolean; askAi?: (input: string) => Promise<ToolAiAnswer> }) {
+  const aiBusy = useRef(false);
   const ref = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(480);
   // 縮めて収めるときの、枠（外の箱）の大きさ。測るまでは縮めない
@@ -93,6 +97,16 @@ export function ToolFrame({ html, title, onUse, onDepth, onError, data, fonts, i
         gate.current?.request(e.data.id);
         return;
       }
+      if (e.data.__lab === "ai-ask" && typeof e.data.id === "number") {
+        const id = e.data.id;
+        const reply = (a: ToolAiAnswer) => ref.current?.contentWindow?.postMessage({ __lab: "ai-answer", id, ...a }, "*");
+        if (!askAi) { reply({ ok: false, reason: "unavailable" }); return; }
+        if (typeof e.data.input !== "string" || e.data.input.length > TOOL_AI_INPUT_MAX) { reply({ ok: false, reason: "invalid" }); return; }
+        if (aiBusy.current) { reply({ ok: false, reason: "failed" }); return; }
+        aiBusy.current = true;
+        askAi(e.data.input).catch((): ToolAiAnswer => ({ ok: false, reason: "failed" })).then(reply).finally(() => { aiBusy.current = false; });
+        return;
+      }
       if (e.data.__lab === "active") { depth.current?.active(Date.now()); return; }
       if (e.data.__lab === "error" && typeof e.data.name === "string") {
         // 枠は、ページの準備ができる前に起きたエラーを ping でもう一度送るので、同じもの（種類と行）は1回だけ知らせる
@@ -125,7 +139,7 @@ export function ToolFrame({ html, title, onUse, onDepth, onError, data, fonts, i
     // 受け取れるようになる前に枠が読み込まれていると、最初の高さの知らせを取りこぼすので、今の高さを聞き直す
     ref.current?.contentWindow?.postMessage({ __lab: "ping" }, "*");
     return () => window.removeEventListener("message", onMessage);
-  }, [onUse, onError, storeKey]);
+  }, [onUse, onError, storeKey, askAi]);
 
   return (
     <div ref={box} style={{ position: "relative", height: fill ? "100%" : undefined, overflow: scaled ? "hidden" : undefined }}>

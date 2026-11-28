@@ -120,7 +120,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
               }}
             />
           }
-          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} fill fit={!toolFluid(tool.html)} />}
+          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} ai={!!tool.ai} fill fit={!toolFluid(tool.html)} />}
         />
       </main>
     );
@@ -138,7 +138,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
           title={lp.title}
           imgOrigins={imgOriginsOf(lp.content.design?.illustration?.url, lp.content.page.html)}
           operator={`運営: ${SITE_NAME}`}
-          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} />}
+          tool={<ToolSection slug={lp.slug} version={lp.version} html={tool.html} title={lp.title} data={tool.data} fonts={tool.fonts} illustration={lp.content.design?.illustration?.url} images={tool.images} ai={!!tool.ai} />}
           after={
             <section data-section="share" className="px-6 py-12">
               <div className="mx-auto max-w-md space-y-4 text-center">
@@ -167,7 +167,7 @@ export default async function LpPage({ params }: { params: Promise<{ slug: strin
             ? <ShareButtons slug={lp.slug} version={lp.version} text={lp.content.tool.shareText} results={lp.content.tool.results} />
             : <SignupForm slug={lp.slug} version={lp.version} cta={lp.content.cta} />
         }
-        tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} data={lp.content.tool.data} fonts={lp.content.tool.fonts} illustration={lp.content.design?.illustration?.url} images={lp.content.tool.images} /> : undefined}
+        tool={lp.content.tool ? <ToolSection slug={lp.slug} version={lp.version} html={lp.content.tool.html} title={lp.title} data={lp.content.tool.data} fonts={lp.content.tool.fonts} illustration={lp.content.design?.illustration?.url} images={lp.content.tool.images} ai={!!lp.content.tool.ai} /> : undefined}
       />
       <RelatedPages slug={lp.slug} />
       <FeedbackWidget slug={lp.slug} version={lp.version} kind={lp.content.tool ? "tool" : "lp"} />

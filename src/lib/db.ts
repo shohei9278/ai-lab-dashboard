@@ -942,6 +942,8 @@ export type ResultRow = {
 export type Settings = {
   monthlyBudgetJpy: number;
   usdJpy: number;
+  toolAiMonthJpy: number; // 公開サイトのツールがその場で AI を呼んで使った額（円。toolAiMonth の月の分。Supabase から取り込む。toolAiSync.ts。月の予算に数える）
+  toolAiMonth: string; // toolAiMonthJpy がどの月（日本時間の YYYY-MM）の分か。今月でなければ数えない
   killSwitch: boolean;
   loopModel: string; // 製品ループで使うAI
   adBudgetPerProjectJpy: number; // 1案件あたりの広告費上限
@@ -1042,6 +1044,8 @@ const DEFAULTS: Settings = {
   autopilotLevel: "normal",
   monthlyBudgetJpy: 10000,
   usdJpy: 150,
+  toolAiMonthJpy: 0,
+  toolAiMonth: "",
   killSwitch: false,
   loopModel: "claude-opus-5-5",
   adBudgetPerProjectJpy: 10000,
@@ -1126,7 +1130,7 @@ const DEFAULTS: Settings = {
   lpBaseUrl: "",
 };
 
-const STRING_KEYS = new Set(["autopilotLevel", "loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff", "xPlayPromoSince"]);
+const STRING_KEYS = new Set(["toolAiMonth", "autopilotLevel", "loopModel", "approvalMode", "lastDailyRun", "lpBaseUrl", "trendNotes", "lastWeeklyReport", "operatorName", "contactEmail", "snsAccount", "lastDigest", "lastViralSearch", "viralCursor", "lastFollowersTry", "ideaGenres", "promoOff", "plainOff", "notifyOff", "xPlayPromoSince"]);
 const BOOL_KEYS = new Set(["autoAskReview", "budgetAutopilot", "killSwitch", "dailyEnabled", "shadowJudge", "debateEnabled", "weeklyReport", "showcaseEnabled", "showcaseShowLinks", "illustrations", "freePage", "fullAuto", "autoPost", "viralSearch", "dailyPlan", "dailyReport", "showcaseVoices", "notifyLive", "toolRoutineAuto", "playVideoOnPublish", "toolRoutineFixHeld", "toolRoutineNormal", "xPlayPromo"]);
 
 export function getSettings(): Settings {
@@ -1159,6 +1163,8 @@ export function monthSpendUsd(): number {
 // 「今月」「今日」は日本時間で区切る（記録の日時は世界時で入っている。世界時の月で数えると、毎月1日の0〜9時に先月の分が今月に入り、
 // 予算の上限に近かった月の翌朝、計画などが止まる。11/22 の見直しのルーティンが見つけた）
 export const jstThisMonth = (col: string) => `strftime('%Y-%m', ${col}, '+9 hours') = strftime('%Y-%m', 'now', '+9 hours')`;
+// 日本時間の今の月（YYYY-MM）
+export const jstMonth = (now = Date.now()) => new Date(now + 9 * 3600_000).toISOString().slice(0, 7);
 export const JST_TODAY_START = "datetime('now', '+9 hours', 'start of day', '-9 hours')";
 
 export function monthSpendBreakdownUsd() {
@@ -1170,7 +1176,11 @@ export function monthSpendBreakdownUsd() {
   const loopRow = db()
     .prepare(`SELECT COALESCE(SUM(cost_usd), 0) AS s FROM ai_calls WHERE ${jstThisMonth("at")}`)
     .get() as { s: number };
-  return { eval: evalRow.s, loop: loopRow.s, total: evalRow.s + loopRow.s };
+  // 公開サイトのツールが、その場で AI を呼んで使った額も、月の予算に数える（円で取り込んでいるので、ドルに直す。toolAiSync.ts）
+  const st = getSettings();
+  // 取り込んだ額が今月の分でなければ数えない（月が替わってから取り込み直すまで、前の月の分を足さない。PR #241 の ai-review の指摘）
+  const site = st.usdJpy > 0 && st.toolAiMonth === jstMonth() ? st.toolAiMonthJpy / st.usdJpy : 0;
+  return { eval: evalRow.s, loop: loopRow.s, site, total: evalRow.s + loopRow.s + site };
 }
 
 // 今月の広告費（円）

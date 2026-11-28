@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { pushToolAiFlags } from "@/lib/toolAiSync";
+import { logEvent } from "@/lib/loop";
 import { getSettings, saveSettings } from "@/lib/db";
 import { MODELS } from "@/lib/models";
 import { genresOf } from "@/lib/aims";
@@ -134,5 +136,10 @@ export async function POST(req: Request) {
   // 「欲しい」の声は 0（探さない）か 10〜100（X の検索は1回10件から。1〜9 だと画面の件数・費用と実際が食い違う）
   if (patch.wantsPerQuery !== undefined && patch.wantsPerQuery > 0 && patch.wantsPerQuery < 10) return NextResponse.json({ error: "wantsPerQuery は 0 か 10〜100 にしてください" }, { status: 400 });
   saveSettings(patch);
+  // 止めるスイッチ・予算を変えたら、公開サイトのその場で AI にもすぐ伝える（待たない。失敗してもスケジューラーが5分ごとに伝え直す。toolAiSync.ts）
+  if (patch.killSwitch !== undefined || patch.monthlyBudgetJpy !== undefined || patch.usdJpy !== undefined) {
+    // 止める・予算の印だけを書き、伝わったかを待つ。伝わらなければ記録に残す（スケジューラーも5分ごとに伝え直す。PR #241 の ai-review の指摘）
+    await pushToolAiFlags().catch((e) => logEvent(null, "system", "tool-ai-sync-error", `その場で AI の止めるスイッチ・予算を公開サイトに伝えられませんでした（5分ごとに伝え直します）: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300)));
+  }
   return NextResponse.json(getSettings());
 }

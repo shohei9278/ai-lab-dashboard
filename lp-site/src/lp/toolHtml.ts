@@ -1,5 +1,6 @@
 import { toolImagesOf, type ToolImages } from "./content";
 import { TOOL_STORE_MAX } from "./toolStore";
+import { TOOL_AI_INPUT_MAX, TOOL_AI_WAIT_MS } from "./toolAi";
 
 // ツール本体を、隔離された枠に入れるページの形にする。公開サイト・プレビュー・公開前の自動テストで同じものを使う
 // - CSP で外部への通信や外部ファイルの読み込みを止める
@@ -21,6 +22,9 @@ import { TOOL_STORE_MAX } from "./toolStore";
 // - スマホの動きは window.labMotion.request() で許可を頼み、"labmotion" イベント（detail: x・y・z）で受け取る（toolMotion.ts）
 //   答えを待っている間に続けて頼まれたら、同じ答えを待たせる（ページの側に頼みをためない）
 //   ページの側で許可を求めるので、iPhone でも使える。ページが答えないときは 20秒で "unavailable"
+// - その場で AI を呼べるツールは window.labAi.ask(入力) で、ページの側に頼む（toolAi.ts。人が許して承認したツールだけ、ページが公開サイトのサーバーに中継する）
+//   答えは { ok: true, text } か { ok: false, reason }（unavailable: 使えない・limit: 今日はここまで・invalid: 入力がおかしい・failed: うまくいかなかった）。ページが答えないときは TOOL_AI_WAIT_MS で failed
+//   入力が文字列でない・TOOL_AI_INPUT_MAX 文字を超えるときは、切らずに invalid（PR #241 の ai-review の指摘）。形の違う答えは failed
 // fonts: Google Fonts を使ってよいとき、読み込めるのはその2か所の CSS と文字の形だけ
 // imgOrigins: このツールの紹介イラストと、人が入れた画像（素材）を置いている場所（https のときだけ。画像の読み込みだけを許す）。ほかへの通信は止めたまま
 function csp(fonts: boolean, imgOrigins: string[]): string {
@@ -59,12 +63,13 @@ addEventListener("click",function(e){var t=e.target;if(!t||!t.closest||t.closest
 addEventListener("input",use,true);addEventListener("change",use,true);
 addEventListener("pointerdown",function(e){if(e.button!==0)return;var t=e.target;if(!t||!t.closest)return;if(t.closest("canvas")){use();return}for(var n=t;n&&n.nodeType===1&&n!==document.body&&n!==document.documentElement;n=n.parentElement){if(getComputedStyle(n).touchAction==="none"){use();return}}},true);
 var la=0;function act(){var n=Date.now();if(n-la<1000)return;la=n;parent.postMessage({__lab:"active"},"*")}["pointerdown","keydown","wheel","touchstart"].forEach(function(t){addEventListener(t,act,{capture:true,passive:true})});addEventListener("pointermove",function(e){if(e.buttons)act()},{capture:true,passive:true});
-var sq=0,sw={};addEventListener("message",function(e){var d=e.data;if(e.source!==parent||parent===window||!d)return;if((d.__lab==="store"||d.__lab==="motion-state")&&sw[d.id]){var f=sw[d.id];delete sw[d.id];f(d)}
+var sq=0,sw={};addEventListener("message",function(e){var d=e.data;if(e.source!==parent||parent===window||!d)return;if((d.__lab==="store"||d.__lab==="motion-state"||d.__lab==="ai-answer")&&sw[d.id]){var f=sw[d.id];delete sw[d.id];f(d)}
 if(d.__lab==="motion"&&typeof d.x==="number")dispatchEvent(new CustomEvent("labmotion",{detail:{x:d.x,y:d.y,z:d.z}}))});
 var mp=null;window.labMotion={request:function(){if(mp)return mp;mp=new Promise(function(ok){if(parent===window){ok("unavailable");return}var id=++sq,t=setTimeout(function(){delete sw[id];ok("unavailable")},20000);sw[id]=function(d){clearTimeout(t);ok(d.state==="granted"||d.state==="denied"?d.state:"unavailable")};parent.postMessage({__lab:"motion-request",id:id},"*")});mp.then(function(){mp=null});return mp}};
 function sreq(m){return new Promise(function(ok){if(parent===window){ok(null);return}var id=++sq,t=setTimeout(function(){delete sw[id];ok(null)},1500);sw[id]=function(d){clearTimeout(t);ok(d)};m.id=id;parent.postMessage(m,"*")})}
 window.labStore={get:function(){return sreq({__lab:"store-get"}).then(function(d){if(!d||!d.ok||typeof d.value!=="string")return null;try{return JSON.parse(d.value)}catch(x){return null}})},
-set:function(v){var s;try{s=JSON.stringify(v)}catch(x){return Promise.resolve(false)}if(typeof s!=="string"||s.length>${TOOL_STORE_MAX})return Promise.resolve(false);return sreq({__lab:"store-set",value:s}).then(function(d){return !!(d&&d.ok)})}};})();</script>`;
+set:function(v){var s;try{s=JSON.stringify(v)}catch(x){return Promise.resolve(false)}if(typeof s!=="string"||s.length>${TOOL_STORE_MAX})return Promise.resolve(false);return sreq({__lab:"store-set",value:s}).then(function(d){return !!(d&&d.ok)})}};
+var R=["unavailable","limit","invalid","failed"];window.labAi={ask:function(t){return new Promise(function(ok){if(typeof t!=="string"||t.length>${TOOL_AI_INPUT_MAX}){ok({ok:false,reason:"invalid"});return}if(parent===window){ok({ok:false,reason:"unavailable"});return}var id=++sq,w=setTimeout(function(){delete sw[id];ok({ok:false,reason:"failed"})},${TOOL_AI_WAIT_MS});sw[id]=function(d){clearTimeout(w);if(d.ok===true&&typeof d.text==="string")ok({ok:true,text:d.text});else if(d.ok===false&&R.indexOf(d.reason)>=0)ok({ok:false,reason:d.reason});else ok({ok:false,reason:"failed"})};parent.postMessage({__lab:"ai-ask",id:id,input:t},"*")})}};})();</script>`;
 
 // data: じっくり案件の、人が確かめたデータ。ツールより先に window.labData として置く（通信せずに読める）
 // fonts: Google Fonts を使ってよいか
