@@ -29,6 +29,7 @@ export function doneEffects(days = 28, now = Date.now()): DoneEffect[] {
   const utc = (t: number) => new Date(t).toISOString().slice(0, 19).replace("T", " ");
   const rows = db().prepare("SELECT * FROM plan_requests WHERE status = 'done' AND source != 'revival' AND decided_at >= ? AND decided_at <= ? ORDER BY decided_at DESC LIMIT 15").all(utc(now - days * DAY), utc(now)) as RequestRow[];
   const today = jday(now);
+  const published = db().prepare("SELECT published_at FROM projects WHERE id = ?"); // ループの外で1回だけ用意する（PR #239 のレビューの指摘）
   return rows.map((r) => {
     const day = jday(Date.parse(`${r.decided_at!.replace(" ", "T")}Z`));
     const end = jday(Math.min(dayStart(day) + 7 * DAY, dayStart(today))); // 今日はまだ途中なので数えない
@@ -36,7 +37,7 @@ export function doneEffects(days = 28, now = Date.now()): DoneEffect[] {
     const week = jday(dayStart(day) - 7 * DAY);
     let from = week;
     if (r.project_id) {
-      const p = db().prepare("SELECT published_at FROM projects WHERE id = ?").get(r.project_id) as { published_at: string | null } | undefined;
+      const p = published.get(r.project_id) as { published_at: string | null } | undefined;
       // まだ公開していない・やった日より後に公開した案件は、前の日がない
       const pub = p?.published_at ? jday(Date.parse(`${p.published_at.replace(" ", "T")}Z`)) : day;
       from = pub > week ? (pub < day ? pub : day) : week;
