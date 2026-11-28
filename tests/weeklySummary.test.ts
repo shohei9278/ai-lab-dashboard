@@ -19,6 +19,9 @@ test("週のまとめ: 気づきを実験メモに入れる（AI・1回見ただ
     { author: "ai", topic: "idea", certainty: "once", title: "夜の投稿は遊ばれやすい", body: "21〜23時の投稿は訪問3件・遊んだ2件", is_public: 0 },
     { author: "ai", topic: "other", certainty: "once", title: "知らない話題", body: "b", is_public: 0 },
   ]);
+  // 根拠のない気づきは入れない（後で根拠つきで同じ題が出ても入れられるように）
+  assert.equal(addNoteIdeas([{ title: "根拠のない気づき", body: "  ", topic: "idea" }, { title: "根拠が数字", body: 3, topic: "idea" }]), 0);
+  assert.equal(noteTitled("根拠のない気づき"), false);
   // 同じ題（前の週に入れた・人が足した）は入れない
   assert.equal(addNoteIdeas([{ title: "夜の投稿は遊ばれやすい", body: "別の根拠", topic: "idea" }]), 0);
   assert.equal((db().prepare("SELECT COUNT(*) AS n FROM notes").get() as { n: number }).n, 2);
@@ -43,4 +46,10 @@ test("週のまとめ: 保存するのは決まった項目だけ（AIが頼ん�
   assert.equal("article" in saved, false);
   assert.equal("xPosts" in saved, false);
   assert.deepEqual(toSaved(out).next, ["n"]);
+});
+
+test("週のまとめ: 保存する気づきは、根拠のあるものだけを3件まで（PR #237 の ai-review の指摘）", () => {
+  const ideas = [{ title: "根拠なし", body: "", topic: "idea" }, ...[1, 2, 3, 4].map((i) => ({ title: `気づき${i}`, body: `根拠${i}`, topic: "idea" }))];
+  const saved = toSaved({ summary: "s", numbers: [], highlights: [], noteIdeas: ideas, next: [] } as Report);
+  assert.deepEqual(saved.noteIdeas.map((x) => x.title), ["気づき1", "気づき2", "気づき3"]);
 });

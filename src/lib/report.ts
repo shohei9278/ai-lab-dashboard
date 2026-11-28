@@ -115,7 +115,8 @@ export function listReports(): ReportRow[] {
 export function addNoteIdeas(ideas: unknown): number {
   let n = 0;
   for (const x of cleanNoteIdeas(ideas)) {
-    if (noteTitled(x.title)) continue;
+    // 根拠のない気づきは入れない（toSaved と同じ。直接呼ばれたときも守る）
+    if (!x.body || noteTitled(x.title)) continue;
     addNote({ author: "ai", topic: noteTopicOf(x.topic), certainty: "once", title: x.title, body: x.body, projectId: null, isPublic: false });
     n++;
   }
@@ -123,8 +124,12 @@ export function addNoteIdeas(ideas: unknown): number {
 }
 
 // 週のまとめとして保存する形（AIの答えから、決まった項目だけを取り出す）
+// 気づきは、根拠のあるものだけを、頼んだ上限（NOTE_IDEAS_MAX 件）まで残す（根拠のない題だけの気づきを実験メモに入れると、
+// 同じ題の気づきが後で根拠つきで出ても、同じ題があるとして入らない。上限は頼みの中だけでなく、保存するときにも守る。PR #237 の ai-review の指摘）
+export const NOTE_IDEAS_MAX = 3;
 export function toSaved(out: Report, next?: string[]): Report {
-  return { summary: out.summary, numbers: out.numbers, highlights: out.highlights, noteIdeas: cleanNoteIdeas(out.noteIdeas), next: next ?? out.next };
+  const noteIdeas = cleanNoteIdeas(out.noteIdeas).filter((x) => x.body).slice(0, NOTE_IDEAS_MAX);
+  return { summary: out.summary, numbers: out.numbers, highlights: out.highlights, noteIdeas, next: next ?? out.next };
 }
 
 // 気づきの形を整える（題が空・文字でないものは捨てる。題は120文字・根拠は4000文字まで）。保存するときも、画面に出すときも使う
